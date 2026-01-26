@@ -1,5 +1,8 @@
 <script>
   import herobackground from '$lib/assets/img/mvp.png'
+  import PageContainer from '$lib/components/PageContainer.svelte'
+  import ContentSection from '$lib/components/ContentSection.svelte'
+  import HeroSection from '$lib/components/HeroSection.svelte'
 
   const infoItems = [
     {
@@ -84,52 +87,18 @@
   ]
 </script>
 
-<div class="flex flex-col items-center justify-center p-8">
-  <div
-    class="relative m-4 flex flex-col items-center justify-center border-2 align-middle"
-    style="width: 1500px; max-width: 90vw; border-color: var(--border);"
-  >
-    <img
-      src={herobackground}
-      alt="Hero Background"
-      class="h-auto w-full"
-      style="filter: saturate(0.6) blur(2px) brightness(0.7);"
-    />
-    <div
-      class="absolute flex flex-col items-center justify-center rounded-lg px-8 py-6"
-      style="background: rgba(9, 6, 9, 0.4); color: var(--text);"
-    >
-      <h1
-        class="mb-6 text-6xl font-bold"
-        style="color: var(--title); text-shadow: 0 3px 8px var(--accent);"
-      >
-        Welcome to Throw City Rivals!
-      </h1>
-      <h2
-        class="text-2xl font-bold"
-        style="color: var(--text); text-shadow: 0 3px 8px var(--accent);"
-      >
-        Throw City Rivals finally got a home.
-      </h2>
-      <p
-        class="max-w-2xl text-center text-lg font-medium"
-        style="text-shadow: 0 3px 8px var(--accent);"
-      >
-        One spot to see the brackets, the stats, and who's actually throwing.
-      </p>
-    </div>
-  </div>
+<PageContainer>
+  <HeroSection
+    image={herobackground}
+    title="Welcome to Throw City Rivals!"
+    subtitle="Throw City Rivals finally got a home."
+    description="One spot to see the brackets, the stats, and who's actually throwing."
+  />
 
-  <div
-    class="m-4 flex min-h-60 flex-col items-center justify-center border-2 p-6 align-middle"
-    style="width: 1500px; max-width: 90vw; border-color: var(--border); background-color: var(--secondary-background);"
-  >
-    <div class="grid w-full max-w-5xl grid-cols-1 gap-4 md:grid-cols-3">
+  <ContentSection>
+    <div class="responsive-grid">
       {#each infoItems as item}
-        <div
-          class="rounded-lg border p-4"
-          style="border-color: var(--border); background-color: rgba(0, 0, 0, 0.15); color: var(--text);"
-        >
+        <div class="info-card">
           <div class="flex items-start gap-3">
             <span
               class="rounded-sm px-2 py-1 text-xs font-semibold"
@@ -143,20 +112,18 @@
         </div>
       {/each}
     </div>
-  </div>
+  </ContentSection>
 
-  <div
-    class="m-4 flex min-h-60 flex-col items-center justify-center border-2 p-4 align-middle"
-    style="width: 1500px; max-width: 90vw; border-color: var(--border); background-color: var(--secondary-background);"
-  >
+  <ContentSection>
     <div class="flex w-full max-w-5xl flex-col gap-4">
       {#each matches as match}
-        <div
-          class="rounded-lg border p-4"
-          style="border-color: var(--border); background-color: rgba(0, 0, 0, 0.15); color: var(--text);"
-        >
-          <div class="flex items-center gap-4">
-            <div class="flex min-w-0 flex-1 items-center gap-3">
+        <div class="info-card">
+          <!-- Team matchup: stacked on mobile, horizontal on sm+ -->
+          <div class="flex flex-col items-center gap-2 sm:flex-row sm:gap-4">
+            <!-- Team A -->
+            <div
+              class="flex w-full min-w-0 flex-1 items-center justify-center gap-3 sm:justify-start"
+            >
               <span
                 class="rounded-sm px-2 py-1 text-xs font-semibold"
                 style="background-color: var(--accent); color: var(--text);"
@@ -166,38 +133,50 @@
                 {match.teamA.name}
               </p>
             </div>
+
+            <!-- VS / BO3 indicator -->
             <div class="w-16 text-center">
               <p class="text-sm font-semibold" style="color: var(--text);">BO3</p>
             </div>
-            <div class="flex min-w-0 flex-1 items-center justify-end gap-3">
-              <p class="truncate text-lg font-semibold" style="color: var(--title);">
+
+            <!-- Team B -->
+            <div
+              class="flex w-full min-w-0 flex-1 items-center justify-center gap-3 sm:justify-end"
+            >
+              <p class="truncate text-lg font-semibold sm:order-1" style="color: var(--title);">
                 {match.teamB.name}
               </p>
               <span
-                class="rounded-sm px-2 py-1 text-xs font-semibold"
+                class="rounded-sm px-2 py-1 text-xs font-semibold sm:order-2"
                 style="background-color: var(--accent); color: var(--text);"
                 >{match.teamB.logo}</span
               >
             </div>
           </div>
-          <div class="mt-2 flex flex-wrap items-center gap-3 text-sm" style="color: var(--text);">
-            <span style="color: var(--title);">{match.datetime}</span>
-            <span class="text-xs" style="color: var(--text); opacity: 0.7;">•</span>
-            <span>Maps: {match.maps.join(' • ')}</span>
-            <div class="ml-auto flex items-center gap-2">
+
+          <!-- Match details: stacked on mobile, horizontal on sm+ -->
+          <div
+            class="mt-3 flex flex-col items-start gap-2 text-sm sm:mt-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3"
+            style="color: var(--text);"
+          >
+            <span class="font-medium" style="color: var(--title);">{match.datetime}</span>
+            <span class="hidden text-xs sm:inline" style="color: var(--text); opacity: 0.7;">•</span
+            >
+            <span class="text-xs sm:text-sm">Maps: {match.maps.join(' / ')}</span>
+            <div class="flex items-center gap-2 sm:ml-auto">
               <label class="text-xs font-semibold" style="color: var(--text);">Stream:</label>
               <a
                 href={match.stream}
-                class="rounded px-2 py-1 text-sm underline"
+                class="rounded px-2 py-1 text-xs underline sm:text-sm"
                 style="color: var(--title);"
                 rel="noreferrer"
               >
-                {match.stream}
+                Watch Live
               </a>
             </div>
           </div>
         </div>
       {/each}
     </div>
-  </div>
-</div>
+  </ContentSection>
+</PageContainer>

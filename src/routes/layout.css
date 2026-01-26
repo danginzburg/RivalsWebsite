@@ -22,3 +22,62 @@ body {
 nav {
   box-shadow: 6px 0 10px rgba(0, 0, 0, 0.25);
 }
+
+/* ===========================================
+   RESPONSIVE UTILITY CLASSES
+   Use these for consistent responsive behavior
+   across all pages.
+   =========================================== */
+
+/* Page-level container with responsive padding */
+.page-container {
+  @apply flex flex-col items-center justify-center p-4 md:p-8;
+}
+
+/* Bordered content section - the main "box" pattern */
+.content-section {
+  @apply m-2 flex min-h-60 flex-col items-center justify-center border-2 p-4 md:m-4 md:p-6;
+  width: 1500px;
+  max-width: 90vw;
+  border-color: var(--border);
+  background-color: var(--secondary-background);
+}
+
+/* Hero section variant (no background color, used with images) */
+.content-section-hero {
+  @apply relative m-2 flex flex-col items-center justify-center border-2 md:m-4;
+  width: 1500px;
+  max-width: 90vw;
+  border-color: var(--border);
+}
+
+/* Responsive typography scale */
+.responsive-title {
+  @apply text-2xl font-bold sm:text-4xl md:text-6xl;
+  color: var(--title);
+  text-shadow: 0 3px 8px var(--accent);
+}
+
+.responsive-subtitle {
+  @apply text-lg font-bold sm:text-xl md:text-2xl;
+  color: var(--text);
+  text-shadow: 0 3px 8px var(--accent);
+}
+
+.responsive-text {
+  @apply text-sm font-medium sm:text-base md:text-lg;
+  text-shadow: 0 3px 8px var(--accent);
+}
+
+/* Card styles for grid items */
+.info-card {
+  @apply rounded-lg border p-4;
+  border-color: var(--border);
+  background-color: rgba(0, 0, 0, 0.15);
+  color: var(--text);
+}
+
+/* Responsive grid - 1 col on mobile, 3 on md+ */
+.responsive-grid {
+  @apply grid w-full max-w-5xl grid-cols-1 gap-4 md:grid-cols-3;
+}
