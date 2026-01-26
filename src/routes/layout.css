@@ -2,6 +2,23 @@
 @plugin '@tailwindcss/forms';
 @plugin '@tailwindcss/typography';
 
+:root {
+  --background: #d6d6d6ff;
+  --secondary-background: #aaaaaaff;
+  --border: #090609;
+  --text: #ffffffff;
+  --title: #ffffff;
+  --accent: #5e3472ff;
+  --hover: #784391ff;
+  --active: #5e3472ff;
+}
+
 body {
   font-family: 'Nippo', sans-serif;
+  background: #ffffffff;
+  min-height: 100vh;
+}
+
+nav {
+  box-shadow: 6px 0 10px rgba(0, 0, 0, 0.25);
 }
