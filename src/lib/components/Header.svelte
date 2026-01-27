@@ -2,6 +2,7 @@
   import { page } from '$app/stores'
   import { resolve } from '$app/paths'
   import { House, Search, Menu, X } from 'lucide-svelte'
+  import rivalsLogo from '$lib/assets/rivals_logo.png'
 
   type Route = '/' | '/scrim-finder' | '/scrim-finder/'
 
@@ -46,7 +47,8 @@
   <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
     <div class="flex h-16 items-center justify-between">
       <!-- Logo/Brand -->
-      <div class="flex items-center">
+      <div class="flex items-center gap-3">
+        <img src={rivalsLogo} alt="Throw City Rivals logo" class="h-10 w-10 object-contain" />
         <h1 class="text-xl font-bold" style="color: var(--title);">Throw City Rivals</h1>
       </div>
 
