@@ -38,7 +38,7 @@
 
           <!-- VS / BO3 indicator -->
           <div class="w-16 text-center">
-            <p class="text-sm font-semibold" style="color: var(--text);">BO3</p>
+            <p class="text-sm font-semibold" style="color: var(--text);">VS</p>
           </div>
 
           <!-- Team B -->
@@ -56,7 +56,7 @@
 
         <!-- VS separator -->
         <div class="absolute bottom-2 left-1/2 -translate-x-1/2 transform pb-4">
-          <p class="text-xs" style="color: var(--text);">vs</p>
+          <p class="text-xs" style="color: var(--text);">BO3</p>
         </div>
 
         <!-- Match details: stacked on mobile, horizontal on sm+ -->
