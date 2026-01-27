@@ -100,7 +100,7 @@
     },
     {
       teamA: { name: 'CloroX', abbr: 'CRX', logo: crx },
-      teamB: { name: 'Winged Pigeons', abbr: 'PGN', logo: pgn },
+      teamB: { name: 'Pigeons', abbr: 'PGN', logo: pgn },
       datetime: 'Jan 31, 6:30 PM',
       maps: ['Pearl', 'Split', 'Bind'],
       stream: 'https://twitch.tv/placeholder',
