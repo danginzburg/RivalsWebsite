@@ -8,7 +8,7 @@
 
 <svelte:head><link rel="icon" href={favicon} /></svelte:head>
 
-<div class="flex min-h-screen">
+<div class="flex min-h-screen flex-col">
   <Sidebar />
   <main class="flex-1">
     {@render children()}

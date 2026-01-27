@@ -31,7 +31,7 @@ nav {
 
 /* Page-level container with responsive padding */
 .page-container {
-  @apply flex flex-col items-center justify-center p-4 md:p-8;
+  @apply flex flex-col items-center justify-center pt-2 px-4 pb-4 md:pt-4 md:px-8 md:pb-8;
 }
 
 /* Bordered content section - the main "box" pattern */

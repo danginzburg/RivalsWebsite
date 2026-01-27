@@ -1,12 +1,11 @@
 <script lang="ts">
   import { page } from '$app/stores'
   import { resolve } from '$app/paths'
-  import { ChevronsLeft, ChevronsRight, House, Search } from 'lucide-svelte'
+  import { House, Search, Menu, X } from 'lucide-svelte'
 
   type Route = '/' | '/scrim-finder' | '/scrim-finder/'
 
-  let isCollapsed = true
-  let showText = false
+  let isMobileMenuOpen = false
 
   const navItems = [
     { href: '/' as Route, label: 'Home', icon: House },
@@ -15,10 +14,9 @@
 
   function getClasses(href: string) {
     const isActive = $page.url.pathname === href
-    const base = 'flex items-center rounded-lg transition-colors'
-    const spacing = isCollapsed ? 'gap-0 px-3 py-3 justify-center' : 'gap-3 px-4 py-3'
+    const base = 'flex items-center gap-2 rounded-lg transition-colors px-4 py-2'
     const active = isActive ? 'font-semibold' : ''
-    return `${base} ${spacing} ${active}`
+    return `${base} ${active}`
   }
 
   function getItemStyle(href: string, isHovered: boolean) {
@@ -32,87 +30,110 @@
     return `color: var(--text);`
   }
 
-  function toggleSidebar() {
-    if (isCollapsed) {
-      showText = false
-      isCollapsed = false
-      return
-    }
-
-    showText = false
-    isCollapsed = true
+  function toggleMobileMenu() {
+    isMobileMenuOpen = !isMobileMenuOpen
   }
 
-  function handleTransitionEnd(event: TransitionEvent) {
-    if (event.propertyName !== 'width') return
-    if (!isCollapsed) {
-      showText = true
-    }
+  function closeMobileMenu() {
+    isMobileMenuOpen = false
   }
 </script>
 
 <nav
-  class={isCollapsed
-    ? 'min-h-screen w-20 border-r p-4 transition-all'
-    : 'min-h-screen w-64 border-r p-4 transition-all'}
-  style="background-color: var(--background); border-color: var(--border); color: var(--text);"
-  on:transitionend={handleTransitionEnd}
+  class="sticky top-0 z-50 w-full"
+  style="background-color: var(--background); color: var(--text);"
 >
-  <div class="mb-8 flex items-center justify-center">
-    <h1 class={showText ? 'text-xl font-bold' : 'sr-only'} style="color: var(--title);">
-      Throw City Rivals
-    </h1>
-    <button
-      type="button"
-      class="hover:bg-opacity-20 rounded-lg p-2 transition-colors"
-      style="color: var(--text);"
-      aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-      title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-      on:click={toggleSidebar}
-    >
-      <svelte:component this={isCollapsed ? ChevronsRight : ChevronsLeft} class="h-5 w-5" />
-    </button>
+  <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+    <div class="flex h-16 items-center justify-between">
+      <!-- Logo/Brand -->
+      <div class="flex items-center">
+        <h1 class="text-xl font-bold" style="color: var(--title);">Throw City Rivals</h1>
+      </div>
+
+      <!-- Desktop Navigation -->
+      <ul class="hidden md:flex md:items-center md:space-x-2">
+        {#each navItems as item (item.href)}
+          {@const isActive = $page.url.pathname === item.href}
+          <li>
+            {#if isActive}
+              <a
+                href={resolve(item.href)}
+                class={getClasses(item.href)}
+                title={item.label}
+                style={getItemStyle(item.href, false)}
+              >
+                <svelte:component this={item.icon} class="h-5 w-5" />
+                <span>{item.label}</span>
+              </a>
+            {:else}
+              <a
+                href={resolve(item.href)}
+                class={getClasses(item.href)}
+                title={item.label}
+                style="color: var(--text);"
+                on:mouseenter={(e) =>
+                  (e.currentTarget.style.cssText =
+                    'color: var(--text); background-color: var(--hover); opacity: 0.8;')}
+                on:mouseleave={(e) => (e.currentTarget.style.cssText = 'color: var(--text);')}
+              >
+                <svelte:component this={item.icon} class="h-5 w-5" />
+                <span>{item.label}</span>
+              </a>
+            {/if}
+          </li>
+        {/each}
+      </ul>
+
+      <!-- Mobile menu button -->
+      <button
+        type="button"
+        class="hover:bg-opacity-20 rounded-lg p-2 transition-colors md:hidden"
+        style="color: var(--text);"
+        aria-label={isMobileMenuOpen ? 'Close menu' : 'Open menu'}
+        on:click={toggleMobileMenu}
+      >
+        <svelte:component this={isMobileMenuOpen ? X : Menu} class="h-6 w-6" />
+      </button>
+    </div>
   </div>
 
-  <ul class="space-y-2">
-    {#each navItems as item (item.href)}
-      {@const isActive = $page.url.pathname === item.href}
-      {#snippet navLink(isHovered)}
-        <a
-          href={resolve(item.href)}
-          class={getClasses(item.href)}
-          title={item.label}
-          style={getItemStyle(item.href, isHovered)}
-        >
-          <svelte:component this={item.icon} class="h-5 w-5" />
-          <span class={showText ? '' : 'sr-only'}>{item.label}</span>
-        </a>
-      {/snippet}
-      <li>
-        {#if isActive}
-          {@render navLink(false)}
-        {:else}
-          <span
-            on:mouseenter={(e) =>
-              e.currentTarget.querySelector('a')?.setAttribute('data-hover', 'true')}
-            on:mouseleave={(e) => e.currentTarget.querySelector('a')?.removeAttribute('data-hover')}
-          >
-            <a
-              href={resolve(item.href)}
-              class={getClasses(item.href)}
-              title={item.label}
-              style="color: var(--text);"
-              on:mouseenter={(e) =>
-                (e.currentTarget.style.cssText =
-                  'color: var(--text); background-color: var(--hover); opacity: 0.8;')}
-              on:mouseleave={(e) => (e.currentTarget.style.cssText = 'color: var(--text);')}
-            >
-              <svelte:component this={item.icon} class="h-5 w-5" />
-              <span class={showText ? '' : 'sr-only'}>{item.label}</span>
-            </a>
-          </span>
-        {/if}
-      </li>
-    {/each}
-  </ul>
+  <!-- Mobile menu -->
+  {#if isMobileMenuOpen}
+    <div class="md:hidden" style="background-color: var(--background);">
+      <ul class="space-y-1 px-4 py-3">
+        {#each navItems as item (item.href)}
+          {@const isActive = $page.url.pathname === item.href}
+          <li>
+            {#if isActive}
+              <a
+                href={resolve(item.href)}
+                class={getClasses(item.href)}
+                title={item.label}
+                style={getItemStyle(item.href, false)}
+                on:click={closeMobileMenu}
+              >
+                <svelte:component this={item.icon} class="h-5 w-5" />
+                <span>{item.label}</span>
+              </a>
+            {:else}
+              <a
+                href={resolve(item.href)}
+                class={getClasses(item.href)}
+                title={item.label}
+                style="color: var(--text);"
+                on:mouseenter={(e) =>
+                  (e.currentTarget.style.cssText =
+                    'color: var(--text); background-color: var(--hover); opacity: 0.8;')}
+                on:mouseleave={(e) => (e.currentTarget.style.cssText = 'color: var(--text);')}
+                on:click={closeMobileMenu}
+              >
+                <svelte:component this={item.icon} class="h-5 w-5" />
+                <span>{item.label}</span>
+              </a>
+            {/if}
+          </li>
+        {/each}
+      </ul>
+    </div>
+  {/if}
 </nav>
