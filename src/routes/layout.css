@@ -77,6 +77,19 @@ nav {
   color: var(--text);
 }
 
+/* Clickable info card styles */
+.info-card-link {
+  @apply cursor-pointer transition-all duration-200;
+  text-decoration: none;
+  display: block;
+}
+
+.info-card-link:hover {
+  background-color: rgba(0, 0, 0, 0.25);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
 /* Responsive grid - 1 col on mobile, 3 on md+ */
 .responsive-grid {
   @apply grid w-full max-w-5xl grid-cols-1 gap-4 md:grid-cols-3;

@@ -3,49 +3,78 @@
   import PageContainer from '$lib/components/PageContainer.svelte'
   import ContentSection from '$lib/components/ContentSection.svelte'
   import HeroSection from '$lib/components/HeroSection.svelte'
+  import {
+    UserPlus,
+    BookOpen,
+    Trophy,
+    Calculator,
+    BarChart3,
+    Calendar,
+    MessageSquare,
+    Video,
+    MessageCircle,
+  } from 'lucide-svelte'
 
   const infoItems = [
     {
-      icon: 'ICON',
-      title: 'Bracket Status',
-      description: 'Placeholder description for bracket updates.',
+      icon: UserPlus,
+      title: 'Sign Up',
+      description:
+        'Sign up to participate in Season 4 of Throw City Rivals! Players of all skill levels are welcome.',
+      href: 'https://docs.google.com/forms/d/e/1FAIpQLSd3u_6OueuKIxr_fRTIHmDwF_LxF_JsN_jMpyKpaAW3Zl7fBA/viewform',
     },
     {
-      icon: 'ICON',
-      title: 'Live Streams',
-      description: 'Placeholder description for live stream info.',
+      icon: BookOpen,
+      title: 'Rulebook',
+      description:
+        'Read the official rules and guidelines for Season 4 of Throw City Rivals. Any changes will be updated here.',
+      href: 'https://docs.google.com/document/d/1IckzrbvNamc-Suq3kgBCm-Umd_W_zpMFWiiHWg8dMTg/edit?tab=t.0#heading=h.b6aqs3g5z6lz',
     },
     {
-      icon: 'ICON',
-      title: 'Team Profiles',
-      description: 'Placeholder description for team highlights.',
+      icon: Trophy,
+      title: 'Map Rotation + Leaderboard',
+      description: 'Map rotation details and current team standings.',
+      href: 'https://docs.google.com/spreadsheets/d/15BLavKUxCIeDAup3GF4iaDrXqegFhGU2Cudyp55W4Ds/edit?gid=1220692241#gid=1220692241',
     },
     {
-      icon: 'ICON',
-      title: 'Player Stats',
-      description: 'Placeholder description for player stats.',
+      icon: Calculator,
+      title: 'Team Balance Calculator',
+      description: 'Calculate and balance team compositions for fair play.',
+      href: 'https://docs.google.com/spreadsheets/d/1arQ9sF0CU314FKBIjPM30UwGt_Go4qo6-HJSuLCgm_g/edit?gid=998869831#gid=998869831',
     },
     {
-      icon: 'ICON',
-      title: 'Match History',
-      description: 'Placeholder description for recent results.',
+      icon: BarChart3,
+      title: 'Individual player stats',
+      description: 'Detailed statistics for individual player performance.',
+      href: 'https://docs.google.com/spreadsheets/d/19kOEPepeyCWeo9QGhJkSJ_k6OaIxONUuh2CW6jdPMjg/edit?gid=1886421648#gid=1886421648',
     },
     {
-      icon: 'ICON',
-      title: 'Upcoming Games',
-      description: 'Placeholder description for scheduled games.',
+      icon: Calendar,
+      title: 'Match Schedule',
+      description: 'Stay updated with the latest match schedules and results for Season 4.',
+      href: '#',
     },
     {
-      icon: 'ICON',
-      title: 'Venue Details',
-      description: 'Placeholder description for location info.',
+      icon: MessageSquare,
+      title: 'Feedback Forms',
+      description:
+        'We value your feedback! Share your thoughts and suggestions to help us improve Throw City Rivals.',
+      href: 'https://docs.google.com/forms/d/e/1FAIpQLSeIIzM-gTC2H90YxnQmW16Lx0BEQpcQ5av2gT64R6KhLDgisA/viewform',
     },
     {
-      icon: 'ICON',
-      title: 'Rules & Format',
-      description: 'Placeholder description for rules summary.',
+      icon: Video,
+      title: 'Observer Sign Up',
+      description:
+        'Sign up to be an observer for Season 4 of Throw City Rivals. Help us capture the action and provide live coverage!',
+      href: 'https://docs.google.com/forms/d/e/1FAIpQLSeCKFySz5sP-qrogaFu1erjUnibEMAP6nDuE0xODufs_5-tow/viewform',
     },
-    { icon: 'ICON', title: 'Highlights', description: 'Placeholder description for best plays.' },
+    {
+      icon: MessageCircle,
+      title: 'NA Discord',
+      description:
+        'Join our Discord community to stay updated on all Season 4 information and announcements.',
+      href: 'https://discord.gg/AQtCv8Mk',
+    },
   ]
 
   const matches = [
@@ -101,11 +130,21 @@
         <div class="info-card">
           <div class="flex items-start gap-3">
             <span
-              class="rounded-sm px-2 py-1 text-xs font-semibold"
-              style="background-color: var(--accent); color: var(--text);">{item.icon}</span
+              class="rounded-sm p-2"
+              style="background-color: var(--accent); color: var(--text);"
             >
+              <svelte:component this={item.icon} class="h-5 w-5" />
+            </span>
             <div class="flex-1">
-              <p class="text-lg font-semibold" style="color: var(--title);">{item.title}</p>
+              <a
+                href={item.href}
+                class="text-lg font-semibold hover:underline"
+                style="color: var(--title);"
+                target={item.href.startsWith('http') ? '_blank' : undefined}
+                rel={item.href.startsWith('http') ? 'noopener noreferrer' : undefined}
+              >
+                {item.title}
+              </a>
               <p class="text-sm" style="color: var(--text);">{item.description}</p>
             </div>
           </div>
