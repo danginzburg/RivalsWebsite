@@ -3,8 +3,9 @@
 @plugin '@tailwindcss/typography';
 
 :root {
-  --background: #d6d6d6ff;
-  --secondary-background: #aaaaaaff;
+  --background: #1A1B25;
+  --secondary-background: #392061;
+  --tertiary-background: #512f8a;
   --border: #090609;
   --text: #ffffffff;
   --title: #ffffff;
@@ -15,7 +16,7 @@
 
 body {
   font-family: 'Nippo', sans-serif;
-  background: #ffffffff;
+  background: var(--secondary-background);
   min-height: 100vh;
 }
 
@@ -29,26 +30,29 @@ nav {
    across all pages.
    =========================================== */
 
-/* Page-level container with responsive padding */
+/* Page-level container with slight bottom padding for breathing room */
 .page-container {
-  @apply flex flex-col items-center justify-center pt-2 px-4 pb-4 md:pt-4 md:px-8 md:pb-8;
+  @apply flex flex-col items-center justify-center px-16 pt-8 pb-4 md:px-48 md:pt-8;
 }
 
-/* Bordered content section - the main "box" pattern */
-.content-section {
-  @apply m-2 flex min-h-60 flex-col items-center justify-center border-2 p-4 md:m-4 md:p-6;
-  width: 1500px;
-  max-width: 90vw;
-  border-color: var(--border);
+/* Section wrappers for different content types */
+.info-section-wrapper {
+  @apply flex min-h-60 flex-col items-center justify-center p-4 md:p-6;
+  width: 100vw;
+  background-color: var(--tertiary-background);
+}
+
+.matches-section-wrapper {
+  @apply flex min-h-60 flex-col items-center justify-center p-4 md:p-6;
+  width: 100vw;
   background-color: var(--secondary-background);
 }
 
 /* Hero section variant (no background color, used with images) */
 .content-section-hero {
-  @apply relative m-2 flex flex-col items-center justify-center border-2 md:m-4;
-  width: 1500px;
-  max-width: 90vw;
-  border-color: var(--border);
+  @apply relative flex flex-col items-center justify-center mb-8;
+  width: 100%;
+  max-width: 100%;
 }
 
 /* Responsive typography scale */
@@ -77,17 +81,11 @@ nav {
   color: var(--text);
 }
 
-/* Clickable info card styles */
-.info-card-link {
-  @apply cursor-pointer transition-all duration-200;
-  text-decoration: none;
-  display: block;
-}
-
-.info-card-link:hover {
-  background-color: rgba(0, 0, 0, 0.25);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+/* Higher-contrast surface for info cards so they pop off the container */
+.info-card-surface {
+  background-color: rgba(0, 0, 0, 0.3);
+  border-color: rgba(0, 0, 0, 0.35);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.25);
 }
 
 /* Responsive grid - 1 col on mobile, 3 on md+ */

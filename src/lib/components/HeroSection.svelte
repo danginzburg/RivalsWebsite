@@ -22,7 +22,7 @@
   <img
     src={image}
     alt={imageAlt}
-    class="h-auto w-full"
+    class="h-auto max-h-screen w-full"
     style="filter: saturate(0.6) blur(2px) brightness(0.7);"
   />
   <div

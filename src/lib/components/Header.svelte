@@ -9,7 +9,7 @@
 
   const navItems = [
     { href: '/' as Route, label: 'Home', icon: House },
-    { href: '/scrim-finder' as Route, label: 'Scrim Finder', icon: Search },
+    // { href: '/scrim-finder' as Route, label: 'Scrim Finder', icon: Search },
   ]
 
   function getClasses(href: string) {
