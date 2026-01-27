@@ -1,8 +1,9 @@
 <script>
   import herobackground from '$lib/assets/img/mvp.png'
   import PageContainer from '$lib/components/PageContainer.svelte'
-  import ContentSection from '$lib/components/ContentSection.svelte'
   import HeroSection from '$lib/components/HeroSection.svelte'
+  import InfoSection from '$lib/components/InfoSection.svelte'
+  import MatchesSection from '$lib/components/MatchesSection.svelte'
   import {
     UserPlus,
     BookOpen,
@@ -14,6 +15,18 @@
     Video,
     MessageCircle,
   } from 'lucide-svelte'
+
+  // Team logos
+  import tbb from '$lib/assets/teams/tbb.png'
+  import jtrr from '$lib/assets/teams/jtrr.png'
+  import crx from '$lib/assets/teams/crx.png'
+  import pgn from '$lib/assets/teams/pgn.png'
+  import ojs from '$lib/assets/teams/ojs.png'
+  import hor from '$lib/assets/teams/hor.png'
+  import fn3 from '$lib/assets/teams/fn3.png'
+  import std from '$lib/assets/teams/std.png'
+  import poor from '$lib/assets/teams/poor.png'
+  import unc7 from '$lib/assets/teams/7unc.png'
 
   const infoItems = [
     {
@@ -79,38 +92,38 @@
 
   const matches = [
     {
-      teamA: { name: 'Team Apex', logo: 'LOGO-A' },
-      teamB: { name: 'Team Nova', logo: 'LOGO-N' },
+      teamA: { name: 'The Big Black', abbr: 'TBB', logo: tbb },
+      teamB: { name: 'Jame Time Rebuild Rebuild', abbr: 'JTRR', logo: jtrr },
       datetime: 'Jan 30, 7:00 PM',
-      maps: ['Map Alpha', 'Map Bravo', 'Map Charlie'],
+      maps: ['Haven', 'Breeze', 'Abyss'],
       stream: 'https://twitch.tv/placeholder',
     },
     {
-      teamA: { name: 'Crimson Crew', logo: 'LOGO-C' },
-      teamB: { name: 'Azure Alliance', logo: 'LOGO-Z' },
+      teamA: { name: 'CloroX', abbr: 'CRX', logo: crx },
+      teamB: { name: 'Winged Pigeons', abbr: 'PGN', logo: pgn },
       datetime: 'Jan 31, 6:30 PM',
-      maps: ['Map Delta', 'Map Echo', 'Map Foxtrot'],
+      maps: ['Pearl', 'Split', 'Bind'],
       stream: 'https://twitch.tv/placeholder',
     },
     {
-      teamA: { name: 'Iron Giants', logo: 'LOGO-I' },
-      teamB: { name: 'Silver Storm', logo: 'LOGO-S' },
+      teamA: { name: 'O. Jenk Simpsons', abbr: 'OJS', logo: ojs },
+      teamB: { name: 'Hooters', abbr: 'HOR', logo: hor },
       datetime: 'Feb 1, 8:15 PM',
-      maps: ['Map Glacier', 'Map Harbor', 'Map Inferno'],
+      maps: ['Corrode', 'Haven', 'Breeze'],
       stream: 'https://twitch.tv/placeholder',
     },
     {
-      teamA: { name: 'Valor Vanguard', logo: 'LOGO-V' },
-      teamB: { name: 'Shadow Squad', logo: 'LOGO-Q' },
+      teamA: { name: 'FNTASTIC3', abbr: 'FN3', logo: fn3 },
+      teamB: { name: 'Stranger Danger', abbr: 'STD', logo: std },
       datetime: 'Feb 2, 5:45 PM',
-      maps: ['Map Jungle', 'Map Kingdom', 'Map Lunar'],
+      maps: ['Abyss', 'Pearl', 'Split'],
       stream: 'https://twitch.tv/placeholder',
     },
     {
-      teamA: { name: 'Echo Elite', logo: 'LOGO-E' },
-      teamB: { name: 'Phoenix Rise', logo: 'LOGO-P' },
+      teamA: { name: 'Preists of Oncoming Rivals', abbr: 'POOR', logo: poor },
+      teamB: { name: '7uncles', abbr: '7UNC', logo: unc7 },
       datetime: 'Feb 3, 9:00 PM',
-      maps: ['Map Mirage', 'Map Nexus', 'Map Outpost'],
+      maps: ['Bind', 'Corrode', 'Haven'],
       stream: 'https://twitch.tv/placeholder',
     },
   ]
@@ -124,98 +137,7 @@
     description="One spot to see the brackets, the stats, and who's actually throwing."
   />
 
-  <ContentSection>
-    <div class="responsive-grid">
-      {#each infoItems as item}
-        <div class="info-card">
-          <div class="flex items-start gap-3">
-            <span
-              class="rounded-sm p-2"
-              style="background-color: var(--accent); color: var(--text);"
-            >
-              <svelte:component this={item.icon} class="h-5 w-5" />
-            </span>
-            <div class="flex-1">
-              <a
-                href={item.href}
-                class="text-lg font-semibold hover:underline"
-                style="color: var(--title);"
-                target={item.href.startsWith('http') ? '_blank' : undefined}
-                rel={item.href.startsWith('http') ? 'noopener noreferrer' : undefined}
-              >
-                {item.title}
-              </a>
-              <p class="text-sm" style="color: var(--text);">{item.description}</p>
-            </div>
-          </div>
-        </div>
-      {/each}
-    </div>
-  </ContentSection>
+  <InfoSection items={infoItems} />
 
-  <ContentSection>
-    <div class="flex w-full max-w-5xl flex-col gap-4">
-      {#each matches as match}
-        <div class="info-card">
-          <!-- Team matchup: stacked on mobile, horizontal on sm+ -->
-          <div class="flex flex-col items-center gap-2 sm:flex-row sm:gap-4">
-            <!-- Team A -->
-            <div
-              class="flex w-full min-w-0 flex-1 items-center justify-center gap-3 sm:justify-start"
-            >
-              <span
-                class="rounded-sm px-2 py-1 text-xs font-semibold"
-                style="background-color: var(--accent); color: var(--text);"
-                >{match.teamA.logo}</span
-              >
-              <p class="truncate text-lg font-semibold" style="color: var(--title);">
-                {match.teamA.name}
-              </p>
-            </div>
-
-            <!-- VS / BO3 indicator -->
-            <div class="w-16 text-center">
-              <p class="text-sm font-semibold" style="color: var(--text);">BO3</p>
-            </div>
-
-            <!-- Team B -->
-            <div
-              class="flex w-full min-w-0 flex-1 items-center justify-center gap-3 sm:justify-end"
-            >
-              <p class="truncate text-lg font-semibold sm:order-1" style="color: var(--title);">
-                {match.teamB.name}
-              </p>
-              <span
-                class="rounded-sm px-2 py-1 text-xs font-semibold sm:order-2"
-                style="background-color: var(--accent); color: var(--text);"
-                >{match.teamB.logo}</span
-              >
-            </div>
-          </div>
-
-          <!-- Match details: stacked on mobile, horizontal on sm+ -->
-          <div
-            class="mt-3 flex flex-col items-start gap-2 text-sm sm:mt-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3"
-            style="color: var(--text);"
-          >
-            <span class="font-medium" style="color: var(--title);">{match.datetime}</span>
-            <span class="hidden text-xs sm:inline" style="color: var(--text); opacity: 0.7;">•</span
-            >
-            <span class="text-xs sm:text-sm">Maps: {match.maps.join(' / ')}</span>
-            <div class="flex items-center gap-2 sm:ml-auto">
-              <label class="text-xs font-semibold" style="color: var(--text);">Stream:</label>
-              <a
-                href={match.stream}
-                class="rounded px-2 py-1 text-xs underline sm:text-sm"
-                style="color: var(--title);"
-                rel="noreferrer"
-              >
-                Watch Live
-              </a>
-            </div>
-          </div>
-        </div>
-      {/each}
-    </div>
-  </ContentSection>
+  <MatchesSection {matches} />
 </PageContainer>
