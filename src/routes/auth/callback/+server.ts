@@ -2,12 +2,8 @@ import { redirect } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
 import { setSessionCookie } from '$lib/server/auth/session'
 import { createClient } from '@supabase/supabase-js'
-import {
-  PUBLIC_AUTH0_DOMAIN,
-  PUBLIC_AUTH0_CLIENT_ID,
-  PUBLIC_SUPABASE_URL,
-} from '$env/static/public'
-import { AUTH0_CLIENT_SECRET, SUPABASE_SERVICE_ROLE_KEY } from '$env/static/private'
+import { env as publicEnv } from '$env/dynamic/public'
+import { env } from '$env/dynamic/private'
 
 export const GET: RequestHandler = async ({ url, cookies }) => {
   const code = url.searchParams.get('code')
@@ -33,13 +29,13 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
   }
 
   // Exchange code for tokens
-  const tokenResponse = await fetch(`https://${PUBLIC_AUTH0_DOMAIN}/oauth/token`, {
+  const tokenResponse = await fetch(`https://${publicEnv.PUBLIC_AUTH0_DOMAIN}/oauth/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       grant_type: 'authorization_code',
-      client_id: PUBLIC_AUTH0_CLIENT_ID,
-      client_secret: AUTH0_CLIENT_SECRET,
+      client_id: publicEnv.PUBLIC_AUTH0_CLIENT_ID,
+      client_secret: env.AUTH0_CLIENT_SECRET,
       code,
       redirect_uri: `${url.origin}/auth/callback`,
       code_verifier: verifier,
@@ -54,7 +50,7 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
   const tokens = await tokenResponse.json()
 
   // Get user info from Auth0
-  const userInfoResponse = await fetch(`https://${PUBLIC_AUTH0_DOMAIN}/userinfo`, {
+  const userInfoResponse = await fetch(`https://${publicEnv.PUBLIC_AUTH0_DOMAIN}/userinfo`, {
     headers: { Authorization: `Bearer ${tokens.access_token}` },
   })
 
@@ -78,7 +74,7 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
   })
 
   // Sync profile to Supabase using service role (bypasses RLS)
-  const supabaseAdmin = createClient(PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+  const supabaseAdmin = createClient(publicEnv.PUBLIC_SUPABASE_URL!, env.SUPABASE_SERVICE_ROLE_KEY!)
 
   const { data: existing } = await supabaseAdmin
     .from('profiles')

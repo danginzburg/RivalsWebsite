@@ -1,6 +1,6 @@
 import { SignJWT, jwtVerify } from 'jose'
 import type { Cookies } from '@sveltejs/kit'
-import { AUTH_SESSION_SECRET } from '$env/static/private'
+import { env } from '$env/dynamic/private'
 
 const COOKIE_NAME = 'app_session'
 
@@ -16,8 +16,8 @@ type SessionPayload = {
 }
 
 function secretKey() {
-  if (!AUTH_SESSION_SECRET) throw new Error('Missing AUTH_SESSION_SECRET')
-  return new TextEncoder().encode(AUTH_SESSION_SECRET)
+  if (!env.AUTH_SESSION_SECRET) throw new Error('Missing AUTH_SESSION_SECRET')
+  return new TextEncoder().encode(env.AUTH_SESSION_SECRET)
 }
 
 export async function setSessionCookie(cookies: Cookies, payload: SessionPayload) {
