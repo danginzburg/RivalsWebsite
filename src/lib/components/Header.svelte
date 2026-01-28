@@ -1,17 +1,30 @@
 <script lang="ts">
   import { page } from '$app/stores'
   import { resolve } from '$app/paths'
-  import { House, Search, Menu, X } from 'lucide-svelte'
+  import { goto, invalidateAll } from '$app/navigation'
+  import { House, Search, Menu, X, LogIn, LogOut } from 'lucide-svelte'
   import rivalsLogo from '$lib/assets/rivals_logo.png'
 
   type Route = '/' | '/scrim-finder' | '/scrim-finder/'
 
-  let isMobileMenuOpen = false
+  let isMobileMenuOpen = $state(false)
+
+  // Get user from page data (set by +layout.server.ts)
+  const user = $derived($page.data.user)
 
   const navItems = [
     { href: '/' as Route, label: 'Home', icon: House },
     // { href: '/scrim-finder' as Route, label: 'Scrim Finder', icon: Search },
   ]
+
+  function handleLogin() {
+    window.location.href = '/auth/login'
+  }
+
+  async function handleLogout() {
+    await fetch('/auth/logout')
+    await invalidateAll()
+  }
 
   function getClasses(href: string) {
     const isActive = $page.url.pathname === href
@@ -38,6 +51,16 @@
   function closeMobileMenu() {
     isMobileMenuOpen = false
   }
+
+  function handleHoverEnter(e: MouseEvent) {
+    const target = e.currentTarget as HTMLElement
+    target.style.cssText = 'color: var(--text); background-color: var(--hover); opacity: 0.8;'
+  }
+
+  function handleHoverLeave(e: MouseEvent) {
+    const target = e.currentTarget as HTMLElement
+    target.style.cssText = 'color: var(--text);'
+  }
 </script>
 
 <nav
@@ -56,6 +79,7 @@
       <ul class="hidden md:flex md:items-center md:space-x-2">
         {#each navItems as item (item.href)}
           {@const isActive = $page.url.pathname === item.href}
+          {@const Icon = item.icon}
           <li>
             {#if isActive}
               <a
@@ -64,7 +88,7 @@
                 title={item.label}
                 style={getItemStyle(item.href, false)}
               >
-                <svelte:component this={item.icon} class="h-5 w-5" />
+                <Icon class="h-5 w-5" />
                 <span>{item.label}</span>
               </a>
             {:else}
@@ -73,17 +97,46 @@
                 class={getClasses(item.href)}
                 title={item.label}
                 style="color: var(--text);"
-                on:mouseenter={(e) =>
-                  (e.currentTarget.style.cssText =
-                    'color: var(--text); background-color: var(--hover); opacity: 0.8;')}
-                on:mouseleave={(e) => (e.currentTarget.style.cssText = 'color: var(--text);')}
+                onmouseenter={handleHoverEnter}
+                onmouseleave={handleHoverLeave}
               >
-                <svelte:component this={item.icon} class="h-5 w-5" />
+                <Icon class="h-5 w-5" />
                 <span>{item.label}</span>
               </a>
             {/if}
           </li>
         {/each}
+
+        <!-- Auth Button -->
+        <li>
+          {#if user}
+            <button
+              type="button"
+              class="flex items-center gap-2 rounded-lg px-4 py-2 transition-colors"
+              style="color: var(--text);"
+              title="Logout"
+              onmouseenter={handleHoverEnter}
+              onmouseleave={handleHoverLeave}
+              onclick={handleLogout}
+            >
+              <LogOut class="h-5 w-5" />
+              <span>Logout</span>
+            </button>
+          {:else}
+            <button
+              type="button"
+              class="flex items-center gap-2 rounded-lg px-4 py-2 transition-colors"
+              style="color: var(--text);"
+              title="Login"
+              onmouseenter={handleHoverEnter}
+              onmouseleave={handleHoverLeave}
+              onclick={handleLogin}
+            >
+              <LogIn class="h-5 w-5" />
+              <span>Login</span>
+            </button>
+          {/if}
+        </li>
       </ul>
 
       <!-- Mobile menu button -->
@@ -92,9 +145,13 @@
         class="hover:bg-opacity-20 rounded-lg p-2 transition-colors md:hidden"
         style="color: var(--text);"
         aria-label={isMobileMenuOpen ? 'Close menu' : 'Open menu'}
-        on:click={toggleMobileMenu}
+        onclick={toggleMobileMenu}
       >
-        <svelte:component this={isMobileMenuOpen ? X : Menu} class="h-6 w-6" />
+        {#if isMobileMenuOpen}
+          <X class="h-6 w-6" />
+        {:else}
+          <Menu class="h-6 w-6" />
+        {/if}
       </button>
     </div>
   </div>
@@ -105,6 +162,7 @@
       <ul class="space-y-1 px-4 py-3">
         {#each navItems as item (item.href)}
           {@const isActive = $page.url.pathname === item.href}
+          {@const Icon = item.icon}
           <li>
             {#if isActive}
               <a
@@ -112,9 +170,9 @@
                 class={getClasses(item.href)}
                 title={item.label}
                 style={getItemStyle(item.href, false)}
-                on:click={closeMobileMenu}
+                onclick={closeMobileMenu}
               >
-                <svelte:component this={item.icon} class="h-5 w-5" />
+                <Icon class="h-5 w-5" />
                 <span>{item.label}</span>
               </a>
             {:else}
@@ -123,18 +181,53 @@
                 class={getClasses(item.href)}
                 title={item.label}
                 style="color: var(--text);"
-                on:mouseenter={(e) =>
-                  (e.currentTarget.style.cssText =
-                    'color: var(--text); background-color: var(--hover); opacity: 0.8;')}
-                on:mouseleave={(e) => (e.currentTarget.style.cssText = 'color: var(--text);')}
-                on:click={closeMobileMenu}
+                onmouseenter={handleHoverEnter}
+                onmouseleave={handleHoverLeave}
+                onclick={closeMobileMenu}
               >
-                <svelte:component this={item.icon} class="h-5 w-5" />
+                <Icon class="h-5 w-5" />
                 <span>{item.label}</span>
               </a>
             {/if}
           </li>
         {/each}
+
+        <!-- Mobile Auth Button -->
+        <li>
+          {#if user}
+            <button
+              type="button"
+              class="flex w-full items-center gap-2 rounded-lg px-4 py-2 transition-colors"
+              style="color: var(--text);"
+              title="Logout"
+              onmouseenter={handleHoverEnter}
+              onmouseleave={handleHoverLeave}
+              onclick={() => {
+                closeMobileMenu()
+                handleLogout()
+              }}
+            >
+              <LogOut class="h-5 w-5" />
+              <span>Logout</span>
+            </button>
+          {:else}
+            <button
+              type="button"
+              class="flex w-full items-center gap-2 rounded-lg px-4 py-2 transition-colors"
+              style="color: var(--text);"
+              title="Login"
+              onmouseenter={handleHoverEnter}
+              onmouseleave={handleHoverLeave}
+              onclick={() => {
+                closeMobileMenu()
+                handleLogin()
+              }}
+            >
+              <LogIn class="h-5 w-5" />
+              <span>Login</span>
+            </button>
+          {/if}
+        </li>
       </ul>
     </div>
   {/if}

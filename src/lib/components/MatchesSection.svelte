@@ -68,7 +68,7 @@
           <span class="hidden text-xs sm:inline" style="color: var(--text); opacity: 0.7;">•</span>
           <span class="text-xs sm:text-sm">Maps: {match.maps.join(' / ')}</span>
           <div class="flex items-center gap-2 sm:ml-auto">
-            <label class="text-xs font-semibold" style="color: var(--text);">Stream:</label>
+            <span class="text-xs font-semibold" style="color: var(--text);">Stream:</span>
             <a
               href={match.stream}
               class="rounded px-2 py-1 text-xs underline sm:text-sm"
