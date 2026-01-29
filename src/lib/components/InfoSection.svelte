@@ -14,10 +14,11 @@
 <div class="info-section-wrapper relative z-10">
   <div class="responsive-grid">
     {#each items as item}
+      {@const Icon = item.icon}
       <div class="info-card info-card-surface">
         <div class="flex items-start gap-3">
           <span class="rounded-sm p-2" style="background-color: var(--accent); color: var(--text);">
-            <svelte:component this={item.icon} class="h-5 w-5" />
+            <Icon class="h-5 w-5" />
           </span>
           <div class="flex-1">
             <a
