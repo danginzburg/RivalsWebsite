@@ -34,7 +34,7 @@
       title: 'Sign Up',
       description:
         'Sign up to participate in Season 4 of Throw City Rivals! Players of all skill levels are welcome.',
-      href: 'https://docs.google.com/forms/d/e/1FAIpQLSd3u_6OueuKIxr_fRTIHmDwF_LxF_JsN_jMpyKpaAW3Zl7fBA/viewform',
+      href: '/signup',
     },
     {
       icon: BookOpen,

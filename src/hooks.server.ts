@@ -3,6 +3,7 @@ import { readSessionCookie } from '$lib/server/auth/session'
 
 // Routes that require authentication (add paths here)
 const protectedRoutes: string[] = [
+  '/signup',
   // '/scrim-finder',
   // '/profile',
   // '/dashboard',
