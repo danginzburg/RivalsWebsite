@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Plus, X } from 'lucide-svelte'
+  import CustomSelect from './CustomSelect.svelte'
 
   let riotId = $state('')
   let pronouns = $state('')
@@ -96,17 +97,13 @@
       <label for="pronouns" class="mb-1 block text-sm font-medium" style="color: var(--text);">
         Preferred Pronouns
       </label>
-      <select
+      <CustomSelect
         id="pronouns"
+        options={pronounOptions}
         bind:value={pronouns}
+        placeholder="Select pronouns..."
         required
-        class="w-full rounded-md border px-3 py-2 text-sm"
-        style="background-color: rgba(0, 0, 0, 0.3); border-color: var(--border); color: var(--text);"
-      >
-        {#each pronounOptions as option}
-          <option value={option.value}>{option.label}</option>
-        {/each}
-      </select>
+      />
     </div>
 
     <div>
@@ -180,13 +177,7 @@
     box-shadow: 0 6px 14px rgba(0, 0, 0, 0.25);
   }
 
-  input::placeholder,
-  select option:first-child {
+  input::placeholder {
     color: rgba(255, 255, 255, 0.5);
-  }
-
-  select option {
-    background-color: #1a1b25;
-    color: white;
   }
 </style>
