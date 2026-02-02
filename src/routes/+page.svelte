@@ -41,7 +41,7 @@
       title: 'Rulebook',
       description:
         'Read the official rules and guidelines for Season 4 of Throw City Rivals. Any changes will be updated here.',
-      href: 'https://docs.google.com/document/d/1IckzrbvNamc-Suq3kgBCm-Umd_W_zpMFWiiHWg8dMTg/edit?tab=t.0#heading=h.b6aqs3g5z6lz',
+      href: '/rulebook',
     },
     {
       icon: Trophy,
