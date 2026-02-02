@@ -1,35 +1,109 @@
 <script lang="ts">
   import { page } from '$app/stores'
   import PageContainer from '$lib/components/PageContainer.svelte'
-  import { Shield, Users, Video, RefreshCw } from 'lucide-svelte'
+  import { Shield, Users, Video, RefreshCw, UserCog } from 'lucide-svelte'
 
   // Get data from server load
   let { data } = $props()
 
-  let activeTab = $state<'players' | 'observers'>('players')
+  let activeTab = $state<'players' | 'observers' | 'users'>('players')
   let isLoading = $state(false)
   let errorMessage = $state<string | null>(null)
 
   let players = $state(data.players || [])
   let observers = $state(data.observers || [])
+  let users = $state(data.users || [])
+
+  // Role change confirmation
+  let showRoleConfirmation = $state(false)
+  let pendingRoleChange = $state<{
+    userId: string
+    userName: string
+    currentRole: string
+    newRole: string
+  } | null>(null)
+  let isUpdatingRole = $state(false)
 
   async function refreshData() {
     isLoading = true
     errorMessage = null
 
     try {
-      const response = await fetch('/api/admin/registrations')
-      if (!response.ok) {
-        const err = await response.json()
-        throw new Error(err.message || 'Failed to fetch data')
+      const [regResponse, usersResponse] = await Promise.all([
+        fetch('/api/admin/registrations'),
+        fetch('/api/admin/users'),
+      ])
+
+      if (!regResponse.ok) {
+        const err = await regResponse.json()
+        throw new Error(err.message || 'Failed to fetch registrations')
       }
-      const result = await response.json()
-      players = result.players
-      observers = result.observers
+      if (!usersResponse.ok) {
+        const err = await usersResponse.json()
+        throw new Error(err.message || 'Failed to fetch users')
+      }
+
+      const regResult = await regResponse.json()
+      const usersResult = await usersResponse.json()
+
+      players = regResult.players
+      observers = regResult.observers
+      users = usersResult.users
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Failed to refresh data'
     } finally {
       isLoading = false
+    }
+  }
+
+  function requestRoleChange(
+    userId: string,
+    userName: string,
+    currentRole: string,
+    newRole: string
+  ) {
+    if (currentRole === newRole) return
+    pendingRoleChange = { userId, userName, currentRole, newRole }
+    showRoleConfirmation = true
+  }
+
+  function cancelRoleChange() {
+    showRoleConfirmation = false
+    pendingRoleChange = null
+  }
+
+  async function confirmRoleChange() {
+    if (!pendingRoleChange) return
+
+    isUpdatingRole = true
+    errorMessage = null
+
+    try {
+      const response = await fetch('/api/admin/users', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: pendingRoleChange.userId,
+          newRole: pendingRoleChange.newRole,
+        }),
+      })
+
+      if (!response.ok) {
+        const err = await response.json()
+        throw new Error(err.message || 'Failed to update role')
+      }
+
+      // Update local state
+      users = users.map((u) =>
+        u.id === pendingRoleChange!.userId ? { ...u, role: pendingRoleChange!.newRole } : u
+      )
+
+      showRoleConfirmation = false
+      pendingRoleChange = null
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to update role'
+    } finally {
+      isUpdatingRole = false
     }
   }
 </script>
@@ -65,6 +139,15 @@
           >
             <Video size={18} />
             <span>Observers ({observers.length})</span>
+          </button>
+          <button
+            type="button"
+            class="tab-button"
+            class:active={activeTab === 'users'}
+            onclick={() => (activeTab = 'users')}
+          >
+            <UserCog size={18} />
+            <span>Users ({users.length})</span>
           </button>
           <button
             type="button"
@@ -262,9 +345,119 @@
             {/if}
           </div>
         {/if}
+
+        <!-- Users Tab -->
+        {#if activeTab === 'users'}
+          <div class="table-container">
+            {#if users.length === 0}
+              <div class="empty-state">No users found.</div>
+            {:else}
+              <!-- Mobile cards -->
+              <div class="mobile-cards">
+                {#each users as user}
+                  <div class="mobile-card">
+                    <div class="mobile-card-header">{user.display_name || '—'}</div>
+                    <div class="mobile-card-row">
+                      <span class="mobile-card-label">Role</span>
+                      <span class="mobile-card-value">
+                        <select
+                          class="role-select"
+                          class:role-admin={user.role === 'admin'}
+                          class:role-user={user.role === 'user'}
+                          value={user.role}
+                          onchange={(e) =>
+                            requestRoleChange(
+                              user.id,
+                              user.display_name || '—',
+                              user.role,
+                              e.currentTarget.value
+                            )}
+                        >
+                          <option value="user">User</option>
+                          <option value="admin">Admin</option>
+                        </select>
+                      </span>
+                    </div>
+                  </div>
+                {/each}
+              </div>
+              <!-- Desktop table -->
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Discord</th>
+                    <th>Role</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {#each users as user}
+                    <tr>
+                      <td class="font-semibold">{user.display_name || '—'}</td>
+                      <td>
+                        <select
+                          class="role-select"
+                          class:role-admin={user.role === 'admin'}
+                          class:role-user={user.role === 'user'}
+                          value={user.role}
+                          onchange={(e) =>
+                            requestRoleChange(
+                              user.id,
+                              user.display_name || '—',
+                              user.role,
+                              e.currentTarget.value
+                            )}
+                        >
+                          <option value="user">User</option>
+                          <option value="admin">Admin</option>
+                        </select>
+                      </td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            {/if}
+          </div>
+        {/if}
       </div>
     </div>
   </div>
+
+  <!-- Role Change Confirmation Modal -->
+  {#if showRoleConfirmation && pendingRoleChange}
+    <div class="modal-overlay">
+      <div class="modal-content">
+        <h3>Confirm Role Change</h3>
+        <p>
+          Are you sure you want to change <strong>{pendingRoleChange.userName}</strong>'s role from
+          <span class="role-badge" class:admin={pendingRoleChange.currentRole === 'admin'}
+            >{pendingRoleChange.currentRole}</span
+          >
+          to
+          <span class="role-badge" class:admin={pendingRoleChange.newRole === 'admin'}
+            >{pendingRoleChange.newRole}</span
+          >?
+        </p>
+        <div class="modal-buttons">
+          <button
+            type="button"
+            class="cancel-btn"
+            onclick={cancelRoleChange}
+            disabled={isUpdatingRole}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="confirm-btn"
+            onclick={confirmRoleChange}
+            disabled={isUpdatingRole}
+          >
+            {isUpdatingRole ? 'Updating...' : 'Confirm'}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
 </PageContainer>
 
 <style>
@@ -546,5 +739,147 @@
 
   .font-semibold {
     font-weight: 600;
+  }
+
+  /* Role select dropdown */
+  .role-select {
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.375rem;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    background-color: rgba(0, 0, 0, 0.4);
+    color: var(--text);
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-width: 100px;
+  }
+
+  .role-select:hover {
+    border-color: rgba(255, 255, 255, 0.4);
+    background-color: rgba(0, 0, 0, 0.5);
+  }
+
+  .role-select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(120, 67, 145, 0.3);
+  }
+
+  .role-select.role-admin {
+    border-color: rgba(167, 139, 250, 0.5);
+    background-color: rgba(167, 139, 250, 0.15);
+    color: #a78bfa;
+  }
+
+  .role-select.role-admin:hover {
+    border-color: rgba(167, 139, 250, 0.7);
+    background-color: rgba(167, 139, 250, 0.25);
+  }
+
+  .role-select.role-user {
+    border-color: rgba(255, 255, 255, 0.2);
+    background-color: rgba(0, 0, 0, 0.4);
+  }
+
+  /* Modal styles */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+    padding: 1rem;
+  }
+
+  .modal-content {
+    background-color: var(--secondary-background);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    text-align: center;
+    max-width: 400px;
+    width: 100%;
+  }
+
+  .modal-content h3 {
+    color: var(--title);
+    font-size: 1.25rem;
+    font-weight: bold;
+    margin-bottom: 1rem;
+  }
+
+  .modal-content p {
+    color: var(--text);
+    font-size: 0.95rem;
+    margin-bottom: 1.5rem;
+    line-height: 1.5;
+  }
+
+  .modal-content strong {
+    color: var(--title);
+  }
+
+  .role-badge {
+    display: inline-block;
+    padding: 0.125rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    background-color: rgba(255, 255, 255, 0.1);
+    color: var(--text);
+  }
+
+  .role-badge.admin {
+    background-color: rgba(167, 139, 250, 0.3);
+    color: #a78bfa;
+  }
+
+  .modal-buttons {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: center;
+  }
+
+  .cancel-btn {
+    padding: 0.5rem 1rem;
+    border-radius: 0.375rem;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background-color: transparent;
+    color: var(--text);
+    cursor: pointer;
+    font-weight: 500;
+    transition: background-color 0.2s ease;
+  }
+
+  .cancel-btn:hover:not(:disabled) {
+    background-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .cancel-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .confirm-btn {
+    padding: 0.5rem 1rem;
+    border-radius: 0.375rem;
+    border: none;
+    background-color: var(--accent);
+    color: var(--text);
+    cursor: pointer;
+    font-weight: 500;
+    transition: opacity 0.2s ease;
+  }
+
+  .confirm-btn:hover:not(:disabled) {
+    opacity: 0.9;
+  }
+
+  .confirm-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 </style>

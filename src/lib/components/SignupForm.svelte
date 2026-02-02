@@ -7,6 +7,7 @@
   let trackerLinks = $state<string[]>([''])
   let isSubmitting = $state(false)
   let submitMessage = $state<{ type: 'success' | 'error'; text: string } | null>(null)
+  let showConfirmation = $state(false)
 
   const pronounOptions = [
     { value: '', label: 'Select pronouns...' },
@@ -31,8 +32,17 @@
     trackerLinks = trackerLinks.map((link, i) => (i === index ? value : link))
   }
 
-  async function handleSubmit(e: SubmitEvent) {
+  function requestSubmit(e: SubmitEvent) {
     e.preventDefault()
+    showConfirmation = true
+  }
+
+  function cancelSubmit() {
+    showConfirmation = false
+  }
+
+  async function confirmSubmit() {
+    showConfirmation = false
     isSubmitting = true
     submitMessage = null
 
@@ -77,7 +87,19 @@
 </script>
 
 <div class="signup-form-container">
-  <form onsubmit={handleSubmit} class="space-y-5">
+  {#if showConfirmation}
+    <div class="confirmation-overlay">
+      <div class="confirmation-modal">
+        <h3>Confirm Registration</h3>
+        <p>Are you sure you want to submit your registration?</p>
+        <div class="confirmation-buttons">
+          <button type="button" class="cancel-btn" onclick={cancelSubmit}>Cancel</button>
+          <button type="button" class="confirm-btn" onclick={confirmSubmit}>Confirm</button>
+        </div>
+      </div>
+    </div>
+  {/if}
+  <form onsubmit={requestSubmit} class="space-y-5">
     <div>
       <label for="riotId" class="mb-1 block text-sm font-medium" style="color: var(--text);">
         Riot ID
@@ -175,9 +197,79 @@
     border-radius: 0.5rem;
     padding: 1.5rem;
     box-shadow: 0 6px 14px rgba(0, 0, 0, 0.25);
+    position: relative;
   }
 
   input::placeholder {
     color: rgba(255, 255, 255, 0.5);
+  }
+
+  .confirmation-overlay {
+    position: absolute;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.5rem;
+    z-index: 10;
+  }
+
+  .confirmation-modal {
+    background-color: var(--secondary-background);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    text-align: center;
+    max-width: 300px;
+  }
+
+  .confirmation-modal h3 {
+    color: var(--title);
+    font-size: 1.25rem;
+    font-weight: bold;
+    margin-bottom: 0.75rem;
+  }
+
+  .confirmation-modal p {
+    color: var(--text);
+    font-size: 0.95rem;
+    margin-bottom: 1.25rem;
+  }
+
+  .confirmation-buttons {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: center;
+  }
+
+  .cancel-btn {
+    padding: 0.5rem 1rem;
+    border-radius: 0.375rem;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background-color: transparent;
+    color: var(--text);
+    cursor: pointer;
+    font-weight: 500;
+    transition: background-color 0.2s ease;
+  }
+
+  .cancel-btn:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .confirm-btn {
+    padding: 0.5rem 1rem;
+    border-radius: 0.375rem;
+    border: none;
+    background-color: var(--accent);
+    color: var(--text);
+    cursor: pointer;
+    font-weight: 500;
+    transition: opacity 0.2s ease;
+  }
+
+  .confirm-btn:hover {
+    opacity: 0.9;
   }
 </style>
