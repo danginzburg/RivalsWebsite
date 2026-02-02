@@ -11,13 +11,23 @@
   let additionalInfo = $state('')
   let isSubmitting = $state(false)
   let submitMessage = $state<{ type: 'success' | 'error'; text: string } | null>(null)
+  let showConfirmation = $state(false)
 
   function handleLogin() {
     window.location.href = '/auth/login'
   }
 
-  async function handleSubmit(e: SubmitEvent) {
+  function requestSubmit(e: SubmitEvent) {
     e.preventDefault()
+    showConfirmation = true
+  }
+
+  function cancelSubmit() {
+    showConfirmation = false
+  }
+
+  async function confirmSubmit() {
+    showConfirmation = false
 
     if (!user) {
       submitMessage = { type: 'error', text: 'You must be logged in to submit this form.' }
@@ -87,109 +97,123 @@
           </button>
         </div>
       {:else}
-        <form onsubmit={handleSubmit} class="observer-form info-card info-card-surface">
-          <div class="question-group">
-            <label class="question-label"> Do you have previous experience observing? </label>
-            <div class="radio-group">
-              <label class="radio-option">
-                <input
-                  type="radio"
-                  name="experience"
-                  value="yes"
-                  bind:group={hasPreviousExperience}
-                  required
-                />
-                <span>Yes</span>
-              </label>
-              <label class="radio-option">
-                <input
-                  type="radio"
-                  name="experience"
-                  value="no"
-                  bind:group={hasPreviousExperience}
-                />
-                <span>No</span>
-              </label>
-            </div>
-          </div>
-
-          <div class="question-group">
-            <label class="question-label">
-              Can you run OBS & stream at a good quality (1080p 60fps)?
-            </label>
-            <div class="radio-group">
-              <label class="radio-option">
-                <input
-                  type="radio"
-                  name="quality"
-                  value="yes"
-                  bind:group={canStreamQuality}
-                  required
-                />
-                <span>Yes</span>
-              </label>
-              <label class="radio-option">
-                <input type="radio" name="quality" value="no" bind:group={canStreamQuality} />
-                <span>No</span>
-              </label>
-            </div>
-          </div>
-
-          <div class="question-group">
-            <label class="question-label">
-              Are you willing to download and use a standardized Rivals OBS Overlay?
-            </label>
-            <div class="radio-group">
-              <label class="radio-option">
-                <input
-                  type="radio"
-                  name="overlay"
-                  value="yes"
-                  bind:group={willingToUseOverlay}
-                  required
-                />
-                <span>Yes</span>
-              </label>
-              <label class="radio-option">
-                <input type="radio" name="overlay" value="no" bind:group={willingToUseOverlay} />
-                <span>No</span>
-              </label>
-            </div>
-          </div>
-
-          <div class="question-group">
-            <label for="additionalInfo" class="question-label">
-              How often could you observe & any other information you'd think it's important for me
-              to know.
-            </label>
-            <textarea
-              id="additionalInfo"
-              bind:value={additionalInfo}
-              placeholder="e.g., I can observe 2-3 times per week, I have experience with..."
-              rows="4"
-              class="text-input"
-              required
-            ></textarea>
-          </div>
-
-          {#if submitMessage}
-            <div
-              class="submit-message"
-              class:success={submitMessage.type === 'success'}
-              class:error={submitMessage.type === 'error'}
-            >
-              {submitMessage.text}
+        <div class="form-wrapper">
+          {#if showConfirmation}
+            <div class="confirmation-overlay">
+              <div class="confirmation-modal">
+                <h3>Confirm Application</h3>
+                <p>Are you sure you want to submit your observer application?</p>
+                <div class="confirmation-buttons">
+                  <button type="button" class="cancel-btn" onclick={cancelSubmit}>Cancel</button>
+                  <button type="button" class="confirm-btn" onclick={confirmSubmit}>Confirm</button>
+                </div>
+              </div>
             </div>
           {/if}
+          <form onsubmit={requestSubmit} class="observer-form info-card info-card-surface">
+            <div class="question-group">
+              <label class="question-label"> Do you have previous experience observing? </label>
+              <div class="radio-group">
+                <label class="radio-option">
+                  <input
+                    type="radio"
+                    name="experience"
+                    value="yes"
+                    bind:group={hasPreviousExperience}
+                    required
+                  />
+                  <span>Yes</span>
+                </label>
+                <label class="radio-option">
+                  <input
+                    type="radio"
+                    name="experience"
+                    value="no"
+                    bind:group={hasPreviousExperience}
+                  />
+                  <span>No</span>
+                </label>
+              </div>
+            </div>
 
-          <button type="submit" class="submit-button" disabled={isSubmitting}>
-            {#if isSubmitting}
-              Submitting...
-            {:else}
-              Submit Application
+            <div class="question-group">
+              <label class="question-label">
+                Can you run OBS & stream at a good quality (1080p 60fps)?
+              </label>
+              <div class="radio-group">
+                <label class="radio-option">
+                  <input
+                    type="radio"
+                    name="quality"
+                    value="yes"
+                    bind:group={canStreamQuality}
+                    required
+                  />
+                  <span>Yes</span>
+                </label>
+                <label class="radio-option">
+                  <input type="radio" name="quality" value="no" bind:group={canStreamQuality} />
+                  <span>No</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="question-group">
+              <label class="question-label">
+                Are you willing to download and use a standardized Rivals OBS Overlay?
+              </label>
+              <div class="radio-group">
+                <label class="radio-option">
+                  <input
+                    type="radio"
+                    name="overlay"
+                    value="yes"
+                    bind:group={willingToUseOverlay}
+                    required
+                  />
+                  <span>Yes</span>
+                </label>
+                <label class="radio-option">
+                  <input type="radio" name="overlay" value="no" bind:group={willingToUseOverlay} />
+                  <span>No</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="question-group">
+              <label for="additionalInfo" class="question-label">
+                How often could you observe & any other information you'd think it's important for
+                me to know.
+              </label>
+              <textarea
+                id="additionalInfo"
+                bind:value={additionalInfo}
+                placeholder="e.g., I can observe 2-3 times per week, I have experience with..."
+                rows="4"
+                class="text-input"
+                required
+              ></textarea>
+            </div>
+
+            {#if submitMessage}
+              <div
+                class="submit-message"
+                class:success={submitMessage.type === 'success'}
+                class:error={submitMessage.type === 'error'}
+              >
+                {submitMessage.text}
+              </div>
             {/if}
-          </button>
-        </form>
+
+            <button type="submit" class="submit-button" disabled={isSubmitting}>
+              {#if isSubmitting}
+                Submitting...
+              {:else}
+                Submit Application
+              {/if}
+            </button>
+          </form>
+        </div>
       {/if}
     </div>
   </div>
@@ -378,5 +402,78 @@
   .submit-button:disabled {
     opacity: 0.6;
     cursor: not-allowed;
+  }
+
+  .form-wrapper {
+    position: relative;
+  }
+
+  .confirmation-overlay {
+    position: absolute;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.5rem;
+    z-index: 10;
+  }
+
+  .confirmation-modal {
+    background-color: var(--secondary-background);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    text-align: center;
+    max-width: 300px;
+  }
+
+  .confirmation-modal h3 {
+    color: var(--title);
+    font-size: 1.25rem;
+    font-weight: bold;
+    margin-bottom: 0.75rem;
+  }
+
+  .confirmation-modal p {
+    color: var(--text);
+    font-size: 0.95rem;
+    margin-bottom: 1.25rem;
+  }
+
+  .confirmation-buttons {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: center;
+  }
+
+  .cancel-btn {
+    padding: 0.5rem 1rem;
+    border-radius: 0.375rem;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background-color: transparent;
+    color: var(--text);
+    cursor: pointer;
+    font-weight: 500;
+    transition: background-color 0.2s ease;
+  }
+
+  .cancel-btn:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .confirm-btn {
+    padding: 0.5rem 1rem;
+    border-radius: 0.375rem;
+    border: none;
+    background-color: var(--accent);
+    color: var(--text);
+    cursor: pointer;
+    font-weight: 500;
+    transition: opacity 0.2s ease;
+  }
+
+  .confirm-btn:hover {
+    opacity: 0.9;
   }
 </style>

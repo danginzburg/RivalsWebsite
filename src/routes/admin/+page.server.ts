@@ -70,8 +70,19 @@ export const load: PageServerLoad = async ({ locals }) => {
     console.error('Error fetching observers:', observersError)
   }
 
+  // Fetch all users
+  const { data: users, error: usersError } = await supabaseAdmin
+    .from('profiles')
+    .select('id, email, display_name, role, created_at')
+    .order('created_at', { ascending: false })
+
+  if (usersError) {
+    console.error('Error fetching users:', usersError)
+  }
+
   return {
     players: players || [],
     observers: observers || [],
+    users: users || [],
   }
 }
