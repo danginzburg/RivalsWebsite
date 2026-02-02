@@ -50,9 +50,8 @@ nav {
 
 /* Hero section variant (no background color, used with images) */
 .content-section-hero {
-  @apply relative flex flex-col items-center justify-center mb-8;
-  width: 100%;
-  max-width: 100%;
+  @apply relative flex flex-col items-center justify-center mb-8 px-4 md:px-6;
+  width: 100vw;
 }
 
 /* Responsive typography scale */

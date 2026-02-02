@@ -139,7 +139,6 @@
             <label class="question-label">
               Are you willing to download and use a standardized Rivals OBS Overlay?
             </label>
-            <p class="question-hint">(I will try to make it as simple as possible)</p>
             <div class="radio-group">
               <label class="radio-option">
                 <input
