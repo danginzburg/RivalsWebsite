@@ -54,11 +54,6 @@
           </div>
         </div>
 
-        <!-- VS separator -->
-        <div class="absolute bottom-2 left-1/2 -translate-x-1/2 transform pb-4">
-          <p class="text-xs" style="color: var(--text);">BO3</p>
-        </div>
-
         <!-- Match details: stacked on mobile, horizontal on sm+ -->
         <div
           class="mt-3 flex flex-col items-start gap-2 text-sm sm:mt-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3"
@@ -66,7 +61,7 @@
         >
           <span class="font-medium" style="color: var(--title);">{match.datetime}</span>
           <span class="hidden text-xs sm:inline" style="color: var(--text); opacity: 0.7;">•</span>
-          <span class="text-xs sm:text-sm">Maps: {match.maps.join(' / ')}</span>
+          <span class="text-xs sm:text-sm">Maps: {match.maps.join(' / ')} (BO3)</span>
           <div class="flex items-center gap-2 sm:ml-auto">
             <span class="text-xs font-semibold" style="color: var(--text);">Stream:</span>
             <a

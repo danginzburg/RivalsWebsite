@@ -22,23 +22,23 @@
   <img
     src={image}
     alt={imageAlt}
-    class="h-auto max-h-screen w-full"
+    class="h-auto min-h-[30vh] w-[95%] rounded-lg object-cover sm:min-h-[40vh] sm:w-[90%] md:min-h-[50vh] md:w-[85%]"
     style="filter: saturate(0.6) blur(2px) brightness(0.7);"
   />
   <div
-    class="absolute flex flex-col items-center justify-center rounded-lg px-4 py-3 sm:px-6 sm:py-4 md:px-8 md:py-6"
-    style="background: rgba(9, 6, 9, 0.4); color: var(--text);"
+    class="absolute flex w-[80%] flex-col items-center justify-center rounded-lg px-6 py-6 sm:w-[75%] sm:px-10 sm:py-8 md:w-[70%] md:px-12 md:py-10"
+    style="background: rgba(9, 6, 9, 0.4); color: var(--text); max-width: 700px;"
   >
-    <h1 class="responsive-title mb-2 text-center sm:mb-4 md:mb-6">
+    <h1 class="responsive-title w-full text-center break-words sm:mb-4 md:mb-6">
       {title}
     </h1>
     {#if subtitle}
-      <h2 class="responsive-subtitle text-center">
+      <h2 class="responsive-subtitle hidden w-full text-center break-words sm:block">
         {subtitle}
       </h2>
     {/if}
     {#if description}
-      <p class="responsive-text max-w-2xl text-center">
+      <p class="responsive-text hidden w-full max-w-2xl text-center break-words sm:block">
         {description}
       </p>
     {/if}

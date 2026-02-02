@@ -34,14 +34,14 @@
       title: 'Sign Up',
       description:
         'Sign up to participate in Season 4 of Throw City Rivals! Players of all skill levels are welcome.',
-      href: 'https://docs.google.com/forms/d/e/1FAIpQLSd3u_6OueuKIxr_fRTIHmDwF_LxF_JsN_jMpyKpaAW3Zl7fBA/viewform',
+      href: '/signup',
     },
     {
       icon: BookOpen,
       title: 'Rulebook',
       description:
         'Read the official rules and guidelines for Season 4 of Throw City Rivals. Any changes will be updated here.',
-      href: 'https://docs.google.com/document/d/1IckzrbvNamc-Suq3kgBCm-Umd_W_zpMFWiiHWg8dMTg/edit?tab=t.0#heading=h.b6aqs3g5z6lz',
+      href: '/rulebook',
     },
     {
       icon: Trophy,
@@ -53,7 +53,7 @@
       icon: Calculator,
       title: 'Team Balance Calculator',
       description: 'Calculate and balance team compositions for fair play.',
-      href: 'https://docs.google.com/spreadsheets/d/1arQ9sF0CU314FKBIjPM30UwGt_Go4qo6-HJSuLCgm_g/edit?gid=998869831#gid=998869831',
+      href: '/team-balance',
     },
     {
       icon: BarChart3,
@@ -79,7 +79,7 @@
       title: 'Observer Sign Up',
       description:
         'Sign up to be an observer for Season 4 of Throw City Rivals. Help us capture the action and provide live coverage!',
-      href: 'https://docs.google.com/forms/d/e/1FAIpQLSeCKFySz5sP-qrogaFu1erjUnibEMAP6nDuE0xODufs_5-tow/viewform',
+      href: '/observer-signup',
     },
     {
       icon: MessageCircle,

@@ -14,11 +14,7 @@
     "format": "prettier --write .",
     "test:e2e": "playwright test",
     "test": "npm run test:e2e && npm run test:unit -- --run",
-    "test:unit": "vitest",
-    "db:push": "drizzle-kit push",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio"
+    "test:unit": "vitest"
   },
   "devDependencies": {
     "@eslint/compat": "^1.4.0",
@@ -33,8 +29,6 @@
     "@types/node": "^24",
     "@vitest/browser-playwright": "^4.0.15",
     "autoprefixer": "^10.4.23",
-    "drizzle-kit": "^0.31.8",
-    "drizzle-orm": "^0.45.0",
     "eslint": "^9.39.2",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-svelte": "^3.13.1",
@@ -62,7 +56,6 @@
     "@supabase/supabase-js": "^2.93.2",
     "jose": "^6.1.3",
     "lucide-svelte": "^0.563.0",
-    "postgres": "^3.4.7",
     "zod": "^4.3.6"
   },
   "lint-staged": {
