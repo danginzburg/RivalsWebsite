@@ -53,7 +53,7 @@
       icon: Calculator,
       title: 'Team Balance Calculator',
       description: 'Calculate and balance team compositions for fair play.',
-      href: 'https://docs.google.com/spreadsheets/d/1arQ9sF0CU314FKBIjPM30UwGt_Go4qo6-HJSuLCgm_g/edit?gid=998869831#gid=998869831',
+      href: '/team-balance',
     },
     {
       icon: BarChart3,
