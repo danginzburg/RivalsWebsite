@@ -176,8 +176,14 @@
     display: flex;
     justify-content: center;
     align-items: flex-start;
-    padding: 2rem 1rem;
+    padding: 2rem 0.5rem;
     min-height: 60vh;
+  }
+
+  @media (min-width: 640px) {
+    .calculator-page-wrapper {
+      padding: 2rem 1rem;
+    }
   }
 
   .calculator-container {

@@ -32,7 +32,7 @@ nav {
 
 /* Page-level container with slight bottom padding for breathing room */
 .page-container {
-  @apply flex flex-col items-center justify-center px-16 pt-8 pb-4 md:px-48 md:pt-8;
+  @apply flex flex-col items-center justify-center px-4 pt-8 pb-4 sm:px-16 md:px-48 md:pt-8;
 }
 
 /* Section wrappers for different content types */
