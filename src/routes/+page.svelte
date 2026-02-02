@@ -79,7 +79,7 @@
       title: 'Observer Sign Up',
       description:
         'Sign up to be an observer for Season 4 of Throw City Rivals. Help us capture the action and provide live coverage!',
-      href: 'https://docs.google.com/forms/d/e/1FAIpQLSeCKFySz5sP-qrogaFu1erjUnibEMAP6nDuE0xODufs_5-tow/viewform',
+      href: '/observer-signup',
     },
     {
       icon: MessageCircle,
