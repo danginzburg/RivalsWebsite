@@ -87,6 +87,39 @@
             {#if players.length === 0}
               <div class="empty-state">No player registrations yet.</div>
             {:else}
+              <!-- Mobile cards -->
+              <div class="mobile-cards">
+                {#each players as player}
+                  <div class="mobile-card">
+                    <div class="mobile-card-header">{player.riot_id}</div>
+                    <div class="mobile-card-row">
+                      <span class="mobile-card-label">Discord</span>
+                      <span class="mobile-card-value">{player.profiles?.display_name || '—'}</span>
+                    </div>
+                    <div class="mobile-card-row">
+                      <span class="mobile-card-label">Pronouns</span>
+                      <span class="mobile-card-value">{player.pronouns}</span>
+                    </div>
+                    <div class="mobile-card-row">
+                      <span class="mobile-card-label">Tracker Links</span>
+                      <span class="mobile-card-value">
+                        {#if player.tracker_links?.length > 0}
+                          <div class="tracker-links">
+                            {#each player.tracker_links as link, i}
+                              <a href={link} target="_blank" rel="noopener noreferrer">
+                                Link {i + 1}
+                              </a>
+                            {/each}
+                          </div>
+                        {:else}
+                          —
+                        {/if}
+                      </span>
+                    </div>
+                  </div>
+                {/each}
+              </div>
+              <!-- Desktop table -->
               <table class="data-table">
                 <thead>
                   <tr>
@@ -129,6 +162,57 @@
             {#if observers.length === 0}
               <div class="empty-state">No observer applications yet.</div>
             {:else}
+              <!-- Mobile cards -->
+              <div class="mobile-cards">
+                {#each observers as observer}
+                  <div class="mobile-card">
+                    <div class="mobile-card-header">{observer.profiles?.display_name || '—'}</div>
+                    <div class="mobile-card-row">
+                      <span class="mobile-card-label">Experience</span>
+                      <span class="mobile-card-value">
+                        <span
+                          class="badge"
+                          class:yes={observer.has_previous_experience}
+                          class:no={!observer.has_previous_experience}
+                        >
+                          {observer.has_previous_experience ? 'Yes' : 'No'}
+                        </span>
+                      </span>
+                    </div>
+                    <div class="mobile-card-row">
+                      <span class="mobile-card-label">Can Stream 1080p60</span>
+                      <span class="mobile-card-value">
+                        <span
+                          class="badge"
+                          class:yes={observer.can_stream_quality}
+                          class:no={!observer.can_stream_quality}
+                        >
+                          {observer.can_stream_quality ? 'Yes' : 'No'}
+                        </span>
+                      </span>
+                    </div>
+                    <div class="mobile-card-row">
+                      <span class="mobile-card-label">Will Use Overlay</span>
+                      <span class="mobile-card-value">
+                        <span
+                          class="badge"
+                          class:yes={observer.willing_to_use_overlay}
+                          class:no={!observer.willing_to_use_overlay}
+                        >
+                          {observer.willing_to_use_overlay ? 'Yes' : 'No'}
+                        </span>
+                      </span>
+                    </div>
+                    {#if observer.additional_info}
+                      <div class="mobile-card-row">
+                        <span class="mobile-card-label">Additional Info</span>
+                        <span class="mobile-card-value">{observer.additional_info}</span>
+                      </div>
+                    {/if}
+                  </div>
+                {/each}
+              </div>
+              <!-- Desktop table -->
               <table class="data-table">
                 <thead>
                   <tr>
@@ -188,8 +272,14 @@
     display: flex;
     justify-content: center;
     align-items: flex-start;
-    padding: 2rem 1rem;
+    padding: 2rem 0.5rem;
     min-height: 60vh;
+  }
+
+  @media (min-width: 640px) {
+    .admin-page-wrapper {
+      padding: 2rem 1rem;
+    }
   }
 
   .admin-container {
@@ -224,7 +314,7 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    padding: 1rem 1.5rem;
+    padding: 0.75rem 0.75rem;
     background: none;
     border: none;
     color: var(--text);
@@ -232,6 +322,14 @@
     cursor: pointer;
     transition: all 0.2s ease;
     border-bottom: 2px solid transparent;
+    font-size: 0.85rem;
+  }
+
+  @media (min-width: 640px) {
+    .tab-button {
+      padding: 1rem 1.5rem;
+      font-size: 1rem;
+    }
   }
 
   .tab-button:hover {
@@ -250,13 +348,19 @@
     align-items: center;
     justify-content: center;
     margin-left: auto;
-    padding: 1rem;
+    padding: 0.75rem;
     background: none;
     border: none;
     color: var(--text);
     opacity: 0.6;
     cursor: pointer;
     transition: all 0.2s ease;
+  }
+
+  @media (min-width: 640px) {
+    .refresh-button {
+      padding: 1rem;
+    }
   }
 
   .refresh-button:hover:not(:disabled) {
@@ -290,7 +394,13 @@
 
   .table-container {
     overflow-x: auto;
-    padding: 1rem;
+    padding: 0.75rem;
+  }
+
+  @media (min-width: 640px) {
+    .table-container {
+      padding: 1rem;
+    }
   }
 
   .empty-state {
@@ -300,10 +410,18 @@
     opacity: 0.6;
   }
 
+  /* Desktop table styles */
   .data-table {
     width: 100%;
     border-collapse: collapse;
     font-size: 0.9rem;
+    display: none;
+  }
+
+  @media (min-width: 768px) {
+    .data-table {
+      display: table;
+    }
   }
 
   .data-table th,
@@ -325,6 +443,59 @@
 
   .data-table tbody tr:hover {
     background-color: rgba(255, 255, 255, 0.05);
+  }
+
+  /* Mobile card styles */
+  .mobile-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  @media (min-width: 768px) {
+    .mobile-cards {
+      display: none;
+    }
+  }
+
+  .mobile-card {
+    background-color: rgba(0, 0, 0, 0.2);
+    border-radius: 0.5rem;
+    padding: 1rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .mobile-card-header {
+    font-weight: 600;
+    color: var(--title);
+    margin-bottom: 0.75rem;
+    font-size: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .mobile-card-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 0.35rem 0;
+    gap: 0.5rem;
+  }
+
+  .mobile-card-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text);
+    opacity: 0.7;
+    flex-shrink: 0;
+  }
+
+  .mobile-card-value {
+    font-size: 0.9rem;
+    color: var(--text);
+    text-align: right;
+    word-break: break-word;
   }
 
   .tracker-links {
