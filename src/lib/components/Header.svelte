@@ -18,6 +18,7 @@
     BarChart3,
     Calendar,
     MessageSquare,
+    Shield,
   } from 'lucide-svelte'
   import rivalsLogo from '$lib/assets/rivals_logo.png'
 
@@ -26,6 +27,7 @@
 
   // Get user from page data (set by +layout.server.ts)
   const user = $derived($page.data.user)
+  const isAdmin = $derived(user?.role === 'admin')
 
   // Simple nav items (no dropdown)
   const simpleNavItems = [{ href: '/', label: 'Home', icon: House }]
@@ -237,6 +239,24 @@
           </li>
         {/each}
 
+        <!-- Admin Link (only visible to admins) -->
+        {#if isAdmin}
+          <li>
+            <a
+              href="/admin"
+              class="flex items-center gap-2 rounded-lg px-4 py-2 transition-colors"
+              style={$page.url.pathname === '/admin'
+                ? 'color: var(--text); background-color: var(--active);'
+                : 'color: var(--text);'}
+              onmouseenter={handleHoverEnter}
+              onmouseleave={handleHoverLeave}
+            >
+              <Shield class="h-5 w-5" />
+              <span>Admin</span>
+            </a>
+          </li>
+        {/if}
+
         <!-- Auth Button -->
         <li>
           {#if user}
@@ -361,6 +381,23 @@
             {/if}
           </li>
         {/each}
+
+        <!-- Mobile Admin Link (only visible to admins) -->
+        {#if isAdmin}
+          <li>
+            <a
+              href="/admin"
+              class="flex items-center gap-2 rounded-lg px-4 py-2 transition-colors"
+              style={$page.url.pathname === '/admin'
+                ? 'color: var(--text); background-color: var(--active);'
+                : 'color: var(--text);'}
+              onclick={closeMobileMenu}
+            >
+              <Shield class="h-5 w-5" />
+              <span>Admin</span>
+            </a>
+          </li>
+        {/if}
 
         <!-- Mobile Auth Button -->
         <li>
