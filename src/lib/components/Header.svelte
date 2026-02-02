@@ -2,10 +2,10 @@
   import { page } from '$app/stores'
   import { resolve } from '$app/paths'
   import { goto, invalidateAll } from '$app/navigation'
-  import { House, Search, Menu, X, LogIn, LogOut } from 'lucide-svelte'
+  import { House, Search, Menu, X, LogIn, LogOut, BookOpen } from 'lucide-svelte'
   import rivalsLogo from '$lib/assets/rivals_logo.png'
 
-  type Route = '/' | '/scrim-finder' | '/scrim-finder/'
+  type Route = '/' | '/scrim-finder' | '/scrim-finder/' | '/rulebook'
 
   let isMobileMenuOpen = $state(false)
 
@@ -14,6 +14,7 @@
 
   const navItems = [
     { href: '/' as Route, label: 'Home', icon: House },
+    { href: '/rulebook' as Route, label: 'Rulebook', icon: BookOpen },
     // { href: '/scrim-finder' as Route, label: 'Scrim Finder', icon: Search },
   ]
 
