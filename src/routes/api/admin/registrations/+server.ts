@@ -30,11 +30,13 @@ export const GET: RequestHandler = async ({ locals }) => {
       `
       id,
       riot_id,
+      rank_label,
+      rank_value,
       pronouns,
       tracker_links,
       created_at,
       updated_at,
-      profiles (
+      profiles!player_registration_profile_id_fkey (
         email,
         display_name
       )

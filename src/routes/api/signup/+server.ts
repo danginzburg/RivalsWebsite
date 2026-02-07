@@ -26,7 +26,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     // Find the user's profile
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .select('id')
+      .select('id, role')
       .eq('auth0_sub', auth0Sub)
       .single()
 

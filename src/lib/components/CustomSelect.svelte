@@ -12,24 +12,45 @@
     placeholder = 'Select an option...',
     id = '',
     required = false,
+    disabled = false,
+    compact = false,
+    onSelect,
   }: {
     options: Option[]
     value?: string
     placeholder?: string
     id?: string
     required?: boolean
+    disabled?: boolean
+    compact?: boolean
+    onSelect?: (value: string) => void
   } = $props()
 
   let isOpen = $state(false)
   let containerRef: HTMLDivElement
+  let triggerRef: HTMLButtonElement
+  let dropdownStyle = $state('')
   let selectedLabel = $derived(options.find((o) => o.value === value)?.label || placeholder)
 
+  function updateDropdownPosition() {
+    if (!triggerRef) return
+    const rect = triggerRef.getBoundingClientRect()
+    const viewportPadding = 8
+    const maxHeight = Math.max(160, window.innerHeight - rect.bottom - viewportPadding)
+    dropdownStyle = `position: fixed; top: ${rect.bottom + 4}px; left: ${rect.left}px; width: ${rect.width}px; max-height: ${maxHeight}px;`
+  }
+
   function toggle() {
+    if (disabled) return
     isOpen = !isOpen
+    if (isOpen) {
+      updateDropdownPosition()
+    }
   }
 
   function select(option: Option) {
     value = option.value
+    onSelect?.(option.value)
     isOpen = false
   }
 
@@ -61,9 +82,19 @@
       isOpen = false
     }
   }
+
+  function handleWindowPositionChange() {
+    if (isOpen) {
+      updateDropdownPosition()
+    }
+  }
 </script>
 
-<svelte:window onclick={handleClickOutside} />
+<svelte:window
+  onclick={handleClickOutside}
+  onscroll={handleWindowPositionChange}
+  onresize={handleWindowPositionChange}
+/>
 
 <div class="custom-select" bind:this={containerRef}>
   <!-- Hidden input for form validation -->
@@ -73,12 +104,15 @@
 
   <button
     type="button"
+    bind:this={triggerRef}
     class="select-trigger"
+    class:compact
     class:placeholder={!value}
     onclick={toggle}
     onkeydown={handleKeydown}
     aria-haspopup="listbox"
     aria-expanded={isOpen}
+    {disabled}
   >
     <span class="select-value">{selectedLabel}</span>
     <span class="chevron" class:open={isOpen}>
@@ -87,7 +121,7 @@
   </button>
 
   {#if isOpen}
-    <ul class="select-dropdown" role="listbox">
+    <ul class="select-dropdown" role="listbox" style={dropdownStyle}>
       {#each options as option}
         {#if option.value}
           <li
@@ -126,6 +160,17 @@
     cursor: pointer;
     text-align: left;
     transition: border-color 0.15s ease;
+  }
+
+  .select-trigger.compact {
+    padding: 0.35rem 0.55rem;
+    font-size: 0.8125rem;
+    border-radius: 0.32rem;
+  }
+
+  .select-trigger:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
   }
 
   .select-trigger:hover {
@@ -170,11 +215,7 @@
   }
 
   .select-dropdown {
-    position: absolute;
-    top: calc(100% + 4px);
-    left: 0;
-    right: 0;
-    z-index: 50;
+    z-index: 200;
     max-height: 200px;
     overflow-y: auto;
     margin: 0;

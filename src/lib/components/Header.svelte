@@ -1,10 +1,10 @@
 <script lang="ts">
   import { page } from '$app/stores'
-  import { resolve } from '$app/paths'
   import { goto, invalidateAll } from '$app/navigation'
   import {
     House,
     Search,
+    Users,
     Menu,
     X,
     LogIn,
@@ -30,7 +30,10 @@
   const isAdmin = $derived(user?.role === 'admin')
 
   // Simple nav items (no dropdown)
-  const simpleNavItems = [{ href: '/', label: 'Home', icon: House }]
+  const simpleNavItems = [
+    { href: '/', label: 'Home', icon: House },
+    { href: '/teams', label: 'Teams', icon: Users },
+  ]
 
   // Dropdown menus
   const dropdownMenus = [
@@ -40,6 +43,7 @@
       icon: UserPlus,
       items: [
         { href: '/signup', label: 'Player Sign Up', icon: UserPlus },
+        { href: '/team-registration', label: 'Team Registration', icon: Users },
         { href: '/observer-signup', label: 'Observer Sign Up', icon: Video },
       ],
     },
@@ -50,13 +54,6 @@
       items: [
         { href: '/rulebook', label: 'Rulebook', icon: BookOpen },
         { href: '#', label: 'Match Schedule', icon: Calendar, disabled: true },
-      ],
-    },
-    {
-      id: 'stats',
-      label: 'Stats',
-      icon: BarChart3,
-      items: [
         { href: '#', label: 'Leaderboard', icon: Trophy, disabled: true },
         { href: '#', label: 'Individual Stats', icon: BarChart3, disabled: true },
       ],
@@ -158,7 +155,7 @@
           <li>
             {#if isActive}
               <a
-                href={resolve(item.href)}
+                href={item.href}
                 class={getClasses(item.href)}
                 title={item.label}
                 style={getItemStyle(item.href, false)}
@@ -168,7 +165,7 @@
               </a>
             {:else}
               <a
-                href={resolve(item.href)}
+                href={item.href}
                 class={getClasses(item.href)}
                 title={item.label}
                 style="color: var(--text);"
@@ -316,7 +313,7 @@
           {@const Icon = item.icon}
           <li>
             <a
-              href={resolve(item.href)}
+              href={item.href}
               class={getClasses(item.href)}
               title={item.label}
               style={isActive ? getItemStyle(item.href, false) : 'color: var(--text);'}
