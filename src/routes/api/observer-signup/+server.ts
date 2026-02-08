@@ -40,20 +40,30 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       throw error(404, 'User profile not found. Please try logging out and back in.')
     }
 
-    // Insert or update observer registration (upsert)
-    const { error: upsertError } = await supabaseAdmin.from('observer_registration').upsert(
-      {
-        profile_id: profile.id,
-        has_previous_experience: hasPreviousExperience,
-        can_stream_quality: canStreamQuality,
-        willing_to_use_overlay: willingToUseOverlay,
-        additional_info: additionalInfo,
-        updated_at: new Date().toISOString(),
-      },
-      {
-        onConflict: 'profile_id',
-      }
-    )
+    const { data: existingObserverRegistration, error: existingObserverRegistrationError } =
+      await supabaseAdmin
+        .from('observer_registration')
+        .select('id')
+        .eq('profile_id', profile.id)
+        .maybeSingle()
+
+    if (existingObserverRegistrationError) {
+      throw error(500, 'Failed to validate existing observer registration')
+    }
+
+    if (existingObserverRegistration) {
+      throw error(409, 'You have already signed up as an observer')
+    }
+
+    // Insert observer registration (single submission)
+    const { error: upsertError } = await supabaseAdmin.from('observer_registration').insert({
+      profile_id: profile.id,
+      has_previous_experience: hasPreviousExperience,
+      can_stream_quality: canStreamQuality,
+      willing_to_use_overlay: willingToUseOverlay,
+      additional_info: additionalInfo,
+      updated_at: new Date().toISOString(),
+    })
 
     if (upsertError) {
       console.error('Upsert error:', upsertError)

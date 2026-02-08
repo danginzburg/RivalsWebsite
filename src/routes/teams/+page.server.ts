@@ -1,10 +1,11 @@
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { redirect } from '@sveltejs/kit'
 
 export const load = async ({ locals }: { locals: App.Locals }) => {
   if (!locals.user) {
     return {
       requiresLogin: true,
-      teams: [],
+      team: null,
     }
   }
 
@@ -17,13 +18,13 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
   if (!profile) {
     return {
       requiresLogin: true,
-      teams: [],
+      team: null,
     }
   }
 
   const { data: memberships, error: membershipsError } = await supabaseAdmin
     .from('team_memberships')
-    .select('team_id, role')
+    .select('team_id, role, joined_at')
     .eq('profile_id', profile.id)
     .eq('is_active', true)
     .is('left_at', null)
@@ -32,44 +33,59 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     console.error('Failed to load memberships:', membershipsError)
     return {
       requiresLogin: false,
-      teams: [],
+      team: null,
     }
   }
 
-  const teamIds = (memberships ?? []).map((membership) => membership.team_id)
+  const membershipRows = memberships ?? []
 
-  if (teamIds.length === 0) {
+  if (membershipRows.length === 0) {
     return {
       requiresLogin: false,
-      teams: [],
+      team: null,
     }
   }
 
-  const roleByTeamId = new Map(
-    (memberships ?? []).map((membership) => [membership.team_id, membership.role])
-  )
+  const sortedMemberships = [...membershipRows].sort((a, b) => {
+    const score = (role: string) => {
+      if (role === 'captain') return 3
+      if (role === 'manager') return 2
+      return 1
+    }
 
-  const { data: teams, error } = await supabaseAdmin
+    const roleDelta = score(b.role) - score(a.role)
+    if (roleDelta !== 0) return roleDelta
+    return new Date(b.joined_at ?? 0).getTime() - new Date(a.joined_at ?? 0).getTime()
+  })
+
+  const selectedMembership = sortedMemberships[0]
+
+  const { data: team, error } = await supabaseAdmin
     .from('teams')
     .select('id, name, tag, logo_path, created_at')
-    .in('id', teamIds)
-    .eq('approval_status', 'approved')
-    .order('name', { ascending: true })
+    .eq('id', selectedMembership.team_id)
+    .maybeSingle()
 
   if (error) {
-    console.error('Failed to load teams:', error)
+    console.error('Failed to load team:', error)
   }
 
-  const withLogo = (teams ?? []).map((team) => ({
-    ...team,
-    role: roleByTeamId.get(team.id) ?? 'player',
-    logo_url: team.logo_path
-      ? supabaseAdmin.storage.from('team-logos').getPublicUrl(team.logo_path).data.publicUrl
-      : null,
-  }))
+  const withLogo = team
+    ? {
+        ...team,
+        role: selectedMembership.role,
+        logo_url: team.logo_path
+          ? supabaseAdmin.storage.from('team-logos').getPublicUrl(team.logo_path).data.publicUrl
+          : null,
+      }
+    : null
+
+  if (withLogo) {
+    throw redirect(303, `/teams/${withLogo.id}`)
+  }
 
   return {
     requiresLogin: false,
-    teams: withLogo,
+    team: null,
   }
 }

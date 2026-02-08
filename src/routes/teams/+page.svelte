@@ -3,10 +3,18 @@
   import PageContainer from '$lib/components/PageContainer.svelte'
   import { Users, LogIn } from 'lucide-svelte'
 
+  type MyTeam = {
+    id: string
+    name: string
+    tag: string | null
+    role: string
+    logo_url: string | null
+  }
+
   let { data } = $props()
   const user = $derived($page.data.user)
   const requiresLogin = $derived(Boolean(data.requiresLogin))
-  const teams = $derived(data.teams ?? [])
+  const team = $derived<MyTeam | null>((data.team as MyTeam | null) ?? null)
 
   function handleLogin() {
     window.location.href = '/auth/login?returnTo=/teams'
@@ -38,45 +46,35 @@
               <span>Login</span>
             </button>
           </div>
-        {:else if teams.length === 0}
-          <p class="text-sm" style="color: rgba(255,255,255,0.75);">
-            You are not on any approved teams yet.
-          </p>
+        {:else if !team}
+          <p class="text-sm" style="color: rgba(255,255,255,0.75);">You are not on a team.</p>
         {:else}
-          <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
-            {#each teams as team}
-              <a
-                href={`/teams/${team.id}`}
-                class="flex items-center gap-3 rounded-md border p-3 hover:bg-white/5"
-                style="border-color: rgba(255,255,255,0.12);"
-              >
-                {#if team.logo_url}
-                  <img
-                    src={team.logo_url}
-                    alt="{team.name} logo"
-                    class="h-10 w-10 rounded object-contain"
-                  />
-                {:else}
-                  <div
-                    class="flex h-10 w-10 items-center justify-center rounded bg-white/10 text-xs"
-                  >
-                    N/A
-                  </div>
+          <a
+            href={`/teams/${team.id}`}
+            class="flex items-center gap-3 rounded-md border p-3 hover:bg-white/5"
+            style="border-color: rgba(255,255,255,0.12);"
+          >
+            {#if team.logo_url}
+              <img
+                src={team.logo_url}
+                alt="{team.name} logo"
+                class="h-10 w-10 rounded object-contain"
+              />
+            {:else}
+              <div class="flex h-10 w-10 items-center justify-center rounded bg-white/10 text-xs">
+                N/A
+              </div>
+            {/if}
+            <div class="min-w-0">
+              <div class="truncate text-sm font-semibold" style="color: var(--text);">
+                {team.name}
+                {#if team.tag}
+                  <span class="opacity-80"> [{team.tag}]</span>
                 {/if}
-                <div class="min-w-0">
-                  <div class="truncate text-sm font-semibold" style="color: var(--text);">
-                    {team.name}
-                    {#if team.tag}
-                      <span class="opacity-80"> [{team.tag}]</span>
-                    {/if}
-                  </div>
-                  <div class="text-xs" style="color: rgba(255,255,255,0.72);">
-                    Role: {team.role}
-                  </div>
-                </div>
-              </a>
-            {/each}
-          </div>
+              </div>
+              <div class="text-xs" style="color: rgba(255,255,255,0.72);">Role: {team.role}</div>
+            </div>
+          </a>
         {/if}
       </section>
     </div>

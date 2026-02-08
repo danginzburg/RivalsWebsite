@@ -19,6 +19,14 @@
     } | null
     approval_status: string
     approval_notes?: string | null
+    roster_count?: number
+    roster?: Array<{
+      profile_id: string
+      role: string
+      riot_id: string
+      display_name: string | null
+      email: string | null
+    }>
     profiles?: { id?: string; display_name?: string | null; email?: string | null }[] | null
     captain_profile?: { display_name?: string | null; email?: string | null } | null
   }
@@ -72,6 +80,36 @@
     tag: string
     logoPath: string
   } | null>(null)
+  let showActionConfirmation = $state(false)
+  let pendingActionConfirmation = $state<
+    | {
+        kind: 'remove_logo'
+        teamId: string
+        path: string
+        title: string
+        message: string
+        confirmLabel: string
+      }
+    | {
+        kind: 'remove_team'
+        teamId: string
+        teamName: string
+        title: string
+        message: string
+        confirmLabel: string
+      }
+    | {
+        kind: 'remove_player'
+        teamId: string
+        profileId: string
+        riotId: string
+        role: string
+        title: string
+        message: string
+        confirmLabel: string
+      }
+    | null
+  >(null)
 
   const rankOptions = TEAM_BALANCE_RANKS.map((rank) => rank.name)
   const rankSelectOptions = [
@@ -126,11 +164,13 @@
       return haystack.includes(search)
     })
   })
+
   const displayedApprovedTeams = $derived.by(() => {
     const search = normalizeSearchValue(teamsSearch)
     return approvedTeams.filter((team) => {
       if (!search) return true
-      const haystack = `${team.name ?? ''} ${team.tag ?? ''}`.toLowerCase()
+      const captain = profileLabel(team.captain_profile)
+      const haystack = `${team.name ?? ''} ${team.tag ?? ''} ${captain}`.toLowerCase()
       return haystack.includes(search)
     })
   })
@@ -147,13 +187,6 @@
 
     const single = profileRel as { display_name?: string | null; email?: string | null }
     return single.display_name || single.email || '—'
-  }
-
-  function flatProfileLabel(
-    profile?: { display_name?: string | null; email?: string | null } | null
-  ) {
-    if (!profile) return '—'
-    return profile.display_name || profile.email || '—'
   }
 
   async function refreshData() {
@@ -246,6 +279,8 @@
         u.id === pendingRoleChange!.userId ? { ...u, role: pendingRoleChange!.newRole } : u
       )
 
+      successMessage = `Updated ${pendingRoleChange.userName} to ${pendingRoleChange.newRole}.`
+
       showRoleConfirmation = false
       pendingRoleChange = null
     } catch (err) {
@@ -287,6 +322,7 @@
 
       teamQueue = teamQueue.filter((entry) => entry.id !== teamId)
       await refreshData()
+      successMessage = action === 'approve' ? `Approved team ${name}.` : `Rejected team ${name}.`
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Failed to moderate team'
     } finally {
@@ -325,9 +361,22 @@
     pendingTeamModeration = null
   }
 
-  async function removeTeamLogo(teamId: string, path: string) {
+  function removeTeamLogo(teamId: string, path: string) {
+    pendingActionConfirmation = {
+      kind: 'remove_logo',
+      teamId,
+      path,
+      title: 'Confirm Logo Removal',
+      message: 'Are you sure you want to remove this team logo?',
+      confirmLabel: 'Remove Logo',
+    }
+    showActionConfirmation = true
+  }
+
+  async function executeRemoveTeamLogo(teamId: string, path: string) {
     processingTeamId = teamId
     errorMessage = null
+    successMessage = null
 
     try {
       const response = await fetch('/api/admin/teams/logo', {
@@ -344,11 +393,133 @@
       teamQueue = teamQueue.map((entry) =>
         entry.id === teamId ? { ...entry, logo_path: null } : entry
       )
+      successMessage = 'Team logo removed.'
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Failed to remove logo'
     } finally {
       processingTeamId = null
     }
+  }
+
+  function removeApprovedTeam(teamId: string, teamName: string) {
+    pendingActionConfirmation = {
+      kind: 'remove_team',
+      teamId,
+      teamName,
+      title: 'Confirm Team Removal',
+      message: `Are you sure you want to remove approved team "${teamName}"? This will deactivate roster memberships.`,
+      confirmLabel: 'Remove Team',
+    }
+    showActionConfirmation = true
+  }
+
+  async function executeRemoveApprovedTeam(teamId: string, teamName: string) {
+    processingTeamId = teamId
+    errorMessage = null
+    successMessage = null
+
+    try {
+      const response = await fetch('/api/admin/teams/manage', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ teamId }),
+      })
+
+      const result = await response.json()
+      if (!response.ok) {
+        throw new Error(result.message || 'Failed to remove team')
+      }
+
+      approvedTeams = approvedTeams.filter((team) => team.id !== teamId)
+      successMessage = `Removed team ${teamName}.`
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to remove team'
+    } finally {
+      processingTeamId = null
+    }
+  }
+
+  function removeApprovedTeamPlayer(
+    teamId: string,
+    profileId: string,
+    riotId: string,
+    role: string
+  ) {
+    const label = role === 'captain' ? `${riotId} (captain)` : riotId
+    pendingActionConfirmation = {
+      kind: 'remove_player',
+      teamId,
+      profileId,
+      riotId,
+      role,
+      title: 'Confirm Player Removal',
+      message: `Are you sure you want to remove ${label} from this team?`,
+      confirmLabel: 'Remove Player',
+    }
+    showActionConfirmation = true
+  }
+
+  async function executeRemoveApprovedTeamPlayer(
+    teamId: string,
+    profileId: string,
+    riotId: string
+  ) {
+    processingTeamId = teamId
+    errorMessage = null
+    successMessage = null
+
+    try {
+      const response = await fetch('/api/admin/teams/manage', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ teamId, profileId }),
+      })
+
+      const result = await response.json()
+      if (!response.ok) {
+        throw new Error(result.message || 'Failed to remove player')
+      }
+
+      approvedTeams = approvedTeams.map((team) => {
+        if (team.id !== teamId) return team
+        const nextRoster = (team.roster ?? []).filter((player) => player.profile_id !== profileId)
+        return {
+          ...team,
+          roster: nextRoster,
+          roster_count: Math.max(0, (team.roster_count ?? 0) - 1),
+        }
+      })
+      successMessage = `Removed ${riotId} from team.`
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to remove player'
+    } finally {
+      processingTeamId = null
+    }
+  }
+
+  function cancelActionConfirmation() {
+    showActionConfirmation = false
+    pendingActionConfirmation = null
+  }
+
+  async function confirmActionConfirmation() {
+    if (!pendingActionConfirmation) return
+
+    const action = pendingActionConfirmation
+    showActionConfirmation = false
+    pendingActionConfirmation = null
+
+    if (action.kind === 'remove_logo') {
+      await executeRemoveTeamLogo(action.teamId, action.path)
+      return
+    }
+
+    if (action.kind === 'remove_team') {
+      await executeRemoveApprovedTeam(action.teamId, action.teamName)
+      return
+    }
+
+    await executeRemoveApprovedTeamPlayer(action.teamId, action.profileId, action.riotId)
   }
 
   async function updatePlayerRank(registrationId: number, rankLabel: string) {
@@ -419,7 +590,7 @@
         <Shield size={48} style="color: var(--text);" class="mb-4" />
         <h1 class="responsive-title mb-2 text-center">Admin Dashboard</h1>
         <p class="responsive-text text-center" style="color: var(--text);">
-          Manage player and observer registrations
+          Manage everything from one place
         </p>
       </div>
 
@@ -788,197 +959,208 @@
           {/if}
 
           {#if activeTab === 'teams'}
-            {#if teamQueue.length === 0}
-              <div class="py-10 text-center" style="color: rgba(255,255,255,0.72);">
-                No pending team submissions.
-              </div>
-            {:else}
-              <input
-                bind:value={teamsSearch}
-                placeholder="Search teams by name, tag, submitter"
-                class="mb-3 w-full rounded-md border px-3 py-2 text-sm"
-                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-              />
-              <div class="flex flex-col gap-4">
-                {#each displayedTeamQueue as team}
-                  <form
-                    class="rounded-lg border p-4"
-                    style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
-                    onsubmit={(e) => {
-                      e.preventDefault()
-                      const form = e.currentTarget as HTMLFormElement
-                      const fields = new FormData(form)
-                      requestTeamModeration(
-                        team.id,
-                        'approve',
-                        String(fields.get('notes') ?? ''),
-                        String(fields.get('name') ?? ''),
-                        String(fields.get('tag') ?? ''),
-                        String(fields.get('logoPath') ?? '')
-                      )
-                    }}
-                  >
-                    <div
-                      class="mb-3 flex flex-col justify-between gap-2 sm:flex-row sm:items-start"
+            <input
+              bind:value={teamsSearch}
+              placeholder="Search teams by name, tag, captain"
+              class="mb-3 w-full rounded-md border px-3 py-2 text-sm"
+              style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+            />
+
+            <div class="mb-6 rounded-md border p-3" style="border-color: rgba(255,255,255,0.12);">
+              <h3
+                class="mb-3 text-sm font-semibold tracking-wide uppercase"
+                style="color: rgba(255,255,255,0.8);"
+              >
+                Team Queue ({displayedTeamQueue.length})
+              </h3>
+              {#if displayedTeamQueue.length === 0}
+                <div class="py-6 text-center text-sm" style="color: rgba(255,255,255,0.72);">
+                  No pending team submissions.
+                </div>
+              {:else}
+                <div class="flex flex-col gap-4">
+                  {#each displayedTeamQueue as team}
+                    <form
+                      class="rounded-lg border p-4"
+                      style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
+                      onsubmit={(e) => {
+                        e.preventDefault()
+                        const form = e.currentTarget as HTMLFormElement
+                        const fields = new FormData(form)
+                        requestTeamModeration(
+                          team.id,
+                          'approve',
+                          String(fields.get('notes') ?? ''),
+                          String(fields.get('name') ?? ''),
+                          String(fields.get('tag') ?? ''),
+                          String(fields.get('logoPath') ?? '')
+                        )
+                      }}
                     >
-                      <div>
-                        <h3 class="text-lg font-bold" style="color: var(--title);">{team.name}</h3>
-                        <p class="text-sm" style="color: rgba(255,255,255,0.75);">
-                          Submitted by {team.profiles?.[0]?.display_name ||
-                            team.profiles?.[0]?.email ||
-                            'Unknown user'}
-                        </p>
-                      </div>
-                      <span
-                        class="w-fit rounded-full px-2 py-1 text-xs font-bold tracking-wide uppercase"
-                        style="background: rgba(250, 204, 21, 0.2); color: #facc15;"
-                      >
-                        {team.approval_status}
-                      </span>
-                    </div>
-
-                    <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
-                      <label class="flex flex-col gap-1 text-sm" style="color: var(--text);">
-                        Team Name
-                        <input
-                          name="name"
-                          value={team.name}
-                          required
-                          minlength="2"
-                          maxlength="48"
-                          class="rounded-md border px-3 py-2"
-                          style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-                        />
-                      </label>
-                      <label class="flex flex-col gap-1 text-sm" style="color: var(--text);">
-                        Tag
-                        <input
-                          name="tag"
-                          value={team.tag ?? ''}
-                          maxlength="4"
-                          minlength="2"
-                          required
-                          class="rounded-md border px-3 py-2"
-                          style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-                        />
-                      </label>
-                      <label class="flex flex-col gap-1 text-sm" style="color: var(--text);">
-                        Logo Path
-                        <input
-                          name="logoPath"
-                          value={team.logo_path ?? ''}
-                          maxlength="255"
-                          class="rounded-md border px-3 py-2"
-                          style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-                        />
-                      </label>
-                    </div>
-
-                    {#if team.logo_path}
                       <div
-                        class="mt-3 flex items-center gap-2 rounded-md border p-2"
-                        style="border-color: rgba(255,255,255,0.18);"
+                        class="mb-3 flex flex-col justify-between gap-2 sm:flex-row sm:items-start"
                       >
-                        {#if team.logo_url}
-                          <img
-                            src={team.logo_url}
-                            alt="Team logo"
-                            class="h-10 w-10 rounded object-contain"
-                          />
-                        {/if}
-                        <div class="text-xs break-all" style="color: rgba(255,255,255,0.8);">
-                          {team.logo_path}
+                        <div>
+                          <h3 class="text-lg font-bold" style="color: var(--title);">
+                            {team.name}
+                          </h3>
+                          <p class="text-sm" style="color: rgba(255,255,255,0.75);">
+                            Submitted by {team.profiles?.[0]?.display_name ||
+                              team.profiles?.[0]?.email ||
+                              'Unknown user'}
+                          </p>
                         </div>
+                        <span
+                          class="w-fit rounded-full px-2 py-1 text-xs font-bold tracking-wide uppercase"
+                          style="background: rgba(250, 204, 21, 0.2); color: #facc15;"
+                        >
+                          {team.approval_status}
+                        </span>
+                      </div>
+
+                      <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                        <label class="flex flex-col gap-1 text-sm" style="color: var(--text);">
+                          Team Name
+                          <input
+                            name="name"
+                            value={team.name}
+                            required
+                            minlength="2"
+                            maxlength="48"
+                            class="rounded-md border px-3 py-2"
+                            style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                          />
+                        </label>
+                        <label class="flex flex-col gap-1 text-sm" style="color: var(--text);">
+                          Tag
+                          <input
+                            name="tag"
+                            value={team.tag ?? ''}
+                            maxlength="4"
+                            minlength="2"
+                            required
+                            class="rounded-md border px-3 py-2"
+                            style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                          />
+                        </label>
+                        <label class="flex flex-col gap-1 text-sm" style="color: var(--text);">
+                          Logo Path
+                          <input
+                            name="logoPath"
+                            value={team.logo_path ?? ''}
+                            maxlength="255"
+                            class="rounded-md border px-3 py-2"
+                            style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                          />
+                        </label>
+                      </div>
+
+                      {#if team.logo_path}
+                        <div
+                          class="mt-3 flex items-center gap-2 rounded-md border p-2"
+                          style="border-color: rgba(255,255,255,0.18);"
+                        >
+                          {#if team.logo_url}
+                            <img
+                              src={team.logo_url}
+                              alt="Team logo"
+                              class="h-10 w-10 rounded object-contain"
+                            />
+                          {/if}
+                          <div class="text-xs break-all" style="color: rgba(255,255,255,0.8);">
+                            {team.logo_path}
+                          </div>
+                          <button
+                            type="button"
+                            class="ml-auto rounded-md px-2 py-1 text-xs font-semibold"
+                            style="background: rgba(185,28,28,0.25); color: #f87171;"
+                            onclick={() => removeTeamLogo(team.id, team.logo_path!)}
+                            disabled={processingTeamId === team.id}
+                          >
+                            Remove Logo
+                          </button>
+                        </div>
+                      {/if}
+
+                      {#if (team.metadata?.initial_roster ?? []).length > 0}
+                        <div
+                          class="mt-3 rounded-md border p-2"
+                          style="border-color: rgba(255,255,255,0.18);"
+                        >
+                          <div
+                            class="mb-2 text-xs font-semibold tracking-wide uppercase"
+                            style="color: rgba(255,255,255,0.75);"
+                          >
+                            Proposed Players
+                          </div>
+                          <div class="flex flex-wrap gap-2">
+                            {#each team.metadata?.initial_roster ?? [] as player}
+                              <span
+                                class="rounded-full px-2 py-1 text-xs"
+                                style="background: rgba(255,255,255,0.08); color: var(--text);"
+                              >
+                                {player.riot_id || 'Unknown'}
+                                {#if player.rank_label}
+                                  <span class="opacity-70"> - {player.rank_label}</span>
+                                {/if}
+                              </span>
+                            {/each}
+                          </div>
+                        </div>
+                      {/if}
+
+                      <label class="mt-3 flex flex-col gap-1 text-sm" style="color: var(--text);">
+                        Moderation Notes
+                        <textarea
+                          name="notes"
+                          rows="3"
+                          class="rounded-md border px-3 py-2"
+                          style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                          placeholder="Reason for decision or required edits."
+                        ></textarea>
+                      </label>
+
+                      <div class="mt-3 flex gap-2">
                         <button
-                          type="button"
-                          class="ml-auto rounded-md px-2 py-1 text-xs font-semibold"
-                          style="background: rgba(185,28,28,0.25); color: #f87171;"
-                          onclick={() => removeTeamLogo(team.id, team.logo_path!)}
+                          type="submit"
+                          class="inline-flex items-center gap-1 rounded-md px-3 py-2 font-bold text-white"
+                          style="background: #15803d;"
                           disabled={processingTeamId === team.id}
                         >
-                          Remove Logo
+                          <Check size={16} />
+                          Approve
+                        </button>
+                        <button
+                          type="button"
+                          class="inline-flex items-center gap-1 rounded-md px-3 py-2 font-bold text-white"
+                          style="background: #b91c1c;"
+                          disabled={processingTeamId === team.id}
+                          onclick={(e) => {
+                            const form = (e.currentTarget as HTMLElement).closest(
+                              'form'
+                            ) as HTMLFormElement
+                            const fields = new FormData(form)
+                            requestTeamModeration(
+                              team.id,
+                              'reject',
+                              String(fields.get('notes') ?? ''),
+                              String(fields.get('name') ?? ''),
+                              String(fields.get('tag') ?? ''),
+                              String(fields.get('logoPath') ?? '')
+                            )
+                          }}
+                        >
+                          <X size={16} />
+                          Reject
                         </button>
                       </div>
-                    {/if}
+                    </form>
+                  {/each}
+                </div>
+              {/if}
+            </div>
 
-                    {#if (team.metadata?.initial_roster ?? []).length > 0}
-                      <div
-                        class="mt-3 rounded-md border p-2"
-                        style="border-color: rgba(255,255,255,0.18);"
-                      >
-                        <div
-                          class="mb-2 text-xs font-semibold tracking-wide uppercase"
-                          style="color: rgba(255,255,255,0.75);"
-                        >
-                          Proposed Players
-                        </div>
-                        <div class="flex flex-wrap gap-2">
-                          {#each team.metadata?.initial_roster ?? [] as player}
-                            <span
-                              class="rounded-full px-2 py-1 text-xs"
-                              style="background: rgba(255,255,255,0.08); color: var(--text);"
-                            >
-                              {player.riot_id || 'Unknown'}
-                              {#if player.rank_label}
-                                <span class="opacity-70"> - {player.rank_label}</span>
-                              {/if}
-                            </span>
-                          {/each}
-                        </div>
-                      </div>
-                    {/if}
-
-                    <label class="mt-3 flex flex-col gap-1 text-sm" style="color: var(--text);">
-                      Moderation Notes
-                      <textarea
-                        name="notes"
-                        rows="3"
-                        class="rounded-md border px-3 py-2"
-                        style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-                        placeholder="Reason for decision or required edits."
-                      ></textarea>
-                    </label>
-
-                    <div class="mt-3 flex gap-2">
-                      <button
-                        type="submit"
-                        class="inline-flex items-center gap-1 rounded-md px-3 py-2 font-bold text-white"
-                        style="background: #15803d;"
-                        disabled={processingTeamId === team.id}
-                      >
-                        <Check size={16} />
-                        Approve
-                      </button>
-                      <button
-                        type="button"
-                        class="inline-flex items-center gap-1 rounded-md px-3 py-2 font-bold text-white"
-                        style="background: #b91c1c;"
-                        disabled={processingTeamId === team.id}
-                        onclick={(e) => {
-                          const form = (e.currentTarget as HTMLElement).closest(
-                            'form'
-                          ) as HTMLFormElement
-                          const fields = new FormData(form)
-                          requestTeamModeration(
-                            team.id,
-                            'reject',
-                            String(fields.get('notes') ?? ''),
-                            String(fields.get('name') ?? ''),
-                            String(fields.get('tag') ?? ''),
-                            String(fields.get('logoPath') ?? '')
-                          )
-                        }}
-                      >
-                        <X size={16} />
-                        Reject
-                      </button>
-                    </div>
-                  </form>
-                {/each}
-              </div>
-            {/if}
-
-            <div class="mt-6 rounded-md border p-3" style="border-color: rgba(255,255,255,0.12);">
+            <div class="rounded-md border p-3" style="border-color: rgba(255,255,255,0.12);">
               <h3
                 class="mb-3 text-sm font-semibold tracking-wide uppercase"
                 style="color: rgba(255,255,255,0.8);"
@@ -986,40 +1168,116 @@
                 Approved Teams ({displayedApprovedTeams.length})
               </h3>
               {#if displayedApprovedTeams.length === 0}
-                <div class="text-sm" style="color: rgba(255,255,255,0.65);">
+                <div class="py-6 text-center text-sm" style="color: rgba(255,255,255,0.72);">
                   No approved teams yet.
                 </div>
               {:else}
-                <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
-                  {#each displayedApprovedTeams as approvedTeam}
-                    <div
-                      class="flex items-center gap-2 rounded-md border p-2"
+                <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  {#each displayedApprovedTeams as team}
+                    <article
+                      class="rounded-lg border p-3"
                       style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
                     >
-                      {#if approvedTeam.logo_url}
-                        <img
-                          src={approvedTeam.logo_url}
-                          alt="Team logo"
-                          class="h-8 w-8 rounded object-contain"
-                        />
-                      {/if}
-                      <div class="min-w-0">
-                        <div class="truncate text-sm font-semibold" style="color: var(--text);">
-                          <a href={`/teams/${approvedTeam.id}`} class="hover:underline">
-                            {approvedTeam.name}
-                            {#if approvedTeam.tag}
-                              <span class="opacity-80"> [{approvedTeam.tag}]</span>
+                      <div class="mb-2 flex items-center gap-3">
+                        {#if team.logo_url}
+                          <img
+                            src={team.logo_url}
+                            alt="Team logo"
+                            class="h-10 w-10 rounded object-contain"
+                          />
+                        {:else}
+                          <div
+                            class="flex h-10 w-10 items-center justify-center rounded bg-white/10 text-xs"
+                          >
+                            N/A
+                          </div>
+                        {/if}
+                        <div class="min-w-0">
+                          <div class="truncate text-sm font-semibold" style="color: var(--text);">
+                            {team.name}
+                            {#if team.tag}
+                              <span class="opacity-80"> [{team.tag}]</span>
                             {/if}
-                          </a>
-                        </div>
-                        <div class="text-xs" style="color: rgba(255,255,255,0.72);">
-                          Creator: {profileLabel(approvedTeam.profiles)}
-                        </div>
-                        <div class="text-xs" style="color: rgba(255,255,255,0.72);">
-                          Captain: {flatProfileLabel(approvedTeam.captain_profile)}
+                          </div>
+                          <div class="text-xs" style="color: rgba(255,255,255,0.72);">
+                            Roster: {team.roster_count ?? 0}
+                          </div>
                         </div>
                       </div>
-                    </div>
+
+                      <div class="space-y-1 text-xs" style="color: rgba(255,255,255,0.8);">
+                        <div>Captain: {profileLabel(team.captain_profile)}</div>
+                      </div>
+
+                      {#if (team.roster ?? []).length > 0}
+                        <div
+                          class="mt-3 rounded-md border p-2"
+                          style="border-color: rgba(255,255,255,0.12);"
+                        >
+                          <div
+                            class="mb-2 text-[11px] font-semibold tracking-wide uppercase"
+                            style="color: rgba(255,255,255,0.7);"
+                          >
+                            Team Players
+                          </div>
+                          <div class="flex flex-col gap-1">
+                            {#each team.roster ?? [] as player}
+                              <div
+                                class="flex items-center justify-between gap-2 rounded px-2 py-1"
+                                style="background: rgba(255,255,255,0.05);"
+                              >
+                                <div class="min-w-0 text-xs" style="color: var(--text);">
+                                  <span class="font-semibold">{player.riot_id}</span>
+                                  <span class="opacity-75"> - {profileLabel(player)}</span>
+                                  {#if player.role === 'captain'}
+                                    <span
+                                      class="ml-2 rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase"
+                                      style="background: rgba(250,204,21,0.2); color: #fde68a;"
+                                    >
+                                      Captain
+                                    </span>
+                                  {/if}
+                                </div>
+                                <button
+                                  type="button"
+                                  class="rounded px-2 py-1 text-[11px] font-semibold"
+                                  style="background: rgba(248,113,113,0.2); color: #f87171;"
+                                  disabled={processingTeamId === team.id}
+                                  onclick={() =>
+                                    removeApprovedTeamPlayer(
+                                      team.id,
+                                      player.profile_id,
+                                      player.riot_id,
+                                      player.role
+                                    )}
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            {/each}
+                          </div>
+                        </div>
+                      {/if}
+
+                      <div class="mt-3 flex justify-end gap-2">
+                        <button
+                          type="button"
+                          class="rounded-md px-3 py-2 text-xs font-semibold"
+                          style="background: rgba(248,113,113,0.2); color: #f87171;"
+                          disabled={processingTeamId === team.id}
+                          onclick={() => removeApprovedTeam(team.id, team.name)}
+                        >
+                          Remove Team
+                        </button>
+                        <a
+                          href={`/teams/${team.id}`}
+                          class="rounded-md px-3 py-2 text-xs font-semibold"
+                          style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+                        >
+                          Open Team Page
+                        </a>
+                      </div>
+                    </article>
                   {/each}
                 </div>
               {/if}
@@ -1145,6 +1403,40 @@
             disabled={processingTeamId === pendingTeamModeration.teamId}
           >
             {processingTeamId === pendingTeamModeration.teamId ? 'Applying...' : 'Confirm'}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  {#if showActionConfirmation && pendingActionConfirmation}
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+      <div
+        class="w-full max-w-md rounded-lg border p-6 text-center"
+        style="border-color: rgba(255, 255, 255, 0.2); background: var(--secondary-background);"
+      >
+        <h3 class="mb-3 text-xl font-bold" style="color: var(--title);">
+          {pendingActionConfirmation.title}
+        </h3>
+        <p class="mb-5 text-sm" style="color: var(--text);">
+          {pendingActionConfirmation.message}
+        </p>
+        <div class="flex justify-center gap-3">
+          <button
+            type="button"
+            class="rounded-md border px-4 py-2"
+            style="border-color: rgba(255,255,255,0.2); color: var(--text);"
+            onclick={cancelActionConfirmation}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="rounded-md px-4 py-2 font-semibold"
+            style="background: var(--accent); color: var(--text);"
+            onclick={confirmActionConfirmation}
+          >
+            {pendingActionConfirmation.confirmLabel}
           </button>
         </div>
       </div>

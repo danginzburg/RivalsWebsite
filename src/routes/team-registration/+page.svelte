@@ -43,7 +43,7 @@
 
   let { data } = $props()
   const user = $derived($page.data.user)
-  const pageNotice = $derived($page.url.searchParams.get('notice'))
+  const hasActiveMembership = $derived(Boolean(data.hasActiveMembership))
 
   const getInitialMySubmissions = () => data.mySubmissions ?? []
   const getInitialRegisteredPlayers = () => data.registeredPlayers ?? []
@@ -181,9 +181,52 @@
   const previewTopFiveAverage = $derived(
     computeTopFiveAverage(previewRosterPlayers.map((player) => player.rank_label))
   )
-  const hasApprovedSubmission = $derived(
-    mySubmissions.some((submission) => submission.approval_status === 'approved')
-  )
+  const myTeams = $derived.by(() => {
+    const created = mySubmissions.map((submission) => ({
+      id: `created-${submission.id}`,
+      teamName: submission.name,
+      teamTag: submission.tag,
+      source: 'created' as const,
+      status: approvalLabel(submission.approval_status),
+      statusTone:
+        submission.approval_status === 'approved'
+          ? 'approved'
+          : submission.approval_status === 'rejected'
+            ? 'rejected'
+            : 'pending',
+    }))
+
+    const invited = invites.map((invite) => {
+      const team = invite.teams?.[0]
+      const approvalStatus = team?.approval_status ?? 'pending'
+      const inviteStatus = invite.status
+
+      let status = 'Pending'
+      let statusTone: 'approved' | 'rejected' | 'pending' = 'pending'
+
+      if (approvalStatus === 'approved' && inviteStatus === 'accepted') {
+        status = 'Approved - Accepted'
+        statusTone = 'approved'
+      } else if (inviteStatus === 'accepted') {
+        status = 'Accepted - Awaiting Approval'
+      } else if (inviteStatus === 'pending') {
+        status = 'Invite Pending'
+      }
+
+      return {
+        id: `invite-${invite.id}`,
+        inviteId: invite.id,
+        inviteStatus,
+        teamName: team?.name ?? 'Unknown Team',
+        teamTag: team?.tag ?? null,
+        source: 'invited' as const,
+        status,
+        statusTone,
+      }
+    })
+
+    return [...created, ...invited]
+  })
   const previewCurrentAverage = $derived.by(() => {
     if (previewRosterPlayers.length === 0) return null
     const total = previewRosterPlayers.reduce(
@@ -330,15 +373,6 @@
         </p>
       </div>
 
-      {#if pageNotice === 'already-registered'}
-        <div
-          class="mx-auto mb-4 w-full max-w-3xl rounded-md border px-4 py-3 text-sm"
-          style="border-color: rgba(96, 165, 250, 0.45); background: rgba(59, 130, 246, 0.12); color: #93c5fd;"
-        >
-          You have already completed player registration. Continue here with team actions.
-        </div>
-      {/if}
-
       <div class="grid grid-cols-1 gap-4">
         <section class="info-card info-card-surface mx-auto w-full max-w-3xl">
           <h2 class="mb-3 flex items-center gap-2 text-lg font-bold" style="color: var(--title);">
@@ -353,17 +387,17 @@
             <form
               onsubmit={(e) => {
                 e.preventDefault()
-                if (hasApprovedSubmission) return
+                if (hasActiveMembership) return
                 createTeam()
               }}
               class="flex flex-col gap-3"
             >
-              {#if hasApprovedSubmission}
+              {#if hasActiveMembership}
                 <div
                   class="rounded-md border px-3 py-2 text-sm"
                   style="border-color: rgba(250, 204, 21, 0.35); background: rgba(250, 204, 21, 0.12); color: #fde68a;"
                 >
-                  You already have an approved team. You cannot create another team.
+                  You already have an active team membership. You cannot create another team.
                 </div>
               {/if}
 
@@ -565,7 +599,7 @@
 
               <button
                 type="submit"
-                disabled={isSubmitting || !isRosterEligible || !logoPath || hasApprovedSubmission}
+                disabled={isSubmitting || !isRosterEligible || !logoPath || hasActiveMembership}
                 class="rounded-md px-4 py-2 font-bold transition-opacity disabled:cursor-not-allowed disabled:opacity-65"
                 style="background: var(--accent); color: var(--text);"
               >
@@ -573,37 +607,60 @@
               </button>
             </form>
 
-            {#if invites.length > 0}
+            {#if myTeams.length > 0}
               <div class="mt-4 flex flex-col gap-2">
                 <h3
                   class="mb-1 flex items-center gap-2 text-sm font-semibold"
                   style="color: var(--title);"
                 >
-                  <span>My Team Invites</span>
+                  <Clock3 size={16} />
+                  <span>My Teams</span>
                 </h3>
-                {#each invites as invite}
-                  {@const team = invite.teams?.[0]}
+                {#each myTeams as item}
                   <article
-                    class="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2"
+                    class="flex justify-between gap-3 rounded-lg border px-3 py-2"
                     style="border-color: rgba(255, 255, 255, 0.12); background: rgba(0, 0, 0, 0.2);"
                   >
-                    <div>
-                      <strong>{team?.name ?? 'Unknown Team'}</strong>
-                      {#if team?.tag}
-                        <span> [{team.tag}]</span>
+                    <div class="min-w-0">
+                      <strong>{item.teamName}</strong>
+                      {#if item.teamTag}
+                        <span> [{item.teamTag}]</span>
                       {/if}
-                      <div class="text-xs" style="color: rgba(255,255,255,0.7);">
-                        Team status: {team?.approval_status ?? 'pending'}
-                      </div>
+                      {#if item.source === 'invited'}
+                        <span
+                          class="ml-2 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase"
+                          style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+                        >
+                          Invited
+                        </span>
+                      {:else}
+                        <span
+                          class="ml-2 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase"
+                          style="background: rgba(255,255,255,0.14); color: rgba(255,255,255,0.8);"
+                        >
+                          Created
+                        </span>
+                      {/if}
                     </div>
                     <div class="flex items-center gap-2">
-                      {#if invite.status === 'pending'}
+                      <span
+                        class="self-center rounded-full px-2 py-1 text-xs font-bold"
+                        style={item.statusTone === 'approved'
+                          ? 'background: rgba(74, 222, 128, 0.2); color: #4ade80;'
+                          : item.statusTone === 'rejected'
+                            ? 'background: rgba(248, 113, 113, 0.2); color: #f87171;'
+                            : 'background: rgba(250, 204, 21, 0.18); color: #facc15;'}
+                      >
+                        {item.status}
+                      </span>
+
+                      {#if item.source === 'invited' && item.inviteStatus === 'pending' && item.inviteId}
                         <button
                           type="button"
                           class="rounded-md px-2 py-1 text-xs font-semibold"
                           style="background: rgba(74, 222, 128, 0.2); color: #4ade80;"
-                          disabled={processingInviteId === invite.id}
-                          onclick={() => respondToInvite(invite.id, 'accept')}
+                          disabled={processingInviteId === item.inviteId}
+                          onclick={() => respondToInvite(item.inviteId, 'accept')}
                         >
                           Accept
                         </button>
@@ -611,55 +668,13 @@
                           type="button"
                           class="rounded-md px-2 py-1 text-xs font-semibold"
                           style="background: rgba(248, 113, 113, 0.2); color: #f87171;"
-                          disabled={processingInviteId === invite.id}
-                          onclick={() => respondToInvite(invite.id, 'decline')}
+                          disabled={processingInviteId === item.inviteId}
+                          onclick={() => respondToInvite(item.inviteId, 'decline')}
                         >
                           Decline
                         </button>
-                      {:else}
-                        <span
-                          class="rounded-full px-2 py-1 text-xs font-bold"
-                          style="background: rgba(74, 222, 128, 0.2); color: #4ade80;"
-                        >
-                          Accepted
-                        </span>
                       {/if}
                     </div>
-                  </article>
-                {/each}
-              </div>
-            {/if}
-
-            {#if mySubmissions.length > 0}
-              <div class="mt-4 flex flex-col gap-2">
-                <h3
-                  class="mb-1 flex items-center gap-2 text-sm font-semibold"
-                  style="color: var(--title);"
-                >
-                  <Clock3 size={16} />
-                  <span>My Team Submissions</span>
-                </h3>
-                {#each mySubmissions as submission}
-                  <article
-                    class="flex justify-between gap-3 rounded-lg border px-3 py-2"
-                    style="border-color: rgba(255, 255, 255, 0.12); background: rgba(0, 0, 0, 0.2);"
-                  >
-                    <div>
-                      <strong>{submission.name}</strong>
-                      {#if submission.tag}
-                        <span> [{submission.tag}]</span>
-                      {/if}
-                    </div>
-                    <span
-                      class="self-center rounded-full px-2 py-1 text-xs font-bold"
-                      style={submission.approval_status === 'approved'
-                        ? 'background: rgba(74, 222, 128, 0.2); color: #4ade80;'
-                        : submission.approval_status === 'rejected'
-                          ? 'background: rgba(248, 113, 113, 0.2); color: #f87171;'
-                          : 'background: rgba(250, 204, 21, 0.18); color: #facc15;'}
-                    >
-                      {approvalLabel(submission.approval_status)}
-                    </span>
                   </article>
                 {/each}
               </div>

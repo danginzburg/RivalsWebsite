@@ -38,6 +38,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
 
   let mySubmissions: SubmissionRow[] = []
   let invites: InviteRow[] = []
+  let hasActiveMembership = false
 
   const { data: registeredPlayers, error: registeredPlayersError } = await supabaseAdmin
     .from('player_registration')
@@ -112,6 +113,16 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
         .order('created_at', { ascending: false })
 
       invites = inviteRows ?? []
+
+      const { data: membershipRow } = await supabaseAdmin
+        .from('team_memberships')
+        .select('id')
+        .eq('profile_id', profile.id)
+        .eq('is_active', true)
+        .is('left_at', null)
+        .maybeSingle()
+
+      hasActiveMembership = Boolean(membershipRow)
     }
   }
 
@@ -119,5 +130,6 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     mySubmissions,
     registeredPlayers: normalizedRegisteredPlayers,
     invites,
+    hasActiveMembership,
   }
 }

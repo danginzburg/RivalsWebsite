@@ -32,7 +32,7 @@ export const GET: RequestHandler = async ({ locals }) => {
       )
     `
     )
-    .in('approval_status', ['pending', 'rejected', 'approved'])
+    .in('approval_status', ['pending', 'approved'])
     .order('created_at', { ascending: false })
 
   if (fetchError) {
@@ -51,6 +51,16 @@ export const GET: RequestHandler = async ({ locals }) => {
     .map((team) => team.id)
 
   let captainMap = new Map<string, { display_name: string | null; email: string | null }>()
+  let rosterMap = new Map<
+    string,
+    Array<{
+      profile_id: string
+      role: string
+      riot_id: string
+      display_name: string | null
+      email: string | null
+    }>
+  >()
 
   if (approvedTeamIds.length > 0) {
     const { data: captainRows } = await supabaseAdmin
@@ -88,13 +98,60 @@ export const GET: RequestHandler = async ({ locals }) => {
     )
   }
 
+  const rosterCountMap = new Map<string, number>()
+  if (approvedTeamIds.length > 0) {
+    const { data: rosterRows } = await supabaseAdmin
+      .from('team_memberships')
+      .select(
+        `
+        team_id,
+        profile_id,
+        role,
+        player_registration!team_memberships_profile_id_fkey (
+          riot_id,
+          profiles!player_registration_profile_id_fkey (
+            display_name,
+            email
+          )
+        )
+      `
+      )
+      .in('team_id', approvedTeamIds)
+      .eq('is_active', true)
+      .is('left_at', null)
+
+    rosterMap = new Map()
+    for (const row of rosterRows ?? []) {
+      rosterCountMap.set(row.team_id, (rosterCountMap.get(row.team_id) ?? 0) + 1)
+
+      const reg = Array.isArray((row as any).player_registration)
+        ? (row as any).player_registration[0]
+        : (row as any).player_registration
+      const profileRel = Array.isArray(reg?.profiles) ? reg.profiles[0] : reg?.profiles
+
+      const rosterEntry = {
+        profile_id: row.profile_id,
+        role: row.role,
+        riot_id: reg?.riot_id ?? 'Unknown',
+        display_name: profileRel?.display_name ?? null,
+        email: profileRel?.email ?? null,
+      }
+
+      const current = rosterMap.get(row.team_id) ?? []
+      current.push(rosterEntry)
+      rosterMap.set(row.team_id, current)
+    }
+  }
+
   const decoratedTeams = teams.map((team) => ({
     ...team,
     captain_profile: captainMap.get(team.id) ?? null,
+    roster_count: rosterCountMap.get(team.id) ?? 0,
+    roster: rosterMap.get(team.id) ?? [],
   }))
 
   return json({
-    queue: decoratedTeams.filter((team) => team.approval_status !== 'approved'),
+    queue: decoratedTeams.filter((team) => team.approval_status === 'pending'),
     approved: decoratedTeams.filter((team) => team.approval_status === 'approved'),
   })
 }

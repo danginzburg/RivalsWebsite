@@ -3,7 +3,9 @@
   import PageContainer from '$lib/components/PageContainer.svelte'
   import { Video, LogIn } from 'lucide-svelte'
 
+  let { data } = $props()
   const user = $derived($page.data.user)
+  const hasObserverRegistration = $derived(Boolean(data.hasObserverRegistration))
 
   let hasPreviousExperience = $state('')
   let canStreamQuality = $state('')
@@ -102,6 +104,15 @@
             <LogIn size={18} />
             <span>Login to Continue</span>
           </button>
+        </div>
+      {:else if hasObserverRegistration}
+        <div class="info-card info-card-surface p-8 text-center">
+          <p class="text-lg font-semibold" style="color: var(--title);">
+            You're already signed up.
+          </p>
+          <p class="mt-2 text-sm" style="color: rgba(255,255,255,0.78);">
+            Your observer application has already been submitted.
+          </p>
         </div>
       {:else}
         <div class="relative">

@@ -47,7 +47,7 @@
       icon: Trophy,
       title: 'Map Rotation + Leaderboard',
       description: 'Map rotation details and current team standings.',
-      href: 'https://docs.google.com/spreadsheets/d/15BLavKUxCIeDAup3GF4iaDrXqegFhGU2Cudyp55W4Ds/edit?gid=1220692241#gid=1220692241',
+      href: '#',
     },
     {
       icon: Calculator,
@@ -59,7 +59,7 @@
       icon: BarChart3,
       title: 'Individual player stats',
       description: 'Detailed statistics for individual player performance.',
-      href: 'https://docs.google.com/spreadsheets/d/19kOEPepeyCWeo9QGhJkSJ_k6OaIxONUuh2CW6jdPMjg/edit?gid=1886421648#gid=1886421648',
+      href: '#',
     },
     {
       icon: Calendar,
@@ -72,7 +72,7 @@
       title: 'Feedback Forms',
       description:
         'We value your feedback! Share your thoughts and suggestions to help us improve Throw City Rivals.',
-      href: 'https://docs.google.com/forms/d/e/1FAIpQLSeIIzM-gTC2H90YxnQmW16Lx0BEQpcQ5av2gT64R6KhLDgisA/viewform',
+      href: '#',
     },
     {
       icon: Video,

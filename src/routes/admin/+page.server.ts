@@ -82,7 +82,7 @@ export const load: PageServerLoad = async ({ locals }) => {
     console.error('Error fetching users:', usersError)
   }
 
-  // Fetch pending/rejected team moderation queue
+  // Fetch pending team moderation queue
   const { data: teamQueue, error: teamQueueError } = await supabaseAdmin
     .from('teams')
     .select(
@@ -102,14 +102,14 @@ export const load: PageServerLoad = async ({ locals }) => {
       )
     `
     )
-    .in('approval_status', ['pending', 'rejected'])
+    .eq('approval_status', 'pending')
     .order('created_at', { ascending: false })
 
   if (teamQueueError) {
     console.error('Error fetching team queue:', teamQueueError)
   }
 
-  // Fetch approved teams list
+  // Fetch approved teams for dedicated admin section
   const { data: approvedTeams, error: approvedTeamsError } = await supabaseAdmin
     .from('teams')
     .select(
@@ -118,14 +118,8 @@ export const load: PageServerLoad = async ({ locals }) => {
       name,
       tag,
       logo_path,
-      metadata,
       approval_status,
       created_at
-      ,profiles!teams_submitted_by_profile_id_fkey (
-        id,
-        display_name,
-        email
-      )
     `
     )
     .eq('approval_status', 'approved')
@@ -136,10 +130,21 @@ export const load: PageServerLoad = async ({ locals }) => {
   }
 
   const approvedTeamIds = (approvedTeams ?? []).map((team) => team.id)
-  let captainMap = new Map<string, { display_name: string | null; email: string | null }>()
+  let approvedCaptainMap = new Map<string, { display_name: string | null; email: string | null }>()
+  let approvedRosterCountMap = new Map<string, number>()
+  let approvedRosterMap = new Map<
+    string,
+    Array<{
+      profile_id: string
+      role: string
+      riot_id: string
+      display_name: string | null
+      email: string | null
+    }>
+  >()
 
   if (approvedTeamIds.length > 0) {
-    const { data: captainRows, error: captainRowsError } = await supabaseAdmin
+    const { data: captainRows } = await supabaseAdmin
       .from('team_memberships')
       .select(
         `
@@ -157,24 +162,63 @@ export const load: PageServerLoad = async ({ locals }) => {
       .eq('is_active', true)
       .is('left_at', null)
 
-    if (captainRowsError) {
-      console.error('Error fetching approved team captains:', captainRowsError)
-    } else {
-      captainMap = new Map(
-        (captainRows ?? []).map((row: any) => {
-          const rel = Array.isArray(row.player_registration)
-            ? row.player_registration[0]
-            : row.player_registration
-          const profileRel = Array.isArray(rel?.profiles) ? rel.profiles[0] : rel?.profiles
-          return [
-            row.team_id,
-            {
-              display_name: profileRel?.display_name ?? null,
-              email: profileRel?.email ?? null,
-            },
-          ]
-        })
+    approvedCaptainMap = new Map(
+      (captainRows ?? []).map((row: any) => {
+        const reg = Array.isArray(row.player_registration)
+          ? row.player_registration[0]
+          : row.player_registration
+        const profileRel = Array.isArray(reg?.profiles) ? reg.profiles[0] : reg?.profiles
+        return [
+          row.team_id,
+          {
+            display_name: profileRel?.display_name ?? null,
+            email: profileRel?.email ?? null,
+          },
+        ]
+      })
+    )
+
+    const { data: rosterRows } = await supabaseAdmin
+      .from('team_memberships')
+      .select(
+        `
+        team_id,
+        profile_id,
+        role,
+        player_registration!team_memberships_profile_id_fkey (
+          riot_id,
+          profiles!player_registration_profile_id_fkey (
+            display_name,
+            email
+          )
+        )
+      `
       )
+      .in('team_id', approvedTeamIds)
+      .eq('is_active', true)
+      .is('left_at', null)
+
+    approvedRosterCountMap = new Map<string, number>()
+    approvedRosterMap = new Map()
+    for (const row of rosterRows ?? []) {
+      approvedRosterCountMap.set(row.team_id, (approvedRosterCountMap.get(row.team_id) ?? 0) + 1)
+
+      const reg = Array.isArray((row as any).player_registration)
+        ? (row as any).player_registration[0]
+        : (row as any).player_registration
+      const profileRel = Array.isArray(reg?.profiles) ? reg.profiles[0] : reg?.profiles
+
+      const rosterEntry = {
+        profile_id: row.profile_id,
+        role: row.role,
+        riot_id: reg?.riot_id ?? 'Unknown',
+        display_name: profileRel?.display_name ?? null,
+        email: profileRel?.email ?? null,
+      }
+
+      const current = approvedRosterMap.get(row.team_id) ?? []
+      current.push(rosterEntry)
+      approvedRosterMap.set(row.team_id, current)
     }
   }
 
@@ -184,7 +228,9 @@ export const load: PageServerLoad = async ({ locals }) => {
       logo_url: team.logo_path
         ? supabaseAdmin.storage.from('team-logos').getPublicUrl(team.logo_path).data.publicUrl
         : null,
-      captain_profile: captainMap.get(team.id) ?? null,
+      captain_profile: approvedCaptainMap.get(team.id) ?? null,
+      roster_count: approvedRosterCountMap.get(team.id) ?? 0,
+      roster: approvedRosterMap.get(team.id) ?? [],
     }))
 
   return {

@@ -1,9 +1,7 @@
 <script lang="ts">
   import { page } from '$app/stores'
-  import { goto, invalidateAll } from '$app/navigation'
+  import { invalidateAll } from '$app/navigation'
   import {
-    House,
-    Search,
     Users,
     Menu,
     X,
@@ -24,16 +22,14 @@
 
   let isMobileMenuOpen = $state(false)
   let openDropdown = $state<string | null>(null)
+  let isBrandHovered = $state(false)
 
   // Get user from page data (set by +layout.server.ts)
   const user = $derived($page.data.user)
   const isAdmin = $derived(user?.role === 'admin')
 
   // Simple nav items (no dropdown)
-  const simpleNavItems = [
-    { href: '/', label: 'Home', icon: House },
-    { href: '/teams', label: 'Teams', icon: Users },
-  ]
+  const simpleNavItems = [{ href: '/teams', label: 'My Team', icon: Users }]
 
   // Dropdown menus
   const dropdownMenus = [
@@ -141,10 +137,21 @@
   <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
     <div class="flex h-16 items-center justify-between">
       <!-- Logo/Brand -->
-      <div class="flex items-center gap-3">
+      <a
+        href="/"
+        class="flex items-center gap-3"
+        style="color: var(--text);"
+        onmouseenter={() => (isBrandHovered = true)}
+        onmouseleave={() => (isBrandHovered = false)}
+      >
         <img src={rivalsLogo} alt="Throw City Rivals logo" class="h-10 w-10 object-contain" />
-        <h1 class="text-xl font-bold" style="color: var(--title);">Throw City Rivals</h1>
-      </div>
+        <h1
+          class="text-xl font-bold"
+          style={isBrandHovered ? 'color: var(--hover);' : 'color: var(--title);'}
+        >
+          Throw City Rivals
+        </h1>
+      </a>
 
       <!-- Desktop Navigation -->
       <ul class="hidden md:flex md:items-center md:space-x-1">
