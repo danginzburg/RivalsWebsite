@@ -1,5 +1,5 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit'
-import { requireProfile } from '$lib/server/auth/profile'
+import { assertCanParticipate, requireProfile } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { getActiveMemberships, isCaptainLike } from '$lib/server/teams/membership'
 
@@ -8,6 +8,10 @@ export const POST: RequestHandler = async ({ locals, params }) => {
   if (!teamId) throw error(400, 'Missing team id')
 
   const profile = await requireProfile(locals.user)
+
+  if (profile.role !== 'admin') {
+    assertCanParticipate(profile)
+  }
 
   const { data: team, error: teamError } = await supabaseAdmin
     .from('teams')

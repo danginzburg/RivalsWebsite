@@ -1,5 +1,5 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit'
-import { requireProfile } from '$lib/server/auth/profile'
+import { assertCanParticipate, requireProfile } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { getActiveMemberships, isCaptainLike } from '$lib/server/teams/membership'
 
@@ -11,6 +11,9 @@ function normalizeOptional(value: unknown): string | null {
 
 export const PATCH: RequestHandler = async ({ locals, request, params }) => {
   const profile = await requireProfile(locals.user)
+  if (profile.role !== 'admin') {
+    assertCanParticipate(profile)
+  }
   const proposalId = params.id
   const body = await request.json()
   const action = normalizeOptional(body.action)

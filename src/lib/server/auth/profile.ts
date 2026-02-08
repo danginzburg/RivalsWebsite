@@ -31,3 +31,13 @@ export async function requireAdmin(user: AuthUser | null) {
   }
   return profile
 }
+
+export function isRestrictedRole(role: string | null | undefined) {
+  return role === 'restricted' || role === 'banned'
+}
+
+export function assertCanParticipate(profile: { role?: string | null }) {
+  if (profile.role !== 'admin' && isRestrictedRole(profile.role)) {
+    throw error(403, 'Your account is restricted and cannot participate.')
+  }
+}

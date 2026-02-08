@@ -29,6 +29,7 @@ export const load: PageServerLoad = async ({ locals }) => {
     .select(
       `
       id,
+      profile_id,
       riot_id,
       rank_label,
       rank_value,
@@ -37,6 +38,7 @@ export const load: PageServerLoad = async ({ locals }) => {
       created_at,
       updated_at,
       profiles!player_registration_profile_id_fkey (
+        id,
         email,
         display_name
       )
@@ -54,6 +56,7 @@ export const load: PageServerLoad = async ({ locals }) => {
     .select(
       `
       id,
+      profile_id,
       has_previous_experience,
       can_stream_quality,
       willing_to_use_overlay,
@@ -61,6 +64,7 @@ export const load: PageServerLoad = async ({ locals }) => {
       created_at,
       updated_at,
       profiles (
+        id,
         email,
         display_name
       )

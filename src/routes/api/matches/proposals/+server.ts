@@ -1,5 +1,5 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit'
-import { requireProfile } from '$lib/server/auth/profile'
+import { assertCanParticipate, requireProfile } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { getActiveMemberships, isCaptainLike } from '$lib/server/teams/membership'
 
@@ -11,6 +11,11 @@ function normalizeOptional(value: unknown): string | null {
 
 export const GET: RequestHandler = async ({ locals }) => {
   const profile = await requireProfile(locals.user)
+
+  if (profile.role === 'restricted' || profile.role === 'banned') {
+    // Restricted users can still view nothing via this endpoint.
+    return json({ proposals: [] })
+  }
 
   const memberships = await getActiveMemberships(profile.id)
   const teamIds = memberships.map((m) => m.team_id)
@@ -62,6 +67,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 
 export const POST: RequestHandler = async ({ locals, request }) => {
   const profile = await requireProfile(locals.user)
+  assertCanParticipate(profile)
   const body = await request.json()
 
   const proposedByTeamId = normalizeOptional(body.proposedByTeamId)

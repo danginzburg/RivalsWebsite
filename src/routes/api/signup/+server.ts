@@ -34,6 +34,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       throw error(404, 'User profile not found. Please try logging out and back in.')
     }
 
+    if (profile.role === 'restricted' || profile.role === 'banned') {
+      throw error(403, 'Your account is restricted and cannot participate.')
+    }
+
     // Insert or update registration (upsert)
     const { error: upsertError } = await supabaseAdmin.from('player_registration').upsert(
       {

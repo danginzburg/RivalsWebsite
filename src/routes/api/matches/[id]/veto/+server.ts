@@ -1,5 +1,5 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit'
-import { requireProfile } from '$lib/server/auth/profile'
+import { assertCanParticipate, requireProfile } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { getActiveMemberships, isCaptainLike } from '$lib/server/teams/membership'
 import {
@@ -76,6 +76,7 @@ function computeNextStep(
 
 async function canActForTeam(profileId: string, role: string | undefined, teamId: string) {
   if (role === 'admin') return true
+  if (role === 'restricted' || role === 'banned') return false
   const memberships = await getActiveMemberships(profileId)
   return memberships.some((m) => m.team_id === teamId && isCaptainLike(m.role))
 }
@@ -104,6 +105,7 @@ export const POST: RequestHandler = async ({ locals, request, params }) => {
   if (!matchId) throw error(400, 'Missing match id')
 
   const profile = await requireProfile(locals.user)
+  assertCanParticipate(profile)
   const match = await loadApprovedMatch(matchId)
   const actions = await loadVetoActions(matchId)
 

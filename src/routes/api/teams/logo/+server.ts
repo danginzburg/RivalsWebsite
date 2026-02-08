@@ -1,6 +1,6 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
-import { requireProfile } from '$lib/server/auth/profile'
+import { assertCanParticipate, requireProfile } from '$lib/server/auth/profile'
 
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024
 const ALLOWED_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'])
@@ -11,6 +11,7 @@ function sanitizeFilename(filename: string): string {
 
 export const POST: RequestHandler = async ({ locals, request }) => {
   const profile = await requireProfile(locals.user)
+  assertCanParticipate(profile)
   const formData = await request.formData()
   const file = formData.get('file')
 

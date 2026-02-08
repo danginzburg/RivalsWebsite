@@ -1,5 +1,5 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit'
-import { requireProfile } from '$lib/server/auth/profile'
+import { assertCanParticipate, requireProfile } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { getActiveMemberships, isCaptainLike } from '$lib/server/teams/membership'
 
@@ -11,6 +11,7 @@ function normalizeOptional(value: unknown): string | null {
 
 async function canManageMatch(profileId: string, role: string | undefined, matchId: string) {
   if (role === 'admin') return true
+  if (role === 'restricted' || role === 'banned') return false
 
   const { data: match } = await supabaseAdmin
     .from('matches')
@@ -45,6 +46,7 @@ export const POST: RequestHandler = async ({ locals, request, params }) => {
   if (!matchId) throw error(400, 'Missing match id')
 
   const profile = await requireProfile(locals.user)
+  assertCanParticipate(profile)
   const allowed = await canManageMatch(profile.id, profile.role, matchId)
   if (!allowed) throw error(403, 'Only captains/managers or admins can manage streams')
 
@@ -85,6 +87,7 @@ export const PATCH: RequestHandler = async ({ locals, request, params }) => {
   if (!matchId) throw error(400, 'Missing match id')
 
   const profile = await requireProfile(locals.user)
+  assertCanParticipate(profile)
   const allowed = await canManageMatch(profile.id, profile.role, matchId)
   if (!allowed) throw error(403, 'Only captains/managers or admins can manage streams')
 
@@ -124,6 +127,7 @@ export const DELETE: RequestHandler = async ({ locals, request, params }) => {
   if (!matchId) throw error(400, 'Missing match id')
 
   const profile = await requireProfile(locals.user)
+  assertCanParticipate(profile)
   const allowed = await canManageMatch(profile.id, profile.role, matchId)
   if (!allowed) throw error(403, 'Only captains/managers or admins can manage streams')
 

@@ -24,6 +24,10 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
   if (!locals.user) throw redirect(303, `/auth/login?returnTo=/matches/${params.id}/streams`)
   const profile = await requireProfile(locals.user)
 
+  if (profile.role === 'restricted' || profile.role === 'banned') {
+    throw redirect(303, `/matches/${params.id}`)
+  }
+
   const allowed = await canManageMatch(profile.id, profile.role, params.id)
   if (!allowed) throw redirect(303, `/matches/${params.id}`)
 

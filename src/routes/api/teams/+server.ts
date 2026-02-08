@@ -1,6 +1,6 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
-import { requireProfile } from '$lib/server/auth/profile'
+import { assertCanParticipate, requireProfile } from '$lib/server/auth/profile'
 import {
   MAX_TEAM_AVERAGE,
   MAX_TEAM_PLAYERS,
@@ -31,6 +31,7 @@ export const GET: RequestHandler = async () => {
 
 export const POST: RequestHandler = async ({ locals, request }) => {
   const profile = await requireProfile(locals.user)
+  assertCanParticipate(profile)
   const body = await request.json()
 
   const name = normalizeOptional(body.name)
@@ -78,7 +79,17 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
   const { data: selectedPlayers, error: selectedPlayersError } = await supabaseAdmin
     .from('player_registration')
-    .select('profile_id, riot_id, rank_label')
+    .select(
+      `
+      profile_id,
+      riot_id,
+      rank_label,
+      profiles!player_registration_profile_id_fkey (
+        id,
+        role
+      )
+    `
+    )
     .in('profile_id', rosterProfileIds)
 
   if (selectedPlayersError) {
@@ -89,8 +100,18 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     throw error(400, 'One or more selected players are not registered')
   }
 
+  const rosterSnapshot = (selectedPlayers as any[]).map((p) => ({
+    profile_id: p.profile_id,
+    riot_id: p.riot_id,
+    rank_label: p.rank_label,
+  }))
+
   const validRankNames: string[] = TEAM_BALANCE_RANKS.map((r) => r.name)
-  for (const player of selectedPlayers) {
+  for (const player of selectedPlayers as any[]) {
+    const profileRel = Array.isArray(player.profiles) ? player.profiles[0] : player.profiles
+    if (profileRel?.role === 'restricted' || profileRel?.role === 'banned') {
+      throw error(400, `Player ${player.riot_id} is not eligible to participate`)
+    }
     if (!player.rank_label || !validRankNames.includes(player.rank_label)) {
       throw error(
         400,
@@ -99,7 +120,9 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     }
   }
 
-  const topFiveAverage = computeTopFiveAverage(selectedPlayers.map((player) => player.rank_label!))
+  const topFiveAverage = computeTopFiveAverage(
+    (selectedPlayers as any[]).map((player) => player.rank_label!)
+  )
   if (topFiveAverage > MAX_TEAM_AVERAGE) {
     throw error(
       400,
@@ -165,7 +188,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       approval_status: 'pending',
       submitted_by_profile_id: profile.id,
       metadata: {
-        initial_roster: selectedPlayers,
+        initial_roster: rosterSnapshot,
         coaches: {
           head_coach: headCoachName,
           assistant_coach: assistantCoachName,
@@ -195,7 +218,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     throw error(500, 'Failed to create captain membership for this team')
   }
 
-  const inviteRows = selectedPlayers
+  const inviteRows = rosterSnapshot
     .filter((player) => player.profile_id !== profile.id)
     .map((player) => ({
       team_id: team.id,

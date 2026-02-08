@@ -16,6 +16,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     rank_label: string
     display_name: string | null
     email: string | null
+    role?: string | null
   }
 
   type InviteRow = {
@@ -49,7 +50,8 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
       rank_label,
       profiles!player_registration_profile_id_fkey (
         display_name,
-        email
+        email,
+        role
       )
     `
     )
@@ -60,8 +62,8 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     console.error('Failed to load registered players:', registeredPlayersError)
   }
 
-  const normalizedRegisteredPlayers: RegisteredPlayerRow[] = (registeredPlayers ?? []).map(
-    (row) => {
+  const normalizedRegisteredPlayers: RegisteredPlayerRow[] = (registeredPlayers ?? [])
+    .map((row: any) => {
       const profileRel = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles
       return {
         profile_id: row.profile_id,
@@ -69,9 +71,10 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
         rank_label: row.rank_label,
         display_name: profileRel?.display_name ?? null,
         email: profileRel?.email ?? null,
+        role: profileRel?.role ?? null,
       }
-    }
-  )
+    })
+    .filter((p: any) => p.role !== 'restricted' && p.role !== 'banned')
 
   if (locals.user) {
     const { data: profile } = await supabaseAdmin

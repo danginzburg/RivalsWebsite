@@ -1,4 +1,4 @@
-import { redirect } from '@sveltejs/kit'
+import { error, redirect } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { requireProfile } from '$lib/server/auth/profile'
 import { isCaptainLike } from '$lib/server/teams/membership'
@@ -9,6 +9,10 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
   }
 
   const profile = await requireProfile(locals.user)
+
+  if (profile.role === 'restricted' || profile.role === 'banned') {
+    throw error(403, 'Your account is restricted and cannot participate.')
+  }
 
   const { data: memberships } = await supabaseAdmin
     .from('team_memberships')

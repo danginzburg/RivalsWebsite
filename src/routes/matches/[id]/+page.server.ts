@@ -88,7 +88,7 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
     profileId: viewerProfileId,
   }
 
-  if (viewerProfileId) {
+  if (viewerProfileId && viewerRole !== 'restricted' && viewerRole !== 'banned') {
     const { data: memberships } = await supabaseAdmin
       .from('team_memberships')
       .select('team_id, role')

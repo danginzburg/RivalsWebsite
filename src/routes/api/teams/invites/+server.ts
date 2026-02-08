@@ -1,6 +1,6 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
-import { requireProfile } from '$lib/server/auth/profile'
+import { assertCanParticipate, requireProfile } from '$lib/server/auth/profile'
 
 function normalizeOptional(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -53,6 +53,10 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
   }
   if (action !== 'accept' && action !== 'decline') {
     throw error(400, "Action must be 'accept' or 'decline'")
+  }
+
+  if (action === 'accept') {
+    assertCanParticipate(profile)
   }
 
   const { data: invite, error: inviteError } = await supabaseAdmin

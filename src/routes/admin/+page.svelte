@@ -158,6 +158,14 @@
         message: string
         confirmLabel: string
       }
+    | {
+        kind: 'purge_user'
+        profileId: string
+        label: string
+        title: string
+        message: string
+        confirmLabel: string
+      }
     | null
   >(null)
 
@@ -168,6 +176,8 @@
   ]
   const roleSelectOptions = [
     { value: 'user', label: 'User' },
+    { value: 'restricted', label: 'Restricted' },
+    { value: 'banned', label: 'Banned' },
     { value: 'admin', label: 'Admin' },
   ]
   function normalizeSearchValue(value: string): string {
@@ -469,6 +479,44 @@
     }
   }
 
+  function requestPurgeUserFromLists(profileId: string, label: string) {
+    pendingActionConfirmation = {
+      kind: 'purge_user',
+      profileId,
+      label,
+      title: 'Confirm Removal From Lists',
+      message:
+        `Remove ${label} from all participation lists? ` +
+        `This deletes their player registration, observer application, team memberships (removes them from teams), and any team invites. ` +
+        `This does not delete the account profile.`,
+      confirmLabel: 'Remove From Lists',
+    }
+    showActionConfirmation = true
+  }
+
+  async function executePurgeUserFromLists(profileId: string) {
+    errorMessage = null
+    successMessage = null
+    isLoading = true
+
+    try {
+      const response = await fetch('/api/admin/users/purge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: profileId }),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(result.message || 'Failed to purge user')
+
+      successMessage = 'User removed from participation lists.'
+      await refreshData()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to purge user'
+    } finally {
+      isLoading = false
+    }
+  }
+
   async function moderateTeam(
     teamId: string,
     action: 'approve' | 'reject',
@@ -632,7 +680,7 @@
       riotId,
       role,
       title: 'Confirm Player Removal',
-      message: `Are you sure you want to remove ${label} from this team?`,
+      message: `Remove ${label} from this team? This deactivates their membership immediately.`,
       confirmLabel: 'Remove Player',
     }
     showActionConfirmation = true
@@ -695,6 +743,11 @@
 
     if (action.kind === 'remove_team') {
       await executeRemoveApprovedTeam(action.teamId, action.teamName)
+      return
+    }
+
+    if (action.kind === 'purge_user') {
+      await executePurgeUserFromLists(action.profileId)
       return
     }
 
@@ -1045,6 +1098,21 @@
                         {observer.additional_info}
                       </div>
                     </div>
+
+                    <div class="mt-2">
+                      <button
+                        type="button"
+                        class="rounded px-2 py-1 text-xs"
+                        style="background: rgba(248,113,113,0.2); color: #f87171;"
+                        onclick={() =>
+                          requestPurgeUserFromLists(
+                            observer.profile_id,
+                            profileLabel(observer.profiles)
+                          )}
+                      >
+                        Remove From Lists
+                      </button>
+                    </div>
                   </article>
                 {/each}
               </div>
@@ -1058,6 +1126,7 @@
                       <th class="px-3 py-2">Can Stream 1080p60</th>
                       <th class="px-3 py-2">Will Use Overlay</th>
                       <th class="px-3 py-2">Additional Info</th>
+                      <th class="px-3 py-2">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1070,6 +1139,20 @@
                         <td class="px-3 py-2">{observer.can_stream_quality ? 'Yes' : 'No'}</td>
                         <td class="px-3 py-2">{observer.willing_to_use_overlay ? 'Yes' : 'No'}</td>
                         <td class="px-3 py-2">{observer.additional_info}</td>
+                        <td class="px-3 py-2">
+                          <button
+                            type="button"
+                            class="rounded px-2 py-1 text-xs"
+                            style="background: rgba(248,113,113,0.2); color: #f87171;"
+                            onclick={() =>
+                              requestPurgeUserFromLists(
+                                observer.profile_id,
+                                profileLabel(observer.profiles)
+                              )}
+                          >
+                            Remove
+                          </button>
+                        </td>
                       </tr>
                     {/each}
                   </tbody>
@@ -1108,6 +1191,21 @@
                           requestRoleChange(user.id, user.display_name || '—', user.role, value)}
                       />
                     </div>
+
+                    <div class="mt-3 flex gap-2">
+                      <button
+                        type="button"
+                        class="rounded px-2 py-1 text-xs"
+                        style="background: rgba(248,113,113,0.2); color: #f87171;"
+                        onclick={() =>
+                          requestPurgeUserFromLists(
+                            user.id,
+                            user.display_name || user.email || 'user'
+                          )}
+                      >
+                        Remove From Lists
+                      </button>
+                    </div>
                   </article>
                 {/each}
               </div>
@@ -1118,6 +1216,7 @@
                     <tr class="text-xs tracking-wide uppercase opacity-70">
                       <th class="px-3 py-2">Discord</th>
                       <th class="px-3 py-2">Role</th>
+                      <th class="px-3 py-2">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1139,6 +1238,20 @@
                                 )}
                             />
                           </div>
+                        </td>
+                        <td class="px-3 py-2">
+                          <button
+                            type="button"
+                            class="rounded px-2 py-1 text-xs"
+                            style="background: rgba(248,113,113,0.2); color: #f87171;"
+                            onclick={() =>
+                              requestPurgeUserFromLists(
+                                user.id,
+                                user.display_name || user.email || 'user'
+                              )}
+                          >
+                            Remove From Lists
+                          </button>
                         </td>
                       </tr>
                     {/each}
