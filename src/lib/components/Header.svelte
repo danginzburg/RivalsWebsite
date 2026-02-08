@@ -49,7 +49,7 @@
       icon: BookOpen,
       items: [
         { href: '/rulebook', label: 'Rulebook', icon: BookOpen },
-        { href: '#', label: 'Match Schedule', icon: Calendar, disabled: true },
+        { href: '/matches', label: 'Match Schedule', icon: Calendar },
         { href: '#', label: 'Leaderboard', icon: Trophy, disabled: true },
         { href: '#', label: 'Individual Stats', icon: BarChart3, disabled: true },
       ],

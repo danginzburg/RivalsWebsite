@@ -17,6 +17,7 @@
     name: string
     tag: string | null
     approval_status: string
+    approval_notes?: string | null
   }
 
   type RegisteredPlayer = {
@@ -184,6 +185,7 @@
   const myTeams = $derived.by(() => {
     const created = mySubmissions.map((submission) => ({
       id: `created-${submission.id}`,
+      teamId: submission.id,
       teamName: submission.name,
       teamTag: submission.tag,
       source: 'created' as const,
@@ -194,6 +196,8 @@
           : submission.approval_status === 'rejected'
             ? 'rejected'
             : 'pending',
+      approvalStatus: submission.approval_status,
+      approvalNotes: submission.approval_notes ?? null,
     }))
 
     const invited = invites.map((invite) => {
@@ -227,6 +231,25 @@
 
     return [...created, ...invited]
   })
+
+  let resubmittingTeamId = $state<string | null>(null)
+
+  async function resubmitTeam(teamId: string) {
+    resubmittingTeamId = teamId
+    message = null
+    try {
+      const response = await fetch(`/api/teams/${teamId}/resubmit`, { method: 'POST' })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(result.message || 'Failed to resubmit team')
+
+      mySubmissions = mySubmissions.map((t) => (t.id === teamId ? result.team : t))
+      message = { type: 'success', text: 'Team resubmitted. Admin review is required.' }
+    } catch (err) {
+      message = { type: 'error', text: err instanceof Error ? err.message : 'Unexpected error' }
+    } finally {
+      resubmittingTeamId = null
+    }
+  }
   const previewCurrentAverage = $derived.by(() => {
     if (previewRosterPlayers.length === 0) return null
     const total = previewRosterPlayers.reduce(
@@ -641,6 +664,12 @@
                           Created
                         </span>
                       {/if}
+
+                      {#if item.source === 'created' && item.approvalStatus === 'rejected' && item.approvalNotes}
+                        <div class="mt-1 text-xs" style="color: rgba(255,255,255,0.72);">
+                          Admin notes: {item.approvalNotes}
+                        </div>
+                      {/if}
                     </div>
                     <div class="flex items-center gap-2">
                       <span
@@ -653,6 +682,18 @@
                       >
                         {item.status}
                       </span>
+
+                      {#if item.source === 'created' && item.approvalStatus === 'rejected' && item.teamId}
+                        <button
+                          type="button"
+                          class="rounded-md px-2 py-1 text-xs font-semibold"
+                          style="background: rgba(250, 204, 21, 0.18); color: #fde68a;"
+                          disabled={resubmittingTeamId === item.teamId}
+                          onclick={() => resubmitTeam(item.teamId)}
+                        >
+                          {resubmittingTeamId === item.teamId ? 'Resubmitting...' : 'Resubmit'}
+                        </button>
+                      {/if}
 
                       {#if item.source === 'invited' && item.inviteStatus === 'pending' && item.inviteId}
                         <button

@@ -2,11 +2,22 @@
   import { page } from '$app/stores'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
-  import { Shield, Users, Video, RefreshCw, UserCog, ShieldCheck, Check, X } from 'lucide-svelte'
+  import {
+    Shield,
+    Users,
+    Video,
+    RefreshCw,
+    UserCog,
+    ShieldCheck,
+    Check,
+    X,
+    CalendarDays,
+    CalendarCheck2,
+  } from 'lucide-svelte'
   import { TEAM_BALANCE_RANKS } from '$lib/team-balance'
 
   // Get data from server load
-  let { data } = $props()
+  let { data } = $props() as { data: any }
 
   type TeamQueueEntry = {
     id: string
@@ -31,7 +42,7 @@
     captain_profile?: { display_name?: string | null; email?: string | null } | null
   }
 
-  let activeTab = $state<'players' | 'observers' | 'users' | 'teams'>('players')
+  let activeTab = $state<'players' | 'observers' | 'users' | 'teams' | 'matches'>('players')
   let isLoading = $state(false)
   let errorMessage = $state<string | null>(null)
   let successMessage = $state<string | null>(null)
@@ -41,12 +52,51 @@
   const getInitialUsers = () => data.users || []
   const getInitialTeamQueue = () => data.teamQueue || []
   const getInitialApprovedTeams = () => data.approvedTeams || []
+  const getInitialMatchProposals = () => data.matchProposals || []
+  const getInitialMatches = () => data.matches || []
+  const getInitialPendingResultReports = () => data.pendingResultReports || []
 
   let players = $state<any[]>(getInitialPlayers())
   let observers = $state<any[]>(getInitialObservers())
   let users = $state<any[]>(getInitialUsers())
   let teamQueue = $state<TeamQueueEntry[]>(getInitialTeamQueue())
   let approvedTeams = $state<TeamQueueEntry[]>(getInitialApprovedTeams())
+  let matchProposals = $state<any[]>(getInitialMatchProposals())
+  let matches = $state<any[]>(getInitialMatches())
+  let pendingResultReports = $state<any[]>(getInitialPendingResultReports())
+
+  let resultReportReviewNotes = $state<Record<string, string>>({})
+
+  let finalizeForm = $state<
+    Record<string, { teamAScore: string; teamBScore: string; winnerTeamId: string }>
+  >({})
+
+  function teamName(value: unknown) {
+    if (!value) return 'Team'
+    if (Array.isArray(value)) {
+      const first = value[0] as { name?: string } | undefined
+      return first?.name ?? 'Team'
+    }
+    const team = value as { name?: string }
+    return team.name ?? 'Team'
+  }
+
+  function formatUtc(value: string | null | undefined) {
+    if (!value) return 'No date'
+    const date = new Date(value)
+    return `${date.toLocaleString(undefined, { timeZone: 'UTC' })} UTC`
+  }
+
+  function getFinalizeState(match: any) {
+    if (!finalizeForm[match.id]) {
+      finalizeForm[match.id] = {
+        teamAScore: String(match.team_a_score ?? 0),
+        teamBScore: String(match.team_b_score ?? 0),
+        winnerTeamId: match.winner_team_id ?? match.team_a_id,
+      }
+    }
+    return finalizeForm[match.id]
+  }
 
   // Role change confirmation
   let showRoleConfirmation = $state(false)
@@ -195,10 +245,11 @@
     successMessage = null
 
     try {
-      const [regResponse, usersResponse, teamsResponse] = await Promise.all([
+      const [regResponse, usersResponse, teamsResponse, matchesResponse] = await Promise.all([
         fetch('/api/admin/registrations'),
         fetch('/api/admin/users'),
         fetch('/api/admin/teams'),
+        fetch('/api/admin/matches'),
       ])
 
       if (!regResponse.ok) {
@@ -213,20 +264,148 @@
         const err = await teamsResponse.json()
         throw new Error(err.message || 'Failed to fetch team queue')
       }
+      if (!matchesResponse.ok) {
+        const err = await matchesResponse.json()
+        throw new Error(err.message || 'Failed to fetch matches')
+      }
 
       const regResult = await regResponse.json()
       const usersResult = await usersResponse.json()
       const teamsResult = await teamsResponse.json()
+      const matchesResult = await matchesResponse.json()
 
       players = regResult.players
       observers = regResult.observers
       users = usersResult.users
       teamQueue = teamsResult.queue
       approvedTeams = teamsResult.approved
+      matchProposals = matchesResult.matchProposals
+      matches = matchesResult.matches
+      pendingResultReports = matchesResult.pendingResultReports ?? []
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Failed to refresh data'
     } finally {
       isLoading = false
+    }
+  }
+
+  function matchForReport(report: any) {
+    return matches.find((m) => m.id === report.match_id)
+  }
+
+  async function reviewResultReport(report: any, action: 'approve' | 'reject') {
+    const confirmed = window.confirm(
+      action === 'approve'
+        ? 'Approve this result report and finalize the match?'
+        : 'Reject this result report?'
+    )
+    if (!confirmed) return
+
+    errorMessage = null
+    successMessage = null
+
+    try {
+      const response = await fetch(`/api/admin/match-result-reports/${report.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, reviewNotes: resultReportReviewNotes[report.id] ?? '' }),
+      })
+
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.message || 'Failed to review result report')
+
+      successMessage =
+        action === 'approve'
+          ? 'Result report approved. Match finalized.'
+          : 'Result report rejected.'
+      await refreshData()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to review result report'
+    }
+  }
+
+  async function moderateMatchProposal(id: string, action: string) {
+    const confirmed = window.confirm(
+      `Are you sure you want to ${action.replaceAll('_', ' ')} this proposal?`
+    )
+    if (!confirmed) return
+
+    errorMessage = null
+    successMessage = null
+
+    try {
+      const response = await fetch(`/api/admin/matches/proposals/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      })
+
+      const result = await response.json()
+      if (!response.ok) {
+        throw new Error(result.message || 'Failed to update proposal')
+      }
+
+      matchProposals = matchProposals.map((p) =>
+        p.id === id ? { ...p, status: result.proposal.status } : p
+      )
+      successMessage = `Proposal ${action.replaceAll('_', ' ')}.`
+      await refreshData()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to update proposal'
+    }
+  }
+
+  async function finalizeMatch(match: any) {
+    const state = getFinalizeState(match)
+    const confirmed = window.confirm(
+      'Are you sure you want to finalize this match? This is official.'
+    )
+    if (!confirmed) return
+
+    errorMessage = null
+    successMessage = null
+
+    try {
+      const response = await fetch(`/api/admin/matches/${match.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'finalize',
+          winnerTeamId: state.winnerTeamId,
+          teamAScore: Number(state.teamAScore),
+          teamBScore: Number(state.teamBScore),
+        }),
+      })
+
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.message || 'Failed to finalize match')
+      successMessage = 'Match finalized.'
+      await refreshData()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to finalize match'
+    }
+  }
+
+  async function cancelMatch(match: any) {
+    const confirmed = window.confirm('Are you sure you want to cancel this match?')
+    if (!confirmed) return
+
+    errorMessage = null
+    successMessage = null
+
+    try {
+      const response = await fetch(`/api/admin/matches/${match.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'cancel' }),
+      })
+
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.message || 'Failed to cancel match')
+      successMessage = 'Match cancelled.'
+      await refreshData()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to cancel match'
     }
   }
 
@@ -638,7 +817,18 @@
             onclick={() => (activeTab = 'teams')}
           >
             <ShieldCheck size={18} />
-            <span>Team Queue ({teamQueue.length})</span>
+            <span>Teams ({teamQueue.length})</span>
+          </button>
+          <button
+            type="button"
+            class="flex items-center gap-2 border-b-2 px-3 py-3 text-sm sm:px-5 sm:text-base"
+            style={activeTab === 'matches'
+              ? 'border-color: var(--accent); color: var(--text); background: rgba(255, 255, 255, 0.05);'
+              : 'border-color: transparent; color: rgba(255,255,255,0.7);'}
+            onclick={() => (activeTab = 'matches')}
+          >
+            <CalendarDays size={18} />
+            <span>Matches ({matches.length})</span>
           </button>
           <button
             type="button"
@@ -1281,6 +1471,254 @@
                   {/each}
                 </div>
               {/if}
+            </div>
+          {/if}
+
+          {#if activeTab === 'matches'}
+            <div class="grid grid-cols-1 gap-4">
+              <section class="rounded-md border p-3" style="border-color: rgba(255,255,255,0.12);">
+                <div class="mb-3 flex items-center gap-2">
+                  <CalendarDays size={18} />
+                  <h3
+                    class="text-sm font-semibold tracking-wide uppercase"
+                    style="color: rgba(255,255,255,0.8);"
+                  >
+                    Match Proposals ({matchProposals.length})
+                  </h3>
+                </div>
+
+                {#if matchProposals.length === 0}
+                  <p class="text-sm" style="color: rgba(255,255,255,0.72);">No proposals found.</p>
+                {:else}
+                  <div class="flex flex-col gap-2">
+                    {#each matchProposals as proposal}
+                      <article
+                        class="rounded-md border p-3"
+                        style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
+                      >
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                          <div class="text-sm" style="color: var(--text);">
+                            <strong>{teamName(proposal.proposed_team)}</strong>
+                            <span> vs </span>
+                            <strong>{teamName(proposal.opponent_team)}</strong>
+                          </div>
+                          <span
+                            class="rounded-full px-2 py-1 text-xs font-bold"
+                            style="background: rgba(255,255,255,0.12); color: var(--text);"
+                          >
+                            {proposal.status}
+                          </span>
+                        </div>
+
+                        <div class="mt-1 text-xs" style="color: rgba(255,255,255,0.72);">
+                          BO{proposal.best_of} • {proposal.proposed_start_at
+                            ? formatUtc(proposal.proposed_start_at)
+                            : 'No date'}
+                        </div>
+
+                        <div class="mt-2 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            class="rounded px-2 py-1 text-xs"
+                            style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+                            onclick={() => moderateMatchProposal(proposal.id, 'set_admin_review')}
+                          >
+                            Mark Admin Review
+                          </button>
+                          <button
+                            type="button"
+                            class="rounded px-2 py-1 text-xs"
+                            style="background: rgba(74,222,128,0.2); color: #4ade80;"
+                            onclick={() => moderateMatchProposal(proposal.id, 'approve')}
+                          >
+                            Approve + Create Match
+                          </button>
+                          <button
+                            type="button"
+                            class="rounded px-2 py-1 text-xs"
+                            style="background: rgba(248,113,113,0.2); color: #f87171;"
+                            onclick={() => moderateMatchProposal(proposal.id, 'reject')}
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      </article>
+                    {/each}
+                  </div>
+                {/if}
+              </section>
+
+              <section class="rounded-md border p-3" style="border-color: rgba(255,255,255,0.12);">
+                <div class="mb-3 flex items-center gap-2">
+                  <CalendarDays size={18} />
+                  <h3
+                    class="text-sm font-semibold tracking-wide uppercase"
+                    style="color: rgba(255,255,255,0.8);"
+                  >
+                    Pending Result Reports ({pendingResultReports.length})
+                  </h3>
+                </div>
+
+                {#if pendingResultReports.length === 0}
+                  <p class="text-sm" style="color: rgba(255,255,255,0.72);">No pending reports.</p>
+                {:else}
+                  <div class="flex flex-col gap-2">
+                    {#each pendingResultReports as report}
+                      {@const match = matchForReport(report)}
+                      <article
+                        class="rounded-md border p-3"
+                        style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
+                      >
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                          <div class="text-sm" style="color: var(--text);">
+                            <strong>{match ? teamName(match.team_a) : 'Team A'}</strong> vs
+                            <strong>{match ? teamName(match.team_b) : 'Team B'}</strong>
+                          </div>
+                          <span
+                            class="rounded-full px-2 py-1 text-xs font-bold"
+                            style="background: rgba(234,179,8,0.16); color: #fde68a;"
+                          >
+                            pending
+                          </span>
+                        </div>
+
+                        <div class="mt-1 text-xs" style="color: rgba(255,255,255,0.72);">
+                          Reported: {report.team_a_score}-{report.team_b_score}
+                          {#if match}
+                            <span>
+                              • Winner {report.winner_team_id === match.team_a_id
+                                ? teamName(match.team_a)
+                                : teamName(match.team_b)}</span
+                            >
+                          {/if}
+                        </div>
+
+                        {#if report.evidence_url}
+                          <div class="mt-2 text-xs">
+                            <a
+                              href={report.evidence_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style="color: #93c5fd;"
+                            >
+                              Evidence Link
+                            </a>
+                          </div>
+                        {/if}
+
+                        {#if report.notes}
+                          <div class="mt-2 text-xs" style="color: rgba(255,255,255,0.72);">
+                            Notes: {report.notes}
+                          </div>
+                        {/if}
+
+                        <div class="mt-3 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            class="rounded px-2 py-1 text-xs"
+                            style="background: rgba(74,222,128,0.2); color: #4ade80;"
+                            onclick={() => reviewResultReport(report, 'approve')}
+                          >
+                            Approve + Finalize
+                          </button>
+                          <button
+                            type="button"
+                            class="rounded px-2 py-1 text-xs"
+                            style="background: rgba(248,113,113,0.2); color: #f87171;"
+                            onclick={() => reviewResultReport(report, 'reject')}
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      </article>
+                    {/each}
+                  </div>
+                {/if}
+              </section>
+
+              <section class="rounded-md border p-3" style="border-color: rgba(255,255,255,0.12);">
+                <div class="mb-3 flex items-center gap-2">
+                  <CalendarCheck2 size={18} />
+                  <h3
+                    class="text-sm font-semibold tracking-wide uppercase"
+                    style="color: rgba(255,255,255,0.8);"
+                  >
+                    Matches ({matches.length})
+                  </h3>
+                </div>
+
+                {#if matches.length === 0}
+                  <p class="text-sm" style="color: rgba(255,255,255,0.72);">No matches found.</p>
+                {:else}
+                  <div class="flex flex-col gap-2">
+                    {#each matches as match}
+                      {@const state = getFinalizeState(match)}
+                      <article
+                        class="rounded-md border p-3"
+                        style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
+                      >
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                          <div class="text-sm" style="color: var(--text);">
+                            <strong>{teamName(match.team_a)}</strong> vs
+                            <strong>{teamName(match.team_b)}</strong>
+                          </div>
+                          <span
+                            class="rounded-full px-2 py-1 text-xs font-bold"
+                            style="background: rgba(255,255,255,0.12); color: var(--text);"
+                          >
+                            {match.status}
+                          </span>
+                        </div>
+
+                        <div class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-4">
+                          <input
+                            type="number"
+                            min="0"
+                            bind:value={state.teamAScore}
+                            class="rounded-md border px-2 py-1"
+                            style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                            placeholder="Team A score"
+                          />
+                          <input
+                            type="number"
+                            min="0"
+                            bind:value={state.teamBScore}
+                            class="rounded-md border px-2 py-1"
+                            style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                            placeholder="Team B score"
+                          />
+                          <select
+                            bind:value={state.winnerTeamId}
+                            class="rounded-md border px-2 py-1"
+                            style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                          >
+                            <option value={match.team_a_id}>{teamName(match.team_a)}</option>
+                            <option value={match.team_b_id}>{teamName(match.team_b)}</option>
+                          </select>
+                          <div class="flex gap-2">
+                            <button
+                              type="button"
+                              class="rounded px-2 py-1 text-xs"
+                              style="background: rgba(74,222,128,0.2); color: #4ade80;"
+                              onclick={() => finalizeMatch(match)}
+                            >
+                              Finalize
+                            </button>
+                            <button
+                              type="button"
+                              class="rounded px-2 py-1 text-xs"
+                              style="background: rgba(248,113,113,0.2); color: #f87171;"
+                              onclick={() => cancelMatch(match)}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      </article>
+                    {/each}
+                  </div>
+                {/if}
+              </section>
             </div>
           {/if}
         </div>

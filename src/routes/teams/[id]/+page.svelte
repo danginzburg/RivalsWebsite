@@ -1,12 +1,19 @@
 <script lang="ts">
+  import { page } from '$app/stores'
   import PageContainer from '$lib/components/PageContainer.svelte'
-  import { Users } from 'lucide-svelte'
+  import { Users, Wrench } from 'lucide-svelte'
 
   let { data } = $props()
 
   const team = $derived(data.team)
   const roster = $derived(data.roster ?? [])
   const invitedPlayers = $derived(data.invitedPlayers ?? [])
+  const viewer = $derived(data.viewer ?? { isAdmin: false, membershipRole: null })
+  const user = $derived($page.data.user)
+
+  const isCaptainLike = $derived(
+    viewer.membershipRole === 'captain' || viewer.membershipRole === 'manager'
+  )
 
   function profileLabel(
     entry:
@@ -41,6 +48,30 @@
       </div>
 
       <section class="info-card info-card-surface">
+        {#if user?.role === 'admin' || isCaptainLike}
+          <div
+            class="mb-4 rounded-md border p-3"
+            style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
+          >
+            <div
+              class="mb-2 flex items-center gap-2 text-sm font-semibold"
+              style="color: var(--title);"
+            >
+              <Wrench size={16} />
+              <span>Captain Tools</span>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <a
+                href="/captain/matches"
+                class="rounded-md px-3 py-2 text-xs font-semibold"
+                style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+              >
+                Match Proposals
+              </a>
+            </div>
+          </div>
+        {/if}
+
         <h2 class="mb-3 text-lg font-bold" style="color: var(--title);">Roster</h2>
         {#if roster.length === 0}
           <p class="text-sm" style="color: rgba(255,255,255,0.75);">No active roster listed.</p>

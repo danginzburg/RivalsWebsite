@@ -6,6 +6,7 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
 
   let isAdmin = false
   let viewerProfileId: string | null = null
+  let viewerMembershipRole: string | null = null
   if (locals.user) {
     const { data: viewerProfile } = await supabaseAdmin
       .from('profiles')
@@ -45,13 +46,15 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
   const { data: viewerMembership } = viewerProfileId
     ? await supabaseAdmin
         .from('team_memberships')
-        .select('id')
+        .select('id, role')
         .eq('team_id', teamId)
         .eq('profile_id', viewerProfileId)
         .eq('is_active', true)
         .is('left_at', null)
         .maybeSingle()
     : { data: null }
+
+  viewerMembershipRole = viewerMembership?.role ?? null
 
   if (team.approval_status !== 'approved' && !isAdmin && !viewerMembership) {
     throw error(404, 'Team not found')
@@ -209,5 +212,9 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
     },
     roster,
     invitedPlayers,
+    viewer: {
+      isAdmin,
+      membershipRole: viewerMembershipRole,
+    },
   }
 }

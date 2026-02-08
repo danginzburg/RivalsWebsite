@@ -233,11 +233,77 @@ export const load: PageServerLoad = async ({ locals }) => {
       roster: approvedRosterMap.get(team.id) ?? [],
     }))
 
+  const { data: matchProposals, error: matchProposalsError } = await supabaseAdmin
+    .from('match_proposals')
+    .select(
+      `
+      id,
+      status,
+      best_of,
+      proposed_start_at,
+      notes,
+      approval_notes,
+      created_at,
+      proposed_by_team_id,
+      opponent_team_id,
+      proposed_team:teams!match_proposals_proposed_by_team_id_fkey (id, name, tag),
+      opponent_team:teams!match_proposals_opponent_team_id_fkey (id, name, tag)
+    `
+    )
+    .order('created_at', { ascending: false })
+
+  if (matchProposalsError) {
+    console.error('Error fetching match proposals:', matchProposalsError)
+  }
+
+  const { data: matches, error: matchesError } = await supabaseAdmin
+    .from('matches')
+    .select(
+      `
+      id,
+      status,
+      approval_status,
+      best_of,
+      scheduled_at,
+      team_a_id,
+      team_b_id,
+      winner_team_id,
+      team_a_score,
+      team_b_score,
+      team_a:teams!matches_team_a_id_fkey (id, name, tag),
+      team_b:teams!matches_team_b_id_fkey (id, name, tag)
+    `
+    )
+    .order('created_at', { ascending: false })
+
+  if (matchesError) {
+    console.error('Error fetching matches:', matchesError)
+  }
+
+  let pendingResultReports: any[] = []
+  const { data: reports, error: reportsError } = await supabaseAdmin
+    .from('match_result_reports')
+    .select(
+      'id, match_id, status, reporting_team_id, team_a_score, team_b_score, winner_team_id, notes, evidence_url, created_at'
+    )
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false })
+
+  if (reportsError) {
+    // Table may not exist until migration is applied.
+    pendingResultReports = []
+  } else {
+    pendingResultReports = reports ?? []
+  }
+
   return {
     players: players || [],
     observers: observers || [],
     users: users || [],
     teamQueue: withLogoUrl(teamQueue || []),
     approvedTeams: withLogoUrl(approvedTeams || []),
+    matchProposals: matchProposals ?? [],
+    matches: matches ?? [],
+    pendingResultReports,
   }
 }
