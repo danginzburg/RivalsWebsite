@@ -17,6 +17,7 @@
     Calendar,
     MessageSquare,
     Shield,
+    Upload,
   } from 'lucide-svelte'
   import rivalsLogo from '$lib/assets/rivals_logo.png'
 
@@ -32,7 +33,7 @@
   const simpleNavItems = [{ href: '/teams', label: 'My Team', icon: Users }]
 
   // Dropdown menus
-  const dropdownMenus = [
+  const dropdownMenus = $derived([
     {
       id: 'register',
       label: 'Register',
@@ -61,9 +62,10 @@
       items: [
         { href: '/team-balance', label: 'Team Balance', icon: Calculator },
         { href: '#', label: 'Feedback Form', icon: MessageSquare, disabled: true },
+        ...(isAdmin ? [{ href: '/add-stats', label: 'Add Stats', icon: Upload }] : []),
       ],
     },
-  ]
+  ])
 
   function handleLogin() {
     window.location.href = '/auth/login'
