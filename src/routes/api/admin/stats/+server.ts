@@ -6,11 +6,23 @@ import { requireAdmin } from '$lib/server/auth/profile'
 export const POST: RequestHandler = async ({ locals, request }) => {
   const admin = await requireAdmin(locals.user)
 
-  const body = await request.json()
+  const body = await request.json().catch(() => ({}))
   const rows = body?.rows
+  const sourceFilename = typeof body?.sourceFilename === 'string' ? body.sourceFilename.trim() : ''
+  const displayName = typeof body?.displayName === 'string' ? body.displayName.trim() : ''
+  const importKind = typeof body?.importKind === 'string' ? body.importKind.trim() : ''
+  const weekLabel = typeof body?.weekLabel === 'string' ? body.weekLabel.trim() : ''
 
   if (!Array.isArray(rows) || rows.length === 0) {
     throw error(400, 'No rows provided')
+  }
+
+  if (importKind && importKind !== 'weekly' && importKind !== 'aggregate') {
+    throw error(400, 'importKind must be weekly or aggregate')
+  }
+
+  if ((importKind || 'weekly') === 'weekly' && weekLabel && weekLabel.length > 48) {
+    throw error(400, 'weekLabel is too long')
   }
 
   const MAX_ROWS = 1000
@@ -21,28 +33,18 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     .from('player_registration')
     .select(
       `
-        profile_id,
-        riot_id,
-        profiles!player_registration_profile_id_fkey (
-          display_name
-        )
-      `
+      profile_id,
+      riot_id,
+      profiles!player_registration_profile_id_fkey (
+        display_name
+      )
+    `
     )
 
   if (registrationsError) {
     console.error('Error fetching player registrations:', registrationsError)
     throw error(500, 'Failed to fetch player registrations: ' + registrationsError.message)
   }
-  // Fetch registered players for server-side matching (case-insensitive)
-  const { data: registrations } = await supabaseAdmin.from('player_registration').select(
-    `
-        profile_id,
-        riot_id,
-        profiles!player_registration_profile_id_fkey (
-          display_name
-        )
-      `
-  )
 
   const normalizeKey = (value: string) => value.trim().toLowerCase()
   const normalizeBase = (value: string) => value.split('#')[0]?.trim().toLowerCase()
@@ -70,6 +72,9 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   // Build insert rows with server-side profile matching
   let matched = 0
   let unmatched = 0
+
+  const batchId = crypto.randomUUID()
+  const importedAt = new Date().toISOString()
 
   const insertRows = rows.map((row: any) => {
     const profileId = row.player_name
@@ -118,10 +123,73 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       econ_rating: row.econ_rating ?? null,
       import_batch_id: batchId,
       imported_by_profile_id: admin.id,
+      imported_at: importedAt,
     }
   })
 
-  const { error: insertError } = await supabaseAdmin.from('clash_group_stats').insert(insertRows)
+  // Track unmatched rows in stat_import_errors (best-effort; table may not exist yet)
+  const errorRows = insertRows
+    .map((r: any, idx: number) => ({ row: r, idx }))
+    .filter((x) => !x.row.profile_id)
+    .map((x) => ({
+      batch_id: batchId,
+      row_number: x.idx + 2,
+      field_name: 'player_name',
+      error_code: 'unmatched_player',
+      error_message: `No registered player matched for "${x.row.player_name}"`,
+      row_payload: x.row,
+    }))
+
+  const batchPayload: any = {
+    id: batchId,
+    uploaded_by_profile_id: admin.id,
+    source_filename: sourceFilename || 'add-stats.csv',
+    display_name: displayName || sourceFilename || 'Stats Import',
+    import_kind: importKind || 'weekly',
+    week_label: (importKind || 'weekly') === 'weekly' ? weekLabel || null : null,
+    status: 'applied',
+    dry_run: false,
+    row_count: insertRows.length,
+    accepted_count: matched,
+    rejected_count: unmatched,
+    metadata: {
+      import_type: 'rivals_group_stats',
+      import_kind: importKind || 'weekly',
+      week_label: (importKind || 'weekly') === 'weekly' ? weekLabel || null : null,
+    },
+  }
+
+  let batchInsertError: any = null
+  {
+    const { error: err } = await supabaseAdmin.from('stat_import_batches').insert(batchPayload)
+    batchInsertError = err
+  }
+
+  // Backwards compatibility if display fields aren't migrated yet.
+  if (batchInsertError && String(batchInsertError.message || '').includes('display_name')) {
+    const fallbackPayload = { ...batchPayload }
+    delete fallbackPayload.display_name
+    delete fallbackPayload.import_kind
+    delete fallbackPayload.week_label
+    const { error: err } = await supabaseAdmin.from('stat_import_batches').insert(fallbackPayload)
+    batchInsertError = err
+  }
+
+  // If stat_import_batches isn't deployed yet, don't block import.
+  if (batchInsertError) {
+    console.warn('Failed to write stat_import_batches row:', batchInsertError)
+  }
+
+  if (errorRows.length > 0) {
+    const { error: errInsertError } = await supabaseAdmin
+      .from('stat_import_errors')
+      .insert(errorRows)
+    if (errInsertError) {
+      console.warn('Failed to write stat_import_errors rows:', errInsertError)
+    }
+  }
+
+  const { error: insertError } = await supabaseAdmin.from('rivals_group_stats').insert(insertRows)
 
   if (insertError) {
     console.error('Error inserting stats:', insertError)

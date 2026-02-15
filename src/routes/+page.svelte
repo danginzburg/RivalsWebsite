@@ -36,9 +36,9 @@
     },
     {
       icon: Trophy,
-      title: 'Map Rotation + Leaderboard',
+      title: 'Leaderboard',
       description: 'Map rotation details and current team standings.',
-      href: '#',
+      href: '/leaderboard',
     },
     {
       icon: Calculator,
@@ -50,7 +50,7 @@
       icon: BarChart3,
       title: 'Individual player stats',
       description: 'Detailed statistics for individual player performance.',
-      href: '#',
+      href: '/stats',
     },
     {
       icon: Calendar,
@@ -63,7 +63,7 @@
       title: 'Feedback Forms',
       description:
         'We value your feedback! Share your thoughts and suggestions to help us improve Throw City Rivals.',
-      href: '#',
+      href: '/feedback',
     },
     {
       icon: Video,

@@ -37,7 +37,7 @@
     const rect = triggerRef.getBoundingClientRect()
     const viewportPadding = 8
     const maxHeight = Math.max(160, window.innerHeight - rect.bottom - viewportPadding)
-    dropdownStyle = `position: fixed; top: ${rect.bottom + 4}px; left: ${rect.left}px; width: ${rect.width}px; max-height: ${maxHeight}px;`
+    dropdownStyle = `position: fixed; top: ${rect.bottom + 1}px; left: ${rect.left}px; width: ${rect.width}px; max-height: ${maxHeight}px;`
   }
 
   function toggle() {
@@ -123,7 +123,7 @@
   {#if isOpen}
     <ul class="select-dropdown" role="listbox" style={dropdownStyle}>
       {#each options as option}
-        {#if option.value}
+        {#if option.value !== undefined && option.value !== null}
           <li
             role="option"
             aria-selected={value === option.value}

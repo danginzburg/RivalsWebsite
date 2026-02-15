@@ -205,6 +205,65 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
 
   invitedPlayers.sort((a, b) => a.riot_id.localeCompare(b.riot_id))
 
+  const { data: matchRows } = await supabaseAdmin
+    .from('matches')
+    .select(
+      `
+      id,
+      status,
+      approval_status,
+      scheduled_at,
+      ended_at,
+      team_a_id,
+      team_b_id,
+      team_a_score,
+      team_b_score,
+      winner_team_id,
+      team_a:teams!matches_team_a_id_fkey (id, name, tag),
+      team_b:teams!matches_team_b_id_fkey (id, name, tag)
+    `
+    )
+    .eq('status', 'completed')
+    .eq('approval_status', 'approved')
+    .or(`team_a_id.eq.${teamId},team_b_id.eq.${teamId}`)
+    .order('ended_at', { ascending: false, nullsFirst: false })
+    .limit(25)
+
+  const matchIds = (matchRows ?? []).map((m: any) => m.id)
+  let participantsByMatch = new Map<string, string[]>()
+  if (matchIds.length > 0) {
+    const { data: pRows } = await supabaseAdmin
+      .from('player_match_stats')
+      .select(
+        `
+        match_id,
+        profile_id,
+        status,
+        player_registration!player_match_stats_profile_id_fkey (riot_id)
+      `
+      )
+      .in('match_id', matchIds)
+      .eq('team_id', teamId)
+      .in('status', ['submitted', 'approved'])
+
+    for (const r of pRows ?? []) {
+      const matchId = (r as any).match_id
+      const regRel = Array.isArray((r as any).player_registration)
+        ? (r as any).player_registration[0]
+        : (r as any).player_registration
+      const riotId = regRel?.riot_id
+      if (!matchId || !riotId) continue
+      const list = participantsByMatch.get(matchId) ?? []
+      list.push(riotId)
+      participantsByMatch.set(matchId, list)
+    }
+  }
+
+  const matchHistory = (matchRows ?? []).map((m: any) => ({
+    ...m,
+    participants: participantsByMatch.get(m.id) ?? [],
+  }))
+
   return {
     team: {
       ...team,
@@ -212,6 +271,7 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
     },
     roster,
     invitedPlayers,
+    matchHistory,
     viewer: {
       isAdmin,
       membershipRole: viewerMembershipRole,

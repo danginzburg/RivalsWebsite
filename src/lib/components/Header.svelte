@@ -33,7 +33,9 @@
   const simpleNavItems = [{ href: '/teams', label: 'My Team', icon: Users }]
 
   // Dropdown menus
-  const dropdownMenus = $derived([
+  const dropdownMenus = $derived<
+    Array<{ id: string; label: string; icon: any; items: DropdownItem[] }>
+  >([
     {
       id: 'register',
       label: 'Register',
@@ -51,8 +53,8 @@
       items: [
         { href: '/rulebook', label: 'Rulebook', icon: BookOpen },
         { href: '/matches', label: 'Match Schedule', icon: Calendar },
-        { href: '#', label: 'Leaderboard', icon: Trophy, disabled: true },
-        { href: '#', label: 'Individual Stats', icon: BarChart3, disabled: true },
+        { href: '/leaderboard', label: 'Leaderboard', icon: Trophy },
+        { href: '/stats', label: 'Individual Stats', icon: BarChart3 },
       ],
     },
     {
@@ -61,11 +63,20 @@
       icon: Calculator,
       items: [
         { href: '/team-balance', label: 'Team Balance', icon: Calculator },
-        { href: '#', label: 'Feedback Form', icon: MessageSquare, disabled: true },
-        ...(isAdmin ? [{ href: '/add-stats', label: 'Add Stats', icon: Upload }] : []),
+        // { href: '#', label: 'Feedback Form', icon: MessageSquare, disabled: true },
+        ...($page.data.user?.role === 'admin'
+          ? [{ href: '/add-stats', label: 'Add Stats', icon: Upload }]
+          : []),
       ],
     },
   ])
+
+  type DropdownItem = {
+    href: string
+    label: string
+    icon: any
+    disabled?: boolean
+  }
 
   function handleLogin() {
     window.location.href = '/auth/login'

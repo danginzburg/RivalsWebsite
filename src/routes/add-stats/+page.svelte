@@ -1,5 +1,6 @@
 <script lang="ts">
   import PageContainer from '$lib/components/PageContainer.svelte'
+  import CustomSelect from '$lib/components/CustomSelect.svelte'
   import {
     Upload,
     FileSpreadsheet,
@@ -54,6 +55,9 @@
 
   let parsedRows = $state<ParsedRow[]>([])
   let fileName = $state<string | null>(null)
+  let displayName = $state('')
+  let importKind = $state<'weekly' | 'aggregate'>('weekly')
+  let weekLabel = $state('')
   let parseError = $state<string | null>(null)
   let isSubmitting = $state(false)
   let submitResult = $state<{ success: boolean; message: string } | null>(null)
@@ -257,6 +261,7 @@
     }
 
     fileName = file.name
+    displayName = file.name
     const reader = new FileReader()
     reader.onload = (e) => {
       try {
@@ -295,9 +300,17 @@
   function clearData() {
     parsedRows = []
     fileName = null
+    displayName = ''
+    importKind = 'weekly'
+    weekLabel = ''
     parseError = null
     submitResult = null
   }
+
+  const importKindOptions = [
+    { label: 'Weekly', value: 'weekly' },
+    { label: 'Aggregate', value: 'aggregate' },
+  ]
 
   async function submitStats() {
     if (parsedRows.length === 0) return
@@ -309,7 +322,13 @@
       const response = await fetch('/api/admin/stats', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows: parsedRows }),
+        body: JSON.stringify({
+          rows: parsedRows,
+          sourceFilename: fileName,
+          displayName,
+          importKind,
+          weekLabel,
+        }),
       })
 
       const result = await response.json()
@@ -317,7 +336,7 @@
       if (!response.ok) {
         submitResult = {
           success: false,
-          message: result.error || 'Failed to import stats',
+          message: result.message || result.error || 'Failed to import stats',
         }
       } else {
         submitResult = {
@@ -417,7 +436,7 @@
         >
           <div class="flex items-center gap-2">
             <FileSpreadsheet class="h-5 w-5" style="color: var(--hover);" />
-            <span class="text-sm font-medium" style="color: var(--text);">
+            <span class="pt-0.5 text-sm font-medium" style="color: var(--text);">
               {fileName}
             </span>
           </div>
@@ -446,6 +465,55 @@
                 Import Stats
               {/if}
             </button>
+          </div>
+        </div>
+
+        <div
+          class="mb-6 grid grid-cols-1 gap-3 rounded-lg border p-4 md:grid-cols-3"
+          style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.18);"
+        >
+          <div>
+            <div
+              class="mb-1 text-xs font-semibold tracking-wide uppercase"
+              style="color: rgba(255,255,255,0.7);"
+            >
+              Display Name
+            </div>
+            <input
+              class="w-full rounded-md border px-3 py-2 text-sm"
+              style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+              placeholder="Week 1 (Alltime), Aggregate, ..."
+              bind:value={displayName}
+            />
+          </div>
+          <div>
+            <div
+              class="mb-1 text-xs font-semibold tracking-wide uppercase"
+              style="color: rgba(255,255,255,0.7);"
+            >
+              Upload Type
+            </div>
+            <CustomSelect
+              options={importKindOptions}
+              value={importKind}
+              compact={false}
+              onSelect={(v) => (importKind = v as 'weekly' | 'aggregate')}
+            />
+          </div>
+          <div>
+            <div
+              class="mb-1 text-xs font-semibold tracking-wide uppercase"
+              style="color: rgba(255,255,255,0.7);"
+            >
+              Week Label
+            </div>
+            <input
+              class="w-full rounded-md border px-3 py-2 text-sm"
+              style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+              placeholder="Week 1"
+              bind:value={weekLabel}
+              disabled={importKind !== 'weekly'}
+            />
           </div>
         </div>
 
