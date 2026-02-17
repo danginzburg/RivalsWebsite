@@ -26,12 +26,16 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     // Find the user's profile
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .select('id')
+      .select('id, role')
       .eq('auth0_sub', auth0Sub)
       .single()
 
     if (profileError || !profile) {
       throw error(404, 'User profile not found. Please try logging out and back in.')
+    }
+
+    if (profile.role === 'restricted' || profile.role === 'banned') {
+      throw error(403, 'Your account is restricted and cannot participate.')
     }
 
     // Insert or update registration (upsert)

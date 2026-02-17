@@ -1,10 +1,8 @@
 <script lang="ts">
   import { page } from '$app/stores'
-  import { resolve } from '$app/paths'
-  import { goto, invalidateAll } from '$app/navigation'
+  import { invalidateAll } from '$app/navigation'
   import {
-    House,
-    Search,
+    Users,
     Menu,
     X,
     LogIn,
@@ -19,27 +17,32 @@
     Calendar,
     MessageSquare,
     Shield,
+    Upload,
   } from 'lucide-svelte'
   import rivalsLogo from '$lib/assets/rivals_logo.png'
 
   let isMobileMenuOpen = $state(false)
   let openDropdown = $state<string | null>(null)
+  let isBrandHovered = $state(false)
 
   // Get user from page data (set by +layout.server.ts)
   const user = $derived($page.data.user)
   const isAdmin = $derived(user?.role === 'admin')
 
   // Simple nav items (no dropdown)
-  const simpleNavItems = [{ href: '/', label: 'Home', icon: House }]
+  const simpleNavItems = [{ href: '/teams', label: 'My Team', icon: Users }]
 
   // Dropdown menus
-  const dropdownMenus = [
+  const dropdownMenus = $derived<
+    Array<{ id: string; label: string; icon: any; items: DropdownItem[] }>
+  >([
     {
       id: 'register',
       label: 'Register',
       icon: UserPlus,
       items: [
         { href: '/signup', label: 'Player Sign Up', icon: UserPlus },
+        { href: '/team-registration', label: 'Team Registration', icon: Users },
         { href: '/observer-signup', label: 'Observer Sign Up', icon: Video },
       ],
     },
@@ -49,16 +52,9 @@
       icon: BookOpen,
       items: [
         { href: '/rulebook', label: 'Rulebook', icon: BookOpen },
-        { href: '#', label: 'Match Schedule', icon: Calendar, disabled: true },
-      ],
-    },
-    {
-      id: 'stats',
-      label: 'Stats',
-      icon: BarChart3,
-      items: [
-        { href: '#', label: 'Leaderboard', icon: Trophy, disabled: true },
-        { href: '#', label: 'Individual Stats', icon: BarChart3, disabled: true },
+        { href: '/matches', label: 'Match Schedule', icon: Calendar },
+        { href: '/leaderboard', label: 'Leaderboard', icon: Trophy },
+        { href: '/stats', label: 'Individual Stats', icon: BarChart3 },
       ],
     },
     {
@@ -67,10 +63,20 @@
       icon: Calculator,
       items: [
         { href: '/team-balance', label: 'Team Balance', icon: Calculator },
-        { href: '#', label: 'Feedback Form', icon: MessageSquare, disabled: true },
+        // { href: '#', label: 'Feedback Form', icon: MessageSquare, disabled: true },
+        ...($page.data.user?.role === 'admin'
+          ? [{ href: '/add-stats', label: 'Add Stats', icon: Upload }]
+          : []),
       ],
     },
-  ]
+  ])
+
+  type DropdownItem = {
+    href: string
+    label: string
+    icon: any
+    disabled?: boolean
+  }
 
   function handleLogin() {
     window.location.href = '/auth/login'
@@ -144,10 +150,21 @@
   <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
     <div class="flex h-16 items-center justify-between">
       <!-- Logo/Brand -->
-      <div class="flex items-center gap-3">
+      <a
+        href="/"
+        class="flex items-center gap-3"
+        style="color: var(--text);"
+        onmouseenter={() => (isBrandHovered = true)}
+        onmouseleave={() => (isBrandHovered = false)}
+      >
         <img src={rivalsLogo} alt="Throw City Rivals logo" class="h-10 w-10 object-contain" />
-        <h1 class="text-xl font-bold" style="color: var(--title);">Throw City Rivals</h1>
-      </div>
+        <h1
+          class="text-xl font-bold"
+          style={isBrandHovered ? 'color: var(--hover);' : 'color: var(--title);'}
+        >
+          Throw City Rivals
+        </h1>
+      </a>
 
       <!-- Desktop Navigation -->
       <ul class="hidden md:flex md:items-center md:space-x-1">
@@ -158,7 +175,7 @@
           <li>
             {#if isActive}
               <a
-                href={resolve(item.href)}
+                href={item.href}
                 class={getClasses(item.href)}
                 title={item.label}
                 style={getItemStyle(item.href, false)}
@@ -168,7 +185,7 @@
               </a>
             {:else}
               <a
-                href={resolve(item.href)}
+                href={item.href}
                 class={getClasses(item.href)}
                 title={item.label}
                 style="color: var(--text);"
@@ -316,7 +333,7 @@
           {@const Icon = item.icon}
           <li>
             <a
-              href={resolve(item.href)}
+              href={item.href}
               class={getClasses(item.href)}
               title={item.label}
               style={isActive ? getItemStyle(item.href, false) : 'color: var(--text);'}

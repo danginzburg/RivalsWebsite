@@ -2,9 +2,27 @@
   import { Plus, X } from 'lucide-svelte'
   import CustomSelect from './CustomSelect.svelte'
 
-  let riotId = $state('')
-  let pronouns = $state('')
-  let trackerLinks = $state<string[]>([''])
+  let {
+    existingRegistration = null,
+  }: {
+    existingRegistration?: {
+      id: number
+      riot_id: string
+      pronouns: string
+      tracker_links: string[] | null
+    } | null
+  } = $props()
+
+  const initialRiotId = () => existingRegistration?.riot_id ?? ''
+  const initialPronouns = () => existingRegistration?.pronouns ?? ''
+  const initialTrackerLinks = () =>
+    existingRegistration?.tracker_links && existingRegistration.tracker_links.length > 0
+      ? existingRegistration.tracker_links
+      : ['']
+
+  let riotId = $state(initialRiotId())
+  let pronouns = $state(initialPronouns())
+  let trackerLinks = $state<string[]>(initialTrackerLinks())
   let isSubmitting = $state(false)
   let submitMessage = $state<{ type: 'success' | 'error'; text: string } | null>(null)
   let showConfirmation = $state(false)
@@ -65,12 +83,15 @@
       if (response.ok) {
         submitMessage = {
           type: 'success',
-          text: 'Registration successful! Welcome to Throw City Rivals.',
+          text: existingRegistration
+            ? 'Registration updated successfully.'
+            : 'Registration successful! Welcome to Throw City Rivals.',
         }
-        // Reset form
-        riotId = ''
-        pronouns = ''
-        trackerLinks = ['']
+        if (!existingRegistration) {
+          riotId = ''
+          pronouns = ''
+          trackerLinks = ['']
+        }
       } else {
         const data = await response.json()
         submitMessage = {
@@ -185,7 +206,11 @@
       class="w-full rounded-md py-3 font-semibold transition-opacity hover:opacity-90 disabled:opacity-50"
       style="background-color: var(--accent); color: var(--text);"
     >
-      {isSubmitting ? 'Submitting...' : 'Register for Season 4'}
+      {isSubmitting
+        ? 'Submitting...'
+        : existingRegistration
+          ? 'Update Registration'
+          : 'Register for Season 4'}
     </button>
   </form>
 </div>
