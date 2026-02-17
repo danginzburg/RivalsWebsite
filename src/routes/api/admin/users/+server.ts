@@ -70,9 +70,9 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
   }
 
   // Validate the role
-  const validRoles = ['user', 'admin']
+  const validRoles = ['user', 'admin', 'restricted', 'banned']
   if (!validRoles.includes(newRole)) {
-    throw error(400, 'Invalid role. Must be "user" or "admin"')
+    throw error(400, 'Invalid role')
   }
 
   // Prevent admin from changing their own role (safety measure)

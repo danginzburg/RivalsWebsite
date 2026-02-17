@@ -29,12 +29,16 @@ export const GET: RequestHandler = async ({ locals }) => {
     .select(
       `
       id,
+      profile_id,
       riot_id,
+      rank_label,
+      rank_value,
       pronouns,
       tracker_links,
       created_at,
       updated_at,
-      profiles (
+      profiles!player_registration_profile_id_fkey (
+        id,
         email,
         display_name
       )
@@ -53,6 +57,7 @@ export const GET: RequestHandler = async ({ locals }) => {
     .select(
       `
       id,
+      profile_id,
       has_previous_experience,
       can_stream_quality,
       willing_to_use_overlay,
@@ -60,6 +65,7 @@ export const GET: RequestHandler = async ({ locals }) => {
       created_at,
       updated_at,
       profiles (
+        id,
         email,
         display_name
       )

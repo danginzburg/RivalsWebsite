@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
   import herobackground from '$lib/assets/img/mvp.png'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import HeroSection from '$lib/components/HeroSection.svelte'
@@ -16,17 +16,8 @@
     MessageCircle,
   } from 'lucide-svelte'
 
-  // Team logos
-  import tbb from '$lib/assets/teams/tbb.png'
-  import jtrr from '$lib/assets/teams/jtrr.png'
-  import crx from '$lib/assets/teams/crx.png'
-  import pgn from '$lib/assets/teams/pgn.png'
-  import ojs from '$lib/assets/teams/ojs.png'
-  import hor from '$lib/assets/teams/hor.png'
-  import fn3 from '$lib/assets/teams/fn3.png'
-  import std from '$lib/assets/teams/std.png'
-  import poor from '$lib/assets/teams/poor.png'
-  import unc7 from '$lib/assets/teams/7unc.png'
+  let { data } = $props() as { data: { matches?: any[] } }
+  const matches = $derived(data.matches ?? [])
 
   const infoItems = [
     {
@@ -45,9 +36,9 @@
     },
     {
       icon: Trophy,
-      title: 'Map Rotation + Leaderboard',
+      title: 'Leaderboard',
       description: 'Map rotation details and current team standings.',
-      href: 'https://docs.google.com/spreadsheets/d/15BLavKUxCIeDAup3GF4iaDrXqegFhGU2Cudyp55W4Ds/edit?gid=1220692241#gid=1220692241',
+      href: '/leaderboard',
     },
     {
       icon: Calculator,
@@ -59,20 +50,20 @@
       icon: BarChart3,
       title: 'Individual player stats',
       description: 'Detailed statistics for individual player performance.',
-      href: 'https://docs.google.com/spreadsheets/d/19kOEPepeyCWeo9QGhJkSJ_k6OaIxONUuh2CW6jdPMjg/edit?gid=1886421648#gid=1886421648',
+      href: '/stats',
     },
     {
       icon: Calendar,
       title: 'Match Schedule',
       description: 'Stay updated with the latest match schedules and results for Season 4.',
-      href: '#',
+      href: '/matches',
     },
     {
       icon: MessageSquare,
       title: 'Feedback Forms',
       description:
         'We value your feedback! Share your thoughts and suggestions to help us improve Throw City Rivals.',
-      href: 'https://docs.google.com/forms/d/e/1FAIpQLSeIIzM-gTC2H90YxnQmW16Lx0BEQpcQ5av2gT64R6KhLDgisA/viewform',
+      href: '/feedback',
     },
     {
       icon: Video,
@@ -87,44 +78,6 @@
       description:
         'Join our Discord community to stay updated on all Season 4 information and announcements.',
       href: 'https://discord.gg/AQtCv8Mk',
-    },
-  ]
-
-  const matches = [
-    {
-      teamA: { name: 'The Big Black', abbr: 'TBB', logo: tbb },
-      teamB: { name: 'Jame Time Rebuild Rebuild', abbr: 'JTRR', logo: jtrr },
-      datetime: 'Jan 30, 7:00 PM',
-      maps: ['Haven', 'Breeze', 'Abyss'],
-      stream: 'https://twitch.tv/placeholder',
-    },
-    {
-      teamA: { name: 'CloroX', abbr: 'CRX', logo: crx },
-      teamB: { name: 'Winged Pigeons', abbr: 'PGN', logo: pgn },
-      datetime: 'Jan 31, 6:30 PM',
-      maps: ['Pearl', 'Split', 'Bind'],
-      stream: 'https://twitch.tv/placeholder',
-    },
-    {
-      teamA: { name: 'O. Jenk Simpsons', abbr: 'OJS', logo: ojs },
-      teamB: { name: 'Hooters', abbr: 'HOR', logo: hor },
-      datetime: 'Feb 1, 8:15 PM',
-      maps: ['Corrode', 'Haven', 'Breeze'],
-      stream: 'https://twitch.tv/placeholder',
-    },
-    {
-      teamA: { name: 'FNTASTIC3', abbr: 'FN3', logo: fn3 },
-      teamB: { name: 'Stranger Danger', abbr: 'STD', logo: std },
-      datetime: 'Feb 2, 5:45 PM',
-      maps: ['Abyss', 'Pearl', 'Split'],
-      stream: 'https://twitch.tv/placeholder',
-    },
-    {
-      teamA: { name: 'Preists of Oncoming Rivals', abbr: 'POOR', logo: poor },
-      teamB: { name: '7uncles', abbr: '7UNC', logo: unc7 },
-      datetime: 'Feb 3, 9:00 PM',
-      maps: ['Bind', 'Corrode', 'Haven'],
-      stream: 'https://twitch.tv/placeholder',
     },
   ]
 </script>
