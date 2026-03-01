@@ -2,20 +2,16 @@
   import { page } from '$app/stores'
   import { invalidateAll } from '$app/navigation'
   import {
-    Users,
     Menu,
     X,
     LogIn,
     LogOut,
     BookOpen,
     Calculator,
-    UserPlus,
-    Video,
     ChevronDown,
     Trophy,
     BarChart3,
     Calendar,
-    MessageSquare,
     Shield,
     Upload,
   } from 'lucide-svelte'
@@ -30,22 +26,13 @@
   const isAdmin = $derived(user?.role === 'admin')
 
   // Simple nav items (no dropdown)
-  const simpleNavItems = [{ href: '/teams', label: 'My Team', icon: Users }]
+  const simpleNavItems: Array<{ href: string; label: string; icon?: any }> = []
 
   // Dropdown menus
   const dropdownMenus = $derived<
     Array<{ id: string; label: string; icon: any; items: DropdownItem[] }>
   >([
-    {
-      id: 'register',
-      label: 'Register',
-      icon: UserPlus,
-      items: [
-        { href: '/signup', label: 'Player Sign Up', icon: UserPlus },
-        { href: '/team-registration', label: 'Team Registration', icon: Users },
-        { href: '/observer-signup', label: 'Observer Sign Up', icon: Video },
-      ],
-    },
+    // registration removed: keep info and tools only
     {
       id: 'info',
       label: 'Info',
@@ -63,7 +50,6 @@
       icon: Calculator,
       items: [
         { href: '/team-balance', label: 'Team Balance', icon: Calculator },
-        // { href: '#', label: 'Feedback Form', icon: MessageSquare, disabled: true },
         ...($page.data.user?.role === 'admin'
           ? [{ href: '/add-stats', label: 'Add Stats', icon: Upload }]
           : []),
