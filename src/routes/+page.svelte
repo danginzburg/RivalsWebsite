@@ -4,29 +4,12 @@
   import HeroSection from '$lib/components/HeroSection.svelte'
   import InfoSection from '$lib/components/InfoSection.svelte'
   import MatchesSection from '$lib/components/MatchesSection.svelte'
-  import {
-    UserPlus,
-    BookOpen,
-    Trophy,
-    Calculator,
-    BarChart3,
-    Calendar,
-    MessageSquare,
-    Video,
-    MessageCircle,
-  } from 'lucide-svelte'
+  import { BookOpen, Trophy, Calculator, BarChart3, Calendar, MessageCircle } from 'lucide-svelte'
 
   let { data } = $props() as { data: { matches?: any[] } }
   const matches = $derived(data.matches ?? [])
 
   const infoItems = [
-    {
-      icon: UserPlus,
-      title: 'Sign Up',
-      description:
-        'Sign up to participate in Season 4 of Throw City Rivals! Players of all skill levels are welcome.',
-      href: '/signup',
-    },
     {
       icon: BookOpen,
       title: 'Rulebook',
@@ -35,46 +18,32 @@
       href: '/rulebook',
     },
     {
-      icon: Trophy,
-      title: 'Leaderboard',
-      description: 'Map rotation details and current team standings.',
-      href: '/leaderboard',
-    },
-    {
-      icon: Calculator,
-      title: 'Team Balance Calculator',
-      description: 'Calculate and balance team compositions for fair play.',
-      href: '/team-balance',
-    },
-    {
-      icon: BarChart3,
-      title: 'Individual player stats',
-      description: 'Detailed statistics for individual player performance.',
-      href: '/stats',
-    },
-    {
       icon: Calendar,
-      title: 'Match Schedule',
-      description: 'Stay updated with the latest match schedules and results for Season 4.',
+      title: 'Matches',
+      description: 'Upcoming matches, results, and match details.',
       href: '/matches',
     },
     {
-      icon: MessageSquare,
-      title: 'Feedback Forms',
-      description:
-        'We value your feedback! Share your thoughts and suggestions to help us improve Throw City Rivals.',
-      href: '/feedback',
+      icon: Trophy,
+      title: 'Leaderboard',
+      description: 'Team standings based on match results.',
+      href: '/leaderboard',
     },
     {
-      icon: Video,
-      title: 'Observer Sign Up',
-      description:
-        'Sign up to be an observer for Season 4 of Throw City Rivals. Help us capture the action and provide live coverage!',
-      href: '/observer-signup',
+      icon: BarChart3,
+      title: 'Stats',
+      description: 'Player performance stats and weekly imports.',
+      href: '/stats',
+    },
+    {
+      icon: Calculator,
+      title: 'Calculator',
+      description: 'Balance calculator for fair team compositions.',
+      href: '/team-balance',
     },
     {
       icon: MessageCircle,
-      title: 'NA Discord',
+      title: 'Discord',
       description:
         'Join our Discord community to stay updated on all Season 4 information and announcements.',
       href: 'https://discord.gg/AQtCv8Mk',

@@ -9,6 +9,85 @@ function normalizeOptional(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null
 }
 
+const MEMBERSHIP_ROLES = ['player', 'captain', 'substitute', 'coach', 'manager'] as const
+type MembershipRole = (typeof MEMBERSHIP_ROLES)[number]
+
+function normalizeMembershipRole(value: unknown): MembershipRole {
+  const raw = normalizeOptional(value)
+  if (!raw) return 'player'
+  const lowered = raw.toLowerCase()
+  if ((MEMBERSHIP_ROLES as readonly string[]).includes(lowered)) return lowered as MembershipRole
+  throw error(400, 'Invalid membership role')
+}
+
+export const POST: RequestHandler = async ({ locals, request }) => {
+  const adminProfile = await requireAdmin(locals.user)
+  const body = await request.json().catch(() => ({}))
+
+  const teamId = normalizeOptional(body.teamId)
+  const profileId = normalizeOptional(body.profileId)
+  const role = normalizeMembershipRole(body.role)
+
+  if (!teamId || !profileId) throw error(400, 'Missing teamId or profileId')
+
+  const { data: team, error: teamError } = await supabaseAdmin
+    .from('teams')
+    .select('id, approval_status')
+    .eq('id', teamId)
+    .maybeSingle()
+
+  if (teamError || !team) throw error(404, 'Team not found')
+  if (team.approval_status !== 'approved') {
+    throw error(400, 'Team must be approved before adding players')
+  }
+
+  const { data: profile, error: profileError } = await supabaseAdmin
+    .from('profiles')
+    .select('id')
+    .eq('id', profileId)
+    .maybeSingle()
+
+  if (profileError || !profile) throw error(404, 'User not found')
+
+  const { data: existing, error: existingError } = await supabaseAdmin
+    .from('team_memberships')
+    .select('id, team_id')
+    .eq('profile_id', profileId)
+    .eq('is_active', true)
+    .is('left_at', null)
+    .maybeSingle()
+
+  if (existingError) throw error(500, 'Failed to validate existing membership')
+  if (existing) {
+    throw error(409, 'Player is already on a team (remove them first)')
+  }
+
+  const today = new Date().toISOString().slice(0, 10)
+  const { data: created, error: createError } = await supabaseAdmin
+    .from('team_memberships')
+    .insert({
+      team_id: teamId,
+      profile_id: profileId,
+      role,
+      joined_at: today,
+      is_active: true,
+    })
+    .select('id')
+    .single()
+
+  if (createError || !created) throw error(500, 'Failed to add player to team')
+
+  await logAdminAction({
+    adminProfileId: adminProfile.id,
+    actionType: 'team_player_added',
+    targetTable: 'team_memberships',
+    targetId: String(created.id),
+    details: { teamId, profileId, role },
+  })
+
+  return json({ success: true })
+}
+
 export const DELETE: RequestHandler = async ({ locals, request }) => {
   const adminProfile = await requireAdmin(locals.user)
   const body = await request.json()

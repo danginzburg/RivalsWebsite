@@ -19,8 +19,7 @@
           <div>
             <h1 class="responsive-title">Leaderboard</h1>
             <p class="text-sm" style="color: rgba(255,255,255,0.72);">
-              Calculated from match results. All teams start at 1000; +50 for a series win, -50 for
-              a series loss.
+              Calculated from match results.
             </p>
           </div>
         </div>
@@ -43,14 +42,13 @@
               <tr class="text-xs tracking-wide uppercase" style="color: rgba(255,255,255,0.75);">
                 <th class="px-3 py-2">Rank</th>
                 <th class="px-3 py-2">Team</th>
-                <th class="px-3 py-2">Points</th>
                 <th class="px-3 py-2"># Series</th>
                 <th class="px-3 py-2">Series Wins</th>
                 <th class="px-3 py-2">Series Losses</th>
                 <th class="px-3 py-2"># Maps</th>
                 <th class="px-3 py-2">Map Wins</th>
                 <th class="px-3 py-2">Map Losses</th>
-                <th class="px-3 py-2">Round Diff.</th>
+                <th class="px-3 py-2">Map Diff.</th>
               </tr>
             </thead>
             <tbody>
@@ -71,13 +69,9 @@
                           style="border-color: rgba(255,255,255,0.15);"
                         ></div>
                       {/if}
-                      <a
-                        href={`/teams/${row.team_id}`}
-                        class="font-semibold underline"
-                        style="color: var(--text);"
-                      >
+                      <span class="font-semibold" style="color: var(--text);">
                         {teamLabel(row.team)}
-                      </a>
+                      </span>
                       {#if row.team?.tag}
                         <span class="text-xs" style="color: rgba(255,255,255,0.65);"
                           >[{String(row.team.tag).toUpperCase()}]</span
@@ -85,7 +79,6 @@
                       {/if}
                     </div>
                   </td>
-                  <td class="px-3 py-2" style="color: rgba(255,255,255,0.82);">{row.points}</td>
                   <td class="px-3 py-2" style="color: rgba(255,255,255,0.82);"
                     >{row.series_played}</td
                   >
@@ -98,7 +91,7 @@
                   >
                   <td class="px-3 py-2" style="color: rgba(255,255,255,0.82);">{row.map_wins}</td>
                   <td class="px-3 py-2" style="color: rgba(255,255,255,0.82);">{row.map_losses}</td>
-                  <td class="px-3 py-2" style="color: rgba(255,255,255,0.82);">{row.round_diff}</td>
+                  <td class="px-3 py-2" style="color: rgba(255,255,255,0.82);">{row.map_diff}</td>
                 </tr>
               {/each}
             </tbody>

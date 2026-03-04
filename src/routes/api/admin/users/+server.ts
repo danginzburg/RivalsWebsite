@@ -25,14 +25,32 @@ export const GET: RequestHandler = async ({ locals }) => {
   }
 
   // Fetch all users
-  const { data: users, error: usersError } = await supabaseAdmin
-    .from('profiles')
-    .select('id, email, display_name, role, created_at')
-    .order('created_at', { ascending: false })
+  let users: any[] = []
+  {
+    const { data, error: usersError } = await supabaseAdmin
+      .from('profiles')
+      .select('id, email, display_name, role, riot_id_base, created_at')
+      .order('created_at', { ascending: false })
 
-  if (usersError) {
-    console.error('Error fetching users:', usersError)
-    throw error(500, 'Failed to fetch users')
+    if (usersError) {
+      const msg = String((usersError as any).message ?? '')
+      if (msg.toLowerCase().includes('riot_id_base')) {
+        const { data: fallback, error: fallbackError } = await supabaseAdmin
+          .from('profiles')
+          .select('id, email, display_name, role, created_at')
+          .order('created_at', { ascending: false })
+        if (fallbackError) {
+          console.error('Error fetching users:', fallbackError)
+          throw error(500, 'Failed to fetch users')
+        }
+        users = (fallback ?? []).map((u: any) => ({ ...u, riot_id_base: null }))
+      } else {
+        console.error('Error fetching users:', usersError)
+        throw error(500, 'Failed to fetch users')
+      }
+    } else {
+      users = data ?? []
+    }
   }
 
   return json({

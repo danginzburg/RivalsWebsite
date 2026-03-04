@@ -10,7 +10,16 @@
     normalizeMapPool,
   } from '$lib/matches/veto'
 
-  let { data } = $props()
+  type VetoPageData = {
+    match: any
+    viewer: { role: string | null; profileId: string; teamIds?: string[] }
+    actions?: any[]
+    mapPool?: string[] | null
+    remainingMaps?: string[] | null
+    next?: any
+  }
+
+  let { data } = $props() as { data: VetoPageData }
 
   const match = $derived(data.match as any)
   let actions = $state<any[]>([])

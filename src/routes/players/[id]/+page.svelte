@@ -3,14 +3,22 @@
   import CustomSelect from '$lib/components/CustomSelect.svelte'
   import { BarChart3, Users, Swords } from 'lucide-svelte'
 
-  let { data } = $props() as { data: any }
+  import { enhance } from '$app/forms'
+
+  let { data, form } = $props() as { data: any; form: any }
 
   const player = $derived(data.player)
   const activeTeam = $derived(data.activeTeam)
+  const viewer = $derived(data.viewer ?? { canEditRiotIdBase: false })
   const statsRows = $derived((data.stats?.rows ?? []) as any[])
   const selected = $derived((data.stats?.selected ?? null) as any | null)
   const selectedBatchId = $derived((data.stats?.selectedBatchId ?? null) as string | null)
   const matchHistory = $derived((data.matchHistory ?? []) as any[])
+
+  let riotIdBaseValue = $state('')
+  $effect(() => {
+    riotIdBaseValue = player.riot_id_base ?? ''
+  })
 
   const agentAssetModules = import.meta.glob('$lib/assets/agents/*_icon.png', {
     eager: true,
@@ -122,6 +130,48 @@
         class="rounded-md border p-4"
         style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
       >
+        {#if viewer.canEditRiotIdBase && !player.riot_id_base}
+          <div
+            class="mb-4 rounded-md border p-3"
+            style="border-color: rgba(59,130,246,0.25); background: rgba(59,130,246,0.10);"
+          >
+            <div class="mb-1 text-sm font-semibold" style="color: rgba(255,255,255,0.92);">
+              Link Your Stats
+            </div>
+            <div class="text-xs" style="color: rgba(255,255,255,0.72);">
+              Enter your Riot name (base only, no #tag). Admin stat imports match on this.
+            </div>
+
+            <form class="mt-3 flex flex-col gap-2 md:flex-row" method="POST" use:enhance>
+              <input
+                name="riot_id_base"
+                bind:value={riotIdBaseValue}
+                class="w-full flex-1 rounded-md border px-3 py-2 text-sm"
+                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                placeholder="Example: Ginzburg"
+                autocomplete="off"
+              />
+              <button
+                type="submit"
+                formaction="?/setRiotIdBase"
+                class="rounded-md px-3 py-2 text-sm font-semibold"
+                style="background: rgba(74,222,128,0.2); color: #4ade80;"
+              >
+                Save
+              </button>
+            </form>
+
+            {#if form?.success === false}
+              <div
+                class="mt-2 rounded-md border p-2 text-sm"
+                style="border-color: rgba(248,113,113,0.35); background: rgba(248,113,113,0.08); color: #fecaca;"
+              >
+                {form.message ?? 'Failed to save'}
+              </div>
+            {/if}
+          </div>
+        {/if}
+
         <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div
             class="text-xs font-semibold tracking-wide uppercase"

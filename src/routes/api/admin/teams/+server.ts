@@ -9,6 +9,20 @@ function normalizeOptional(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null
 }
 
+function sanitizeFilename(name: string): string {
+  const ascii = name.replace(/[\u0080-\uFFFF]/g, '')
+  return ascii
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+/, '')
+    .replace(/-+$/, '')
+    .slice(0, 80)
+}
+
+function isImageFile(file: File) {
+  return typeof file.type === 'string' && file.type.startsWith('image/')
+}
+
 export const GET: RequestHandler = async ({ locals }) => {
   await requireAdmin(locals.user)
 
@@ -50,96 +64,61 @@ export const GET: RequestHandler = async ({ locals }) => {
     .filter((team) => team.approval_status === 'approved')
     .map((team) => team.id)
 
-  let captainMap = new Map<string, { display_name: string | null; email: string | null }>()
-  let rosterMap = new Map<
+  const captainMap = new Map<string, { display_name: string | null; email: string | null }>()
+  const rosterMap = new Map<
     string,
     Array<{
       profile_id: string
       role: string
-      riot_id: string
+      riot_id_base: string | null
       display_name: string | null
       email: string | null
     }>
   >()
-
-  if (approvedTeamIds.length > 0) {
-    const { data: captainRows } = await supabaseAdmin
-      .from('team_memberships')
-      .select(
-        `
-        team_id,
-        player_registration!team_memberships_profile_id_fkey (
-          profiles!player_registration_profile_id_fkey (
-            display_name,
-            email
-          )
-        )
-      `
-      )
-      .in('team_id', approvedTeamIds)
-      .eq('role', 'captain')
-      .eq('is_active', true)
-      .is('left_at', null)
-
-    captainMap = new Map(
-      (captainRows ?? []).map((row: any) => {
-        const rel = Array.isArray(row.player_registration)
-          ? row.player_registration[0]
-          : row.player_registration
-        const profileRel = Array.isArray(rel?.profiles) ? rel.profiles[0] : rel?.profiles
-        return [
-          row.team_id,
-          {
-            display_name: profileRel?.display_name ?? null,
-            email: profileRel?.email ?? null,
-          },
-        ]
-      })
-    )
-  }
-
   const rosterCountMap = new Map<string, number>()
+
   if (approvedTeamIds.length > 0) {
-    const { data: rosterRows } = await supabaseAdmin
+    const { data: rosterRows, error: rosterError } = await supabaseAdmin
       .from('team_memberships')
-      .select(
-        `
-        team_id,
-        profile_id,
-        role,
-        player_registration!team_memberships_profile_id_fkey (
-          riot_id,
-          profiles!player_registration_profile_id_fkey (
-            display_name,
-            email
-          )
-        )
-      `
-      )
+      .select('team_id, profile_id, role')
       .in('team_id', approvedTeamIds)
       .eq('is_active', true)
       .is('left_at', null)
 
-    rosterMap = new Map()
+    if (rosterError) throw error(500, 'Failed to load team rosters')
+
+    const profileIds = Array.from(new Set((rosterRows ?? []).map((r) => r.profile_id)))
+
+    const profileById = new Map<string, any>()
+    if (profileIds.length > 0) {
+      const { data: profileRows, error: profilesError } = await supabaseAdmin
+        .from('profiles')
+        .select('id, display_name, email, riot_id_base')
+        .in('id', profileIds)
+
+      if (profilesError) throw error(500, 'Failed to load roster profiles')
+      for (const p of profileRows ?? []) profileById.set(p.id, p)
+    }
+
     for (const row of rosterRows ?? []) {
       rosterCountMap.set(row.team_id, (rosterCountMap.get(row.team_id) ?? 0) + 1)
-
-      const reg = Array.isArray((row as any).player_registration)
-        ? (row as any).player_registration[0]
-        : (row as any).player_registration
-      const profileRel = Array.isArray(reg?.profiles) ? reg.profiles[0] : reg?.profiles
-
-      const rosterEntry = {
+      const p = profileById.get(row.profile_id)
+      const entry = {
         profile_id: row.profile_id,
         role: row.role,
-        riot_id: reg?.riot_id ?? 'Unknown',
-        display_name: profileRel?.display_name ?? null,
-        email: profileRel?.email ?? null,
+        riot_id_base: p?.riot_id_base ?? null,
+        display_name: p?.display_name ?? null,
+        email: p?.email ?? null,
       }
-
       const current = rosterMap.get(row.team_id) ?? []
-      current.push(rosterEntry)
+      current.push(entry)
       rosterMap.set(row.team_id, current)
+      if (row.role === 'captain') {
+        captainMap.set(row.team_id, {
+          display_name: p?.display_name ?? null,
+          email: p?.email ?? null,
+        })
+      }
     }
   }
 
@@ -154,6 +133,92 @@ export const GET: RequestHandler = async ({ locals }) => {
     queue: decoratedTeams.filter((team) => team.approval_status === 'pending'),
     approved: decoratedTeams.filter((team) => team.approval_status === 'approved'),
   })
+}
+
+export const POST: RequestHandler = async ({ locals, request }) => {
+  let uploadedLogoPath: string | null = null
+
+  try {
+    const adminProfile = await requireAdmin(locals.user)
+
+    const form = await request.formData().catch(() => null)
+    if (!form) throw error(400, 'Invalid form data')
+
+    const name = normalizeOptional(form.get('name'))
+    const tag = normalizeOptional(form.get('tag'))
+    const logo = form.get('logo')
+
+    if (!name) throw error(400, 'Team name is required')
+    if (name.length < 2 || name.length > 48) throw error(400, 'Team name must be 2-48 characters')
+
+    if (tag && !/^[A-Za-z0-9]{2,4}$/.test(tag)) {
+      throw error(400, 'Team tag must be 2-4 characters (letters/numbers)')
+    }
+
+    if (logo instanceof File && logo.size > 0) {
+      if (!isImageFile(logo)) throw error(400, 'Logo must be an image file')
+
+      const cleanName = sanitizeFilename(logo.name || 'logo')
+      const objectPath = `admin/${crypto.randomUUID()}-${cleanName || 'logo'}`
+      const bytes = new Uint8Array(await logo.arrayBuffer())
+      const { error: uploadError } = await supabaseAdmin.storage
+        .from('team-logos')
+        .upload(objectPath, bytes, {
+          contentType: logo.type || 'application/octet-stream',
+          upsert: false,
+        })
+
+      if (uploadError) {
+        throw error(500, 'Failed to upload team logo')
+      }
+      uploadedLogoPath = objectPath
+    }
+
+    const now = new Date().toISOString()
+    const { data: created, error: createError } = await supabaseAdmin
+      .from('teams')
+      .insert({
+        name,
+        tag: tag ? tag.toUpperCase() : null,
+        logo_path: uploadedLogoPath,
+        status: 'active',
+        approval_status: 'approved',
+        approval_notes: 'Created by administrator',
+        submitted_by_profile_id: adminProfile.id,
+        approved_by_profile_id: adminProfile.id,
+        approved_at: now,
+      })
+      .select('id, name, tag, logo_path, approval_status, created_at')
+      .single()
+
+    if (createError || !created) {
+      if (createError?.code === '23505') {
+        throw error(409, 'Team name or tag conflicts with an existing approved team')
+      }
+      throw error(500, createError?.message || 'Failed to create team')
+    }
+
+    await logAdminAction({
+      adminProfileId: adminProfile.id,
+      actionType: 'team_created',
+      targetTable: 'teams',
+      targetId: created.id,
+      details: {
+        name: created.name,
+        tag: created.tag,
+      },
+    })
+
+    return json({ success: true, team: created })
+  } catch (err: any) {
+    if (uploadedLogoPath) {
+      await supabaseAdmin.storage.from('team-logos').remove([uploadedLogoPath])
+    }
+
+    const status = typeof err?.status === 'number' ? err.status : 500
+    const message = (err?.body?.message ?? err?.message ?? 'Failed to create team') as string
+    return json({ success: false, message }, { status })
+  }
 }
 
 export const PATCH: RequestHandler = async ({ locals, request }) => {
@@ -201,8 +266,8 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
     }
 
     const finalTag = moderatedTag
-    if (!finalTag || !/^[A-Za-z]{2,4}$/.test(finalTag)) {
-      throw error(400, 'Approved team tag must be 2-4 letters')
+    if (!finalTag || !/^[A-Za-z0-9]{2,4}$/.test(finalTag)) {
+      throw error(400, 'Approved team tag must be 2-4 characters (letters/numbers)')
     }
     updatePayload.tag = finalTag.toUpperCase()
 
