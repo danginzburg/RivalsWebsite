@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import { PUBLIC_SUPABASE_URL, PUBLIC_SUPABASE_ANON_KEY } from '$env/static/public'
+import { env } from '$env/dynamic/public'
 import { browser } from '$app/environment'
 
 // Only create client in browser - this file uses Auth0 SPA SDK which is browser-only
@@ -9,7 +9,14 @@ function createSupabaseClient() {
     return null as unknown as ReturnType<typeof createClient>
   }
 
-  return createClient(PUBLIC_SUPABASE_URL, PUBLIC_SUPABASE_ANON_KEY)
+  const supabaseUrl = env.PUBLIC_SUPABASE_URL
+  const anonKey = env.PUBLIC_SUPABASE_ANON_KEY
+
+  if (!supabaseUrl || !anonKey) {
+    throw new Error('Missing PUBLIC_SUPABASE_URL or PUBLIC_SUPABASE_ANON_KEY')
+  }
+
+  return createClient(supabaseUrl, anonKey)
 }
 
 export const supabase = createSupabaseClient()
