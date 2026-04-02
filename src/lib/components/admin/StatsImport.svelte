@@ -113,54 +113,157 @@
     }
   })
 
+  const weekLabelSuggestions = $derived.by(() => {
+    const raw = (data.weekLabels ?? []) as unknown
+    if (!Array.isArray(raw)) return [] as string[]
+    return raw
+      .map((v) => String(v ?? '').trim())
+      .filter(Boolean)
+      .slice(0, 30)
+  })
+
   function parseNumber(value: string): number {
     const n = Number(String(value ?? '').trim())
     return Number.isFinite(n) ? n : 0
   }
 
   function parsePercent(value: string): number {
-    const cleaned = String(value ?? '')
-      .replace('%', '')
-      .trim()
-    return parseNumber(cleaned)
+    const raw = String(value ?? '').trim()
+    if (!raw) return 0
+    if (/^n\/?a$/i.test(raw)) return 0
+
+    const hasPercent = raw.includes('%')
+    const cleaned = raw.replace('%', '').trim()
+    const n = parseNumber(cleaned)
+    // Some exports provide KAST as 0-1 instead of 0-100.
+    if (!hasPercent && n > 0 && n <= 1) return n * 100
+    return n
   }
 
-  function validateHeaders(headers: string[]): boolean {
-    const expected = [
-      'PLAYER',
-      'AGENTS',
-      'GAMES',
-      'W',
-      'L',
-      'ROUNDS',
-      'RW',
-      'RL',
-      'ACS',
-      'KD',
-      'KAST',
-      'ADR',
-      'K',
-      'KPG',
-      'KPR',
-      'D',
-      'DPG',
-      'DPR',
-      'A',
-      'APG',
-      'APR',
-      'FK',
-      'FKPG',
-      'FD',
-      'FDPG',
-      'HS%',
-      'PLANTS',
-      'PLANTS/G',
-      'DEFUSES',
-      'DEFUSES/G',
-      'ECON',
-    ]
+  type HeaderKey =
+    | 'PLAYER'
+    | 'AGENTS'
+    | 'GAMES'
+    | 'W'
+    | 'L'
+    | 'ROUNDS'
+    | 'RW'
+    | 'RL'
+    | 'ACS'
+    | 'KD'
+    | 'KAST'
+    | 'ADR'
+    | 'K'
+    | 'KPG'
+    | 'KPR'
+    | 'D'
+    | 'DPG'
+    | 'DPR'
+    | 'A'
+    | 'APG'
+    | 'APR'
+    | 'FK'
+    | 'FKPG'
+    | 'FD'
+    | 'FDPG'
+    | 'HS%'
+    | 'PLANTS'
+    | 'PLANTS/G'
+    | 'DEFUSES'
+    | 'DEFUSES/G'
+    | 'ECON'
 
-    return expected.every((col, i) => headers[i]?.trim().toUpperCase() === col)
+  const REQUIRED_KEYS: HeaderKey[] = [
+    'PLAYER',
+    'AGENTS',
+    'GAMES',
+    'W',
+    'L',
+    'ROUNDS',
+    'RW',
+    'RL',
+    'ACS',
+    'KD',
+    'KAST',
+    'ADR',
+    'K',
+    'KPG',
+    'KPR',
+    'D',
+    'DPG',
+    'DPR',
+    'A',
+    'APG',
+    'APR',
+    'FK',
+    'FKPG',
+    'FD',
+    'FDPG',
+    'HS%',
+    'PLANTS',
+    'PLANTS/G',
+    'DEFUSES',
+    'DEFUSES/G',
+    'ECON',
+  ]
+
+  function normalizeHeader(raw: string): string {
+    return String(raw ?? '')
+      .trim()
+      .toUpperCase()
+      .replace(/\s+/g, ' ')
+  }
+
+  function buildHeaderIndex(headers: string[]): Record<HeaderKey, number> {
+    const indexByCanonical = new Map<string, number>()
+    headers.forEach((h, idx) => indexByCanonical.set(normalizeHeader(h), idx))
+
+    const synonyms: Record<HeaderKey, string[]> = {
+      PLAYER: ['PLAYER'],
+      AGENTS: ['AGENTS'],
+      GAMES: ['GAMES', '# GAMES'],
+      W: ['W', 'GAMES WON'],
+      L: ['L', 'GAMES LOST'],
+      ROUNDS: ['ROUNDS', '# ROUNDS', '# ROUNDS '],
+      RW: ['RW', 'ROUNDS WON'],
+      RL: ['RL', 'ROUNDS LOST'],
+      ACS: ['ACS'],
+      KD: ['KD', 'K/D'],
+      KAST: ['KAST', 'KAST%'],
+      ADR: ['ADR'],
+      K: ['K', 'KILLS'],
+      KPG: ['KPG'],
+      KPR: ['KPR'],
+      D: ['D', 'DEATHS'],
+      DPG: ['DPG'],
+      DPR: ['DPR'],
+      A: ['A', 'ASSISTS'],
+      APG: ['APG'],
+      APR: ['APR'],
+      FK: ['FK'],
+      FKPG: ['FKPG'],
+      FD: ['FD'],
+      FDPG: ['FDPG'],
+      'HS%': ['HS%', 'HS %'],
+      PLANTS: ['PLANTS'],
+      'PLANTS/G': ['PLANTS/G', 'PLANTS / GAME'],
+      DEFUSES: ['DEFUSES'],
+      'DEFUSES/G': ['DEFUSES/G', 'DEFUSES / GAME'],
+      ECON: ['ECON', 'ECON RATING'],
+    }
+
+    const out = {} as Record<HeaderKey, number>
+    for (const key of REQUIRED_KEYS) {
+      const candidates = synonyms[key]
+      const found = candidates
+        .map((c) => indexByCanonical.get(normalizeHeader(c)))
+        .find((v) => typeof v === 'number')
+      if (typeof found !== 'number') {
+        throw new Error(`CSV missing required column: ${key}`)
+      }
+      out[key] = found
+    }
+    return out
   }
 
   function parseCSV(text: string): ParsedRow[] {
@@ -168,9 +271,7 @@
     if (lines.length < 2) throw new Error('CSV must include a header and at least one data row')
 
     const headers = lines[0].split(',').map((h) => h.trim())
-    if (!validateHeaders(headers)) {
-      throw new Error('CSV headers do not match the expected format')
-    }
+    const idx = buildHeaderIndex(headers)
 
     const out: ParsedRow[] = []
     for (let i = 1; i < lines.length; i++) {
@@ -185,36 +286,36 @@
 
       out.push({
         player_name: playerName,
-        agents: parts[1]?.trim() ?? '',
-        games: parseNumber(parts[2]),
-        games_won: parseNumber(parts[3]),
-        games_lost: parseNumber(parts[4]),
-        rounds: parseNumber(parts[5]),
-        rounds_won: parseNumber(parts[6]),
-        rounds_lost: parseNumber(parts[7]),
-        acs: parseNumber(parts[8]),
-        kd: parseNumber(parts[9]),
-        kast_pct: parsePercent(parts[10]),
-        adr: parseNumber(parts[11]),
-        kills: parseNumber(parts[12]),
-        kpg: parseNumber(parts[13]),
-        kpr: parseNumber(parts[14]),
-        deaths: parseNumber(parts[15]),
-        dpg: parseNumber(parts[16]),
-        dpr: parseNumber(parts[17]),
-        assists: parseNumber(parts[18]),
-        apg: parseNumber(parts[19]),
-        apr: parseNumber(parts[20]),
-        fk: parseNumber(parts[21]),
-        fkpg: parseNumber(parts[22]),
-        fd: parseNumber(parts[23]),
-        fdpg: parseNumber(parts[24]),
-        hs_pct: parsePercent(parts[25]),
-        plants: parseNumber(parts[26]),
-        plants_per_game: parseNumber(parts[27]),
-        defuses: parseNumber(parts[28]),
-        defuses_per_game: parseNumber(parts[29]),
-        econ_rating: parseNumber(parts[30]),
+        agents: parts[idx.AGENTS]?.trim() ?? '',
+        games: parseNumber(parts[idx.GAMES]),
+        games_won: parseNumber(parts[idx.W]),
+        games_lost: parseNumber(parts[idx.L]),
+        rounds: parseNumber(parts[idx.ROUNDS]),
+        rounds_won: parseNumber(parts[idx.RW]),
+        rounds_lost: parseNumber(parts[idx.RL]),
+        acs: parseNumber(parts[idx.ACS]),
+        kd: parseNumber(parts[idx.KD]),
+        kast_pct: parsePercent(parts[idx.KAST]),
+        adr: parseNumber(parts[idx.ADR]),
+        kills: parseNumber(parts[idx.K]),
+        kpg: parseNumber(parts[idx.KPG]),
+        kpr: parseNumber(parts[idx.KPR]),
+        deaths: parseNumber(parts[idx.D]),
+        dpg: parseNumber(parts[idx.DPG]),
+        dpr: parseNumber(parts[idx.DPR]),
+        assists: parseNumber(parts[idx.A]),
+        apg: parseNumber(parts[idx.APG]),
+        apr: parseNumber(parts[idx.APR]),
+        fk: parseNumber(parts[idx.FK]),
+        fkpg: parseNumber(parts[idx.FKPG]),
+        fd: parseNumber(parts[idx.FD]),
+        fdpg: parseNumber(parts[idx.FDPG]),
+        hs_pct: parsePercent(parts[idx['HS%']]),
+        plants: parseNumber(parts[idx.PLANTS]),
+        plants_per_game: parseNumber(parts[idx['PLANTS/G']]),
+        defuses: parseNumber(parts[idx.DEFUSES]),
+        defuses_per_game: parseNumber(parts[idx['DEFUSES/G']]),
+        econ_rating: parseNumber(parts[idx.ECON]),
         matched_profile_id,
       })
     }
@@ -421,9 +522,17 @@
               class="w-full rounded-md border px-3 py-2 text-sm"
               style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
               placeholder="Week 1"
+              list="week-label-suggestions"
               bind:value={weekLabel}
               disabled={importKind !== 'weekly'}
             />
+            {#if weekLabelSuggestions.length > 0}
+              <datalist id="week-label-suggestions">
+                {#each weekLabelSuggestions as w}
+                  <option value={w}></option>
+                {/each}
+              </datalist>
+            {/if}
           </div>
         </div>
 

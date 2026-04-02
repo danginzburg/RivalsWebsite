@@ -10,9 +10,11 @@
   const player = $derived(data.player)
   const activeTeam = $derived(data.activeTeam)
   const viewer = $derived(data.viewer ?? { canEditRiotIdBase: false })
-  const statsRows = $derived((data.stats?.rows ?? []) as any[])
   const selected = $derived((data.stats?.selected ?? null) as any | null)
   const selectedBatchId = $derived((data.stats?.selectedBatchId ?? null) as string | null)
+  const batchOptions = $derived(
+    (data.stats?.batchOptions ?? []) as Array<{ label: string; value: string }>
+  )
   const matchHistory = $derived((data.matchHistory ?? []) as any[])
 
   let riotIdBaseValue = $state('')
@@ -56,20 +58,6 @@
     if (!Number.isFinite(v)) return '—'
     return v.toFixed(digits)
   }
-
-  const batchOptions = $derived.by(() => {
-    const seen = new Set<string>()
-    const opts: Array<{ label: string; value: string }> = []
-    for (const r of statsRows) {
-      const id = r.import_batch_id
-      if (!id || seen.has(id)) continue
-      seen.add(id)
-      const b = r.batch
-      const label = `${b?.display_name ?? id}${b?.import_kind === 'weekly' && b?.week_label ? ` (${b.week_label})` : ''}`
-      opts.push({ label, value: id })
-    }
-    return opts
-  })
 
   function navToBatch(batchId: string) {
     window.location.href = `/players/${player.profile_id}?batchId=${encodeURIComponent(batchId)}`

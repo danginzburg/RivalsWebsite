@@ -26,10 +26,10 @@
   const navItems = $derived.by(() => {
     const items: Array<{ href: string; label: string; icon: any }> = [
       { href: '/rulebook', label: 'Rulebook', icon: BookOpen },
-      { href: '/matches', label: 'Matches', icon: Calendar },
-      { href: '/leaderboard', label: 'Leaderboard', icon: Trophy },
+      // { href: '/matches', label: 'Matches', icon: Calendar },
+      // { href: '/leaderboard', label: 'Leaderboard', icon: Trophy },
       { href: '/stats', label: 'Stats', icon: BarChart3 },
-      { href: '/team-balance', label: 'Calculator', icon: Calculator },
+      // { href: '/team-balance', label: 'Calculator', icon: Calculator },
     ]
 
     if (user) {

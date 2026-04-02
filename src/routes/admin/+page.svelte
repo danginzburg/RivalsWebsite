@@ -946,7 +946,7 @@
 <PageContainer>
   <div class="flex justify-center px-4 py-8">
     <div class="w-full max-w-6xl">
-      <div class="mb-4 flex justify-end">
+      <div class="mb-4 flex flex-wrap justify-end gap-2">
         <a
           href="/admin/stats-import"
           class="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold"
@@ -955,6 +955,30 @@
           <Upload size={16} />
           Stats Import
         </a>
+        <button
+          type="button"
+          class="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold"
+          style="background: rgba(59,130,246,0.12); color: #93c5fd; border: 1px solid rgba(59,130,246,0.25);"
+          onclick={async () => {
+            errorMessage = null
+            successMessage = null
+            try {
+              const res = await fetch('/api/admin/stats/rematch', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ batchId: null }),
+              })
+              const body = await res.json().catch(() => ({}))
+              if (!res.ok) throw new Error(body?.message ?? 'Failed to rematch')
+              successMessage = `Rematched: ${body.updated} updated, ${body.remaining_unmatched} still unmatched.`
+              await refreshData()
+            } catch (err) {
+              errorMessage = err instanceof Error ? err.message : 'Failed to rematch'
+            }
+          }}
+        >
+          Rematch Links
+        </button>
       </div>
       <div class="mb-8 flex flex-col items-center">
         <Shield size={48} style="color: var(--text);" class="mb-4" />

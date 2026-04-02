@@ -26,8 +26,11 @@ export const load: PageServerLoad = async ({ fetch, url, locals }) => {
   let batches: any[] = []
   const { data: batchRows, error: batchError } = await supabaseAdmin
     .from('stat_import_batches')
-    .select('id, source_filename, display_name, import_kind, week_label, created_at, metadata')
+    .select(
+      'id, source_filename, display_name, import_kind, week_label, created_at, metadata, sort_order'
+    )
     .filter('metadata->>import_type', 'eq', 'rivals_group_stats')
+    .order('sort_order', { ascending: true, nullsFirst: false })
     .order('created_at', { ascending: false })
     .limit(100)
 
@@ -39,6 +42,7 @@ export const load: PageServerLoad = async ({ fetch, url, locals }) => {
       import_kind: b.import_kind ?? b.metadata?.import_kind ?? null,
       week_label: b.week_label ?? b.metadata?.week_label ?? null,
       created_at: b.created_at,
+      sort_order: (b as any).sort_order ?? null,
     }))
   }
 

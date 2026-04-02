@@ -4,6 +4,29 @@ import type { Actions } from './$types'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
+function extractNumericLabel(value: unknown): number | null {
+  if (typeof value !== 'string') return null
+  const m = value.match(/(\d+)/)
+  if (!m) return null
+  const n = Number(m[1])
+  return Number.isFinite(n) ? n : null
+}
+
+function isLatestLabel(value: unknown): boolean {
+  if (typeof value !== 'string') return false
+  return value.trim().toLowerCase().includes('latest')
+}
+
+function toBatchLabel(b: any): string {
+  const base = (b?.display_name ?? b?.id ?? '').toString()
+  if (b?.import_kind === 'weekly' && b?.week_label) return `${base} (${b.week_label})`
+  return base
+}
+
+function kindOrder(kind: unknown): number {
+  return kind === 'aggregate' ? 0 : kind === 'weekly' ? 1 : 2
+}
+
 function getTeamLogoUrl(team: any): string | null {
   if (!team?.logo_path) return null
   return supabaseAdmin.storage.from('team-logos').getPublicUrl(team.logo_path).data.publicUrl
@@ -101,7 +124,9 @@ export const load = async ({
   const { data: batches } = batchIds.length
     ? await supabaseAdmin
         .from('stat_import_batches')
-        .select('id, display_name, source_filename, import_kind, week_label, created_at, metadata')
+        .select(
+          'id, display_name, source_filename, import_kind, week_label, created_at, metadata, sort_order'
+        )
         .in('id', batchIds)
         .order('created_at', { ascending: false })
     : { data: [] }
@@ -114,8 +139,29 @@ export const load = async ({
       import_kind: b.import_kind ?? b.metadata?.import_kind ?? null,
       week_label: b.week_label ?? b.metadata?.week_label ?? null,
       created_at: b.created_at,
+      sort_order: (b as any).sort_order ?? null,
     })
   }
+
+  const batchOptions = Array.from(batchById.values())
+    .sort((a, b) => {
+      const ka = kindOrder(a.import_kind)
+      const kb = kindOrder(b.import_kind)
+      if (ka !== kb) return ka - kb
+
+      const ao = a.sort_order
+      const bo = b.sort_order
+      if (typeof ao === 'number' && typeof bo === 'number' && ao !== bo) return ao - bo
+      if (typeof ao === 'number' && typeof bo !== 'number') return -1
+      if (typeof ao !== 'number' && typeof bo === 'number') return 1
+
+      const ta = a.created_at ? new Date(a.created_at).getTime() : 0
+      const tb = b.created_at ? new Date(b.created_at).getTime() : 0
+      if (ta !== tb) return tb - ta
+
+      return toBatchLabel(a).localeCompare(toBatchLabel(b))
+    })
+    .map((b) => ({ label: toBatchLabel(b), value: b.id }))
 
   const normalizedStats = (statsRows ?? []).map((r: any) => ({
     ...r,
@@ -131,9 +177,55 @@ export const load = async ({
   }
 
   if (!selected) {
-    const latestAggregate = normalizedStats.find((r: any) => r.batch?.import_kind === 'aggregate')
-    const latestWeekly = normalizedStats.find((r: any) => r.batch?.import_kind === 'weekly')
-    selected = latestAggregate ?? latestWeekly ?? normalizedStats[0] ?? null
+    const byBatchId = new Map<string, any>()
+    for (const r of normalizedStats) {
+      if (!r.import_batch_id) continue
+      if (byBatchId.has(r.import_batch_id)) continue
+      byBatchId.set(r.import_batch_id, r)
+    }
+
+    const aggregates = Array.from(byBatchId.values()).filter(
+      (r: any) => r.batch?.import_kind === 'aggregate'
+    )
+    const weeklies = Array.from(byBatchId.values()).filter(
+      (r: any) => r.batch?.import_kind === 'weekly'
+    )
+
+    function sortBatches(a: any, b: any) {
+      const ao = a.batch?.sort_order
+      const bo = b.batch?.sort_order
+      if (typeof ao === 'number' && typeof bo === 'number' && ao !== bo) return ao - bo
+      if (typeof ao === 'number' && typeof bo !== 'number') return -1
+      if (typeof ao !== 'number' && typeof bo === 'number') return 1
+
+      const aName = a.batch?.display_name ?? ''
+      const bName = b.batch?.display_name ?? ''
+
+      const aLatest = isLatestLabel(aName)
+      const bLatest = isLatestLabel(bName)
+      if (aLatest !== bLatest) return aLatest ? -1 : 1
+
+      const na = extractNumericLabel(aName)
+      const nb = extractNumericLabel(bName)
+      if (na !== null && nb !== null && na !== nb) return nb - na
+
+      // When either side lacks a numeric label, fall back to time ordering instead of
+      // always preferring the numeric-labeled batch.
+      const ta = a.batch?.created_at ? new Date(a.batch.created_at).getTime() : 0
+      const tb = b.batch?.created_at ? new Date(b.batch.created_at).getTime() : 0
+      if (ta !== tb) return tb - ta
+
+      const ia = a.imported_at ? new Date(a.imported_at).getTime() : 0
+      const ib = b.imported_at ? new Date(b.imported_at).getTime() : 0
+      if (ia !== ib) return ib - ia
+
+      return String(aName).localeCompare(String(bName))
+    }
+
+    aggregates.sort(sortBatches)
+    weeklies.sort(sortBatches)
+
+    selected = aggregates[0] ?? weeklies[0] ?? normalizedStats[0] ?? null
   }
 
   const { data: participated } = await supabaseAdmin
@@ -196,6 +288,7 @@ export const load = async ({
       rows: normalizedStats,
       selected,
       selectedBatchId: selected?.import_batch_id ?? null,
+      batchOptions,
     },
     matchHistory,
   }

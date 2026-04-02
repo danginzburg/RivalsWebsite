@@ -7,6 +7,19 @@ function safeInt(value: string | null, fallback: number) {
   return Number.isFinite(n) ? n : fallback
 }
 
+function extractNumericLabel(value: unknown): number | null {
+  if (typeof value !== 'string') return null
+  const m = value.match(/(\d+)/)
+  if (!m) return null
+  const n = Number(m[1])
+  return Number.isFinite(n) ? n : null
+}
+
+function isLatestLabel(value: unknown): boolean {
+  if (typeof value !== 'string') return false
+  return value.trim().toLowerCase().includes('latest')
+}
+
 export const GET: RequestHandler = async ({ url }) => {
   const batchId = url.searchParams.get('batchId')
   const onlyMatched = url.searchParams.get('onlyMatched') === 'true'
@@ -15,16 +28,61 @@ export const GET: RequestHandler = async ({ url }) => {
 
   let effectiveBatchId = batchId
   if (!effectiveBatchId) {
-    // Latest batch by imported_at
-    const { data: latest, error: latestError } = await supabaseAdmin
-      .from('rivals_group_stats')
-      .select('import_batch_id')
-      .order('imported_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
+    // Default batch selection:
+    // Prefer aggregate imports and sort by label (Season N) rather than upload time.
+    const { data: batchRows, error: batchError } = await supabaseAdmin
+      .from('stat_import_batches')
+      .select('id, display_name, import_kind, week_label, created_at, metadata, sort_order')
+      .filter('metadata->>import_type', 'eq', 'rivals_group_stats')
+      .order('created_at', { ascending: false })
+      .limit(200)
 
-    if (latestError) throw error(500, 'Failed to load stats')
-    effectiveBatchId = latest?.import_batch_id ?? null
+    if (batchError) throw error(500, 'Failed to load stats')
+
+    const normalized = (batchRows ?? []).map((b: any) => ({
+      id: b.id,
+      display_name: b.display_name ?? '',
+      import_kind: b.import_kind ?? b.metadata?.import_kind ?? null,
+      week_label: b.week_label ?? b.metadata?.week_label ?? null,
+      created_at: b.created_at,
+      sort_order: b.sort_order ?? null,
+    }))
+
+    const aggregates = normalized.filter((b) => b.import_kind === 'aggregate')
+    const weeklies = normalized.filter((b) => b.import_kind === 'weekly')
+
+    const pickFrom = (arr: any[]) => {
+      if (arr.length === 0) return null
+      const copy = [...arr]
+      copy.sort((a, b) => {
+        const ao = a.sort_order
+        const bo = b.sort_order
+        if (typeof ao === 'number' && typeof bo === 'number' && ao !== bo) return ao - bo
+        if (typeof ao === 'number' && typeof bo !== 'number') return -1
+        if (typeof ao !== 'number' && typeof bo === 'number') return 1
+
+        const aName = a.display_name ?? ''
+        const bName = b.display_name ?? ''
+
+        const aLatest = isLatestLabel(aName)
+        const bLatest = isLatestLabel(bName)
+        if (aLatest !== bLatest) return aLatest ? -1 : 1
+
+        const na = extractNumericLabel(aName)
+        const nb = extractNumericLabel(bName)
+        if (na !== null && nb !== null && na !== nb) return nb - na
+
+        const ta = a.created_at ? new Date(a.created_at).getTime() : 0
+        const tb = b.created_at ? new Date(b.created_at).getTime() : 0
+        if (ta !== tb) return tb - ta
+
+        return String(aName).localeCompare(String(bName))
+      })
+      return copy[0]
+    }
+
+    const pick = pickFrom(aggregates) ?? pickFrom(weeklies)
+    effectiveBatchId = pick?.id ?? null
   }
 
   if (!effectiveBatchId) return json({ batchId: null, batch: null, rows: [] })
