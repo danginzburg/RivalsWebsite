@@ -29,43 +29,31 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   if (rows.length > MAX_ROWS) {
     throw error(400, `Too many rows provided; maximum is ${MAX_ROWS}`)
   }
-  const { data: registrations, error: registrationsError } = await supabaseAdmin
-    .from('player_registration')
-    .select(
-      `
-      profile_id,
-      riot_id,
-      profiles!player_registration_profile_id_fkey (
-        display_name
-      )
-    `
-    )
+  const { data: profiles, error: profilesError } = await supabaseAdmin
+    .from('profiles')
+    .select('id, display_name, riot_id_base')
 
-  if (registrationsError) {
-    console.error('Error fetching player registrations:', registrationsError)
-    throw error(500, 'Failed to fetch player registrations: ' + registrationsError.message)
+  if (profilesError) {
+    console.error('Error fetching profiles:', profilesError)
+    throw error(500, 'Failed to fetch profiles: ' + profilesError.message)
   }
 
   const normalizeKey = (value: string) => value.trim().toLowerCase()
   const normalizeBase = (value: string) => value.split('#')[0]?.trim().toLowerCase()
 
   const profileMap = new Map<string, string>()
-  for (const reg of registrations ?? []) {
-    const profileRel = Array.isArray(reg.profiles) ? reg.profiles[0] : reg.profiles
-    const displayName = profileRel?.display_name
-    if (displayName) {
-      const full = normalizeKey(displayName)
-      const base = normalizeBase(displayName)
-      profileMap.set(full, reg.profile_id)
-      if (base && base !== full) {
-        profileMap.set(base, reg.profile_id)
-      }
+  for (const p of profiles ?? []) {
+    if (p.riot_id_base) {
+      const full = normalizeKey(p.riot_id_base)
+      const base = normalizeBase(p.riot_id_base)
+      profileMap.set(full, p.id)
+      if (base && base !== full) profileMap.set(base, p.id)
     }
-    if (reg.riot_id) {
-      const base = normalizeBase(reg.riot_id)
-      if (base) {
-        profileMap.set(base, reg.profile_id)
-      }
+    if (p.display_name) {
+      const full = normalizeKey(p.display_name)
+      const base = normalizeBase(p.display_name)
+      profileMap.set(full, p.id)
+      if (base && base !== full) profileMap.set(base, p.id)
     }
   }
 
@@ -136,7 +124,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       row_number: x.idx + 2,
       field_name: 'player_name',
       error_code: 'unmatched_player',
-      error_message: `No registered player matched for "${x.row.player_name}"`,
+      error_message: `No user matched for "${x.row.player_name}"`,
       row_payload: x.row,
     }))
 

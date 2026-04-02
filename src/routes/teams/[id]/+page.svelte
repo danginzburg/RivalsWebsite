@@ -1,20 +1,40 @@
 <script lang="ts">
-  import { page } from '$app/stores'
   import PageContainer from '$lib/components/PageContainer.svelte'
-  import { Users, Wrench } from 'lucide-svelte'
+  import CustomSelect from '$lib/components/CustomSelect.svelte'
+  import { Users } from 'lucide-svelte'
 
   let { data } = $props() as { data: any }
 
   const team = $derived(data.team)
   const roster = $derived(data.roster ?? [])
-  const invitedPlayers = $derived(data.invitedPlayers ?? [])
   const matchHistory = $derived(data.matchHistory ?? [])
-  const viewer = $derived(data.viewer ?? { isAdmin: false, membershipRole: null })
-  const user = $derived($page.data.user)
+  const viewer = $derived(data.viewer ?? { isAdmin: false })
 
-  const isCaptainLike = $derived(
-    viewer.membershipRole === 'captain' || viewer.membershipRole === 'manager'
-  )
+  let playerPool = $state<any[]>([])
+  let isLoadingPlayerPool = $state(false)
+  let addProfileId = $state('')
+  let addRole = $state('player')
+  let editError = $state<string | null>(null)
+
+  const membershipRoleOptions = [
+    { value: 'player', label: 'Player' },
+    { value: 'captain', label: 'Captain' },
+    { value: 'substitute', label: 'Substitute' },
+    { value: 'coach', label: 'Coach' },
+    { value: 'manager', label: 'Manager' },
+  ]
+
+  const playerOptions = $derived.by(() => {
+    return (playerPool ?? [])
+      .filter((u) => u.role !== 'banned' && u.role !== 'restricted')
+      .map((p) => {
+        const labelParts = [p.riot_id_base || p.display_name || p.email || p.id]
+        if (p.riot_id_base && p.display_name && p.display_name !== p.riot_id_base) {
+          labelParts.push(p.display_name)
+        }
+        return { value: p.id, label: labelParts.filter(Boolean).join(' - ') }
+      })
+  })
 
   function profileLabel(
     entry:
@@ -53,6 +73,63 @@
     if (match?.team_a_id === teamId) return { us: a, them: b }
     return { us: b, them: a }
   }
+
+  async function loadPlayerPool() {
+    if (isLoadingPlayerPool) return
+    isLoadingPlayerPool = true
+    try {
+      const res = await fetch('/api/admin/users')
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body?.message ?? 'Failed to load users')
+      playerPool = body.users ?? []
+    } catch (err) {
+      editError = err instanceof Error ? err.message : 'Failed to load users'
+    } finally {
+      isLoadingPlayerPool = false
+    }
+  }
+
+  async function addPlayer() {
+    editError = null
+    if (!addProfileId) {
+      editError = 'Select a user'
+      return
+    }
+    try {
+      const res = await fetch('/api/admin/teams/manage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ teamId: team.id, profileId: addProfileId, role: addRole }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body?.message ?? 'Failed to add user')
+      window.location.reload()
+    } catch (err) {
+      editError = err instanceof Error ? err.message : 'Failed to add user'
+    }
+  }
+
+  async function removePlayer(profileId: string) {
+    const confirmed = window.confirm('Remove this user from the team?')
+    if (!confirmed) return
+    editError = null
+    try {
+      const res = await fetch('/api/admin/teams/manage', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ teamId: team.id, profileId }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body?.message ?? 'Failed to remove user')
+      window.location.reload()
+    } catch (err) {
+      editError = err instanceof Error ? err.message : 'Failed to remove user'
+    }
+  }
+
+  $effect(() => {
+    if (viewer.isAdmin && playerPool.length === 0) loadPlayerPool()
+  })
 </script>
 
 <PageContainer>
@@ -72,30 +149,6 @@
       </div>
 
       <section class="info-card info-card-surface">
-        {#if user?.role === 'admin' || isCaptainLike}
-          <div
-            class="mb-4 rounded-md border p-3"
-            style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
-          >
-            <div
-              class="mb-2 flex items-center gap-2 text-sm font-semibold"
-              style="color: var(--title);"
-            >
-              <Wrench size={16} />
-              <span>Captain Tools</span>
-            </div>
-            <div class="flex flex-wrap gap-2">
-              <a
-                href="/captain/matches"
-                class="rounded-md px-3 py-2 text-xs font-semibold"
-                style="background: rgba(59,130,246,0.2); color: #93c5fd;"
-              >
-                Match Proposals
-              </a>
-            </div>
-          </div>
-        {/if}
-
         <h2 class="mb-3 text-lg font-bold" style="color: var(--title);">Roster</h2>
         {#if roster.length === 0}
           <p class="text-sm" style="color: rgba(255,255,255,0.75);">No active roster listed.</p>
@@ -107,10 +160,12 @@
                   class="border-b"
                   style="border-color: rgba(255,255,255,0.12); color: rgba(255,255,255,0.75);"
                 >
-                  <th class="px-2 py-2">Riot ID</th>
+                  <th class="px-2 py-2">Name</th>
                   <th class="px-2 py-2">Role</th>
-                  <th class="px-2 py-2">Rank</th>
-                  <th class="px-2 py-2">Discord</th>
+                  <th class="px-2 py-2">User</th>
+                  {#if viewer.isAdmin}
+                    <th class="px-2 py-2">Actions</th>
+                  {/if}
                 </tr>
               </thead>
               <tbody>
@@ -120,14 +175,24 @@
                       <a
                         href={`/players/${player.profile_id}`}
                         class="underline"
-                        style="color: var(--text);">{player.riot_id}</a
+                        style="color: var(--text);"
+                        >{player.riot_id_base ?? player.display_name ?? player.email ?? 'Player'}</a
                       >
                     </td>
                     <td class="px-2 py-2" style="color: var(--text);">{player.role}</td>
-                    <td class="px-2 py-2" style="color: var(--text);"
-                      >{player.rank_label ?? 'Unranked'}</td
-                    >
                     <td class="px-2 py-2" style="color: var(--text);">{profileLabel(player)}</td>
+                    {#if viewer.isAdmin}
+                      <td class="px-2 py-2">
+                        <button
+                          type="button"
+                          class="rounded px-2 py-1 text-xs font-semibold"
+                          style="background: rgba(248,113,113,0.2); color: #f87171;"
+                          onclick={() => removePlayer(player.profile_id)}
+                        >
+                          Remove
+                        </button>
+                      </td>
+                    {/if}
                   </tr>
                 {/each}
               </tbody>
@@ -135,57 +200,59 @@
           </div>
         {/if}
 
-        {#if invitedPlayers.length > 0}
-          <div class="mt-6">
-            <h3
-              class="mb-2 text-sm font-semibold tracking-wide uppercase"
-              style="color: rgba(255,255,255,0.72);"
+        {#if viewer.isAdmin}
+          <div
+            class="mt-4 rounded-md border p-3"
+            style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.18);"
+          >
+            <div
+              class="mb-2 text-xs font-semibold tracking-wide uppercase"
+              style="color: rgba(255,255,255,0.75);"
             >
-              Pending Invites
-            </h3>
-            <div class="overflow-x-auto">
-              <table class="w-full text-left text-sm opacity-70">
-                <thead>
-                  <tr
-                    class="border-b"
-                    style="border-color: rgba(255,255,255,0.12); color: rgba(255,255,255,0.75);"
-                  >
-                    <th class="px-2 py-2">Riot ID</th>
-                    <th class="px-2 py-2">Rank</th>
-                    <th class="px-2 py-2">Discord</th>
-                    <th class="px-2 py-2">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {#each invitedPlayers as player}
-                    <tr class="border-b" style="border-color: rgba(255,255,255,0.08);">
-                      <td class="px-2 py-2 font-semibold" style="color: var(--text);">
-                        <a
-                          href={`/players/${player.profile_id}`}
-                          class="underline"
-                          style="color: var(--text);">{player.riot_id}</a
-                        >
-                      </td>
-                      <td class="px-2 py-2" style="color: var(--text);"
-                        >{player.rank_label ?? 'Unranked'}</td
-                      >
-                      <td class="px-2 py-2" style="color: var(--text);">{profileLabel(player)}</td>
-                      <td class="px-2 py-2">
-                        <span
-                          class="rounded-full px-2 py-1 text-xs font-semibold"
-                          style={player.status === 'accepted'
-                            ? 'background: rgba(74,222,128,0.18); color: #86efac;'
-                            : 'background: rgba(250,204,21,0.18); color: #fde68a;'}
-                        >
-                          {player.status === 'accepted'
-                            ? 'Accepted (awaiting finalization)'
-                            : 'Not accepted yet'}
-                        </span>
-                      </td>
-                    </tr>
-                  {/each}
-                </tbody>
-              </table>
+              Admin: Edit Roster
+            </div>
+
+            {#if editError}
+              <div
+                class="mb-2 rounded-md border p-2 text-sm"
+                style="border-color: rgba(248,113,113,0.35); background: rgba(248,113,113,0.08); color: #fecaca;"
+              >
+                {editError}
+              </div>
+            {/if}
+
+            <div class="grid grid-cols-1 gap-2 md:grid-cols-3">
+              <div class="md:col-span-2">
+                <CustomSelect
+                  options={playerOptions}
+                  value={addProfileId}
+                  placeholder={isLoadingPlayerPool ? 'Loading users...' : 'Select user'}
+                  compact={true}
+                  disabled={isLoadingPlayerPool}
+                  onSelect={(value) => (addProfileId = value)}
+                />
+              </div>
+              <div>
+                <CustomSelect
+                  options={membershipRoleOptions}
+                  value={addRole}
+                  placeholder="Role"
+                  compact={true}
+                  onSelect={(value) => (addRole = value)}
+                />
+              </div>
+            </div>
+
+            <div class="mt-2 flex justify-end">
+              <button
+                type="button"
+                class="rounded px-2 py-1 text-xs font-semibold"
+                style="background: rgba(74,222,128,0.2); color: #4ade80;"
+                onclick={addPlayer}
+                disabled={isLoadingPlayerPool}
+              >
+                Add
+              </button>
             </div>
           </div>
         {/if}
@@ -206,7 +273,6 @@
                     <th class="px-2 py-2">Match</th>
                     <th class="px-2 py-2">When</th>
                     <th class="px-2 py-2">Score</th>
-                    <th class="px-2 py-2">Participants</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -225,13 +291,6 @@
                         >{formatUtc(match.ended_at ?? match.scheduled_at)}</td
                       >
                       <td class="px-2 py-2" style="color: var(--text);">{score.us}-{score.them}</td>
-                      <td class="px-2 py-2" style="color: var(--text);">
-                        {#if (match.participants ?? []).length === 0}
-                          <span style="color: rgba(255,255,255,0.7);">—</span>
-                        {:else}
-                          {(match.participants ?? []).join(', ')}
-                        {/if}
-                      </td>
                     </tr>
                   {/each}
                 </tbody>

@@ -39,12 +39,26 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     .eq('profile_id', userId)
   if (observerError) throw error(500, 'Failed to remove observer registration')
 
-  // player_registration deletion cascades to team_memberships + free_agent_listings.
-  const { error: playerError } = await supabaseAdmin
-    .from('player_registration')
+  const today = new Date().toISOString().slice(0, 10)
+  const { error: membershipsError } = await supabaseAdmin
+    .from('team_memberships')
+    .update({ is_active: false, left_at: today })
+    .eq('profile_id', userId)
+    .eq('is_active', true)
+    .is('left_at', null)
+  if (membershipsError) throw error(500, 'Failed to remove team memberships')
+
+  // Best-effort cleanup.
+  const { error: freeAgentError } = await supabaseAdmin
+    .from('free_agent_listings')
     .delete()
     .eq('profile_id', userId)
-  if (playerError) throw error(500, 'Failed to remove player registration')
+  if (
+    freeAgentError &&
+    !String((freeAgentError as any).message ?? '').includes('free_agent_listings')
+  ) {
+    throw error(500, 'Failed to remove free agent listing')
+  }
 
   // Optional cleanups for result reports (if table exists)
   await supabaseAdmin.from('match_result_reports').delete().eq('reported_by_profile_id', userId)

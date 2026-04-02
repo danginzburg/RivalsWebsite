@@ -13,7 +13,6 @@ function safeInt(value: unknown) {
 
 export const load: PageServerLoad = async () => {
   // Leaderboard is computed from match results.
-  // Points: all teams start at 1000; +50 for series win, -50 for series loss.
 
   const { data: teams, error: teamsError } = await supabaseAdmin
     .from('teams')
@@ -36,14 +35,13 @@ export const load: PageServerLoad = async () => {
   type Row = {
     team_id: string
     team: { id: string; name: string; tag: string | null; logo_url: string | null }
-    points: number
     series_played: number
     series_wins: number
     series_losses: number
     maps_played: number
     map_wins: number
     map_losses: number
-    round_diff: number
+    map_diff: number
   }
 
   const byTeam = new Map<string, Row>()
@@ -56,14 +54,13 @@ export const load: PageServerLoad = async () => {
         tag: t.tag ?? null,
         logo_url: getTeamLogoUrl(t),
       },
-      points: 1000,
       series_played: 0,
       series_wins: 0,
       series_losses: 0,
       maps_played: 0,
       map_wins: 0,
       map_losses: 0,
-      round_diff: 0,
+      map_diff: 0,
     })
   }
 
@@ -96,14 +93,13 @@ export const load: PageServerLoad = async () => {
   }
 
   for (const row of byTeam.values()) {
-    row.points = 1000 + row.series_wins * 50 - row.series_losses * 50
-    row.round_diff = row.map_wins - row.map_losses
+    row.map_diff = row.map_wins - row.map_losses
   }
 
   const rows = Array.from(byTeam.values()).sort((x, y) => {
-    if (y.points !== x.points) return y.points - x.points
     if (y.series_wins !== x.series_wins) return y.series_wins - x.series_wins
-    if (y.round_diff !== x.round_diff) return y.round_diff - x.round_diff
+    if (y.map_diff !== x.map_diff) return y.map_diff - x.map_diff
+    if (y.map_wins !== x.map_wins) return y.map_wins - x.map_wins
     return x.team.name.localeCompare(y.team.name)
   })
 

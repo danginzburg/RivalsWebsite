@@ -1,4 +1,4 @@
-export const MAX_TEAM_AVERAGE = 36.5
+export const MAX_TEAM_AVERAGE = 36.75
 export const MIN_TEAM_PLAYERS = 5
 export const MAX_TEAM_PLAYERS = 8
 
