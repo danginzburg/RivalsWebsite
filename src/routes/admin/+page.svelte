@@ -67,15 +67,13 @@
   )
 
   const bestOfOptions = [
-    { value: '1', label: 'BO1' },
     { value: '3', label: 'BO3' },
     { value: '5', label: 'BO5' },
-    { value: '7', label: 'BO7' },
   ]
 
   let createMatchTeamAId = $state('')
   let createMatchTeamBId = $state('')
-  let createMatchBestOf = $state<'1' | '3' | '5' | '7'>('3')
+  let createMatchBestOf = $state<'3' | '5'>('3')
   let createMatchScheduledAt = $state('')
   let isCreatingMatch = $state(false)
 

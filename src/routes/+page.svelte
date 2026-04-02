@@ -59,7 +59,7 @@
     description="One spot to see the brackets, the stats, and who's actually throwing."
   />
 
-  <InfoSection items={infoItems} />
+  <!-- <InfoSection items={infoItems} />
 
-  <MatchesSection {matches} />
+  <MatchesSection {matches} /> -->
 </PageContainer>
