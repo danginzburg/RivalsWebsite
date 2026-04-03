@@ -14,13 +14,26 @@
     (data.viewer ?? null) as { profileId: string; displayName: string | null } | null
   )
 
+  const initialQ = $derived(String(data.initialQ ?? ''))
+  const initialMinGames = $derived(Number(data.initialMinGames ?? 0) || 0)
+  const initialSort = $derived(String(data.initialSort ?? 'acs'))
+  const initialDir = $derived((data.initialDir ?? 'desc') as 'asc' | 'desc')
+
   let sortKey = $state<string>('acs')
   let sortDir = $state<'asc' | 'desc'>('desc')
 
   let selectedBatchId = $state<string | null>(null)
   let search = $state('')
+  let minGames = $state<number>(0)
   let findMeError = $state<string | null>(null)
   let highlightedProfileId = $state<string | null>(null)
+
+  $effect(() => {
+    search = initialQ
+    minGames = Math.max(0, Math.trunc(initialMinGames))
+    sortKey = initialSort
+    sortDir = initialDir
+  })
 
   $effect(() => {
     selectedBatchId = batchId
@@ -28,11 +41,72 @@
     highlightedProfileId = null
   })
 
+  let urlSyncTimer: number | null = null
+
+  function syncUrlNow() {
+    if (typeof window === 'undefined') return
+    const u = new URL(window.location.href)
+    const params = u.searchParams
+
+    const q = search.trim()
+    if (q) params.set('q', q)
+    else params.delete('q')
+
+    const mg = Math.max(0, Math.trunc(minGames))
+    if (mg > 0) params.set('minGames', String(mg))
+    else params.delete('minGames')
+
+    if (sortKey) params.set('sort', sortKey)
+    else params.delete('sort')
+
+    if (sortDir) params.set('dir', sortDir)
+    else params.delete('dir')
+
+    const next = u.pathname + (params.toString() ? `?${params.toString()}` : '')
+    const current = window.location.pathname + window.location.search
+    if (next !== current) {
+      window.history.replaceState({}, '', next)
+    }
+  }
+
+  function scheduleUrlSync(delayMs = 200) {
+    if (typeof window === 'undefined') return
+    if (urlSyncTimer !== null) window.clearTimeout(urlSyncTimer)
+    urlSyncTimer = window.setTimeout(() => {
+      urlSyncTimer = null
+      syncUrlNow()
+    }, delayMs)
+  }
+
+  $effect(() => {
+    // Keep URL in sync for shareable filter state.
+    // Sort updates are handled immediately inside toggleSort.
+    void search
+    void minGames
+    scheduleUrlSync(200)
+  })
+
   function qp(next: { batchId?: string | null }) {
     const params = new URLSearchParams()
     const nextBatch = next.batchId === undefined ? batchId : next.batchId
     if (nextBatch) params.set('batchId', nextBatch)
-    return `/stats?${params.toString()}`
+    const q = search.trim()
+    if (q) params.set('q', q)
+    const mg = Math.max(0, Math.trunc(minGames))
+    if (mg > 0) params.set('minGames', String(mg))
+    if (sortKey) params.set('sort', sortKey)
+    if (sortDir) params.set('dir', sortDir)
+
+    const qs = params.toString()
+    return qs ? `/stats?${qs}` : '/stats'
+  }
+
+  function unclaimedHref(playerName: string) {
+    const params = new URLSearchParams()
+    params.set('name', playerName)
+    if (selectedBatchId) params.set('batchId', selectedBatchId)
+    const qs = params.toString()
+    return `/players/unclaimed?${qs}`
   }
 
   function fmt(n: unknown, digits = 1) {
@@ -147,21 +221,43 @@
   function toggleSort(nextKey: string) {
     if (sortKey === nextKey) {
       sortDir = sortDir === 'desc' ? 'asc' : 'desc'
+      syncUrlNow()
       return
     }
 
     sortKey = nextKey
     sortDir = nextKey === 'player_name' ? 'asc' : 'desc'
+    syncUrlNow()
   }
+
+  const maxGames = $derived.by(() => {
+    let max = 0
+    for (const r of rows) {
+      const g = Number(r?.games ?? 0)
+      if (Number.isFinite(g)) max = Math.max(max, Math.trunc(g))
+    }
+    return max
+  })
+
+  $effect(() => {
+    if (minGames > maxGames) minGames = maxGames
+  })
 
   const filteredRows = $derived.by(() => {
     const q = search.trim().toLowerCase()
-    if (!q) return rows
-    return rows.filter((r) =>
-      String(r.player_name ?? '')
-        .toLowerCase()
-        .includes(q)
-    )
+    const mg = Math.max(0, Math.trunc(minGames))
+
+    return rows.filter((r) => {
+      const nameOk = !q
+        ? true
+        : String(r.player_name ?? '')
+            .toLowerCase()
+            .includes(q)
+
+      if (!nameOk) return false
+      if (mg <= 0) return true
+      return Number(r?.games ?? 0) >= mg
+    })
   })
 
   const sortedRows = $derived.by(() => {
@@ -181,6 +277,8 @@
 
     // Ensure row isn't filtered out.
     search = ''
+    minGames = 0
+    syncUrlNow()
     highlightedProfileId = null
     await tick()
 
@@ -239,6 +337,33 @@
               placeholder="Search players"
               bind:value={search}
             />
+
+            <div
+              class="flex w-full items-center gap-3 rounded-md border px-3 py-2 text-sm md:w-[320px]"
+              style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+            >
+              <div class="shrink-0 text-xs font-semibold" style="color: rgba(255,255,255,0.75);">
+                Min games
+              </div>
+              <input
+                type="range"
+                min="0"
+                max={maxGames}
+                step="1"
+                value={String(minGames)}
+                disabled={maxGames <= 0}
+                class="w-full"
+                oninput={(e) => {
+                  minGames = Number((e.currentTarget as HTMLInputElement).value)
+                }}
+              />
+              <div
+                class="w-10 shrink-0 text-right tabular-nums"
+                style="color: rgba(255,255,255,0.85);"
+              >
+                {Math.max(0, Math.trunc(minGames))}
+              </div>
+            </div>
 
             {#if viewer?.profileId}
               <button
@@ -443,7 +568,13 @@
                           {row.player_name}
                         </a>
                       {:else}
-                        <span class="min-w-0 truncate">{row.player_name}</span>
+                        <a
+                          class="min-w-0 truncate underline"
+                          style="color: var(--text);"
+                          href={unclaimedHref(String(row.player_name ?? 'Player'))}
+                        >
+                          {row.player_name}
+                        </a>
                       {/if}
                       <!-- Match/unmatched badge temporarily disabled -->
                       <!--
