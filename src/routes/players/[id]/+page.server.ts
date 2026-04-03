@@ -355,6 +355,15 @@ export const actions: Actions = {
 
     if (updateError) return { success: false, message: updateError.message }
 
+    // Best-effort auto-relink of imported stats after claiming Riot ID.
+    // This avoids needing a manual admin rematch step.
+    const { error: rpcError } = await supabaseAdmin.rpc('rematch_rivals_group_stats', {
+      batch_id: null,
+    })
+    if (rpcError) {
+      console.warn('rematch_rivals_group_stats failed:', rpcError)
+    }
+
     throw redirect(303, `/players/${target.id}`)
   },
 }

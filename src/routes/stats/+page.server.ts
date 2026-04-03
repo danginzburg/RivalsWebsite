@@ -1,11 +1,68 @@
 import type { PageServerLoad } from './$types'
 import { supabaseAdmin } from '$lib/supabase/admin'
 
+function safeInt(value: string | null, fallback: number) {
+  if (!value) return fallback
+  const n = Number(value)
+  return Number.isFinite(n) ? Math.trunc(n) : fallback
+}
+
+function normalizeSort(value: string | null): string {
+  const v = String(value ?? '')
+    .trim()
+    .toLowerCase()
+  const allowed = new Set([
+    'player_name',
+    'agents',
+    'games',
+    'games_won',
+    'games_lost',
+    'rounds',
+    'rounds_won',
+    'rounds_lost',
+    'acs',
+    'kd',
+    'kast_pct',
+    'adr',
+    'kills',
+    'deaths',
+    'assists',
+    'kpg',
+    'kpr',
+    'dpg',
+    'dpr',
+    'apg',
+    'apr',
+    'fk',
+    'fd',
+    'fkpg',
+    'fdpg',
+    'hs_pct',
+    'plants',
+    'plants_per_game',
+    'defuses',
+    'defuses_per_game',
+  ])
+  return allowed.has(v) ? v : 'acs'
+}
+
+function normalizeDir(value: string | null, sort: string): 'asc' | 'desc' {
+  const v = String(value ?? '')
+    .trim()
+    .toLowerCase()
+  if (v === 'asc' || v === 'desc') return v
+  return sort === 'player_name' ? 'asc' : 'desc'
+}
+
 export const load: PageServerLoad = async ({ fetch, url, locals }) => {
   const batchId = url.searchParams.get('batchId')
+  const initialQ = String(url.searchParams.get('q') ?? '')
+  const initialMinGames = Math.max(0, safeInt(url.searchParams.get('minGames'), 0))
+  const initialSort = normalizeSort(url.searchParams.get('sort'))
+  const initialDir = normalizeDir(url.searchParams.get('dir'), initialSort)
 
   const res = await fetch(
-    `/api/stats?limit=200${batchId ? `&batchId=${encodeURIComponent(batchId)}` : ''}`
+    `/api/stats?limit=500${batchId ? `&batchId=${encodeURIComponent(batchId)}` : ''}`
   )
 
   const body = await res.json().catch(() => ({}))
@@ -52,5 +109,9 @@ export const load: PageServerLoad = async ({ fetch, url, locals }) => {
     rows: body.rows ?? [],
     batches,
     viewer,
+    initialQ,
+    initialMinGames,
+    initialSort,
+    initialDir,
   }
 }
