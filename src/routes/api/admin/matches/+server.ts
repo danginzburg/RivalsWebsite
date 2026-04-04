@@ -34,6 +34,8 @@ export const GET: RequestHandler = async ({ locals }) => {
       approval_status,
       best_of,
       scheduled_at,
+      ended_at,
+      metadata,
       team_a_id,
       team_b_id,
       winner_team_id,
@@ -47,7 +49,34 @@ export const GET: RequestHandler = async ({ locals }) => {
 
   if (matchesError) throw error(500, 'Failed to load matches')
 
-  return json({ matches: matches ?? [] })
+  const matchIds = (matches ?? []).map((match) => match.id)
+  let streamsByMatch: Record<string, any[]> = {}
+  if (matchIds.length > 0) {
+    const { data: streams, error: streamsError } = await supabaseAdmin
+      .from('match_streams')
+      .select('id, match_id, platform, stream_url, is_primary, status')
+      .in('match_id', matchIds)
+      .order('is_primary', { ascending: false })
+      .order('created_at', { ascending: true })
+
+    if (streamsError) throw error(500, 'Failed to load match streams')
+
+    streamsByMatch = (streams ?? []).reduce(
+      (acc, stream) => {
+        if (!acc[stream.match_id]) acc[stream.match_id] = []
+        acc[stream.match_id].push(stream)
+        return acc
+      },
+      {} as Record<string, any[]>
+    )
+  }
+
+  return json({
+    matches: (matches ?? []).map((match) => ({
+      ...match,
+      streams: streamsByMatch[match.id] ?? [],
+    })),
+  })
 }
 
 export const POST: RequestHandler = async ({ locals, request }) => {
@@ -95,6 +124,8 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       approval_status,
       best_of,
       scheduled_at,
+      ended_at,
+      metadata,
       team_a_id,
       team_b_id,
       winner_team_id,

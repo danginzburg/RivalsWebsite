@@ -1,9 +1,8 @@
 import { json, error } from '@sveltejs/kit'
-import type { RequestHandler } from './$types'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { requireAdmin } from '$lib/server/auth/profile'
 
-export const POST: RequestHandler = async ({ locals, request }) => {
+export const POST = async ({ locals, request }: { locals: App.Locals; request: Request }) => {
   const admin = await requireAdmin(locals.user)
 
   const body = await request.json().catch(() => ({}))
@@ -31,7 +30,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   }
   const { data: profiles, error: profilesError } = await supabaseAdmin
     .from('profiles')
-    .select('id, display_name, riot_id_base')
+    .select('id, display_name, riot_id_base, stats_player_name')
 
   if (profilesError) {
     console.error('Error fetching profiles:', profilesError)
@@ -52,6 +51,12 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     if (p.display_name) {
       const full = normalizeKey(p.display_name)
       const base = normalizeBase(p.display_name)
+      profileMap.set(full, p.id)
+      if (base && base !== full) profileMap.set(base, p.id)
+    }
+    if ((p as any).stats_player_name) {
+      const full = normalizeKey((p as any).stats_player_name)
+      const base = normalizeBase((p as any).stats_player_name)
       profileMap.set(full, p.id)
       if (base && base !== full) profileMap.set(base, p.id)
     }

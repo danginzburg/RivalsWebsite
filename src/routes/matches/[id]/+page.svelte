@@ -5,6 +5,18 @@
   let { data } = $props()
 
   const match = $derived(data.match)
+  const viewer = $derived(data.viewer ?? { isAdmin: false })
+  let streamPlatform = $state('twitch')
+  let streamUrl = $state('')
+  let streamStatus = $state('scheduled')
+  let streamPrimary = $state(true)
+  let streamMessage = $state<string | null>(null)
+  let isSavingStream = $state(false)
+
+  $effect(() => {
+    streamPrimary = !(match.streams?.length > 0)
+    streamStatus = match.status === 'live' ? 'live' : 'scheduled'
+  })
 
   function teamName(value: unknown) {
     if (!value) return 'Team'
@@ -16,6 +28,37 @@
     if (!value) return 'Date TBD'
     const date = new Date(value)
     return `${date.toLocaleString(undefined, { timeZone: 'UTC' })} UTC`
+  }
+
+  async function addStream() {
+    if (!streamUrl.trim()) {
+      streamMessage = 'Stream URL is required.'
+      return
+    }
+
+    isSavingStream = true
+    streamMessage = null
+    try {
+      const response = await fetch(`/api/admin/matches/${match.id}/streams`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          platform: streamPlatform,
+          streamUrl,
+          status: streamStatus,
+          isPrimary: streamPrimary,
+        }),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(result.message ?? 'Failed to add stream')
+      streamMessage = 'Stream added. Refresh the page to see the new link.'
+      streamUrl = ''
+      streamPrimary = false
+    } catch (err) {
+      streamMessage = err instanceof Error ? err.message : 'Failed to add stream'
+    } finally {
+      isSavingStream = false
+    }
   }
 </script>
 
@@ -133,6 +176,70 @@
                   </div>
                 </a>
               {/each}
+            </div>
+          {/if}
+
+          {#if viewer.isAdmin}
+            <div
+              class="mt-4 rounded-md border p-3"
+              style="border-color: rgba(255,255,255,0.10); background: rgba(255,255,255,0.04);"
+            >
+              <div
+                class="mb-2 text-xs font-semibold uppercase"
+                style="color: rgba(255,255,255,0.72);"
+              >
+                Admin Stream Link
+              </div>
+              <div class="grid grid-cols-1 gap-2 md:grid-cols-4">
+                <select
+                  bind:value={streamPlatform}
+                  class="rounded-md border px-2 py-2 text-sm"
+                  style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                >
+                  <option value="twitch">Twitch</option>
+                  <option value="youtube">YouTube</option>
+                  <option value="kick">Kick</option>
+                  <option value="other">Other</option>
+                </select>
+                <input
+                  bind:value={streamUrl}
+                  class="rounded-md border px-3 py-2 text-sm md:col-span-2"
+                  style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                  placeholder="https://..."
+                />
+                <select
+                  bind:value={streamStatus}
+                  class="rounded-md border px-2 py-2 text-sm"
+                  style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                >
+                  <option value="scheduled">Scheduled</option>
+                  <option value="live">Live</option>
+                  <option value="ended">Ended</option>
+                </select>
+              </div>
+              <label
+                class="mt-2 inline-flex items-center gap-2 text-xs"
+                style="color: rgba(255,255,255,0.78);"
+              >
+                <input type="checkbox" bind:checked={streamPrimary} />
+                Mark as primary stream
+              </label>
+              {#if streamMessage}
+                <div class="mt-2 text-xs" style="color: rgba(255,255,255,0.72);">
+                  {streamMessage}
+                </div>
+              {/if}
+              <div class="mt-3 flex justify-end">
+                <button
+                  type="button"
+                  class="rounded-md px-3 py-2 text-sm font-semibold"
+                  style="background: rgba(59,130,246,0.18); color: #93c5fd;"
+                  onclick={addStream}
+                  disabled={isSavingStream}
+                >
+                  {isSavingStream ? 'Saving...' : 'Add Stream'}
+                </button>
+              </div>
             </div>
           {/if}
         </section>

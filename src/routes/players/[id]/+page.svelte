@@ -1,7 +1,7 @@
 <script lang="ts">
   import PageContainer from '$lib/components/PageContainer.svelte'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
-  import { BarChart3, Users, Swords } from 'lucide-svelte'
+  import { BarChart3, Users, Swords, Shield } from 'lucide-svelte'
 
   import { enhance } from '$app/forms'
 
@@ -18,8 +18,10 @@
   const matchHistory = $derived((data.matchHistory ?? []) as any[])
 
   let riotIdBaseValue = $state('')
+  let statsPlayerNameValue = $state('')
   $effect(() => {
     riotIdBaseValue = player.riot_id_base ?? ''
+    statsPlayerNameValue = player.stats_player_name ?? ''
   })
 
   const agentAssetModules = import.meta.glob('$lib/assets/agents/*_icon.png', {
@@ -90,24 +92,52 @@
 <PageContainer>
   <div class="flex justify-center px-4 py-8">
     <div class="w-full max-w-6xl">
-      <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <div class="flex items-center gap-3">
-          <BarChart3 size={34} style="color: var(--text);" />
+      <div class="mb-6 flex flex-wrap items-start justify-between gap-4">
+        <div class="flex items-start gap-4">
+          {#if activeTeam?.logo_url}
+            <img
+              src={activeTeam.logo_url}
+              alt="{activeTeam.name} logo"
+              class="h-16 w-16 rounded object-contain"
+            />
+          {:else}
+            <div
+              class="flex h-16 w-16 items-center justify-center rounded border"
+              style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.18);"
+            >
+              <Shield size={28} style="color: var(--text);" />
+            </div>
+          {/if}
           <div>
             <h1 class="responsive-title">{player.riot_id}</h1>
-            <p class="text-sm" style="color: rgba(255,255,255,0.72);">
-              {#if activeTeam}
-                <a href={`/teams/${activeTeam.id}`} style="color: #93c5fd;">{activeTeam.name}</a>
+            {#if activeTeam}
+              <a
+                href={`/teams/${activeTeam.id}`}
+                class="mt-2 inline-flex items-center gap-2 rounded-lg border px-3 py-2 transition-colors hover:bg-white/5"
+                style="border-color: rgba(59,130,246,0.3); background: rgba(59,130,246,0.10); color: var(--text);"
+              >
+                {#if activeTeam.logo_url}
+                  <img
+                    src={activeTeam.logo_url}
+                    alt="{activeTeam.name} logo"
+                    class="h-6 w-6 rounded object-contain"
+                  />
+                {/if}
+                <span class="font-semibold" style="color: #93c5fd;">{activeTeam.name}</span>
                 {#if activeTeam.tag}
-                  <span> [{String(activeTeam.tag).toUpperCase()}]</span>
+                  <span class="text-sm" style="color: rgba(255,255,255,0.78);"
+                    >[{String(activeTeam.tag).toUpperCase()}]</span
+                  >
                 {/if}
                 {#if activeTeam.role}
-                  <span class="opacity-80"> • {activeTeam.role}</span>
+                  <span class="text-sm capitalize" style="color: rgba(255,255,255,0.68);"
+                    >{activeTeam.role}</span
+                  >
                 {/if}
-              {:else}
-                No active team
-              {/if}
-            </p>
+              </a>
+            {:else}
+              <p class="mt-2 text-sm" style="color: rgba(255,255,255,0.72);">No active team</p>
+            {/if}
           </div>
         </div>
 
@@ -160,6 +190,40 @@
           </div>
         {/if}
 
+        {#if viewer.canEditRiotIdBase && player.has_unmatched_stats_candidate}
+          <div
+            class="mb-4 rounded-md border p-3"
+            style="border-color: rgba(168,85,247,0.25); background: rgba(168,85,247,0.10);"
+          >
+            <div class="mb-1 text-sm font-semibold" style="color: rgba(255,255,255,0.92);">
+              Alternate Stats Name
+            </div>
+            <div class="text-xs" style="color: rgba(255,255,255,0.72);">
+              Use this when imported stats still list an old Riot or display name. This will also
+              try to relink past imported stats.
+            </div>
+
+            <form class="mt-3 flex flex-col gap-2 md:flex-row" method="POST" use:enhance>
+              <input
+                name="stats_player_name"
+                bind:value={statsPlayerNameValue}
+                class="w-full flex-1 rounded-md border px-3 py-2 text-sm"
+                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                placeholder="Example: OldName"
+                autocomplete="off"
+              />
+              <button
+                type="submit"
+                formaction="?/setStatsPlayerName"
+                class="rounded-md px-3 py-2 text-sm font-semibold"
+                style="background: rgba(168,85,247,0.2); color: #d8b4fe;"
+              >
+                Save Alt Name
+              </button>
+            </form>
+          </div>
+        {/if}
+
         <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div
             class="text-xs font-semibold tracking-wide uppercase"
@@ -191,7 +255,7 @@
             {/if}
           </div>
 
-          <div class="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div class="grid grid-cols-2 gap-3 md:grid-cols-5">
             <div
               class="rounded-md border p-3"
               style="border-color: rgba(255,255,255,0.10); background: rgba(0,0,0,0.18);"
@@ -226,6 +290,15 @@
               <div class="text-xs" style="color: rgba(255,255,255,0.65);">ADR</div>
               <div class="text-lg font-semibold" style="color: var(--text);">
                 {fmt(selected.adr, 0)}
+              </div>
+            </div>
+            <div
+              class="rounded-md border p-3"
+              style="border-color: rgba(255,255,255,0.10); background: rgba(0,0,0,0.18);"
+            >
+              <div class="text-xs" style="color: rgba(255,255,255,0.65);">HS%</div>
+              <div class="text-lg font-semibold" style="color: var(--text);">
+                {fmt(selected.hs_pct, 0)}
               </div>
             </div>
           </div>

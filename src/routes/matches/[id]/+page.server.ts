@@ -43,5 +43,8 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
       ...match,
       streams: streams ?? [],
     },
+    viewer: {
+      isAdmin: locals.user?.role === 'admin',
+    },
   }
 }

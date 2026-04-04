@@ -559,9 +559,16 @@
                 >
                   <td class="px-3 py-2 font-semibold" style="color: var(--text);">
                     <div class="flex items-center gap-2">
+                      {#if row.team?.logo_url}
+                        <img
+                          src={row.team.logo_url}
+                          alt="{row.team.name} logo"
+                          class="h-4 w-4 shrink-0 rounded object-contain"
+                        />
+                      {/if}
                       {#if row.profile_id}
                         <a
-                          class="min-w-0 truncate underline"
+                          class="min-w-0 truncate"
                           style="color: var(--text);"
                           href={`/players/${row.profile_id}`}
                         >
@@ -569,25 +576,28 @@
                         </a>
                       {:else}
                         <a
-                          class="min-w-0 truncate underline"
+                          class="min-w-0 truncate"
                           style="color: var(--text);"
                           href={unclaimedHref(String(row.player_name ?? 'Player'))}
                         >
                           {row.player_name}
                         </a>
                       {/if}
-                      <!-- Match/unmatched badge temporarily disabled -->
-                      <!--
-                      {#if !row.profile_id}
-                        <span
-                          class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase"
-                          style="background: rgba(250,204,21,0.18); color: #fde68a;"
-                        >
-                          unmatched
-                        </span>
-                      {/if}
-                      -->
                     </div>
+                    {#if row.team}
+                      <div
+                        class="mt-1 flex items-center gap-1.5 text-xs"
+                        style="color: rgba(255,255,255,0.68);"
+                      >
+                        <a
+                          href={`/teams/${row.team.id}`}
+                          class="truncate"
+                          style="color: rgba(255,255,255,0.72);"
+                        >
+                          {row.team.name}{row.team.tag ? ` [${row.team.tag}]` : ''}
+                        </a>
+                      </div>
+                    {/if}
                   </td>
                   {#each allColumns as col}
                     {#if visibleColumns.includes(col.key)}

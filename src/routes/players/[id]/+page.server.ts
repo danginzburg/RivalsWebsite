@@ -1,6 +1,6 @@
 import { error, redirect } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
-import type { Actions } from './$types'
+import { rematchNamedTeamMemberships } from '$lib/server/teams/membership'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -48,7 +48,7 @@ export const load = async ({
 
   const { data: profileRel, error: profileError } = await supabaseAdmin
     .from('profiles')
-    .select('id, auth0_sub, role, display_name, email, riot_id_base, created_at')
+    .select('id, auth0_sub, role, display_name, email, riot_id_base, stats_player_name, created_at')
     .eq('id', profileId)
     .maybeSingle()
 
@@ -116,6 +116,26 @@ export const load = async ({
     .eq('profile_id', profileId)
     .order('imported_at', { ascending: false })
     .limit(200)
+
+  const possibleUnmatchedNames = Array.from(
+    new Set(
+      [profileRel.display_name, profileRel.riot_id_base, (profileRel as any).stats_player_name]
+        .map((value) => (typeof value === 'string' ? value.trim() : ''))
+        .filter(Boolean)
+    )
+  )
+
+  const unmatchedChecks = await Promise.all(
+    possibleUnmatchedNames.map((playerName) =>
+      supabaseAdmin
+        .from('rivals_group_stats')
+        .select('id', { count: 'exact', head: true })
+        .is('profile_id', null)
+        .ilike('player_name', playerName)
+    )
+  )
+
+  const hasUnmatchedStatsCandidate = unmatchedChecks.some((result) => Number(result.count ?? 0) > 0)
 
   const batchIds = Array.from(
     new Set((statsRows ?? []).map((r: any) => r.import_batch_id).filter(Boolean))
@@ -272,6 +292,8 @@ export const load = async ({
       profile_id: profileId,
       riot_id: profileRel.riot_id_base ?? profileRel.display_name ?? profileRel.email ?? 'Player',
       riot_id_base: profileRel.riot_id_base ?? null,
+      stats_player_name: (profileRel as any).stats_player_name ?? null,
+      has_unmatched_stats_candidate: hasUnmatchedStatsCandidate,
       rank_label: null,
       rank_value: null,
       pronouns: null,
@@ -307,8 +329,16 @@ function isValidRiotBase(value: string) {
   return true
 }
 
-export const actions: Actions = {
-  setRiotIdBase: async ({ locals, params, request }) => {
+export const actions = {
+  setRiotIdBase: async ({
+    locals,
+    params,
+    request,
+  }: {
+    locals: App.Locals
+    params: { id: string }
+    request: Request
+  }) => {
     if (!locals.user) throw redirect(303, `/auth/login?returnTo=/players/${params.id}`)
 
     const form = await request.formData()
@@ -355,6 +385,12 @@ export const actions: Actions = {
 
     if (updateError) return { success: false, message: updateError.message }
 
+    try {
+      await rematchNamedTeamMemberships(target.id)
+    } catch (err) {
+      console.warn('Failed to rematch named team memberships after riot_id_base save:', err)
+    }
+
     // Best-effort auto-relink of imported stats after claiming Riot ID.
     // This avoids needing a manual admin rematch step.
     const { error: rpcError } = await supabaseAdmin.rpc('rematch_rivals_group_stats', {
@@ -362,6 +398,84 @@ export const actions: Actions = {
     })
     if (rpcError) {
       console.warn('rematch_rivals_group_stats failed:', rpcError)
+    }
+
+    throw redirect(303, `/players/${target.id}`)
+  },
+  setStatsPlayerName: async ({
+    locals,
+    params,
+    request,
+  }: {
+    locals: App.Locals
+    params: { id: string }
+    request: Request
+  }) => {
+    if (!locals.user) throw redirect(303, `/auth/login?returnTo=/players/${params.id}`)
+
+    const form = await request.formData()
+    const statsPlayerName = normalizeRiotBase(form.get('stats_player_name'))
+    if (!isValidRiotBase(statsPlayerName)) {
+      return { success: false, message: 'Enter a valid stats player name (no #tag).' }
+    }
+
+    const { data: viewer, error: viewerError } = await supabaseAdmin
+      .from('profiles')
+      .select('id, role')
+      .eq('auth0_sub', locals.user.sub)
+      .maybeSingle()
+
+    if (viewerError || !viewer) throw error(403, 'Profile not found')
+
+    const { data: target, error: targetError } = await supabaseAdmin
+      .from('profiles')
+      .select('id, auth0_sub')
+      .eq('id', params.id)
+      .maybeSingle()
+
+    if (targetError || !target) throw error(404, 'Player not found')
+
+    const isSelf = target.auth0_sub && target.auth0_sub === locals.user.sub
+    const isAdmin = viewer.role === 'admin'
+    if (!isSelf && !isAdmin) throw error(403, 'Not allowed')
+
+    const { data: existing } = await supabaseAdmin
+      .from('profiles')
+      .select('id')
+      .ilike('stats_player_name', statsPlayerName)
+      .neq('id', target.id)
+      .maybeSingle()
+
+    if (existing?.id) {
+      return {
+        success: false,
+        message: 'That stats player name is already claimed by another account.',
+      }
+    }
+
+    const { error: updateError } = await supabaseAdmin
+      .from('profiles')
+      .update({ stats_player_name: statsPlayerName })
+      .eq('id', target.id)
+
+    if (updateError) return { success: false, message: updateError.message }
+
+    try {
+      await rematchNamedTeamMemberships(target.id)
+    } catch (err) {
+      console.warn('Failed to rematch named team memberships after stats_player_name save:', err)
+    }
+
+    const lower = statsPlayerName.toLowerCase()
+    const candidates = [statsPlayerName, lower]
+
+    const { error: rematchError } = await supabaseAdmin
+      .from('rivals_group_stats')
+      .update({ profile_id: target.id })
+      .or(`player_name.ilike.${statsPlayerName},player_name.ilike.${lower}`)
+
+    if (rematchError) {
+      console.warn('Failed to rematch stats_player_name:', rematchError, candidates)
     }
 
     throw redirect(303, `/players/${target.id}`)
