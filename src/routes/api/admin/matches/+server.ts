@@ -12,10 +12,8 @@ function parseScheduledAt(value: unknown): string | null {
   const raw = normalizeOptional(value)
   if (!raw) return null
 
-  // Support <input type="datetime-local"> value (YYYY-MM-DDTHH:mm)
-  const looksLikeLocal = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(raw)
-  const asIso = looksLikeLocal ? `${raw}:00Z` : raw
-  const d = new Date(asIso)
+  // <input type="datetime-local"> is interpreted in the viewer's local timezone.
+  const d = new Date(raw)
   if (!Number.isFinite(d.getTime())) {
     throw error(400, 'Invalid scheduledAt')
   }

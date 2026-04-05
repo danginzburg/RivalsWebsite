@@ -37,6 +37,19 @@ function kindOrder(kind: unknown): number {
   return kind === 'aggregate' ? 0 : kind === 'weekly' ? 1 : 2
 }
 
+function average(values: Array<number | null | undefined>) {
+  const nums = values.map((value) => Number(value)).filter((value) => Number.isFinite(value))
+  if (nums.length === 0) return null
+  return nums.reduce((total, value) => total + value, 0) / nums.length
+}
+
+function sum(values: Array<number | null | undefined>) {
+  return values.reduce<number>(
+    (total, value) => total + (Number.isFinite(Number(value)) ? Number(value) : 0),
+    0
+  )
+}
+
 export const load: PageServerLoad = async ({ url, locals }) => {
   const clickedName = String(url.searchParams.get('name') ?? '').trim()
   if (!clickedName) throw error(400, 'Missing name')
@@ -179,6 +192,87 @@ export const load: PageServerLoad = async ({ url, locals }) => {
     }
   }
 
+  const { data: matchRows } = await supabaseAdmin
+    .from('player_match_map_stats')
+    .select(
+      `
+      match_id,
+      team_id,
+      profile_id,
+      player_name,
+      agents,
+      acs,
+      kills,
+      deaths,
+      assists,
+      kast_pct,
+      hs_pct,
+      matches (
+        id,
+        status,
+        approval_status,
+        scheduled_at,
+        ended_at,
+        team_a_id,
+        team_b_id,
+        team_a_score,
+        team_b_score,
+        team_a:teams!matches_team_a_id_fkey (id, name, tag),
+        team_b:teams!matches_team_b_id_fkey (id, name, tag)
+      )
+    `
+    )
+    .is('profile_id', null)
+    .or(`player_name.eq.${baseQuoted},player_name.ilike.${baseTagLikeQuoted}`)
+    .limit(500)
+
+  const byMatch = new Map<string, any[]>()
+  for (const row of matchRows ?? []) {
+    const matchId = String(row.match_id ?? '')
+    if (!matchId) continue
+    const current = byMatch.get(matchId) ?? []
+    current.push(row)
+    byMatch.set(matchId, current)
+  }
+
+  const matchHistory = Array.from(byMatch.values())
+    .map((rows) => {
+      const first = rows[0]
+      const matchRel = Array.isArray(first.matches) ? first.matches[0] : first.matches
+      const perspectiveTeamId = first.team_id
+      const opponent =
+        matchRel?.team_a_id === perspectiveTeamId
+          ? matchRel?.team_b
+          : matchRel?.team_b_id === perspectiveTeamId
+            ? matchRel?.team_a
+            : null
+      const score =
+        matchRel?.team_a_id === perspectiveTeamId
+          ? { us: Number(matchRel?.team_a_score ?? 0), them: Number(matchRel?.team_b_score ?? 0) }
+          : { us: Number(matchRel?.team_b_score ?? 0), them: Number(matchRel?.team_a_score ?? 0) }
+
+      return {
+        match: matchRel ?? null,
+        opponent,
+        score,
+        agents: Array.from(
+          new Set(
+            rows
+              .flatMap((row) => String(row.agents ?? '').split(/\s+/))
+              .map((value) => value.trim())
+              .filter(Boolean)
+          )
+        ).join(' '),
+        acs: average(rows.map((row) => row.acs)),
+        kills: sum(rows.map((row) => row.kills)),
+        deaths: sum(rows.map((row) => row.deaths)),
+        assists: sum(rows.map((row) => row.assists)),
+        kast_pct: average(rows.map((row) => row.kast_pct)),
+        hs_pct: average(rows.map((row) => row.hs_pct)),
+      }
+    })
+    .filter((entry) => entry.match && entry.match.approval_status === 'approved')
+
   return {
     clickedName,
     base,
@@ -186,6 +280,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
     batchOptions,
     selected,
     viewer,
+    matchHistory,
   }
 }
 

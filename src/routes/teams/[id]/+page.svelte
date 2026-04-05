@@ -310,9 +310,15 @@
                         >{teamName(opp)}</a
                       >
                     </td>
-                    <td class="px-3 py-2">{formatUtc(match.ended_at ?? match.scheduled_at)}</td>
-                    <td class="px-3 py-2">{score.us}-{score.them}</td>
-                    <td class="px-3 py-2">{teamTag(opp) ? `[${teamTag(opp)}]` : '—'}</td>
+                    <td class="px-3 py-2" style="color: rgba(255,255,255,0.9);">
+                      {formatUtc(match.scheduled_at)}
+                    </td>
+                    <td class="px-3 py-2" style="color: rgba(255,255,255,0.9);"
+                      >{score.us}-{score.them}</td
+                    >
+                    <td class="px-3 py-2" style="color: rgba(255,255,255,0.9);">
+                      {teamTag(opp) ? `[${teamTag(opp)}]` : '—'}
+                    </td>
                   </tr>
                 {/each}
               </tbody>

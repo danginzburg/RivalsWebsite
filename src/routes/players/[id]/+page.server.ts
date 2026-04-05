@@ -255,6 +255,15 @@ export const load = async ({
       match_id,
       team_id,
       status,
+      agents,
+      acs,
+      kills,
+      deaths,
+      assists,
+      kd,
+      adr,
+      kast_pct,
+      hs_pct,
       matches (
         id,
         status,
@@ -279,10 +288,40 @@ export const load = async ({
   const matchHistory = (participated ?? [])
     .map((r: any) => {
       const matchRel = Array.isArray(r.matches) ? r.matches[0] : r.matches
+      const perspectiveTeamId =
+        activeTeam &&
+        (activeTeam.id === matchRel?.team_a_id || activeTeam.id === matchRel?.team_b_id)
+          ? activeTeam.id
+          : r.team_id === matchRel?.team_a_id || r.team_id === matchRel?.team_b_id
+            ? r.team_id
+            : null
+      const opponent =
+        matchRel?.team_a_id === perspectiveTeamId
+          ? matchRel?.team_b
+          : matchRel?.team_b_id === perspectiveTeamId
+            ? matchRel?.team_a
+            : null
+      const score =
+        matchRel?.team_a_id === perspectiveTeamId
+          ? { us: Number(matchRel?.team_a_score ?? 0), them: Number(matchRel?.team_b_score ?? 0) }
+          : matchRel?.team_b_id === perspectiveTeamId
+            ? { us: Number(matchRel?.team_b_score ?? 0), them: Number(matchRel?.team_a_score ?? 0) }
+            : { us: Number(matchRel?.team_a_score ?? 0), them: Number(matchRel?.team_b_score ?? 0) }
       return {
         match: matchRel ?? null,
-        team_id: r.team_id,
+        team_id: perspectiveTeamId,
         status: r.status,
+        opponent,
+        score,
+        agents: r.agents ?? null,
+        acs: r.acs ?? null,
+        kills: r.kills ?? null,
+        deaths: r.deaths ?? null,
+        assists: r.assists ?? null,
+        kd: r.kd ?? null,
+        adr: r.adr ?? null,
+        kast_pct: r.kast_pct ?? null,
+        hs_pct: r.hs_pct ?? null,
       }
     })
     .filter((x: any) => x.match && x.match.approval_status === 'approved')

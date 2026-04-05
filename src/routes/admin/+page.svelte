@@ -67,6 +67,8 @@
   let teamQueue = $state<TeamQueueEntry[]>(getInitialTeamQueue())
   let approvedTeams = $state<TeamQueueEntry[]>(getInitialApprovedTeams())
   let matches = $state<any[]>(getInitialMatches())
+  let matchSearchQuery = $state('')
+  let showCompletedAdminMatches = $state(false)
   let createSeasonCode = $state('')
   let createSeasonName = $state('')
   let createSeasonStartsOn = $state('')
@@ -92,6 +94,21 @@
   let createMatchBestOf = $state<'3' | '5'>('3')
   let createMatchScheduledAt = $state('')
   let isCreatingMatch = $state(false)
+  let expandedAdminMatchId = $state<string | null>(null)
+
+  const filteredAdminMatches = $derived.by(() => {
+    const query = matchSearchQuery.trim().toLowerCase()
+    return (matches ?? []).filter((match) => {
+      if (!showCompletedAdminMatches && match.status === 'completed') return false
+      if (!query) return true
+
+      const haystack = [teamName(match.team_a), teamName(match.team_b), match.status]
+        .join(' ')
+        .toLowerCase()
+
+      return haystack.includes(query)
+    })
+  })
 
   let createTeamName = $state('')
   let createTeamTag = $state('')
@@ -293,11 +310,11 @@
   function toDatetimeLocal(value: string | null | undefined) {
     if (!value) return ''
     const date = new Date(value)
-    const yyyy = date.getUTCFullYear()
-    const mm = String(date.getUTCMonth() + 1).padStart(2, '0')
-    const dd = String(date.getUTCDate()).padStart(2, '0')
-    const hh = String(date.getUTCHours()).padStart(2, '0')
-    const min = String(date.getUTCMinutes()).padStart(2, '0')
+    const yyyy = date.getFullYear()
+    const mm = String(date.getMonth() + 1).padStart(2, '0')
+    const dd = String(date.getDate()).padStart(2, '0')
+    const hh = String(date.getHours()).padStart(2, '0')
+    const min = String(date.getMinutes()).padStart(2, '0')
     return `${yyyy}-${mm}-${dd}T${hh}:${min}`
   }
 
@@ -313,6 +330,7 @@
         teamAScore: '0',
         teamBScore: '0',
         winnerTeamId: '',
+        mapVetoes: '',
       } as const)
     matchEditForm = {
       ...matchEditForm,
@@ -335,6 +353,9 @@
         teamAScore: String(match.team_a_score ?? 0),
         teamBScore: String(match.team_b_score ?? 0),
         winnerTeamId: match.winner_team_id ?? '',
+        mapVetoes: Array.isArray(match.metadata?.map_vetoes)
+          ? match.metadata.map_vetoes.join('\n')
+          : '',
       }
     }
     const keys = Object.keys(next)
@@ -471,6 +492,7 @@
   let playersSearch = $state('')
   let observersSearch = $state('')
   let usersSearch = $state('')
+  let userRiotIdForm = $state<Record<string, string>>({})
   let teamsSearch = $state('')
   let pendingRankChange = $state<{
     registrationId: number
@@ -564,6 +586,15 @@
         message: string
         confirmLabel: string
       }
+    | {
+        kind: 'save_user_riot'
+        userId: string
+        userName: string
+        riotIdBase: string
+        title: string
+        message: string
+        confirmLabel: string
+      }
     | null
   >(null)
 
@@ -611,6 +642,19 @@
         `${user.display_name ?? ''} ${user.email ?? ''} ${user.role ?? ''}`.toLowerCase()
       return haystack.includes(search)
     })
+  })
+
+  $effect(() => {
+    const next: Record<string, string> = {}
+    for (const user of users ?? []) {
+      next[user.id] = userRiotIdForm[user.id] ?? user.riot_id_base ?? ''
+    }
+    const keys = Object.keys(next)
+    const currentKeys = Object.keys(userRiotIdForm)
+    const changed =
+      keys.length !== currentKeys.length ||
+      keys.some((key) => (userRiotIdForm[key] ?? '') !== (next[key] ?? ''))
+    if (changed) userRiotIdForm = next
   })
 
   const displayedApprovedTeams = $derived.by(() => {
@@ -900,6 +944,7 @@
           teamBScore: Number(state.teamBScore),
           winnerTeamId: state.winnerTeamId || null,
           youtubeVodUrl: vodForm[matchId] || null,
+          mapVetoes: state.mapVetoes || '',
         }),
       })
 
@@ -1087,6 +1132,40 @@
       await refreshData()
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Failed to update season'
+    }
+  }
+
+  function requestUserRiotIdSave(userId: string, userName: string) {
+    const riotIdBase = (userRiotIdForm[userId] ?? '').trim()
+    pendingActionConfirmation = {
+      kind: 'save_user_riot',
+      userId,
+      userName,
+      riotIdBase,
+      title: 'Confirm Riot ID Update',
+      message: riotIdBase
+        ? `Set ${userName}'s Riot ID to ${riotIdBase}?`
+        : `Clear ${userName}'s Riot ID?`,
+      confirmLabel: 'Save Riot ID',
+    }
+    showActionConfirmation = true
+  }
+
+  async function executeSaveUserRiotId(userId: string, riotIdBase: string) {
+    errorMessage = null
+    successMessage = null
+    try {
+      const response = await window.fetch('/api/admin/users', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, riotIdBase }),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(result.message || 'Failed to update Riot ID')
+      successMessage = 'Riot ID updated.'
+      await refreshData()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to update Riot ID'
     }
   }
 
@@ -1471,6 +1550,11 @@
       return
     }
 
+    if (action.kind === 'save_user_riot') {
+      await executeSaveUserRiotId(action.userId, action.riotIdBase)
+      return
+    }
+
     if (action.kind === 'remove_player') {
       await executeRemoveApprovedTeamPlayer(
         action.teamId,
@@ -1686,6 +1770,32 @@
                       />
                     </div>
 
+                    <div class="mt-3 flex items-end gap-2">
+                      <label class="min-w-0 flex-1 text-xs" style="color: rgba(255,255,255,0.82);">
+                        Riot ID
+                        <input
+                          value={userRiotIdForm[user.id] ?? ''}
+                          class="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                          style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                          placeholder="Riot ID base"
+                          oninput={(e) => {
+                            userRiotIdForm = {
+                              ...userRiotIdForm,
+                              [user.id]: (e.currentTarget as HTMLInputElement).value,
+                            }
+                          }}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        class="rounded px-3 py-2 text-xs font-semibold"
+                        style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+                        onclick={() => requestUserRiotIdSave(user.id, user.display_name || '—')}
+                      >
+                        Save
+                      </button>
+                    </div>
+
                     <div class="mt-3 text-xs" style="color: rgba(255,255,255,0.55);">
                       Account-level role management only.
                     </div>
@@ -1699,6 +1809,7 @@
                     <tr class="text-xs tracking-wide uppercase opacity-70">
                       <th class="px-3 py-2">Discord</th>
                       <th class="px-3 py-2">Role</th>
+                      <th class="px-3 py-2">Riot ID</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1719,6 +1830,31 @@
                                   value
                                 )}
                             />
+                          </div>
+                        </td>
+                        <td class="px-3 py-2">
+                          <div class="flex items-center gap-2">
+                            <input
+                              value={userRiotIdForm[user.id] ?? ''}
+                              class="w-full max-w-[220px] rounded-md border px-3 py-2 text-sm"
+                              style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                              placeholder="Riot ID base"
+                              oninput={(e) => {
+                                userRiotIdForm = {
+                                  ...userRiotIdForm,
+                                  [user.id]: (e.currentTarget as HTMLInputElement).value,
+                                }
+                              }}
+                            />
+                            <button
+                              type="button"
+                              class="rounded px-3 py-2 text-xs font-semibold"
+                              style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+                              onclick={() =>
+                                requestUserRiotIdSave(user.id, user.display_name || '—')}
+                            >
+                              Save
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -2124,7 +2260,7 @@
                       aria-label="Scheduled at (UTC)"
                     />
                     <div class="mt-1 text-xs" style="color: rgba(255,255,255,0.65);">
-                      Optional. Interpreted as UTC.
+                      Optional. Uses your local browser time.
                     </div>
                   </div>
                   <div class="md:col-span-1">
@@ -2152,11 +2288,31 @@
                   </h3>
                 </div>
 
-                {#if matches.length === 0}
-                  <p class="text-sm" style="color: rgba(255,255,255,0.72);">No matches found.</p>
+                <div class="mb-3 space-y-3">
+                  <input
+                    bind:value={matchSearchQuery}
+                    class="w-full rounded-lg border px-3 py-2 text-sm md:max-w-md"
+                    style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2); color: var(--text);"
+                    placeholder="Search teams or match status"
+                  />
+                  <label
+                    class="inline-flex w-full items-center gap-2 text-sm"
+                    style="color: rgba(255,255,255,0.8);"
+                  >
+                    <input bind:checked={showCompletedAdminMatches} type="checkbox" />
+                    Show completed matches
+                  </label>
+                </div>
+
+                {#if filteredAdminMatches.length === 0}
+                  <p class="text-sm" style="color: rgba(255,255,255,0.72);">
+                    {matches.length === 0
+                      ? 'No matches found.'
+                      : 'No matches match the current filters.'}
+                  </p>
                 {:else}
                   <div class="flex flex-col gap-2">
-                    {#each matches as match}
+                    {#each filteredAdminMatches as match}
                       {@const state = finalizeForm[match.id] ?? {
                         teamAScore: String(match.team_a_score ?? 0),
                         teamBScore: String(match.team_b_score ?? 0),
@@ -2171,6 +2327,9 @@
                         teamAScore: String(match.team_a_score ?? 0),
                         teamBScore: String(match.team_b_score ?? 0),
                         winnerTeamId: match.winner_team_id ?? '',
+                        mapVetoes: Array.isArray(match.metadata?.map_vetoes)
+                          ? match.metadata.map_vetoes.join('\n')
+                          : '',
                       }}
                       {@const streamState = streamForm[match.id] ?? {
                         platform: 'twitch',
@@ -2182,520 +2341,583 @@
                         class="rounded-md border p-3"
                         style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
                       >
-                        <div class="flex flex-wrap items-center justify-between gap-2">
-                          <div class="text-sm" style="color: var(--text);">
-                            <strong>{teamName(match.team_a)}</strong> vs
-                            <strong>{teamName(match.team_b)}</strong>
-                          </div>
-                          <span
-                            class="rounded-full px-2 py-1 text-xs font-bold"
-                            style="background: rgba(255,255,255,0.12); color: var(--text);"
-                          >
-                            {match.status}
-                          </span>
-                        </div>
-
-                        <div class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-4">
-                          <input
-                            type="number"
-                            min="0"
-                            value={state.teamAScore}
-                            class="rounded-md border px-2 py-1"
-                            style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-                            placeholder="Team A score"
-                            oninput={(e) =>
-                              updateFinalizeForm(match.id, {
-                                teamAScore: (e.currentTarget as HTMLInputElement).value,
-                              })}
-                          />
-                          <input
-                            type="number"
-                            min="0"
-                            value={state.teamBScore}
-                            class="rounded-md border px-2 py-1"
-                            style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-                            placeholder="Team B score"
-                            oninput={(e) =>
-                              updateFinalizeForm(match.id, {
-                                teamBScore: (e.currentTarget as HTMLInputElement).value,
-                              })}
-                          />
-                          <CustomSelect
-                            options={[
-                              { value: match.team_a_id, label: teamName(match.team_a) },
-                              { value: match.team_b_id, label: teamName(match.team_b) },
-                            ]}
-                            value={state.winnerTeamId}
-                            compact={true}
-                            placeholder="Winner"
-                            onSelect={(value) =>
-                              updateFinalizeForm(match.id, {
-                                winnerTeamId: value,
-                              })}
-                          />
-                          <div class="flex gap-2">
-                            <button
-                              type="button"
-                              class="rounded px-2 py-1 text-xs"
-                              style="background: rgba(74,222,128,0.2); color: #4ade80;"
-                              onclick={() => finalizeMatch(match)}
-                            >
-                              Finalize
-                            </button>
-                            <button
-                              type="button"
-                              class="rounded px-2 py-1 text-xs"
-                              style="background: rgba(248,113,113,0.2); color: #f87171;"
-                              onclick={() => cancelMatch(match)}
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        </div>
-
-                        <div
-                          class="mt-3 rounded-md border p-3"
-                          style="border-color: rgba(255,255,255,0.10);"
+                        <button
+                          type="button"
+                          class="flex w-full flex-wrap items-center justify-between gap-2 text-left"
+                          onclick={() =>
+                            (expandedAdminMatchId =
+                              expandedAdminMatchId === match.id ? null : match.id)}
                         >
-                          <div
-                            class="mb-2 text-[11px] font-semibold tracking-wide uppercase"
-                            style="color: rgba(255,255,255,0.7);"
-                          >
-                            Edit Match
-                          </div>
-                          <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
-                            <div>
-                              <CustomSelect
-                                options={approvedTeamOptions}
-                                value={editState.teamAId}
-                                compact={true}
-                                placeholder="Team A"
-                                onSelect={(value) =>
-                                  updateMatchEditForm(match.id, { teamAId: value })}
-                              />
+                          <div>
+                            <div class="text-sm" style="color: var(--text);">
+                              <strong>{teamName(match.team_a)}</strong> vs
+                              <strong>{teamName(match.team_b)}</strong>
                             </div>
-                            <div>
-                              <CustomSelect
-                                options={approvedTeamOptions}
-                                value={editState.teamBId}
-                                compact={true}
-                                placeholder="Team B"
-                                onSelect={(value) =>
-                                  updateMatchEditForm(match.id, { teamBId: value })}
-                              />
-                            </div>
-                            <div>
-                              <CustomSelect
-                                options={bestOfOptions}
-                                value={editState.bestOf}
-                                compact={true}
-                                placeholder="Best Of"
-                                onSelect={(value) =>
-                                  updateMatchEditForm(match.id, { bestOf: value })}
-                              />
-                            </div>
-                            <div>
-                              <CustomSelect
-                                options={matchStatusOptions}
-                                value={editState.status}
-                                compact={true}
-                                placeholder="Status"
-                                onSelect={(value) =>
-                                  updateMatchEditForm(match.id, { status: value })}
-                              />
-                            </div>
-                            <label
-                              class="text-xs md:col-span-2"
-                              style="color: rgba(255,255,255,0.82);"
-                            >
-                              Scheduled (UTC)
-                              <input
-                                type="datetime-local"
-                                value={editState.scheduledAt}
-                                class="mt-1 w-full rounded-md border px-2 py-1 text-sm"
-                                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-                                oninput={(e) =>
-                                  updateMatchEditForm(match.id, {
-                                    scheduledAt: (e.currentTarget as HTMLInputElement).value,
-                                  })}
-                              />
-                            </label>
-                            <label class="text-xs" style="color: rgba(255,255,255,0.82);">
-                              Team A Score
-                              <input
-                                type="number"
-                                min="0"
-                                value={editState.teamAScore}
-                                class="mt-1 w-full rounded-md border px-2 py-1 text-sm"
-                                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-                                oninput={(e) =>
-                                  updateMatchEditForm(match.id, {
-                                    teamAScore: (e.currentTarget as HTMLInputElement).value,
-                                  })}
-                              />
-                            </label>
-                            <label class="text-xs" style="color: rgba(255,255,255,0.82);">
-                              Team B Score
-                              <input
-                                type="number"
-                                min="0"
-                                value={editState.teamBScore}
-                                class="mt-1 w-full rounded-md border px-2 py-1 text-sm"
-                                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-                                oninput={(e) =>
-                                  updateMatchEditForm(match.id, {
-                                    teamBScore: (e.currentTarget as HTMLInputElement).value,
-                                  })}
-                              />
-                            </label>
-                            <div class="md:col-span-2">
-                              <CustomSelect
-                                options={[
-                                  { value: '', label: 'Unset winner' },
-                                  {
-                                    value: editState.teamAId,
-                                    label:
-                                      approvedTeams.find((team) => team.id === editState.teamAId)
-                                        ?.name ?? 'Team A',
-                                  },
-                                  {
-                                    value: editState.teamBId,
-                                    label:
-                                      approvedTeams.find((team) => team.id === editState.teamBId)
-                                        ?.name ?? 'Team B',
-                                  },
-                                ]}
-                                value={editState.winnerTeamId}
-                                compact={true}
-                                placeholder="Winner"
-                                onSelect={(value) =>
-                                  updateMatchEditForm(match.id, { winnerTeamId: value })}
-                              />
-                            </div>
-                          </div>
-                          <div class="mt-3 flex flex-wrap justify-end gap-2">
-                            <button
-                              type="button"
-                              class="rounded px-2 py-1 text-xs font-semibold"
-                              style="background: rgba(59,130,246,0.2); color: #93c5fd;"
-                              onclick={() => saveMatchEdits(match.id, match)}
-                            >
-                              Save Match
-                            </button>
-                            <button
-                              type="button"
-                              class="rounded px-2 py-1 text-xs font-semibold"
-                              style="background: rgba(248,113,113,0.2); color: #fca5a5;"
-                              onclick={() => deleteMatch(match.id, match)}
-                            >
-                              Delete Match
-                            </button>
-                          </div>
-                        </div>
-
-                        <div
-                          class="mt-3 rounded-md border p-3"
-                          style="border-color: rgba(255,255,255,0.10);"
-                        >
-                          <div
-                            class="mb-2 text-[11px] font-semibold tracking-wide uppercase"
-                            style="color: rgba(255,255,255,0.7);"
-                          >
-                            Streams
-                          </div>
-                          {#if (match.streams ?? []).length > 0}
-                            <div class="mb-3 flex flex-col gap-2">
-                              {#each match.streams as stream}
-                                {@const existingState = existingStreamForm[stream.id] ?? {
-                                  platform: stream.platform,
-                                  streamUrl: stream.stream_url,
-                                  status: stream.status,
-                                  isPrimary: stream.is_primary,
-                                }}
-                                <div
-                                  class="rounded-md border px-2 py-2 text-xs"
-                                  style="border-color: rgba(255,255,255,0.10); background: rgba(255,255,255,0.04);"
+                            <div class="mt-1 text-xs" style="color: rgba(255,255,255,0.68);">
+                              BO{match.best_of}
+                              {#if match.scheduled_at}
+                                <span>
+                                  • {toDatetimeLocal(match.scheduled_at).replace('T', ' ')}</span
                                 >
-                                  <div class="min-w-0">
-                                    <div style="color: var(--text);">
-                                      {stream.metadata?.display_name || stream.platform}
-                                      {stream.is_primary ? '• Primary' : ''}
-                                    </div>
-                                    <div class="truncate" style="color: rgba(255,255,255,0.68);">
-                                      {stream.stream_url}
-                                    </div>
-                                  </div>
-                                  <div class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-4">
-                                    <div class="md:col-span-2">
-                                      <input
-                                        class="w-full rounded-md border px-3 py-2 text-sm"
-                                        style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-                                        value={existingState.displayName}
-                                        placeholder="Display name"
-                                        oninput={(e) => {
-                                          existingStreamForm = {
-                                            ...existingStreamForm,
-                                            [stream.id]: {
-                                              ...existingState,
-                                              displayName: (e.currentTarget as HTMLInputElement)
-                                                .value,
-                                            },
-                                          }
-                                        }}
-                                      />
-                                    </div>
-                                  </div>
-                                  <div class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-4">
-                                    <div>
-                                      <CustomSelect
-                                        options={streamPlatformOptions}
-                                        value={existingState.platform}
-                                        compact={true}
-                                        placeholder="Platform"
-                                        onSelect={(value) => {
-                                          existingStreamForm = {
-                                            ...existingStreamForm,
-                                            [stream.id]: { ...existingState, platform: value },
-                                          }
-                                        }}
-                                      />
-                                    </div>
-                                    <div class="md:col-span-2">
-                                      <input
-                                        class="w-full rounded-md border px-3 py-2 text-sm"
-                                        style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-                                        value={existingState.streamUrl}
-                                        oninput={(e) => {
-                                          existingStreamForm = {
-                                            ...existingStreamForm,
-                                            [stream.id]: {
-                                              ...existingState,
-                                              streamUrl: (e.currentTarget as HTMLInputElement)
-                                                .value,
-                                            },
-                                          }
-                                        }}
-                                      />
-                                    </div>
-                                    <div>
-                                      <CustomSelect
-                                        options={streamStatusOptions}
-                                        value={existingState.status}
-                                        compact={true}
-                                        placeholder="Stream status"
-                                        onSelect={(value) => {
-                                          existingStreamForm = {
-                                            ...existingStreamForm,
-                                            [stream.id]: { ...existingState, status: value },
-                                          }
-                                        }}
-                                      />
-                                    </div>
-                                  </div>
-                                  <div
-                                    class="mt-2 flex flex-wrap items-center justify-between gap-2"
-                                  >
-                                    <label
-                                      class="inline-flex items-center gap-2 text-xs"
-                                      style="color: rgba(255,255,255,0.82);"
-                                    >
-                                      <input
-                                        type="checkbox"
-                                        checked={existingState.isPrimary}
-                                        onchange={(e) => {
-                                          existingStreamForm = {
-                                            ...existingStreamForm,
-                                            [stream.id]: {
-                                              ...existingState,
-                                              isPrimary: (e.currentTarget as HTMLInputElement)
-                                                .checked,
-                                            },
-                                          }
-                                        }}
-                                      />
-                                      Mark as primary stream
-                                    </label>
-                                    <div class="flex gap-2">
-                                      <button
-                                        type="button"
-                                        class="rounded px-2 py-1 text-[11px] font-semibold"
-                                        style="background: rgba(59,130,246,0.2); color: #93c5fd;"
-                                        onclick={() => saveExistingMatchStream(match.id, stream.id)}
-                                      >
-                                        Save
-                                      </button>
-                                      <button
-                                        type="button"
-                                        class="rounded px-2 py-1 text-[11px] font-semibold"
-                                        style="background: rgba(248,113,113,0.2); color: #fca5a5;"
-                                        onclick={() =>
-                                          removeMatchStream(match.id, stream.id, stream.platform)}
-                                      >
-                                        Remove
-                                      </button>
-                                    </div>
-                                  </div>
-                                </div>
-                              {/each}
-                            </div>
-                          {/if}
-
-                          <div class="grid grid-cols-1 gap-2 md:grid-cols-4">
-                            <div class="md:col-span-2">
-                              <input
-                                class="w-full rounded-md border px-3 py-2 text-sm"
-                                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-                                value={streamState.displayName}
-                                placeholder="Display name"
-                                oninput={(e) => {
-                                  streamForm = {
-                                    ...streamForm,
-                                    [match.id]: {
-                                      ...streamState,
-                                      displayName: (e.currentTarget as HTMLInputElement).value,
-                                    },
-                                  }
-                                }}
-                              />
+                              {/if}
+                              {#if match.status === 'completed'}
+                                <span> • {match.team_a_score}-{match.team_b_score}</span>
+                              {/if}
                             </div>
                           </div>
-                          <div class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-4">
-                            <div>
-                              <CustomSelect
-                                options={streamPlatformOptions}
-                                value={streamState.platform}
-                                compact={true}
-                                placeholder="Platform"
-                                onSelect={(value) => {
-                                  streamForm = {
-                                    ...streamForm,
-                                    [match.id]: {
-                                      ...streamState,
-                                      platform: value,
-                                    },
-                                  }
-                                }}
-                              />
-                            </div>
-                            <div class="md:col-span-2">
-                              <input
-                                class="w-full rounded-md border px-3 py-2 text-sm"
-                                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-                                value={streamState.streamUrl}
-                                placeholder="Input stream link here"
-                                oninput={(e) => {
-                                  streamForm = {
-                                    ...streamForm,
-                                    [match.id]: {
-                                      ...streamState,
-                                      streamUrl: (e.currentTarget as HTMLInputElement).value,
-                                    },
-                                  }
-                                }}
-                              />
-                            </div>
-                            <div>
-                              <CustomSelect
-                                options={streamStatusOptions}
-                                value={streamState.status}
-                                compact={true}
-                                placeholder="Stream status"
-                                onSelect={(value) => {
-                                  streamForm = {
-                                    ...streamForm,
-                                    [match.id]: {
-                                      ...streamState,
-                                      status: value,
-                                    },
-                                  }
-                                }}
-                              />
-                            </div>
-                          </div>
-                          <label
-                            class="mt-2 inline-flex items-center gap-2 text-xs"
-                            style="color: rgba(255,255,255,0.82);"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={streamState.isPrimary}
-                              onchange={(e) => {
-                                streamForm = {
-                                  ...streamForm,
-                                  [match.id]: {
-                                    ...streamState,
-                                    isPrimary: (e.currentTarget as HTMLInputElement).checked,
-                                  },
-                                }
-                              }}
-                            />
-                            Mark as primary stream
-                          </label>
-                          <div class="mt-2 flex justify-end">
-                            <button
-                              type="button"
-                              class="rounded px-2 py-1 text-xs font-semibold"
-                              style="background: rgba(34,197,94,0.2); color: #86efac;"
-                              onclick={() => addMatchStream(match.id)}
+                          <div class="flex items-center gap-2">
+                            <span
+                              class="rounded-full px-2 py-1 text-xs font-bold"
+                              style="background: rgba(255,255,255,0.12); color: var(--text);"
                             >
-                              Add Stream
-                            </button>
+                              {match.status}
+                            </span>
+                            <span class="text-xs" style="color: rgba(255,255,255,0.7);">
+                              {expandedAdminMatchId === match.id ? 'Hide' : 'Show'}
+                            </span>
+                          </div>
+                        </button>
+
+                        {#if expandedAdminMatchId === match.id}
+                          <div class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-4">
+                            <input
+                              type="number"
+                              min="0"
+                              value={state.teamAScore}
+                              class="rounded-md border px-2 py-1"
+                              style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                              placeholder="Team A score"
+                              oninput={(e) =>
+                                updateFinalizeForm(match.id, {
+                                  teamAScore: (e.currentTarget as HTMLInputElement).value,
+                                })}
+                            />
+                            <input
+                              type="number"
+                              min="0"
+                              value={state.teamBScore}
+                              class="rounded-md border px-2 py-1"
+                              style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                              placeholder="Team B score"
+                              oninput={(e) =>
+                                updateFinalizeForm(match.id, {
+                                  teamBScore: (e.currentTarget as HTMLInputElement).value,
+                                })}
+                            />
+                            <CustomSelect
+                              options={[
+                                { value: match.team_a_id, label: teamName(match.team_a) },
+                                { value: match.team_b_id, label: teamName(match.team_b) },
+                              ]}
+                              value={state.winnerTeamId}
+                              compact={true}
+                              placeholder="Winner"
+                              onSelect={(value) =>
+                                updateFinalizeForm(match.id, {
+                                  winnerTeamId: value,
+                                })}
+                            />
+                            <div class="flex gap-2">
+                              <button
+                                type="button"
+                                class="rounded px-2 py-1 text-xs"
+                                style="background: rgba(74,222,128,0.2); color: #4ade80;"
+                                onclick={() => finalizeMatch(match)}
+                              >
+                                Finalize
+                              </button>
+                              <button
+                                type="button"
+                                class="rounded px-2 py-1 text-xs"
+                                style="background: rgba(248,113,113,0.2); color: #f87171;"
+                                onclick={() => cancelMatch(match)}
+                              >
+                                Cancel
+                              </button>
+                            </div>
                           </div>
 
                           <div
-                            class="mt-4 border-t pt-4"
+                            class="mt-3 rounded-md border p-3"
                             style="border-color: rgba(255,255,255,0.10);"
                           >
                             <div
                               class="mb-2 text-[11px] font-semibold tracking-wide uppercase"
                               style="color: rgba(255,255,255,0.7);"
                             >
-                              YouTube VOD
+                              Edit Match
                             </div>
-                            <div class="flex flex-col gap-2 md:flex-row">
-                              <input
-                                class="w-full flex-1 rounded-md border px-3 py-2 text-sm"
-                                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-                                value={vodForm[match.id] ?? ''}
-                                placeholder="https://youtube.com/watch?..."
-                                oninput={(e) => {
-                                  vodForm = {
-                                    ...vodForm,
-                                    [match.id]: (e.currentTarget as HTMLInputElement).value,
-                                  }
-                                }}
-                              />
+                            <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
+                              <div>
+                                <CustomSelect
+                                  options={approvedTeamOptions}
+                                  value={editState.teamAId}
+                                  compact={true}
+                                  placeholder="Team A"
+                                  onSelect={(value) =>
+                                    updateMatchEditForm(match.id, { teamAId: value })}
+                                />
+                              </div>
+                              <div>
+                                <CustomSelect
+                                  options={approvedTeamOptions}
+                                  value={editState.teamBId}
+                                  compact={true}
+                                  placeholder="Team B"
+                                  onSelect={(value) =>
+                                    updateMatchEditForm(match.id, { teamBId: value })}
+                                />
+                              </div>
+                              <div>
+                                <CustomSelect
+                                  options={bestOfOptions}
+                                  value={editState.bestOf}
+                                  compact={true}
+                                  placeholder="Best Of"
+                                  onSelect={(value) =>
+                                    updateMatchEditForm(match.id, { bestOf: value })}
+                                />
+                              </div>
+                              <div>
+                                <CustomSelect
+                                  options={matchStatusOptions}
+                                  value={editState.status}
+                                  compact={true}
+                                  placeholder="Status"
+                                  onSelect={(value) =>
+                                    updateMatchEditForm(match.id, { status: value })}
+                                />
+                              </div>
+                              <label
+                                class="text-xs md:col-span-2"
+                                style="color: rgba(255,255,255,0.82);"
+                              >
+                                Scheduled
+                                <input
+                                  type="datetime-local"
+                                  value={editState.scheduledAt}
+                                  class="mt-1 w-full rounded-md border px-2 py-1 text-sm"
+                                  style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                                  oninput={(e) =>
+                                    updateMatchEditForm(match.id, {
+                                      scheduledAt: (e.currentTarget as HTMLInputElement).value,
+                                    })}
+                                />
+                              </label>
+                              <label class="text-xs" style="color: rgba(255,255,255,0.82);">
+                                Team A Score
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={editState.teamAScore}
+                                  class="mt-1 w-full rounded-md border px-2 py-1 text-sm"
+                                  style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                                  oninput={(e) =>
+                                    updateMatchEditForm(match.id, {
+                                      teamAScore: (e.currentTarget as HTMLInputElement).value,
+                                    })}
+                                />
+                              </label>
+                              <label class="text-xs" style="color: rgba(255,255,255,0.82);">
+                                Team B Score
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={editState.teamBScore}
+                                  class="mt-1 w-full rounded-md border px-2 py-1 text-sm"
+                                  style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                                  oninput={(e) =>
+                                    updateMatchEditForm(match.id, {
+                                      teamBScore: (e.currentTarget as HTMLInputElement).value,
+                                    })}
+                                />
+                              </label>
+                              <div class="md:col-span-2">
+                                <CustomSelect
+                                  options={[
+                                    { value: '', label: 'Unset winner' },
+                                    {
+                                      value: editState.teamAId,
+                                      label:
+                                        approvedTeams.find((team) => team.id === editState.teamAId)
+                                          ?.name ?? 'Team A',
+                                    },
+                                    {
+                                      value: editState.teamBId,
+                                      label:
+                                        approvedTeams.find((team) => team.id === editState.teamBId)
+                                          ?.name ?? 'Team B',
+                                    },
+                                  ]}
+                                  value={editState.winnerTeamId}
+                                  compact={true}
+                                  placeholder="Winner"
+                                  onSelect={(value) =>
+                                    updateMatchEditForm(match.id, { winnerTeamId: value })}
+                                />
+                              </div>
+                            </div>
+                            <div class="mt-3 flex flex-wrap justify-end gap-2">
+                              <button
+                                type="button"
+                                class="rounded px-2 py-1 text-xs font-semibold"
+                                style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+                                onclick={() => saveMatchEdits(match.id, match)}
+                              >
+                                Save Match
+                              </button>
+                              <button
+                                type="button"
+                                class="rounded px-2 py-1 text-xs font-semibold"
+                                style="background: rgba(248,113,113,0.2); color: #fca5a5;"
+                                onclick={() => deleteMatch(match.id, match)}
+                              >
+                                Delete Match
+                              </button>
+                            </div>
+                          </div>
+
+                          <div
+                            class="mt-3 rounded-md border p-3"
+                            style="border-color: rgba(255,255,255,0.10);"
+                          >
+                            <div
+                              class="mb-2 text-[11px] font-semibold tracking-wide uppercase"
+                              style="color: rgba(255,255,255,0.7);"
+                            >
+                              Map Vetoes
+                            </div>
+                            <textarea
+                              rows="5"
+                              value={editState.mapVetoes}
+                              class="w-full rounded-md border px-3 py-2 text-sm leading-5"
+                              style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                              placeholder={`One line per veto item\nBan: Team A - Haven\nPick: Team B - Lotus\nDecider: Pearl`}
+                              oninput={(e) =>
+                                updateMatchEditForm(match.id, {
+                                  mapVetoes: (e.currentTarget as HTMLTextAreaElement).value,
+                                })}
+                            ></textarea>
+                            <div class="mt-2 flex items-center justify-between gap-2">
+                              <div class="text-[11px]" style="color: rgba(255,255,255,0.6);">
+                                Saves via the same match update flow.
+                              </div>
                               <button
                                 type="button"
                                 class="rounded px-3 py-2 text-xs font-semibold"
-                                style="background: rgba(234,179,8,0.18); color: #fcd34d;"
+                                style="background: rgba(59,130,246,0.2); color: #93c5fd;"
                                 onclick={() => saveMatchEdits(match.id, match)}
                               >
-                                Save VOD
+                                Save Vetoes
                               </button>
                             </div>
-                            <div class="mt-2 text-[11px]" style="color: rgba(255,255,255,0.6);">
-                              Saves via the same match update flow.
+                          </div>
+
+                          <div
+                            class="mt-3 rounded-md border p-3"
+                            style="border-color: rgba(255,255,255,0.10);"
+                          >
+                            <div
+                              class="mb-2 text-[11px] font-semibold tracking-wide uppercase"
+                              style="color: rgba(255,255,255,0.7);"
+                            >
+                              Streams
+                            </div>
+                            {#if (match.streams ?? []).length > 0}
+                              <div class="mb-3 flex flex-col gap-2">
+                                {#each match.streams as stream}
+                                  {@const existingState = existingStreamForm[stream.id] ?? {
+                                    platform: stream.platform,
+                                    streamUrl: stream.stream_url,
+                                    status: stream.status,
+                                    isPrimary: stream.is_primary,
+                                  }}
+                                  <div
+                                    class="rounded-md border px-2 py-2 text-xs"
+                                    style="border-color: rgba(255,255,255,0.10); background: rgba(255,255,255,0.04);"
+                                  >
+                                    <div class="min-w-0">
+                                      <div style="color: var(--text);">
+                                        {stream.metadata?.display_name || stream.platform}
+                                        {stream.is_primary ? '• Primary' : ''}
+                                      </div>
+                                      <div class="truncate" style="color: rgba(255,255,255,0.68);">
+                                        {stream.stream_url}
+                                      </div>
+                                    </div>
+                                    <div class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-4">
+                                      <div class="md:col-span-2">
+                                        <input
+                                          class="w-full rounded-md border px-3 py-2 text-sm"
+                                          style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                                          value={existingState.displayName}
+                                          placeholder="Display name"
+                                          oninput={(e) => {
+                                            existingStreamForm = {
+                                              ...existingStreamForm,
+                                              [stream.id]: {
+                                                ...existingState,
+                                                displayName: (e.currentTarget as HTMLInputElement)
+                                                  .value,
+                                              },
+                                            }
+                                          }}
+                                        />
+                                      </div>
+                                    </div>
+                                    <div class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-4">
+                                      <div>
+                                        <CustomSelect
+                                          options={streamPlatformOptions}
+                                          value={existingState.platform}
+                                          compact={true}
+                                          placeholder="Platform"
+                                          onSelect={(value) => {
+                                            existingStreamForm = {
+                                              ...existingStreamForm,
+                                              [stream.id]: { ...existingState, platform: value },
+                                            }
+                                          }}
+                                        />
+                                      </div>
+                                      <div class="md:col-span-2">
+                                        <input
+                                          class="w-full rounded-md border px-3 py-2 text-sm"
+                                          style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                                          value={existingState.streamUrl}
+                                          oninput={(e) => {
+                                            existingStreamForm = {
+                                              ...existingStreamForm,
+                                              [stream.id]: {
+                                                ...existingState,
+                                                streamUrl: (e.currentTarget as HTMLInputElement)
+                                                  .value,
+                                              },
+                                            }
+                                          }}
+                                        />
+                                      </div>
+                                      <div>
+                                        <CustomSelect
+                                          options={streamStatusOptions}
+                                          value={existingState.status}
+                                          compact={true}
+                                          placeholder="Stream status"
+                                          onSelect={(value) => {
+                                            existingStreamForm = {
+                                              ...existingStreamForm,
+                                              [stream.id]: { ...existingState, status: value },
+                                            }
+                                          }}
+                                        />
+                                      </div>
+                                    </div>
+                                    <div
+                                      class="mt-2 flex flex-wrap items-center justify-between gap-2"
+                                    >
+                                      <label
+                                        class="inline-flex items-center gap-2 text-xs"
+                                        style="color: rgba(255,255,255,0.82);"
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={existingState.isPrimary}
+                                          onchange={(e) => {
+                                            existingStreamForm = {
+                                              ...existingStreamForm,
+                                              [stream.id]: {
+                                                ...existingState,
+                                                isPrimary: (e.currentTarget as HTMLInputElement)
+                                                  .checked,
+                                              },
+                                            }
+                                          }}
+                                        />
+                                        Mark as primary stream
+                                      </label>
+                                      <div class="flex gap-2">
+                                        <button
+                                          type="button"
+                                          class="rounded px-2 py-1 text-[11px] font-semibold"
+                                          style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+                                          onclick={() =>
+                                            saveExistingMatchStream(match.id, stream.id)}
+                                        >
+                                          Save
+                                        </button>
+                                        <button
+                                          type="button"
+                                          class="rounded px-2 py-1 text-[11px] font-semibold"
+                                          style="background: rgba(248,113,113,0.2); color: #fca5a5;"
+                                          onclick={() =>
+                                            removeMatchStream(match.id, stream.id, stream.platform)}
+                                        >
+                                          Remove
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                {/each}
+                              </div>
+                            {/if}
+
+                            <div class="grid grid-cols-1 gap-2 md:grid-cols-4">
+                              <div class="md:col-span-2">
+                                <input
+                                  class="w-full rounded-md border px-3 py-2 text-sm"
+                                  style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                                  value={streamState.displayName}
+                                  placeholder="Display name"
+                                  oninput={(e) => {
+                                    streamForm = {
+                                      ...streamForm,
+                                      [match.id]: {
+                                        ...streamState,
+                                        displayName: (e.currentTarget as HTMLInputElement).value,
+                                      },
+                                    }
+                                  }}
+                                />
+                              </div>
+                            </div>
+                            <div class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-4">
+                              <div>
+                                <CustomSelect
+                                  options={streamPlatformOptions}
+                                  value={streamState.platform}
+                                  compact={true}
+                                  placeholder="Platform"
+                                  onSelect={(value) => {
+                                    streamForm = {
+                                      ...streamForm,
+                                      [match.id]: {
+                                        ...streamState,
+                                        platform: value,
+                                      },
+                                    }
+                                  }}
+                                />
+                              </div>
+                              <div class="md:col-span-2">
+                                <input
+                                  class="w-full rounded-md border px-3 py-2 text-sm"
+                                  style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                                  value={streamState.streamUrl}
+                                  placeholder="Input stream link here"
+                                  oninput={(e) => {
+                                    streamForm = {
+                                      ...streamForm,
+                                      [match.id]: {
+                                        ...streamState,
+                                        streamUrl: (e.currentTarget as HTMLInputElement).value,
+                                      },
+                                    }
+                                  }}
+                                />
+                              </div>
+                              <div>
+                                <CustomSelect
+                                  options={streamStatusOptions}
+                                  value={streamState.status}
+                                  compact={true}
+                                  placeholder="Stream status"
+                                  onSelect={(value) => {
+                                    streamForm = {
+                                      ...streamForm,
+                                      [match.id]: {
+                                        ...streamState,
+                                        status: value,
+                                      },
+                                    }
+                                  }}
+                                />
+                              </div>
+                            </div>
+                            <label
+                              class="mt-2 inline-flex items-center gap-2 text-xs"
+                              style="color: rgba(255,255,255,0.82);"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={streamState.isPrimary}
+                                onchange={(e) => {
+                                  streamForm = {
+                                    ...streamForm,
+                                    [match.id]: {
+                                      ...streamState,
+                                      isPrimary: (e.currentTarget as HTMLInputElement).checked,
+                                    },
+                                  }
+                                }}
+                              />
+                              Mark as primary stream
+                            </label>
+                            <div class="mt-2 flex justify-end">
+                              <button
+                                type="button"
+                                class="rounded px-2 py-1 text-xs font-semibold"
+                                style="background: rgba(34,197,94,0.2); color: #86efac;"
+                                onclick={() => addMatchStream(match.id)}
+                              >
+                                Add Stream
+                              </button>
+                            </div>
+
+                            <div
+                              class="mt-4 border-t pt-4"
+                              style="border-color: rgba(255,255,255,0.10);"
+                            >
+                              <div
+                                class="mb-2 text-[11px] font-semibold tracking-wide uppercase"
+                                style="color: rgba(255,255,255,0.7);"
+                              >
+                                YouTube VOD
+                              </div>
+                              <div class="flex flex-col gap-2 md:flex-row">
+                                <input
+                                  class="w-full flex-1 rounded-md border px-3 py-2 text-sm"
+                                  style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                                  value={vodForm[match.id] ?? ''}
+                                  placeholder="https://youtube.com/watch?..."
+                                  oninput={(e) => {
+                                    vodForm = {
+                                      ...vodForm,
+                                      [match.id]: (e.currentTarget as HTMLInputElement).value,
+                                    }
+                                  }}
+                                />
+                                <button
+                                  type="button"
+                                  class="rounded px-3 py-2 text-xs font-semibold"
+                                  style="background: rgba(234,179,8,0.18); color: #fcd34d;"
+                                  onclick={() => saveMatchEdits(match.id, match)}
+                                >
+                                  Save VOD
+                                </button>
+                              </div>
+                              <div class="mt-2 text-[11px]" style="color: rgba(255,255,255,0.6);">
+                                Saves via the same match update flow.
+                              </div>
                             </div>
                           </div>
-                        </div>
 
-                        <div class="mt-2 flex flex-wrap gap-2">
-                          <a
-                            href={`/matches/${match.id}`}
-                            class="rounded px-2 py-1 text-xs font-semibold"
-                            style="background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.85);"
-                          >
-                            Open Match Page
-                          </a>
-                          <a
-                            href={`/admin/matches/${match.id}/stats-import`}
-                            class="rounded px-2 py-1 text-xs font-semibold"
-                            style="background: rgba(59,130,246,0.2); color: #93c5fd;"
-                          >
-                            Import Map Stats
-                          </a>
-                        </div>
+                          <div class="mt-2 flex flex-wrap gap-2">
+                            <a
+                              href={`/matches/${match.id}`}
+                              class="rounded px-2 py-1 text-xs font-semibold"
+                              style="background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.85);"
+                            >
+                              Open Match Page
+                            </a>
+                            <a
+                              href={`/admin/matches/${match.id}/stats-import`}
+                              class="rounded px-2 py-1 text-xs font-semibold"
+                              style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+                            >
+                              Import Map Stats
+                            </a>
+                          </div>
+                        {/if}
                       </article>
                     {/each}
                   </div>

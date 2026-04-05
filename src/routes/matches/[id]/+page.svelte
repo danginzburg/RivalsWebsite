@@ -1,6 +1,7 @@
 <script lang="ts">
   import PageContainer from '$lib/components/PageContainer.svelte'
   import { BarChart3, CalendarDays, RadioTower, Video } from 'lucide-svelte'
+  import miksIcon from '$lib/assets/agents/Miks_icon.png'
 
   let { data } = $props() as { data: any }
 
@@ -23,7 +24,12 @@
   function formatUtc(value: string | null | undefined) {
     if (!value) return 'Date TBD'
     const date = new Date(value)
-    return `${date.toLocaleString(undefined, { timeZone: 'UTC' })} UTC`
+    return date.toLocaleString()
+  }
+
+  function formatStatus(status: string | null | undefined) {
+    if (!status) return 'Unknown'
+    return status.charAt(0).toUpperCase() + status.slice(1)
   }
 
   function playerLabel(row: any) {
@@ -56,6 +62,7 @@
     }
 
     if (map.has('harbor')) map.set('harbour', map.get('harbor')!)
+    map.set('miks', miksIcon)
     return map
   })
 
@@ -130,7 +137,9 @@
                     class="h-10 w-10 rounded object-contain"
                   />
                 {/if}
-                <span>{teamName(match.team_a)}</span>
+                <a href={`/teams/${match.team_a?.id}`} class="hover:underline"
+                  >{teamName(match.team_a)}</a
+                >
               </span>
               <span class="inline-flex items-center gap-2">
                 <span>vs</span>
@@ -143,7 +152,9 @@
                     class="h-10 w-10 rounded object-contain"
                   />
                 {/if}
-                <span>{teamName(match.team_b)}</span>
+                <a href={`/teams/${match.team_b?.id}`} class="hover:underline"
+                  >{teamName(match.team_b)}</a
+                >
               </span>
             </h1>
             <p class="text-sm" style="color: rgba(255,255,255,0.72);">
@@ -157,7 +168,7 @@
             class="rounded-full px-2 py-1 text-xs font-bold"
             style="background: rgba(255,255,255,0.12); color: var(--text);"
           >
-            {match.status}
+            {formatStatus(match.status)}
           </span>
           {#if match.status === 'completed'}
             <span
@@ -196,10 +207,19 @@
                 <span class="ml-2" style="color: var(--text);">{formatUtc(match.started_at)}</span>
               </div>
             {/if}
-            {#if match.ended_at}
+            {#if (match.metadata?.map_vetoes?.length ?? 0) > 0}
               <div>
-                <span style="color: rgba(255,255,255,0.55);">Ended:</span>
-                <span class="ml-2" style="color: var(--text);">{formatUtc(match.ended_at)}</span>
+                <div style="color: rgba(255,255,255,0.55);">Map Veto:</div>
+                <div class="mt-2 space-y-2" style="color: var(--text);">
+                  {#each match.metadata.map_vetoes as veto, index}
+                    <div class="flex items-start gap-2 leading-5">
+                      <span class="w-5 shrink-0 text-right" style="color: rgba(255,255,255,0.55);">
+                        {index + 1}.
+                      </span>
+                      <span class="flex-1">{veto}</span>
+                    </div>
+                  {/each}
+                </div>
               </div>
             {/if}
           </div>
@@ -310,6 +330,25 @@
                 {teamName(match.team_a)}
                 {activeStats.team_a_rounds}-{activeStats.team_b_rounds}
                 {teamName(match.team_b)}
+              </div>
+            {:else if (match.maps ?? []).length > 0}
+              <div class="mb-3 flex flex-wrap gap-2 text-sm">
+                {#each match.maps as map}
+                  <div
+                    class="rounded-md border px-3 py-2"
+                    style="border-color: rgba(255,255,255,0.10); background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.82);"
+                  >
+                    <div class="font-semibold">{map.map_label}</div>
+                    <div class="mt-1" style="color: rgba(255,255,255,0.62);">
+                      {#if map.map_name}{map.map_name}{:else}Map{/if}
+                    </div>
+                    <div class="mt-1" style="color: var(--text);">
+                      {teamName(match.team_a)}
+                      {map.team_a_rounds}-{map.team_b_rounds}
+                      {teamName(match.team_b)}
+                    </div>
+                  </div>
+                {/each}
               </div>
             {/if}
 

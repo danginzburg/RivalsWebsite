@@ -12,7 +12,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
   // Fetch all users
   const { data: users, error: usersError } = await supabaseAdmin
     .from('profiles')
-    .select('id, email, display_name, role, created_at')
+    .select('id, email, display_name, role, riot_id_base, created_at')
     .order('created_at', { ascending: false })
 
   if (usersError) {

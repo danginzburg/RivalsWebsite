@@ -12,11 +12,18 @@ function parseScheduledAt(value: unknown): string | null {
   const raw = normalizeOptional(value)
   if (!raw) return null
 
-  const looksLikeLocal = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(raw)
-  const asIso = looksLikeLocal ? `${raw}:00Z` : raw
-  const d = new Date(asIso)
+  // <input type="datetime-local"> is interpreted in the viewer's local timezone.
+  const d = new Date(raw)
   if (!Number.isFinite(d.getTime())) throw error(400, 'Invalid scheduledAt')
   return d.toISOString()
+}
+
+function parseMapVetoes(value: unknown): string[] {
+  if (typeof value !== 'string') return []
+  return value
+    .split(/\r?\n/)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
 }
 
 export const PATCH: RequestHandler = async ({ locals, request, params }) => {
@@ -60,6 +67,7 @@ export const PATCH: RequestHandler = async ({ locals, request, params }) => {
     const teamBScore = Number(body.teamBScore ?? match.team_b_score ?? 0)
     const winnerTeamId = normalizeOptional(body.winnerTeamId)
     const youtubeVodUrl = normalizeOptional(body.youtubeVodUrl)
+    const mapVetoes = parseMapVetoes(body.mapVetoes)
 
     if (!teamAId || !teamBId) throw error(400, 'Both teams are required')
     if (teamAId === teamBId) throw error(400, 'Teams must be different')
@@ -93,6 +101,7 @@ export const PATCH: RequestHandler = async ({ locals, request, params }) => {
         metadata: {
           ...(matchWithMetadata?.metadata ?? {}),
           youtube_vod_url: youtubeVodUrl,
+          map_vetoes: mapVetoes,
         },
         approved_by_profile_id: admin.id,
         approved_at: new Date().toISOString(),

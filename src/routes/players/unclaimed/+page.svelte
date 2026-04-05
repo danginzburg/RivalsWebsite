@@ -3,6 +3,7 @@
   import CustomSelect from '$lib/components/CustomSelect.svelte'
   import { BarChart3, Users } from 'lucide-svelte'
   import { enhance } from '$app/forms'
+  import miksIcon from '$lib/assets/agents/Miks_icon.png'
 
   let { data, form } = $props() as { data: any; form: any }
 
@@ -13,6 +14,7 @@
     (data.batchOptions ?? []) as Array<{ label: string; value: string }>
   )
   const selected = $derived((data.selected ?? null) as any | null)
+  const matchHistory = $derived((data.matchHistory ?? []) as any[])
   const viewer = $derived(
     (data.viewer ?? null) as {
       profileId: string
@@ -40,6 +42,7 @@
       map.set(normalize(base), url)
     }
     if (map.has('harbor')) map.set('harbour', map.get('harbor')!)
+    map.set('miks', miksIcon)
     return map
   })
 
@@ -249,6 +252,100 @@
               </div>
             {/if}
           </div>
+
+          <section
+            class="mt-4 rounded-md border p-4"
+            style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
+          >
+            <div class="mb-3 flex items-center gap-2">
+              <BarChart3 size={16} />
+              <div
+                class="text-xs font-semibold tracking-wide uppercase"
+                style="color: rgba(255,255,255,0.72);"
+              >
+                Match History
+              </div>
+            </div>
+
+            {#if matchHistory.length === 0}
+              <p class="text-sm" style="color: rgba(255,255,255,0.72);">
+                No match stats recorded yet.
+              </p>
+            {:else}
+              <div class="overflow-x-auto">
+                <table class="min-w-full text-left text-sm">
+                  <thead>
+                    <tr
+                      class="text-xs tracking-wide uppercase"
+                      style="color: rgba(255,255,255,0.75);"
+                    >
+                      <th class="px-3 py-2">Opponent</th>
+                      <th class="px-3 py-2">Agent</th>
+                      <th class="px-3 py-2">ACS</th>
+                      <th class="px-3 py-2">K/D/A</th>
+                      <th class="px-3 py-2">KAST</th>
+                      <th class="px-3 py-2">HS%</th>
+                      <th class="px-3 py-2">Result</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {#each matchHistory as entry}
+                      <tr class="border-t" style="border-color: rgba(255,255,255,0.10);">
+                        <td class="px-3 py-2" style="color: var(--text);">
+                          <a
+                            href={`/matches/${entry.match.id}`}
+                            class="underline"
+                            style="color: var(--text);">vs {entry.opponent?.name ?? 'Team'}</a
+                          >
+                        </td>
+                        <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);">
+                          {#if parseAgents(entry.agents).length === 0}
+                            —
+                          {:else}
+                            <div class="agents-icons">
+                              {#each parseAgents(entry.agents) as agent}
+                                {@const url = agentIconUrl(agent)}
+                                {#if url}
+                                  <img
+                                    src={url}
+                                    alt={agent}
+                                    title={agent}
+                                    class="h-7 w-7 rounded-sm object-contain"
+                                    style="background: rgba(0,0,0,0.15);"
+                                  />
+                                {:else}
+                                  <span
+                                    class="inline-flex h-7 w-7 items-center justify-center rounded-sm border text-[10px] font-bold"
+                                    style="border-color: rgba(255,255,255,0.15); color: rgba(255,255,255,0.8);"
+                                    title={agent}>{agent.slice(0, 3).toUpperCase()}</span
+                                  >
+                                {/if}
+                              {/each}
+                            </div>
+                          {/if}
+                        </td>
+                        <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);"
+                          >{fmt(entry.acs, 0)}</td
+                        >
+                        <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);"
+                          >{entry.kills}/{entry.deaths}/{entry.assists}</td
+                        >
+                        <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);"
+                          >{fmt(entry.kast_pct, 0)}%</td
+                        >
+                        <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);"
+                          >{fmt(entry.hs_pct, 0)}%</td
+                        >
+                        <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);"
+                          >{entry.score.us}-{entry.score.them}</td
+                        >
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
+              </div>
+            {/if}
+          </section>
         {/if}
       </section>
     </div>
