@@ -80,6 +80,11 @@
                           style="border-color: rgba(255,255,255,0.15);"
                         ></div>
                       {/if}
+                      {#if row.team?.tag}
+                        <span style="color: rgba(255,255,255,0.72);"
+                          >[{String(row.team.tag).toUpperCase()}]</span
+                        >
+                      {/if}
                       <a
                         href={row.team?.id ? `/teams/${row.team.id}` : '/teams'}
                         class="font-semibold underline"
@@ -87,11 +92,6 @@
                       >
                         {teamLabel(row.team)}
                       </a>
-                      {#if row.team?.tag}
-                        <span class="text-xs" style="color: rgba(255,255,255,0.65);"
-                          >[{String(row.team.tag).toUpperCase()}]</span
-                        >
-                      {/if}
                     </div>
                   </td>
                   <td class="px-3 py-2" style="color: rgba(255,255,255,0.82);"

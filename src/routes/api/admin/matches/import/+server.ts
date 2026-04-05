@@ -39,6 +39,13 @@ function inferBestOf(mapCount: number) {
   return 1
 }
 
+function normalizeTeamKey(value: string | null | undefined) {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+}
+
 export const POST: RequestHandler = async ({ locals, request }) => {
   const admin = await requireAdmin(locals.user)
   const body = await request.json().catch(() => ({}))
@@ -81,11 +88,14 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   if (!teamAName || !teamBName) throw error(400, 'Both team names are required')
   if (teamAName === teamBName) throw error(400, 'Teams must be different')
 
+  const canonicalTeams = [normalizeTeamKey(teamAName), normalizeTeamKey(teamBName)].sort()
+
   for (const [index, map] of normalizedMaps.entries()) {
-    if (
-      normalizeOptional(map.teamAName) !== teamAName ||
-      normalizeOptional(map.teamBName) !== teamBName
-    ) {
+    const mapTeams = [
+      normalizeTeamKey(normalizeOptional(map.teamAName)),
+      normalizeTeamKey(normalizeOptional(map.teamBName)),
+    ].sort()
+    if (mapTeams[0] !== canonicalTeams[0] || mapTeams[1] !== canonicalTeams[1]) {
       throw error(400, `Map ${index + 1} teams do not match the rest of the series`)
     }
     if (!Array.isArray(map.playerRows) || map.playerRows.length === 0) {
@@ -158,9 +168,22 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   const importMatchesTeamA = match.team_a_id === importedTeamA.id
 
   const normalizedSeriesMaps = normalizedMaps.map((map: any, mapIndex: number) => {
+    const mapTeamAName = normalizeOptional(map.teamAName)
+    const mapTeamBName = normalizeOptional(map.teamBName)
+    const isCanonicalOrder =
+      normalizeTeamKey(mapTeamAName) === normalizeTeamKey(teamAName) &&
+      normalizeTeamKey(mapTeamBName) === normalizeTeamKey(teamBName)
+    const isFlippedOrder =
+      normalizeTeamKey(mapTeamAName) === normalizeTeamKey(teamBName) &&
+      normalizeTeamKey(mapTeamBName) === normalizeTeamKey(teamAName)
+
+    if (!isCanonicalOrder && !isFlippedOrder) {
+      throw error(400, `Map ${mapIndex + 1} teams do not match the series matchup`)
+    }
+
     const rawTeamARounds = parseInteger(map.teamARounds, `Map ${mapIndex + 1} Team A rounds`)
     const rawTeamBRounds = parseInteger(map.teamBRounds, `Map ${mapIndex + 1} Team B rounds`)
-    const normalizedRows = (map.playerRows as any[]).map((row: any, index: number) => ({
+    const baseRows = (map.playerRows as any[]).map((row: any, index: number) => ({
       player_name: normalizeOptional(row.player_name) ?? `Player ${index + 1}`,
       agents: normalizeOptional(row.agents),
       side: row.side === 'b' ? 'b' : 'a',
@@ -221,13 +244,23 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       defuses_per_game: parseInteger(row.defuses ?? 0, 'Defuses'),
     }))
 
+    const normalizedRows = isFlippedOrder
+      ? baseRows.map((row: any) => ({
+          ...row,
+          side: row.side === 'a' ? 'b' : 'a',
+        }))
+      : baseRows
+
+    const canonicalTeamARounds = isFlippedOrder ? rawTeamBRounds : rawTeamARounds
+    const canonicalTeamBRounds = isFlippedOrder ? rawTeamARounds : rawTeamBRounds
+
     return {
       sourceFilename: normalizeOptional(map.sourceFilename) ?? `map-${mapIndex + 1}.csv`,
       mapName: normalizeOptional(map.mapName),
       rawTeamARounds,
       rawTeamBRounds,
-      mapTeamARounds: importMatchesTeamA ? rawTeamARounds : rawTeamBRounds,
-      mapTeamBRounds: importMatchesTeamA ? rawTeamBRounds : rawTeamARounds,
+      mapTeamARounds: importMatchesTeamA ? canonicalTeamARounds : canonicalTeamBRounds,
+      mapTeamBRounds: importMatchesTeamA ? canonicalTeamBRounds : canonicalTeamARounds,
       normalizedRows,
     }
   })
