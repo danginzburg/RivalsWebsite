@@ -53,6 +53,19 @@
     return normalizeKey(String(value ?? '').split('#')[0] ?? '')
   }
 
+  function sameTeams(first: ParsedMap, next: ParsedMap) {
+    const a = [normalizeKey(first.teamAName), normalizeKey(first.teamBName)].sort()
+    const b = [normalizeKey(next.teamAName), normalizeKey(next.teamBName)].sort()
+    return a[0] === b[0] && a[1] === b[1]
+  }
+
+  function isFlippedAgainst(first: ParsedMap, next: ParsedMap) {
+    return (
+      normalizeKey(next.teamAName) === normalizeKey(first.teamBName) &&
+      normalizeKey(next.teamBName) === normalizeKey(first.teamAName)
+    )
+  }
+
   const profileMap = $derived.by(() => {
     const map = new Map<string, string>()
     for (const profile of data.profiles ?? []) {
@@ -86,18 +99,32 @@
       .flatMap((map) => map.playerRows)
       .filter((row) => row.profile_id).length
     const totalPlayers = seriesMaps.flatMap((map) => map.playerRows).length
-    const seriesWinsA = seriesMaps.filter((map) => map.teamARounds > map.teamBRounds).length
-    const seriesWinsB = seriesMaps.filter((map) => map.teamBRounds > map.teamARounds).length
+    const canonicalizedMaps = first
+      ? seriesMaps.map((map) => {
+          const flipped = isFlippedAgainst(first, map)
+          return {
+            ...map,
+            canonicalTeamARounds: flipped ? map.teamBRounds : map.teamARounds,
+            canonicalTeamBRounds: flipped ? map.teamARounds : map.teamBRounds,
+          }
+        })
+      : []
+    const seriesWinsA = canonicalizedMaps.filter(
+      (map) => map.canonicalTeamARounds > map.canonicalTeamBRounds
+    ).length
+    const seriesWinsB = canonicalizedMaps.filter(
+      (map) => map.canonicalTeamBRounds > map.canonicalTeamARounds
+    ).length
+    const teamsMatched =
+      (first && teamNameMap.get(normalizeKey(first.teamAName)) ? 1 : 0) +
+      (first && teamNameMap.get(normalizeKey(first.teamBName)) ? 1 : 0)
     return {
       first,
       mapCount: seriesMaps.length,
       totalPlayers,
       matchedPlayers,
       unmatchedPlayers: totalPlayers - matchedPlayers,
-      teamsMatched:
-        first && teamNameMap.get(normalizeKey(first.teamAName))
-          ? 1
-          : 0 + (first && teamNameMap.get(normalizeKey(first.teamBName)) ? 1 : 0),
+      teamsMatched,
       seriesWinsA,
       seriesWinsB,
     }
@@ -222,10 +249,7 @@
 
       const first = parsed[0]
       for (const [index, map] of parsed.entries()) {
-        if (
-          normalizeKey(map.teamAName) !== normalizeKey(first.teamAName) ||
-          normalizeKey(map.teamBName) !== normalizeKey(first.teamBName)
-        ) {
+        if (!sameTeams(first, map)) {
           throw new Error(`Map ${index + 1} teams do not match the first uploaded map`)
         }
         if (normalizeKey(map.scheduledAt) !== normalizeKey(first.scheduledAt)) {
