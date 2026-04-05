@@ -1,7 +1,7 @@
 <script lang="ts">
   import PageContainer from '$lib/components/PageContainer.svelte'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
-  import { BarChart3, Users, Swords, Shield } from 'lucide-svelte'
+  import { BarChart3, Users, Swords, User } from 'lucide-svelte'
 
   import { enhance } from '$app/forms'
 
@@ -98,14 +98,14 @@
             <img
               src={activeTeam.logo_url}
               alt="{activeTeam.name} logo"
-              class="h-16 w-16 rounded object-contain"
+              class="h-20 w-20 rounded object-contain md:h-24 md:w-24"
             />
           {:else}
             <div
-              class="flex h-16 w-16 items-center justify-center rounded border"
+              class="flex h-20 w-20 items-center justify-center rounded border md:h-24 md:w-24"
               style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.18);"
             >
-              <Shield size={28} style="color: var(--text);" />
+              <User size={34} style="color: var(--text);" />
             </div>
           {/if}
           <div>
@@ -113,24 +113,19 @@
             {#if activeTeam}
               <a
                 href={`/teams/${activeTeam.id}`}
-                class="mt-2 inline-flex items-center gap-2 rounded-lg border px-3 py-2 transition-colors hover:bg-white/5"
-                style="border-color: rgba(59,130,246,0.3); background: rgba(59,130,246,0.10); color: var(--text);"
+                class="mt-2 inline-flex items-center gap-2 rounded-md px-1 py-1 transition-colors hover:bg-white/5"
+                style="color: var(--text);"
               >
-                {#if activeTeam.logo_url}
-                  <img
-                    src={activeTeam.logo_url}
-                    alt="{activeTeam.name} logo"
-                    class="h-6 w-6 rounded object-contain"
-                  />
-                {/if}
-                <span class="font-semibold" style="color: #93c5fd;">{activeTeam.name}</span>
+                <span class="font-medium" style="color: rgba(255,255,255,0.88);"
+                  >{activeTeam.name}</span
+                >
                 {#if activeTeam.tag}
-                  <span class="text-sm" style="color: rgba(255,255,255,0.78);"
+                  <span class="text-sm" style="color: rgba(255,255,255,0.62);"
                     >[{String(activeTeam.tag).toUpperCase()}]</span
                   >
                 {/if}
                 {#if activeTeam.role}
-                  <span class="text-sm capitalize" style="color: rgba(255,255,255,0.68);"
+                  <span class="text-sm capitalize" style="color: rgba(255,255,255,0.52);"
                     >{activeTeam.role}</span
                   >
                 {/if}

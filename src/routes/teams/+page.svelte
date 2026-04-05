@@ -1,6 +1,6 @@
 <script lang="ts">
   import PageContainer from '$lib/components/PageContainer.svelte'
-  import { Shield } from 'lucide-svelte'
+  import { Users } from 'lucide-svelte'
 
   let { data } = $props() as { data: any }
   const teams = $derived(data.teams ?? [])
@@ -11,7 +11,7 @@
   <div class="flex justify-center px-4 py-8">
     <div class="w-full max-w-6xl space-y-6">
       <div class="flex items-center gap-3">
-        <Shield size={36} style="color: var(--text);" />
+        <Users size={36} style="color: var(--text);" />
         <div>
           <h1 class="responsive-title">Teams</h1>
           <p class="text-sm" style="color: rgba(255,255,255,0.72);">All the teams in one place!</p>

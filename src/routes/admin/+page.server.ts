@@ -167,7 +167,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
   if (matchIds.length > 0) {
     const { data: streams, error: streamsError } = await supabaseAdmin
       .from('match_streams')
-      .select('id, match_id, platform, stream_url, is_primary, status')
+      .select('id, match_id, platform, stream_url, is_primary, status, metadata')
       .in('match_id', matchIds)
       .order('is_primary', { ascending: false })
       .order('created_at', { ascending: true })
@@ -193,6 +193,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     matches: (matches ?? []).map((match) => ({
       ...match,
       streams: streamsByMatch[match.id] ?? [],
+      vod_url: match.metadata?.youtube_vod_url ?? null,
     })),
   }
 }

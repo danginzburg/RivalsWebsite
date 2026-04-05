@@ -59,10 +59,11 @@ export const PATCH: RequestHandler = async ({ locals, request, params }) => {
     const teamAScore = Number(body.teamAScore ?? match.team_a_score ?? 0)
     const teamBScore = Number(body.teamBScore ?? match.team_b_score ?? 0)
     const winnerTeamId = normalizeOptional(body.winnerTeamId)
+    const youtubeVodUrl = normalizeOptional(body.youtubeVodUrl)
 
     if (!teamAId || !teamBId) throw error(400, 'Both teams are required')
     if (teamAId === teamBId) throw error(400, 'Teams must be different')
-    if (![1, 3, 5, 7].includes(bestOf)) throw error(400, 'bestOf must be one of 1, 3, 5, 7')
+    if (![3, 5].includes(bestOf)) throw error(400, 'bestOf must be one of 3 or 5')
     if (status && !['scheduled', 'live', 'completed', 'cancelled'].includes(status)) {
       throw error(400, 'Invalid match status')
     }
@@ -70,6 +71,12 @@ export const PATCH: RequestHandler = async ({ locals, request, params }) => {
     if (winnerTeamId && ![teamAId, teamBId].includes(winnerTeamId)) {
       throw error(400, 'Winner team must be one of the selected teams')
     }
+
+    const { data: matchWithMetadata } = await supabaseAdmin
+      .from('matches')
+      .select('metadata')
+      .eq('id', matchId)
+      .maybeSingle()
 
     const { data: updated, error: updateError } = await supabaseAdmin
       .from('matches')
@@ -83,6 +90,10 @@ export const PATCH: RequestHandler = async ({ locals, request, params }) => {
         team_b_score: Number.isFinite(teamBScore) ? teamBScore : 0,
         winner_team_id: winnerTeamId,
         ended_at: (status ?? match.status) === 'completed' ? new Date().toISOString() : null,
+        metadata: {
+          ...(matchWithMetadata?.metadata ?? {}),
+          youtube_vod_url: youtubeVodUrl,
+        },
         approved_by_profile_id: admin.id,
         approved_at: new Date().toISOString(),
       })

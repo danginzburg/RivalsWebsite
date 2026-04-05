@@ -54,7 +54,7 @@ export const GET: RequestHandler = async ({ locals }) => {
   if (matchIds.length > 0) {
     const { data: streams, error: streamsError } = await supabaseAdmin
       .from('match_streams')
-      .select('id, match_id, platform, stream_url, is_primary, status')
+      .select('id, match_id, platform, stream_url, is_primary, status, metadata')
       .in('match_id', matchIds)
       .order('is_primary', { ascending: false })
       .order('created_at', { ascending: true })
@@ -75,6 +75,7 @@ export const GET: RequestHandler = async ({ locals }) => {
     matches: (matches ?? []).map((match) => ({
       ...match,
       streams: streamsByMatch[match.id] ?? [],
+      vod_url: match.metadata?.youtube_vod_url ?? null,
     })),
   })
 }
@@ -90,7 +91,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
   if (!teamAId || !teamBId) throw error(400, 'teamAId and teamBId are required')
   if (teamAId === teamBId) throw error(400, 'Teams must be different')
-  if (![1, 3, 5, 7].includes(bestOf)) throw error(400, 'bestOf must be one of 1, 3, 5, 7')
+  if (![3, 5].includes(bestOf)) throw error(400, 'bestOf must be one of 3 or 5')
 
   const { data: teams, error: teamsError } = await supabaseAdmin
     .from('teams')

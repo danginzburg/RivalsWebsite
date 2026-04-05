@@ -195,6 +195,26 @@
     { value: 'disbanded', label: 'Disbanded' },
   ]
 
+  const matchStatusOptions = [
+    { value: 'scheduled', label: 'Scheduled' },
+    { value: 'live', label: 'Live' },
+    { value: 'completed', label: 'Completed' },
+    { value: 'cancelled', label: 'Cancelled' },
+  ]
+
+  const streamPlatformOptions = [
+    { value: 'twitch', label: 'Twitch' },
+    { value: 'youtube', label: 'YouTube' },
+    { value: 'kick', label: 'Kick' },
+    { value: 'other', label: 'Other' },
+  ]
+
+  const streamStatusOptions = [
+    { value: 'scheduled', label: 'Scheduled' },
+    { value: 'live', label: 'Live' },
+    { value: 'ended', label: 'Ended' },
+  ]
+
   let createTeamLogoInput = $state<HTMLInputElement | null>(null)
 
   let finalizeForm = $state<
@@ -202,8 +222,30 @@
   >({})
   let matchEditForm = $state<Record<string, any>>({})
   let streamForm = $state<
-    Record<string, { platform: string; streamUrl: string; status: string; isPrimary: boolean }>
+    Record<
+      string,
+      {
+        platform: string
+        streamUrl: string
+        displayName: string
+        status: string
+        isPrimary: boolean
+      }
+    >
   >({})
+  let existingStreamForm = $state<
+    Record<
+      string,
+      {
+        platform: string
+        streamUrl: string
+        displayName: string
+        status: string
+        isPrimary: boolean
+      }
+    >
+  >({})
+  let vodForm = $state<Record<string, string>>({})
 
   function updateFinalizeForm(
     matchId: string,
@@ -308,12 +350,19 @@
   $effect(() => {
     const next: Record<
       string,
-      { platform: string; streamUrl: string; status: string; isPrimary: boolean }
+      {
+        platform: string
+        streamUrl: string
+        displayName: string
+        status: string
+        isPrimary: boolean
+      }
     > = {}
     for (const match of matches ?? []) {
       next[match.id] = streamForm[match.id] ?? {
         platform: 'twitch',
         streamUrl: '',
+        displayName: '',
         status: match.status === 'live' ? 'live' : 'scheduled',
         isPrimary: !(match.streams?.length > 0),
       }
@@ -324,6 +373,51 @@
       keys.length !== currentKeys.length ||
       keys.some((key) => JSON.stringify(streamForm[key] ?? {}) !== JSON.stringify(next[key] ?? {}))
     if (changed) streamForm = next
+  })
+
+  $effect(() => {
+    const next: Record<
+      string,
+      {
+        platform: string
+        streamUrl: string
+        displayName: string
+        status: string
+        isPrimary: boolean
+      }
+    > = {}
+    for (const match of matches ?? []) {
+      for (const stream of match.streams ?? []) {
+        next[stream.id] = existingStreamForm[stream.id] ?? {
+          platform: stream.platform ?? 'twitch',
+          streamUrl: stream.stream_url ?? '',
+          displayName: stream.metadata?.display_name ?? '',
+          status: stream.status ?? 'scheduled',
+          isPrimary: Boolean(stream.is_primary),
+        }
+      }
+    }
+    const keys = Object.keys(next)
+    const currentKeys = Object.keys(existingStreamForm)
+    const changed =
+      keys.length !== currentKeys.length ||
+      keys.some(
+        (key) => JSON.stringify(existingStreamForm[key] ?? {}) !== JSON.stringify(next[key] ?? {})
+      )
+    if (changed) existingStreamForm = next
+  })
+
+  $effect(() => {
+    const next: Record<string, string> = {}
+    for (const match of matches ?? []) {
+      next[match.id] = vodForm[match.id] ?? match.vod_url ?? ''
+    }
+    const keys = Object.keys(next)
+    const currentKeys = Object.keys(vodForm)
+    const changed =
+      keys.length !== currentKeys.length ||
+      keys.some((key) => (vodForm[key] ?? '') !== (next[key] ?? ''))
+    if (changed) vodForm = next
   })
 
   $effect(() => {
@@ -550,10 +644,10 @@
 
     try {
       const [usersResponse, seasonsResponse, teamsResponse, matchesResponse] = await Promise.all([
-        fetch('/api/admin/users'),
-        fetch('/api/admin/seasons'),
-        fetch('/api/admin/teams'),
-        fetch('/api/admin/matches'),
+        window.fetch('/api/admin/users'),
+        window.fetch('/api/admin/seasons'),
+        window.fetch('/api/admin/teams'),
+        window.fetch('/api/admin/matches'),
       ])
 
       if (!usersResponse.ok) {
@@ -620,7 +714,7 @@
     successMessage = null
 
     try {
-      const response = await fetch(`/api/admin/matches/${action.matchId}`, {
+      const response = await window.fetch(`/api/admin/matches/${action.matchId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -656,7 +750,7 @@
     successMessage = null
 
     try {
-      const response = await fetch(`/api/admin/matches/${matchId}`, {
+      const response = await window.fetch(`/api/admin/matches/${matchId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'cancel' }),
@@ -686,7 +780,7 @@
 
     isCreatingMatch = true
     try {
-      const response = await fetch('/api/admin/matches', {
+      const response = await window.fetch('/api/admin/matches', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -726,7 +820,7 @@
       form.set('tag', createTeamTag)
       if (createTeamLogoFile) form.set('logo', createTeamLogoFile)
 
-      const response = await fetch('/api/admin/teams', {
+      const response = await window.fetch('/api/admin/teams', {
         method: 'POST',
         body: form,
       })
@@ -767,7 +861,7 @@
       form.set('status', state.status ?? 'active')
       if (teamLogoFileById[teamId]) form.set('logo', teamLogoFileById[teamId]!)
 
-      const response = await fetch(`/api/admin/teams/${teamId}`, {
+      const response = await window.fetch(`/api/admin/teams/${teamId}`, {
         method: 'PATCH',
         body: form,
       })
@@ -792,7 +886,7 @@
     successMessage = null
 
     try {
-      const response = await fetch(`/api/admin/matches/${matchId}`, {
+      const response = await window.fetch(`/api/admin/matches/${matchId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -805,6 +899,7 @@
           teamAScore: Number(state.teamAScore),
           teamBScore: Number(state.teamBScore),
           winnerTeamId: state.winnerTeamId || null,
+          youtubeVodUrl: vodForm[matchId] || null,
         }),
       })
 
@@ -855,7 +950,7 @@
     errorMessage = null
     successMessage = null
     try {
-      const response = await fetch(`/api/admin/matches/${matchId}`, { method: 'DELETE' })
+      const response = await window.fetch(`/api/admin/matches/${matchId}`, { method: 'DELETE' })
       const result = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(result.message || 'Failed to delete match')
       successMessage = 'Match deleted.'
@@ -875,7 +970,7 @@
     errorMessage = null
     successMessage = null
     try {
-      const response = await fetch(`/api/admin/matches/${matchId}/streams`, {
+      const response = await window.fetch(`/api/admin/matches/${matchId}/streams`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(state),
@@ -888,6 +983,7 @@
         [matchId]: {
           platform: state.platform,
           streamUrl: '',
+          displayName: '',
           status: state.status,
           isPrimary: false,
         },
@@ -895,6 +991,37 @@
       await refreshData()
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Failed to add stream'
+    }
+  }
+
+  async function saveExistingMatchStream(matchId: string, streamId: string) {
+    const state = existingStreamForm[streamId]
+    if (!state?.streamUrl?.trim()) {
+      errorMessage = 'Stream URL is required'
+      return
+    }
+
+    errorMessage = null
+    successMessage = null
+    try {
+      const response = await window.fetch(`/api/admin/matches/${matchId}/streams`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          streamId,
+          platform: state.platform,
+          streamUrl: state.streamUrl,
+          displayName: state.displayName,
+          status: state.status,
+          isPrimary: state.isPrimary,
+        }),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(result.message || 'Failed to update stream')
+      successMessage = 'Stream updated.'
+      await refreshData()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to update stream'
     }
   }
 
@@ -908,7 +1035,7 @@
     errorMessage = null
     successMessage = null
     try {
-      const response = await fetch('/api/admin/seasons', {
+      const response = await window.fetch('/api/admin/seasons', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -942,7 +1069,7 @@
     errorMessage = null
     successMessage = null
     try {
-      const response = await fetch('/api/admin/seasons', {
+      const response = await window.fetch('/api/admin/seasons', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -979,7 +1106,7 @@
     errorMessage = null
     successMessage = null
     try {
-      const response = await fetch(`/api/admin/matches/${matchId}/streams`, {
+      const response = await window.fetch(`/api/admin/matches/${matchId}/streams`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ streamId }),
@@ -1004,7 +1131,7 @@
     successMessage = null
 
     try {
-      const res = await fetch('/api/admin/teams/manage', {
+      const res = await window.fetch('/api/admin/teams/manage', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ teamId, playerName: state.playerName.trim(), role: state.role }),
@@ -1050,7 +1177,7 @@
     errorMessage = null
 
     try {
-      const response = await fetch('/api/admin/users', {
+      const response = await window.fetch('/api/admin/users', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1092,7 +1219,7 @@
     errorMessage = null
 
     try {
-      const response = await fetch('/api/admin/teams', {
+      const response = await window.fetch('/api/admin/teams', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1169,7 +1296,7 @@
     successMessage = null
 
     try {
-      const response = await fetch('/api/admin/teams/logo', {
+      const response = await window.fetch('/api/admin/teams/logo', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path }),
@@ -1209,7 +1336,7 @@
     successMessage = null
 
     try {
-      const response = await fetch('/api/admin/teams/manage', {
+      const response = await window.fetch('/api/admin/teams/manage', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ teamId }),
@@ -1262,7 +1389,7 @@
     successMessage = null
 
     try {
-      const response = await fetch('/api/admin/teams/manage', {
+      const response = await window.fetch('/api/admin/teams/manage', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ teamId, profileId: profileId || null, membershipId }),
@@ -1358,7 +1485,7 @@
     processingRankRegistrationId = registrationId
     errorMessage = null
     try {
-      const response = await fetch('/api/admin/player-ranks', {
+      const response = await window.fetch('/api/admin/player-ranks', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ registrationId, rankLabel }),
@@ -1443,30 +1570,6 @@
           <Upload size={16} />
           Stats Import
         </a>
-        <button
-          type="button"
-          class="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold"
-          style="background: rgba(59,130,246,0.12); color: #93c5fd; border: 1px solid rgba(59,130,246,0.25);"
-          onclick={async () => {
-            errorMessage = null
-            successMessage = null
-            try {
-              const res = await fetch('/api/admin/stats/rematch', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ batchId: null }),
-              })
-              const body = await res.json().catch(() => ({}))
-              if (!res.ok) throw new Error(body?.message ?? 'Failed to rematch')
-              successMessage = `Rematched: ${body.updated} updated, ${body.remaining_unmatched} still unmatched.`
-              await refreshData()
-            } catch (err) {
-              errorMessage = err instanceof Error ? err.message : 'Failed to rematch'
-            }
-          }}
-        >
-          Rematch Links
-        </button>
       </div>
       <div class="mb-8 flex flex-col items-center">
         <UserCog size={48} style="color: var(--text);" class="mb-4" />
@@ -2117,18 +2220,19 @@
                                 teamBScore: (e.currentTarget as HTMLInputElement).value,
                               })}
                           />
-                          <select
+                          <CustomSelect
+                            options={[
+                              { value: match.team_a_id, label: teamName(match.team_a) },
+                              { value: match.team_b_id, label: teamName(match.team_b) },
+                            ]}
                             value={state.winnerTeamId}
-                            class="rounded-md border px-2 py-1"
-                            style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-                            onchange={(e) =>
+                            compact={true}
+                            placeholder="Winner"
+                            onSelect={(value) =>
                               updateFinalizeForm(match.id, {
-                                winnerTeamId: (e.currentTarget as HTMLSelectElement).value,
+                                winnerTeamId: value,
                               })}
-                          >
-                            <option value={match.team_a_id}>{teamName(match.team_a)}</option>
-                            <option value={match.team_b_id}>{teamName(match.team_b)}</option>
-                          </select>
+                          />
                           <div class="flex gap-2">
                             <button
                               type="button"
@@ -2182,11 +2286,7 @@
                             </div>
                             <div>
                               <CustomSelect
-                                options={[
-                                  ...bestOfOptions,
-                                  { value: '1', label: 'BO1' },
-                                  { value: '7', label: 'BO7' },
-                                ]}
+                                options={bestOfOptions}
                                 value={editState.bestOf}
                                 compact={true}
                                 placeholder="Best Of"
@@ -2194,23 +2294,16 @@
                                   updateMatchEditForm(match.id, { bestOf: value })}
                               />
                             </div>
-                            <label class="text-xs" style="color: rgba(255,255,255,0.82);">
-                              Status
-                              <select
+                            <div>
+                              <CustomSelect
+                                options={matchStatusOptions}
                                 value={editState.status}
-                                class="mt-1 w-full rounded-md border px-2 py-1 text-sm"
-                                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-                                onchange={(e) =>
-                                  updateMatchEditForm(match.id, {
-                                    status: (e.currentTarget as HTMLSelectElement).value,
-                                  })}
-                              >
-                                <option value="scheduled">Scheduled</option>
-                                <option value="live">Live</option>
-                                <option value="completed">Completed</option>
-                                <option value="cancelled">Cancelled</option>
-                              </select>
-                            </label>
+                                compact={true}
+                                placeholder="Status"
+                                onSelect={(value) =>
+                                  updateMatchEditForm(match.id, { status: value })}
+                              />
+                            </div>
                             <label
                               class="text-xs md:col-span-2"
                               style="color: rgba(255,255,255,0.82);"
@@ -2255,31 +2348,30 @@
                                   })}
                               />
                             </label>
-                            <label
-                              class="text-xs md:col-span-2"
-                              style="color: rgba(255,255,255,0.82);"
-                            >
-                              Winner
-                              <select
+                            <div class="md:col-span-2">
+                              <CustomSelect
+                                options={[
+                                  { value: '', label: 'Unset winner' },
+                                  {
+                                    value: editState.teamAId,
+                                    label:
+                                      approvedTeams.find((team) => team.id === editState.teamAId)
+                                        ?.name ?? 'Team A',
+                                  },
+                                  {
+                                    value: editState.teamBId,
+                                    label:
+                                      approvedTeams.find((team) => team.id === editState.teamBId)
+                                        ?.name ?? 'Team B',
+                                  },
+                                ]}
                                 value={editState.winnerTeamId}
-                                class="mt-1 w-full rounded-md border px-2 py-1 text-sm"
-                                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-                                onchange={(e) =>
-                                  updateMatchEditForm(match.id, {
-                                    winnerTeamId: (e.currentTarget as HTMLSelectElement).value,
-                                  })}
-                              >
-                                <option value="">Unset</option>
-                                <option value={editState.teamAId}
-                                  >{approvedTeams.find((team) => team.id === editState.teamAId)
-                                    ?.name ?? 'Team A'}</option
-                                >
-                                <option value={editState.teamBId}
-                                  >{approvedTeams.find((team) => team.id === editState.teamBId)
-                                    ?.name ?? 'Team B'}</option
-                                >
-                              </select>
-                            </label>
+                                compact={true}
+                                placeholder="Winner"
+                                onSelect={(value) =>
+                                  updateMatchEditForm(match.id, { winnerTeamId: value })}
+                              />
+                            </div>
                           </div>
                           <div class="mt-3 flex flex-wrap justify-end gap-2">
                             <button
@@ -2314,65 +2406,183 @@
                           {#if (match.streams ?? []).length > 0}
                             <div class="mb-3 flex flex-col gap-2">
                               {#each match.streams as stream}
+                                {@const existingState = existingStreamForm[stream.id] ?? {
+                                  platform: stream.platform,
+                                  streamUrl: stream.stream_url,
+                                  status: stream.status,
+                                  isPrimary: stream.is_primary,
+                                }}
                                 <div
-                                  class="flex items-center justify-between gap-2 rounded-md border px-2 py-2 text-xs"
+                                  class="rounded-md border px-2 py-2 text-xs"
                                   style="border-color: rgba(255,255,255,0.10); background: rgba(255,255,255,0.04);"
                                 >
                                   <div class="min-w-0">
                                     <div style="color: var(--text);">
-                                      {stream.platform}
+                                      {stream.metadata?.display_name || stream.platform}
                                       {stream.is_primary ? '• Primary' : ''}
                                     </div>
                                     <div class="truncate" style="color: rgba(255,255,255,0.68);">
                                       {stream.stream_url}
                                     </div>
                                   </div>
-                                  <button
-                                    type="button"
-                                    class="rounded px-2 py-1 text-[11px] font-semibold"
-                                    style="background: rgba(248,113,113,0.2); color: #fca5a5;"
-                                    onclick={() =>
-                                      removeMatchStream(match.id, stream.id, stream.platform)}
+                                  <div class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-4">
+                                    <div class="md:col-span-2">
+                                      <input
+                                        class="w-full rounded-md border px-3 py-2 text-sm"
+                                        style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                                        value={existingState.displayName}
+                                        placeholder="Display name"
+                                        oninput={(e) => {
+                                          existingStreamForm = {
+                                            ...existingStreamForm,
+                                            [stream.id]: {
+                                              ...existingState,
+                                              displayName: (e.currentTarget as HTMLInputElement)
+                                                .value,
+                                            },
+                                          }
+                                        }}
+                                      />
+                                    </div>
+                                  </div>
+                                  <div class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-4">
+                                    <div>
+                                      <CustomSelect
+                                        options={streamPlatformOptions}
+                                        value={existingState.platform}
+                                        compact={true}
+                                        placeholder="Platform"
+                                        onSelect={(value) => {
+                                          existingStreamForm = {
+                                            ...existingStreamForm,
+                                            [stream.id]: { ...existingState, platform: value },
+                                          }
+                                        }}
+                                      />
+                                    </div>
+                                    <div class="md:col-span-2">
+                                      <input
+                                        class="w-full rounded-md border px-3 py-2 text-sm"
+                                        style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                                        value={existingState.streamUrl}
+                                        oninput={(e) => {
+                                          existingStreamForm = {
+                                            ...existingStreamForm,
+                                            [stream.id]: {
+                                              ...existingState,
+                                              streamUrl: (e.currentTarget as HTMLInputElement)
+                                                .value,
+                                            },
+                                          }
+                                        }}
+                                      />
+                                    </div>
+                                    <div>
+                                      <CustomSelect
+                                        options={streamStatusOptions}
+                                        value={existingState.status}
+                                        compact={true}
+                                        placeholder="Stream status"
+                                        onSelect={(value) => {
+                                          existingStreamForm = {
+                                            ...existingStreamForm,
+                                            [stream.id]: { ...existingState, status: value },
+                                          }
+                                        }}
+                                      />
+                                    </div>
+                                  </div>
+                                  <div
+                                    class="mt-2 flex flex-wrap items-center justify-between gap-2"
                                   >
-                                    Remove
-                                  </button>
+                                    <label
+                                      class="inline-flex items-center gap-2 text-xs"
+                                      style="color: rgba(255,255,255,0.82);"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={existingState.isPrimary}
+                                        onchange={(e) => {
+                                          existingStreamForm = {
+                                            ...existingStreamForm,
+                                            [stream.id]: {
+                                              ...existingState,
+                                              isPrimary: (e.currentTarget as HTMLInputElement)
+                                                .checked,
+                                            },
+                                          }
+                                        }}
+                                      />
+                                      Mark as primary stream
+                                    </label>
+                                    <div class="flex gap-2">
+                                      <button
+                                        type="button"
+                                        class="rounded px-2 py-1 text-[11px] font-semibold"
+                                        style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+                                        onclick={() => saveExistingMatchStream(match.id, stream.id)}
+                                      >
+                                        Save
+                                      </button>
+                                      <button
+                                        type="button"
+                                        class="rounded px-2 py-1 text-[11px] font-semibold"
+                                        style="background: rgba(248,113,113,0.2); color: #fca5a5;"
+                                        onclick={() =>
+                                          removeMatchStream(match.id, stream.id, stream.platform)}
+                                      >
+                                        Remove
+                                      </button>
+                                    </div>
+                                  </div>
                                 </div>
                               {/each}
                             </div>
                           {/if}
 
                           <div class="grid grid-cols-1 gap-2 md:grid-cols-4">
-                            <label class="text-xs" style="color: rgba(255,255,255,0.82);">
-                              Platform
-                              <select
-                                class="mt-1 w-full rounded-md border px-2 py-1 text-sm"
+                            <div class="md:col-span-2">
+                              <input
+                                class="w-full rounded-md border px-3 py-2 text-sm"
                                 style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-                                value={streamState.platform}
-                                onchange={(e) => {
+                                value={streamState.displayName}
+                                placeholder="Display name"
+                                oninput={(e) => {
                                   streamForm = {
                                     ...streamForm,
                                     [match.id]: {
                                       ...streamState,
-                                      platform: (e.currentTarget as HTMLSelectElement).value,
+                                      displayName: (e.currentTarget as HTMLInputElement).value,
                                     },
                                   }
                                 }}
-                              >
-                                <option value="twitch">Twitch</option>
-                                <option value="youtube">YouTube</option>
-                                <option value="kick">Kick</option>
-                                <option value="other">Other</option>
-                              </select>
-                            </label>
-                            <label
-                              class="text-xs md:col-span-2"
-                              style="color: rgba(255,255,255,0.82);"
-                            >
-                              Stream URL
+                              />
+                            </div>
+                          </div>
+                          <div class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-4">
+                            <div>
+                              <CustomSelect
+                                options={streamPlatformOptions}
+                                value={streamState.platform}
+                                compact={true}
+                                placeholder="Platform"
+                                onSelect={(value) => {
+                                  streamForm = {
+                                    ...streamForm,
+                                    [match.id]: {
+                                      ...streamState,
+                                      platform: value,
+                                    },
+                                  }
+                                }}
+                              />
+                            </div>
+                            <div class="md:col-span-2">
                               <input
-                                class="mt-1 w-full rounded-md border px-2 py-1 text-sm"
+                                class="w-full rounded-md border px-3 py-2 text-sm"
                                 style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
                                 value={streamState.streamUrl}
+                                placeholder="Input stream link here"
                                 oninput={(e) => {
                                   streamForm = {
                                     ...streamForm,
@@ -2383,28 +2593,24 @@
                                   }
                                 }}
                               />
-                            </label>
-                            <label class="text-xs" style="color: rgba(255,255,255,0.82);">
-                              Status
-                              <select
-                                class="mt-1 w-full rounded-md border px-2 py-1 text-sm"
-                                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                            </div>
+                            <div>
+                              <CustomSelect
+                                options={streamStatusOptions}
                                 value={streamState.status}
-                                onchange={(e) => {
+                                compact={true}
+                                placeholder="Stream status"
+                                onSelect={(value) => {
                                   streamForm = {
                                     ...streamForm,
                                     [match.id]: {
                                       ...streamState,
-                                      status: (e.currentTarget as HTMLSelectElement).value,
+                                      status: value,
                                     },
                                   }
                                 }}
-                              >
-                                <option value="scheduled">Scheduled</option>
-                                <option value="live">Live</option>
-                                <option value="ended">Ended</option>
-                              </select>
-                            </label>
+                              />
+                            </div>
                           </div>
                           <label
                             class="mt-2 inline-flex items-center gap-2 text-xs"
@@ -2434,6 +2640,43 @@
                             >
                               Add Stream
                             </button>
+                          </div>
+
+                          <div
+                            class="mt-4 border-t pt-4"
+                            style="border-color: rgba(255,255,255,0.10);"
+                          >
+                            <div
+                              class="mb-2 text-[11px] font-semibold tracking-wide uppercase"
+                              style="color: rgba(255,255,255,0.7);"
+                            >
+                              YouTube VOD
+                            </div>
+                            <div class="flex flex-col gap-2 md:flex-row">
+                              <input
+                                class="w-full flex-1 rounded-md border px-3 py-2 text-sm"
+                                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                                value={vodForm[match.id] ?? ''}
+                                placeholder="https://youtube.com/watch?..."
+                                oninput={(e) => {
+                                  vodForm = {
+                                    ...vodForm,
+                                    [match.id]: (e.currentTarget as HTMLInputElement).value,
+                                  }
+                                }}
+                              />
+                              <button
+                                type="button"
+                                class="rounded px-3 py-2 text-xs font-semibold"
+                                style="background: rgba(234,179,8,0.18); color: #fcd34d;"
+                                onclick={() => saveMatchEdits(match.id, match)}
+                              >
+                                Save VOD
+                              </button>
+                            </div>
+                            <div class="mt-2 text-[11px]" style="color: rgba(255,255,255,0.6);">
+                              Saves via the same match update flow.
+                            </div>
                           </div>
                         </div>
 

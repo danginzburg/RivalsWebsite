@@ -559,13 +559,6 @@
                 >
                   <td class="px-3 py-2 font-semibold" style="color: var(--text);">
                     <div class="flex items-center gap-2">
-                      {#if row.team?.logo_url}
-                        <img
-                          src={row.team.logo_url}
-                          alt="{row.team.name} logo"
-                          class="h-4 w-4 shrink-0 rounded object-contain"
-                        />
-                      {/if}
                       {#if row.profile_id}
                         <a
                           class="min-w-0 truncate"
@@ -584,20 +577,6 @@
                         </a>
                       {/if}
                     </div>
-                    {#if row.team}
-                      <div
-                        class="mt-1 flex items-center gap-1.5 text-xs"
-                        style="color: rgba(255,255,255,0.68);"
-                      >
-                        <a
-                          href={`/teams/${row.team.id}`}
-                          class="truncate"
-                          style="color: rgba(255,255,255,0.72);"
-                        >
-                          {row.team.name}{row.team.tag ? ` [${row.team.tag}]` : ''}
-                        </a>
-                      </div>
-                    {/if}
                   </td>
                   {#each allColumns as col}
                     {#if visibleColumns.includes(col.key)}

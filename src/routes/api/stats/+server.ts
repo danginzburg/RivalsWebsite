@@ -125,44 +125,9 @@ export const GET: RequestHandler = async ({ url }) => {
   const { data: rows, error: rowsError } = await query.limit(limit)
   if (rowsError) throw error(500, 'Failed to load stats')
 
-  const profileIds = Array.from(
-    new Set((rows ?? []).map((row) => row.profile_id).filter((id): id is string => Boolean(id)))
-  )
-
-  const teamByProfileId = new Map<
-    string,
-    { id: string; name: string; tag: string | null; logo_url: string | null }
-  >()
-  if (profileIds.length > 0) {
-    const { data: memberships } = await supabaseAdmin
-      .from('team_memberships')
-      .select('profile_id, teams (id, name, tag, logo_path)')
-      .in('profile_id', profileIds)
-      .eq('is_active', true)
-      .is('left_at', null)
-
-    for (const membership of memberships ?? []) {
-      const team = Array.isArray((membership as any).teams)
-        ? (membership as any).teams[0]
-        : (membership as any).teams
-      if (!membership.profile_id || !team) continue
-      teamByProfileId.set(membership.profile_id, {
-        id: team.id,
-        name: team.name,
-        tag: team.tag ?? null,
-        logo_url: team.logo_path
-          ? supabaseAdmin.storage.from('team-logos').getPublicUrl(team.logo_path).data.publicUrl
-          : null,
-      })
-    }
-  }
-
   return json({
     batchId: effectiveBatchId,
     batch,
-    rows: (rows ?? []).map((row) => ({
-      ...row,
-      team: row.profile_id ? (teamByProfileId.get(row.profile_id) ?? null) : null,
-    })),
+    rows: rows ?? [],
   })
 }

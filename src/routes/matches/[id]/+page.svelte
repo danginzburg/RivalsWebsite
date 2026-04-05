@@ -1,27 +1,23 @@
 <script lang="ts">
   import PageContainer from '$lib/components/PageContainer.svelte'
-  import { CalendarDays, RadioTower, Swords } from 'lucide-svelte'
+  import { BarChart3, CalendarDays, RadioTower, Video } from 'lucide-svelte'
 
-  let { data } = $props()
+  let { data } = $props() as { data: any }
 
   const match = $derived(data.match)
-  const viewer = $derived(data.viewer ?? { isAdmin: false })
-  let streamPlatform = $state('twitch')
-  let streamUrl = $state('')
-  let streamStatus = $state('scheduled')
-  let streamPrimary = $state(true)
-  let streamMessage = $state<string | null>(null)
-  let isSavingStream = $state(false)
-
-  $effect(() => {
-    streamPrimary = !(match.streams?.length > 0)
-    streamStatus = match.status === 'live' ? 'live' : 'scheduled'
-  })
+  let activeStatsTab = $state<'total' | string>('total')
 
   function teamName(value: unknown) {
     if (!value) return 'Team'
     if (Array.isArray(value)) return (value[0] as { name?: string } | undefined)?.name ?? 'Team'
     return (value as { name?: string }).name ?? 'Team'
+  }
+
+  function teamLogo(value: unknown) {
+    if (!value) return null
+    if (Array.isArray(value))
+      return (value[0] as { logo_url?: string } | undefined)?.logo_url ?? null
+    return (value as { logo_url?: string }).logo_url ?? null
   }
 
   function formatUtc(value: string | null | undefined) {
@@ -30,46 +26,121 @@
     return `${date.toLocaleString(undefined, { timeZone: 'UTC' })} UTC`
   }
 
-  async function addStream() {
-    if (!streamUrl.trim()) {
-      streamMessage = 'Stream URL is required.'
-      return
+  function playerLabel(row: any) {
+    return row.profile_name ?? row.player_name ?? 'Player'
+  }
+
+  function fmt(value: unknown, digits = 0) {
+    const num = Number(value)
+    return Number.isFinite(num) ? num.toFixed(digits) : '0'
+  }
+
+  const agentAssetModules = import.meta.glob('$lib/assets/agents/*_icon.png', {
+    eager: true,
+    import: 'default',
+  }) as Record<string, string>
+
+  const agentIconMap = $derived.by(() => {
+    const map = new Map<string, string>()
+    const normalize = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, '')
+
+    for (const [path, url] of Object.entries(agentAssetModules)) {
+      const filename = path.split('/').pop() ?? ''
+      const base = filename.replace(/_icon\.png$/i, '')
+      map.set(normalize(base), url)
     }
 
-    isSavingStream = true
-    streamMessage = null
-    try {
-      const response = await fetch(`/api/admin/matches/${match.id}/streams`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          platform: streamPlatform,
-          streamUrl,
-          status: streamStatus,
-          isPrimary: streamPrimary,
-        }),
-      })
-      const result = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(result.message ?? 'Failed to add stream')
-      streamMessage = 'Stream added. Refresh the page to see the new link.'
-      streamUrl = ''
-      streamPrimary = false
-    } catch (err) {
-      streamMessage = err instanceof Error ? err.message : 'Failed to add stream'
-    } finally {
-      isSavingStream = false
-    }
+    if (map.has('harbor')) map.set('harbour', map.get('harbor')!)
+    return map
+  })
+
+  function agentIconUrl(agentName: string): string | null {
+    const key = String(agentName ?? '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '')
+    return agentIconMap.get(key) ?? null
   }
+
+  function parseAgents(value: unknown): string[] {
+    if (typeof value !== 'string') return []
+    return Array.from(
+      new Set(
+        value
+          .split(/\s+/)
+          .map((token) => token.trim())
+          .filter(Boolean)
+      )
+    )
+  }
+
+  const statsTabs = $derived([
+    ...(match.maps ?? []).map((map: any) => ({
+      key: map.id,
+      label: `${map.map_label}${map.map_name ? ` • ${map.map_name}` : ''}`,
+      team_a_rounds: map.team_a_rounds,
+      team_b_rounds: map.team_b_rounds,
+      rows: map.stats ?? [],
+      isTotal: false,
+    })),
+    {
+      key: 'total',
+      label: 'Series Total',
+      team_a_rounds: null,
+      team_b_rounds: null,
+      rows: match.total_stats ?? [],
+      isTotal: true,
+    },
+  ])
+
+  $effect(() => {
+    const keys = statsTabs.map((tab) => tab.key)
+    if (!keys.includes(activeStatsTab)) {
+      activeStatsTab = 'total'
+    }
+  })
+
+  const activeStats = $derived(
+    statsTabs.find((tab) => tab.key === activeStatsTab) ?? statsTabs.at(-1) ?? null
+  )
+  const teamAStats = $derived(
+    (activeStats?.rows ?? []).filter((row: any) => row.team_id === match.team_a_id)
+  )
+  const teamBStats = $derived(
+    (activeStats?.rows ?? []).filter((row: any) => row.team_id === match.team_b_id)
+  )
 </script>
 
 <PageContainer>
   <div class="flex justify-center px-4 py-8">
-    <div class="w-full max-w-6xl">
+    <div class="w-full max-w-[96rem]">
       <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div class="flex items-center gap-3">
-          <Swords size={36} style="color: var(--text);" />
           <div>
-            <h1 class="responsive-title">{teamName(match.team_a)} vs {teamName(match.team_b)}</h1>
+            <h1 class="responsive-title flex flex-wrap items-center gap-3">
+              <span class="inline-flex items-center gap-2">
+                {#if teamLogo(match.team_a)}
+                  <img
+                    src={teamLogo(match.team_a)}
+                    alt="{teamName(match.team_a)} logo"
+                    class="h-10 w-10 rounded object-contain"
+                  />
+                {/if}
+                <span>{teamName(match.team_a)}</span>
+              </span>
+              <span class="inline-flex items-center gap-2">
+                <span>vs</span>
+              </span>
+              <span class="inline-flex items-center gap-2">
+                {#if teamLogo(match.team_b)}
+                  <img
+                    src={teamLogo(match.team_b)}
+                    alt="{teamName(match.team_b)} logo"
+                    class="h-10 w-10 rounded object-contain"
+                  />
+                {/if}
+                <span>{teamName(match.team_b)}</span>
+              </span>
+            </h1>
             <p class="text-sm" style="color: rgba(255,255,255,0.72);">
               BO{match.best_of} • {formatUtc(match.scheduled_at)}
             </p>
@@ -157,7 +228,7 @@
                 >
                   <div class="flex items-center justify-between gap-2">
                     <div>
-                      <strong>{stream.platform}</strong>
+                      <strong>{stream.metadata?.display_name || stream.platform}</strong>
                       {#if stream.is_primary}
                         <span
                           class="ml-2 rounded-full px-2 py-0.5 text-xs"
@@ -179,71 +250,208 @@
             </div>
           {/if}
 
-          {#if viewer.isAdmin}
-            <div
-              class="mt-4 rounded-md border p-3"
-              style="border-color: rgba(255,255,255,0.10); background: rgba(255,255,255,0.04);"
-            >
-              <div
-                class="mb-2 text-xs font-semibold uppercase"
-                style="color: rgba(255,255,255,0.72);"
+          {#if match.vod_url}
+            <div class="mt-4">
+              <a
+                href={match.vod_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm"
+                style="border-color: rgba(255,255,255,0.12); background: rgba(255,255,255,0.04); color: var(--text);"
               >
-                Admin Stream Link
-              </div>
-              <div class="grid grid-cols-1 gap-2 md:grid-cols-4">
-                <select
-                  bind:value={streamPlatform}
-                  class="rounded-md border px-2 py-2 text-sm"
-                  style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-                >
-                  <option value="twitch">Twitch</option>
-                  <option value="youtube">YouTube</option>
-                  <option value="kick">Kick</option>
-                  <option value="other">Other</option>
-                </select>
-                <input
-                  bind:value={streamUrl}
-                  class="rounded-md border px-3 py-2 text-sm md:col-span-2"
-                  style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-                  placeholder="https://..."
-                />
-                <select
-                  bind:value={streamStatus}
-                  class="rounded-md border px-2 py-2 text-sm"
-                  style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-                >
-                  <option value="scheduled">Scheduled</option>
-                  <option value="live">Live</option>
-                  <option value="ended">Ended</option>
-                </select>
-              </div>
-              <label
-                class="mt-2 inline-flex items-center gap-2 text-xs"
-                style="color: rgba(255,255,255,0.78);"
-              >
-                <input type="checkbox" bind:checked={streamPrimary} />
-                Mark as primary stream
-              </label>
-              {#if streamMessage}
-                <div class="mt-2 text-xs" style="color: rgba(255,255,255,0.72);">
-                  {streamMessage}
-                </div>
-              {/if}
-              <div class="mt-3 flex justify-end">
-                <button
-                  type="button"
-                  class="rounded-md px-3 py-2 text-sm font-semibold"
-                  style="background: rgba(59,130,246,0.18); color: #93c5fd;"
-                  onclick={addStream}
-                  disabled={isSavingStream}
-                >
-                  {isSavingStream ? 'Saving...' : 'Add Stream'}
-                </button>
-              </div>
+                <Video size={16} />
+                Watch YouTube VOD
+              </a>
             </div>
           {/if}
         </section>
       </div>
+
+      <section
+        class="mt-4 rounded-md border p-4"
+        style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
+      >
+        <div class="mb-3 flex items-center gap-2">
+          <BarChart3 size={18} />
+          <h2
+            class="text-sm font-semibold tracking-wide uppercase"
+            style="color: rgba(255,255,255,0.8);"
+          >
+            Match Stats
+          </h2>
+        </div>
+
+        {#if statsTabs.length <= 1 && (match.total_stats?.length ?? 0) === 0}
+          <p class="text-sm" style="color: rgba(255,255,255,0.72);">No map stats imported yet.</p>
+        {:else}
+          <div class="mb-4 flex flex-wrap gap-2">
+            {#each statsTabs as tab}
+              <button
+                type="button"
+                class="rounded-md px-3 py-2 text-sm font-semibold transition-colors"
+                style={activeStatsTab === tab.key
+                  ? 'background: rgba(59,130,246,0.2); color: #93c5fd; border: 1px solid rgba(59,130,246,0.28);'
+                  : 'background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.78); border: 1px solid rgba(255,255,255,0.10);'}
+                onclick={() => (activeStatsTab = tab.key)}
+              >
+                {tab.label}
+              </button>
+            {/each}
+          </div>
+
+          {#if activeStats}
+            {#if !activeStats.isTotal}
+              <div class="mb-3 text-sm" style="color: rgba(255,255,255,0.74);">
+                {teamName(match.team_a)}
+                {activeStats.team_a_rounds}-{activeStats.team_b_rounds}
+                {teamName(match.team_b)}
+              </div>
+            {/if}
+
+            <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
+              <div>
+                <div class="mb-2 text-sm font-semibold" style="color: var(--text);">
+                  {teamName(match.team_a)}
+                </div>
+                <div
+                  class="overflow-x-auto rounded-md border"
+                  style="border-color: rgba(255,255,255,0.10);"
+                >
+                  <table class="min-w-full text-left text-sm">
+                    <thead>
+                      <tr
+                        class="text-xs uppercase"
+                        style="color: rgba(255,255,255,0.65); background: rgba(255,255,255,0.04);"
+                      >
+                        <th class="px-3 py-2">Player</th>
+                        <th class="px-3 py-2">Agent</th>
+                        <th class="px-3 py-2">ACS</th>
+                        <th class="px-3 py-2">K</th>
+                        <th class="px-3 py-2">D</th>
+                        <th class="px-3 py-2">A</th>
+                        <th class="px-3 py-2">KD</th>
+                        <th class="px-3 py-2">ADR</th>
+                        <th class="px-3 py-2">KAST</th>
+                        <th class="px-3 py-2">HS%</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {#each teamAStats as row}
+                        <tr
+                          class="border-t"
+                          style="border-color: rgba(255,255,255,0.08); color: rgba(255,255,255,0.9);"
+                        >
+                          <td class="px-3 py-2 font-semibold" style="color: var(--text);">
+                            {#if row.profile_id}
+                              <a href={`/players/${row.profile_id}`}>{playerLabel(row)}</a>
+                            {:else}
+                              {playerLabel(row)}
+                            {/if}
+                          </td>
+                          <td class="px-3 py-2">
+                            <div class="flex flex-wrap gap-1">
+                              {#each parseAgents(row.agents) as agent}
+                                {#if agentIconUrl(agent)}
+                                  <img
+                                    src={agentIconUrl(agent)}
+                                    alt={agent}
+                                    title={agent}
+                                    class="h-6 w-6 rounded object-contain"
+                                  />
+                                {:else}
+                                  <span class="text-xs">{agent}</span>
+                                {/if}
+                              {/each}
+                            </div>
+                          </td>
+                          <td class="px-3 py-2">{fmt(row.acs, 0)}</td>
+                          <td class="px-3 py-2">{fmt(row.kills, 0)}</td>
+                          <td class="px-3 py-2">{fmt(row.deaths, 0)}</td>
+                          <td class="px-3 py-2">{fmt(row.assists, 0)}</td>
+                          <td class="px-3 py-2">{fmt(row.kd, 2)}</td>
+                          <td class="px-3 py-2">{fmt(row.adr, 0)}</td>
+                          <td class="px-3 py-2">{fmt(row.kast_pct, 0)}%</td>
+                          <td class="px-3 py-2">{fmt(row.hs_pct, 0)}%</td>
+                        </tr>
+                      {/each}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div>
+                <div class="mb-2 text-sm font-semibold" style="color: var(--text);">
+                  {teamName(match.team_b)}
+                </div>
+                <div
+                  class="overflow-x-auto rounded-md border"
+                  style="border-color: rgba(255,255,255,0.10);"
+                >
+                  <table class="min-w-full text-left text-sm">
+                    <thead>
+                      <tr
+                        class="text-xs uppercase"
+                        style="color: rgba(255,255,255,0.65); background: rgba(255,255,255,0.04);"
+                      >
+                        <th class="px-3 py-2">Player</th>
+                        <th class="px-3 py-2">Agent</th>
+                        <th class="px-3 py-2">ACS</th>
+                        <th class="px-3 py-2">K</th>
+                        <th class="px-3 py-2">D</th>
+                        <th class="px-3 py-2">A</th>
+                        <th class="px-3 py-2">KD</th>
+                        <th class="px-3 py-2">ADR</th>
+                        <th class="px-3 py-2">KAST</th>
+                        <th class="px-3 py-2">HS%</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {#each teamBStats as row}
+                        <tr
+                          class="border-t"
+                          style="border-color: rgba(255,255,255,0.08); color: rgba(255,255,255,0.9);"
+                        >
+                          <td class="px-3 py-2 font-semibold" style="color: var(--text);">
+                            {#if row.profile_id}
+                              <a href={`/players/${row.profile_id}`}>{playerLabel(row)}</a>
+                            {:else}
+                              {playerLabel(row)}
+                            {/if}
+                          </td>
+                          <td class="px-3 py-2">
+                            <div class="flex flex-wrap gap-1">
+                              {#each parseAgents(row.agents) as agent}
+                                {#if agentIconUrl(agent)}
+                                  <img
+                                    src={agentIconUrl(agent)}
+                                    alt={agent}
+                                    title={agent}
+                                    class="h-6 w-6 rounded object-contain"
+                                  />
+                                {:else}
+                                  <span class="text-xs">{agent}</span>
+                                {/if}
+                              {/each}
+                            </div>
+                          </td>
+                          <td class="px-3 py-2">{fmt(row.acs, 0)}</td>
+                          <td class="px-3 py-2">{fmt(row.kills, 0)}</td>
+                          <td class="px-3 py-2">{fmt(row.deaths, 0)}</td>
+                          <td class="px-3 py-2">{fmt(row.assists, 0)}</td>
+                          <td class="px-3 py-2">{fmt(row.kd, 2)}</td>
+                          <td class="px-3 py-2">{fmt(row.adr, 0)}</td>
+                          <td class="px-3 py-2">{fmt(row.kast_pct, 0)}%</td>
+                          <td class="px-3 py-2">{fmt(row.hs_pct, 0)}%</td>
+                        </tr>
+                      {/each}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          {/if}
+        {/if}
+      </section>
     </div>
   </div>
 </PageContainer>

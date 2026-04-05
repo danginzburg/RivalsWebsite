@@ -38,6 +38,9 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
   return {
     seasons: seasons ?? [],
     teams: teams ?? [],
-    recentBatches: batches ?? [],
+    recentBatches: (batches ?? []).map((batch: any) => ({
+      ...batch,
+      display_name: batch.metadata?.display_name ?? batch.display_name ?? batch.source_filename,
+    })),
   }
 }

@@ -19,6 +19,8 @@
 
   let isMobileMenuOpen = $state(false)
   let isBrandHovered = $state(false)
+  let openDesktopGroup = $state<string | null>(null)
+  let desktopNavRef = $state<HTMLElement | null>(null)
 
   // Get user from page data (set by +layout.server.ts)
   const user = $derived($page.data.user)
@@ -30,8 +32,8 @@
       { href: '/matches', label: 'Matches', icon: Calendar },
       { href: '/rulebook', label: 'Rulebook', icon: BookOpen },
       { href: '/stats', label: 'Stats', icon: BarChart3 },
+      { href: '/team-balance', label: 'Calculator', icon: Calculator },
       { href: '/teams', label: 'Teams', icon: Users },
-      // { href: '/team-balance', label: 'Calculator', icon: Calculator },
     ]
 
     if (user) {
@@ -45,12 +47,40 @@
     return items
   })
 
+  const desktopGroups = $derived.by(() => {
+    const groups = [
+      {
+        label: 'Competition',
+        items: navItems.filter((item) =>
+          ['/leaderboard', '/matches', '/teams'].includes(item.href)
+        ),
+      },
+      {
+        label: 'Resources',
+        items: navItems.filter((item) =>
+          ['/rulebook', '/stats', '/team-balance'].includes(item.href)
+        ),
+      },
+    ]
+
+    return groups.filter((group) => group.items.length > 0)
+  })
+
+  const desktopStandaloneItems = $derived.by(() =>
+    navItems.filter(
+      (item) =>
+        !['/leaderboard', '/matches', '/teams', '/rulebook', '/stats', '/team-balance'].includes(
+          item.href
+        )
+    )
+  )
+
   function handleLogin() {
     window.location.href = '/auth/login'
   }
 
   async function handleLogout() {
-    await fetch('/auth/logout')
+    await window.fetch('/auth/logout')
     await invalidateAll()
   }
 
@@ -73,8 +103,20 @@
     return `color: var(--text);`
   }
 
+  function isGroupActive(items: Array<{ href: string }>) {
+    return items.some((item) => $page.url.pathname === item.href)
+  }
+
   function toggleMobileMenu() {
     isMobileMenuOpen = !isMobileMenuOpen
+  }
+
+  function toggleDesktopGroup(label: string) {
+    openDesktopGroup = openDesktopGroup === label ? null : label
+  }
+
+  function closeDesktopGroup() {
+    openDesktopGroup = null
   }
 
   function closeMobileMenu() {
@@ -90,7 +132,15 @@
     const target = e.currentTarget as HTMLElement
     target.style.cssText = 'color: var(--text);'
   }
+
+  function handleWindowClick(e: MouseEvent) {
+    if (desktopNavRef && !desktopNavRef.contains(e.target as Node)) {
+      closeDesktopGroup()
+    }
+  }
 </script>
+
+<svelte:window onclick={handleWindowClick} />
 
 <nav
   class="sticky top-0 z-50 w-full"
@@ -116,34 +166,63 @@
       </a>
 
       <!-- Desktop Navigation -->
-      <ul class="desktop-nav items-center space-x-1">
-        {#each navItems as item (item.href)}
+      <ul class="desktop-nav items-center space-x-2" bind:this={desktopNavRef}>
+        {#each desktopGroups as group (group.label)}
+          {@const groupActive = isGroupActive(group.items)}
+          <li class="relative">
+            <button
+              type="button"
+              class={`flex items-center gap-2 rounded-lg px-4 py-2 transition-colors ${groupActive ? 'font-semibold' : ''}`}
+              style={groupActive || openDesktopGroup === group.label
+                ? 'color: var(--text); background-color: var(--active);'
+                : 'color: var(--text); background-color: transparent;'}
+              onclick={(e) => {
+                e.stopPropagation()
+                toggleDesktopGroup(group.label)
+              }}
+            >
+              <span>{group.label}</span>
+              <span class="text-xs opacity-70">▼</span>
+            </button>
+            {#if openDesktopGroup === group.label}
+              <div
+                class="absolute right-0 mt-2 min-w-[220px] rounded-xl border p-2 shadow-2xl"
+                style="border-color: rgba(255,255,255,0.12); background: rgba(10,10,10,0.98);"
+              >
+                {#each group.items as item (item.href)}
+                  {@const Icon = item.icon}
+                  <a
+                    href={item.href}
+                    class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors"
+                    style={$page.url.pathname === item.href
+                      ? 'color: var(--text); background-color: var(--active);'
+                      : 'color: var(--text);'}
+                    onclick={closeDesktopGroup}
+                  >
+                    <Icon class="h-4 w-4" />
+                    <span>{item.label}</span>
+                  </a>
+                {/each}
+              </div>
+            {/if}
+          </li>
+        {/each}
+
+        {#each desktopStandaloneItems as item (item.href)}
           {@const isActive = $page.url.pathname === item.href}
           {@const Icon = item.icon}
           <li>
-            {#if isActive}
-              <a
-                href={item.href}
-                class={getClasses(item.href)}
-                title={item.label}
-                style={getItemStyle(item.href, false)}
-              >
-                <Icon class="h-5 w-5" />
-                <span>{item.label}</span>
-              </a>
-            {:else}
-              <a
-                href={item.href}
-                class={getClasses(item.href)}
-                title={item.label}
-                style="color: var(--text);"
-                onmouseenter={handleHoverEnter}
-                onmouseleave={handleHoverLeave}
-              >
-                <Icon class="h-5 w-5" />
-                <span>{item.label}</span>
-              </a>
-            {/if}
+            <a
+              href={item.href}
+              class="flex items-center gap-2 rounded-lg px-4 py-2 transition-colors"
+              title={item.label}
+              style={isActive ? getItemStyle(item.href, false) : 'color: var(--text);'}
+              onmouseenter={isActive ? undefined : handleHoverEnter}
+              onmouseleave={isActive ? undefined : handleHoverLeave}
+            >
+              <Icon class="h-5 w-5" />
+              <span>{item.label}</span>
+            </a>
           </li>
         {/each}
 

@@ -139,7 +139,7 @@
     submitMessage = null
 
     try {
-      const response = await fetch('/api/admin/leaderboard/import', {
+      const response = await window.fetch('/api/admin/leaderboard/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

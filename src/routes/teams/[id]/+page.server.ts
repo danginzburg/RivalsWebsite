@@ -114,6 +114,12 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
     .limit(1)
     .maybeSingle()
 
+  const { data: activeSeason } = await supabaseAdmin
+    .from('seasons')
+    .select('id, name, code')
+    .eq('is_active', true)
+    .maybeSingle()
+
   const { data: leaderboardEntry } = leaderboardBatch
     ? await supabaseAdmin
         .from('leaderboard_entries')
@@ -125,23 +131,24 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
 
   const { data: statsBatches } = await supabaseAdmin
     .from('stat_import_batches')
-    .select('id, import_kind, created_at, metadata')
+    .select('id, season_id, import_kind, created_at, metadata')
     .filter('metadata->>import_type', 'eq', 'rivals_group_stats')
     .eq('status', 'applied')
     .order('created_at', { ascending: false })
     .limit(50)
 
-  const statsBatchId =
-    (statsBatches ?? []).find((batch: any) => batch.import_kind === 'aggregate')?.id ??
-    (statsBatches ?? [])[0]?.id ??
-    null
+  const currentSeasonStatsBatchId = activeSeason?.id
+    ? ((statsBatches ?? []).find(
+        (batch: any) => batch.import_kind === 'aggregate' && batch.season_id === activeSeason.id
+      )?.id ?? null)
+    : null
 
   const { data: rosterStats } =
-    statsBatchId && profileIds.length > 0
+    currentSeasonStatsBatchId && profileIds.length > 0
       ? await supabaseAdmin
           .from('rivals_group_stats')
-          .select('profile_id, player_name, acs, kd, adr, games, agents')
-          .eq('import_batch_id', statsBatchId)
+          .select('profile_id, player_name, acs, kd, adr, games')
+          .eq('import_batch_id', currentSeasonStatsBatchId)
           .in('profile_id', profileIds)
           .order('acs', { ascending: false })
       : { data: [] }
@@ -168,6 +175,7 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
     })),
     matchHistory: matchHistory ?? [],
     upcomingMatches: upcomingMatches ?? [],
+    activeSeason: activeSeason ?? null,
     leaderboard: leaderboardEntry
       ? {
           ...leaderboardEntry,

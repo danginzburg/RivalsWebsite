@@ -73,7 +73,7 @@ export const load = async () => {
   return {
     rows,
     batch: {
-      display_name: batch.display_name ?? batch.source_filename,
+      display_name: batch.metadata?.display_name ?? batch.display_name ?? batch.source_filename,
       created_at: batch.created_at,
       as_of_date: batch.metadata?.as_of_date ?? null,
       split: batch.metadata?.split ?? 'main',

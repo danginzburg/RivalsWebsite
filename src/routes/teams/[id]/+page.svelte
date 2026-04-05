@@ -9,6 +9,7 @@
   const upcomingMatches = $derived(data.upcomingMatches ?? [])
   const matchHistory = $derived(data.matchHistory ?? [])
   const leaderboard = $derived(data.leaderboard ?? null)
+  const activeSeason = $derived(data.activeSeason ?? null)
 
   function formatUtc(value: string | null | undefined) {
     if (!value) return 'Date TBD'
@@ -52,88 +53,98 @@
         class="rounded-lg border p-5"
         style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
       >
-        <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div class="flex items-center gap-4">
-            {#if team.logo_url}
-              <img
-                src={team.logo_url}
-                alt="{team.name} logo"
-                class="h-20 w-20 rounded object-contain"
-              />
-            {:else}
-              <div
-                class="flex h-20 w-20 items-center justify-center rounded border"
-                style="border-color: rgba(255,255,255,0.12);"
-              >
-                <Users size={34} style="color: var(--text);" />
-              </div>
-            {/if}
-            <div>
-              <h1 class="responsive-title">{team.name}{team.tag ? ` [${team.tag}]` : ''}</h1>
-              {#if team.org || team.created_at}
-                <p class="text-sm" style="color: rgba(255,255,255,0.72);">
-                  {#if team.org}{team.org}{/if}
-                  {#if team.created_at}
-                    <span
-                      >{team.org ? ' • ' : ''}Created {new Date(
-                        team.created_at
-                      ).toLocaleDateString()}</span
-                    >
-                  {/if}
-                </p>
-              {/if}
-              {#if team.about}
-                <p class="mt-2 max-w-3xl text-sm" style="color: rgba(255,255,255,0.82);">
-                  {team.about}
-                </p>
-              {/if}
-            </div>
-          </div>
-
-          {#if leaderboard}
-            <div class="grid grid-cols-2 gap-3 md:grid-cols-4">
-              <div
-                class="rounded-md border p-3"
-                style="border-color: rgba(255,255,255,0.10); background: rgba(255,255,255,0.04);"
-              >
-                <div class="text-xs uppercase" style="color: rgba(255,255,255,0.65);">Rank</div>
-                <div class="text-xl font-semibold" style="color: var(--text);">
-                  #{leaderboard.rank}
-                </div>
-              </div>
-              <div
-                class="rounded-md border p-3"
-                style="border-color: rgba(255,255,255,0.10); background: rgba(255,255,255,0.04);"
-              >
-                <div class="text-xs uppercase" style="color: rgba(255,255,255,0.65);">Points</div>
-                <div class="text-xl font-semibold" style="color: var(--text);">
-                  {leaderboard.points}
-                </div>
-              </div>
-              <div
-                class="rounded-md border p-3"
-                style="border-color: rgba(255,255,255,0.10); background: rgba(255,255,255,0.04);"
-              >
-                <div class="text-xs uppercase" style="color: rgba(255,255,255,0.65);">Series</div>
-                <div class="text-xl font-semibold" style="color: var(--text);">
-                  {leaderboard.wins}-{leaderboard.losses}
-                </div>
-              </div>
-              <div
-                class="rounded-md border p-3"
-                style="border-color: rgba(255,255,255,0.10); background: rgba(255,255,255,0.04);"
-              >
-                <div class="text-xs uppercase" style="color: rgba(255,255,255,0.65);">
-                  Round Diff
-                </div>
-                <div class="text-xl font-semibold" style="color: var(--text);">
-                  {leaderboard.round_diff}
-                </div>
-              </div>
+        <div class="flex items-center gap-4">
+          {#if team.logo_url}
+            <img
+              src={team.logo_url}
+              alt="{team.name} logo"
+              class="h-20 w-20 rounded object-contain"
+            />
+          {:else}
+            <div
+              class="flex h-20 w-20 items-center justify-center rounded border"
+              style="border-color: rgba(255,255,255,0.12);"
+            >
+              <Users size={34} style="color: var(--text);" />
             </div>
           {/if}
+          <div>
+            <h1 class="responsive-title">{team.name}{team.tag ? ` [${team.tag}]` : ''}</h1>
+            {#if team.org || team.created_at}
+              <p class="text-sm" style="color: rgba(255,255,255,0.72);">
+                {#if team.org}{team.org}{/if}
+                {#if team.created_at}
+                  <span
+                    >{team.org ? ' • ' : ''}Created {new Date(
+                      team.created_at
+                    ).toLocaleDateString()}</span
+                  >
+                {/if}
+              </p>
+            {/if}
+            {#if team.about}
+              <p class="mt-2 max-w-3xl text-sm" style="color: rgba(255,255,255,0.82);">
+                {team.about}
+              </p>
+            {/if}
+          </div>
         </div>
       </section>
+
+      {#if leaderboard}
+        <section
+          class="rounded-lg border p-4"
+          style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
+        >
+          <div class="mb-3 flex items-center gap-2">
+            <Trophy size={18} />
+            <h2
+              class="text-sm font-semibold tracking-wide uppercase"
+              style="color: rgba(255,255,255,0.8);"
+            >
+              Current Standings
+            </h2>
+          </div>
+          <div class="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <div
+              class="rounded-md border p-3"
+              style="border-color: rgba(255,255,255,0.10); background: rgba(255,255,255,0.04);"
+            >
+              <div class="text-xs uppercase" style="color: rgba(255,255,255,0.65);">Rank</div>
+              <div class="text-xl font-semibold" style="color: var(--text);">
+                #{leaderboard.rank}
+              </div>
+            </div>
+            <div
+              class="rounded-md border p-3"
+              style="border-color: rgba(255,255,255,0.10); background: rgba(255,255,255,0.04);"
+            >
+              <div class="text-xs uppercase" style="color: rgba(255,255,255,0.65);">Points</div>
+              <div class="text-xl font-semibold" style="color: var(--text);">
+                {leaderboard.points}
+              </div>
+            </div>
+            <div
+              class="rounded-md border p-3"
+              style="border-color: rgba(255,255,255,0.10); background: rgba(255,255,255,0.04);"
+            >
+              <div class="text-xs uppercase" style="color: rgba(255,255,255,0.65);">Series</div>
+              <div class="text-xl font-semibold" style="color: var(--text);">
+                {leaderboard.wins}-{leaderboard.losses}
+              </div>
+            </div>
+            <div
+              class="rounded-md border p-3"
+              style="border-color: rgba(255,255,255,0.10); background: rgba(255,255,255,0.04);"
+            >
+              <div class="text-xs uppercase" style="color: rgba(255,255,255,0.65);">Round Diff</div>
+              <div class="text-xl font-semibold" style="color: var(--text);">
+                {leaderboard.round_diff}
+              </div>
+            </div>
+          </div>
+        </section>
+      {/if}
 
       <div class="grid grid-cols-1 gap-4 lg:grid-cols-[1.2fr_0.8fr]">
         <section
@@ -181,14 +192,17 @@
                 {#if player.stats}
                   <div class="mt-2 text-xs" style="color: rgba(255,255,255,0.68);">
                     ADR {fmt(player.stats.adr, 0)}
-                    {#if player.stats.agents}
-                      <span> • {player.stats.agents}</span>
-                    {/if}
                   </div>
                 {/if}
               </svelte:element>
             {/each}
           </div>
+          {#if !activeSeason}
+            <div class="mt-3 text-sm" style="color: rgba(255,255,255,0.62);">
+              Player season stats will appear once an active season exists and season stats are
+              imported.
+            </div>
+          {/if}
         </section>
 
         <section class="space-y-4">
@@ -202,21 +216,20 @@
                 class="text-sm font-semibold tracking-wide uppercase"
                 style="color: rgba(255,255,255,0.8);"
               >
-                Standings
+                Season Snapshot
               </h2>
             </div>
             {#if leaderboard}
               <div class="space-y-2 text-sm" style="color: rgba(255,255,255,0.82);">
+                <div>Active season: {activeSeason?.name ?? 'No active season'}</div>
                 <div>Latest batch: {leaderboard.batch?.display_name ?? 'Imported snapshot'}</div>
                 {#if leaderboard.batch?.as_of_date}
                   <div>As of: {leaderboard.batch.as_of_date}</div>
                 {/if}
-                <div>Matches played: {leaderboard.matches_played}</div>
-                <div>Map record: {leaderboard.map_wins}-{leaderboard.map_losses}</div>
               </div>
             {:else}
               <div class="text-sm" style="color: rgba(255,255,255,0.72);">
-                No imported standings yet.
+                No current season standings yet.
               </div>
             {/if}
           </div>

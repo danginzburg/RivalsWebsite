@@ -102,6 +102,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     approved_at: importedAt,
     metadata: {
       import_type: 'leaderboard_entries',
+      display_name: displayName,
       split,
       as_of_date: asOfDate,
       season_name: season?.name ?? null,

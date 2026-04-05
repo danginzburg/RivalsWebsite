@@ -23,7 +23,7 @@
     message = null
     try {
       const sortOrder = orderById[batchId] ?? ''
-      const res = await fetch(`/api/admin/stats/batches/${batchId}`, {
+      const res = await window.fetch(`/api/admin/stats/batches/${batchId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sortOrder }),
