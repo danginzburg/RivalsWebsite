@@ -127,6 +127,8 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
       .filter((row) => row.match_map_id === map.id)
       .map((row) => {
         const profile = row.profile_id ? profileById.get(row.profile_id) : null
+        const fallbackRounds = Number(map.team_a_rounds ?? 0) + Number(map.team_b_rounds ?? 0)
+        const rowRounds = Number(row.rounds ?? 0)
         return {
           profile_id: row.profile_id,
           team_id: row.team_id,
@@ -143,7 +145,7 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
           kast_pct: row.kast_pct,
           hs_pct: row.hs_pct,
           econ_rating: row.econ_rating,
-          rounds: row.rounds,
+          rounds: rowRounds > 0 ? rowRounds : fallbackRounds,
           fk: row.fk,
           fd: row.fd,
           plants: row.plants,
