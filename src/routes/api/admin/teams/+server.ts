@@ -80,14 +80,16 @@ export const GET: RequestHandler = async ({ locals }) => {
   if (approvedTeamIds.length > 0) {
     const { data: rosterRows, error: rosterError } = await supabaseAdmin
       .from('team_memberships')
-      .select('team_id, profile_id, role')
+      .select('id, team_id, profile_id, player_name, role')
       .in('team_id', approvedTeamIds)
       .eq('is_active', true)
       .is('left_at', null)
 
     if (rosterError) throw error(500, 'Failed to load team rosters')
 
-    const profileIds = Array.from(new Set((rosterRows ?? []).map((r) => r.profile_id)))
+    const profileIds = Array.from(
+      new Set((rosterRows ?? []).map((r) => r.profile_id).filter((id): id is string => Boolean(id)))
+    )
 
     const profileById = new Map<string, any>()
     if (profileIds.length > 0) {
@@ -104,7 +106,9 @@ export const GET: RequestHandler = async ({ locals }) => {
       rosterCountMap.set(row.team_id, (rosterCountMap.get(row.team_id) ?? 0) + 1)
       const p = profileById.get(row.profile_id)
       const entry = {
+        membership_id: row.id,
         profile_id: row.profile_id,
+        player_name: (row as any).player_name ?? null,
         role: row.role,
         riot_id_base: p?.riot_id_base ?? null,
         display_name: p?.display_name ?? null,
@@ -151,8 +155,13 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     if (!name) throw error(400, 'Team name is required')
     if (name.length < 2 || name.length > 48) throw error(400, 'Team name must be 2-48 characters')
 
-    if (tag && !/^[A-Za-z0-9]{2,4}$/.test(tag)) {
+    if (!tag) throw error(400, 'Team tag is required')
+    if (!/^[A-Za-z0-9]{2,4}$/.test(tag)) {
       throw error(400, 'Team tag must be 2-4 characters (letters/numbers)')
+    }
+
+    if (!(logo instanceof File) || logo.size <= 0) {
+      throw error(400, 'Team logo is required')
     }
 
     if (logo instanceof File && logo.size > 0) {
@@ -187,6 +196,10 @@ export const POST: RequestHandler = async ({ locals, request }) => {
         submitted_by_profile_id: adminProfile.id,
         approved_by_profile_id: adminProfile.id,
         approved_at: now,
+        metadata: {
+          match_import_names: [],
+          leaderboard_import_tags: [],
+        },
       })
       .select('id, name, tag, logo_path, approval_status, created_at')
       .single()

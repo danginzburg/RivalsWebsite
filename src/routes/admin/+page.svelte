@@ -11,6 +11,7 @@
     CalendarDays,
     CalendarCheck2,
     Upload,
+    Layers3,
   } from 'lucide-svelte'
   import { TEAM_BALANCE_RANKS } from '$lib/team-balance'
 
@@ -25,12 +26,18 @@
     logo_url?: string | null
     metadata?: {
       initial_roster?: Array<{ riot_id?: string; rank_label?: string }>
+      org?: string | null
+      about?: string | null
+      match_import_names?: string[]
+      leaderboard_import_tags?: string[]
     } | null
     approval_status: string
     approval_notes?: string | null
     roster_count?: number
     roster?: Array<{
+      membership_id?: number | null
       profile_id: string
+      player_name?: string | null
       role: string
       riot_id_base: string | null
       display_name: string | null
@@ -40,7 +47,7 @@
     captain_profile?: { display_name?: string | null; email?: string | null } | null
   }
 
-  let activeTab = $state<'users' | 'teams' | 'matches'>('matches')
+  let activeTab = $state<'users' | 'teams' | 'matches' | 'seasons'>('matches')
   let isLoading = $state(false)
   let errorMessage = $state<string | null>(null)
   let successMessage = $state<string | null>(null)
@@ -48,6 +55,7 @@
   const getInitialPlayers = () => data.players || []
   const getInitialObservers = () => data.observers || []
   const getInitialUsers = () => data.users || []
+  const getInitialSeasons = () => data.seasons || []
   const getInitialTeamQueue = () => data.teamQueue || []
   const getInitialApprovedTeams = () => data.approvedTeams || []
   const getInitialMatches = () => data.matches || []
@@ -55,9 +63,19 @@
   let players = $state<any[]>(getInitialPlayers())
   let observers = $state<any[]>(getInitialObservers())
   let users = $state<any[]>(getInitialUsers())
+  let seasons = $state<any[]>(getInitialSeasons())
   let teamQueue = $state<TeamQueueEntry[]>(getInitialTeamQueue())
   let approvedTeams = $state<TeamQueueEntry[]>(getInitialApprovedTeams())
   let matches = $state<any[]>(getInitialMatches())
+  let matchSearchQuery = $state('')
+  let showCompletedAdminMatches = $state(false)
+  let createSeasonCode = $state('')
+  let createSeasonName = $state('')
+  let createSeasonStartsOn = $state('')
+  let createSeasonEndsOn = $state('')
+  let createSeasonIsActive = $state(false)
+  let isCreatingSeason = $state(false)
+  let seasonEditForm = $state<Record<string, any>>({})
 
   const approvedTeamOptions = $derived(
     (approvedTeams ?? []).map((t) => ({
@@ -76,19 +94,36 @@
   let createMatchBestOf = $state<'3' | '5'>('3')
   let createMatchScheduledAt = $state('')
   let isCreatingMatch = $state(false)
+  let expandedAdminMatchId = $state<string | null>(null)
+
+  const filteredAdminMatches = $derived.by(() => {
+    const query = matchSearchQuery.trim().toLowerCase()
+    return (matches ?? []).filter((match) => {
+      if (!showCompletedAdminMatches && match.status === 'completed') return false
+      if (!query) return true
+
+      const haystack = [teamName(match.team_a), teamName(match.team_b), match.status]
+        .join(' ')
+        .toLowerCase()
+
+      return haystack.includes(query)
+    })
+  })
 
   let createTeamName = $state('')
   let createTeamTag = $state('')
   let createTeamLogoFile = $state<File | null>(null)
   let isCreatingTeam = $state(false)
 
-  let addPlayerForm = $state<Record<string, { profileId: string; role: string }>>({})
+  let addPlayerForm = $state<Record<string, { playerName: string; role: string }>>({})
+  let teamEditForm = $state<Record<string, any>>({})
+  let teamLogoFileById = $state<Record<string, File | null>>({})
 
   function updateAddPlayerForm(
     teamId: string,
-    patch: Partial<{ profileId: string; role: string }>
+    patch: Partial<{ playerName: string; role: string }>
   ) {
-    const current = addPlayerForm[teamId] ?? { profileId: '', role: 'player' }
+    const current = addPlayerForm[teamId] ?? { playerName: '', role: 'player' }
     addPlayerForm = {
       ...addPlayerForm,
       [teamId]: {
@@ -101,9 +136,9 @@
   $effect(() => {
     // Ensure per-team form state exists without mutating during render.
     const ids = new Set((approvedTeams ?? []).map((t) => t.id))
-    const next: Record<string, { profileId: string; role: string }> = {}
+    const next: Record<string, { playerName: string; role: string }> = {}
     for (const id of ids) {
-      next[id] = addPlayerForm[id] ?? { profileId: '', role: 'player' }
+      next[id] = addPlayerForm[id] ?? { playerName: '', role: 'player' }
     }
     // Preserve object identity when no changes.
     const prevKeys = Object.keys(addPlayerForm)
@@ -113,10 +148,55 @@
       nextKeys.some(
         (k) =>
           !addPlayerForm[k] ||
-          addPlayerForm[k].profileId !== next[k].profileId ||
+          addPlayerForm[k].playerName !== next[k].playerName ||
           addPlayerForm[k].role !== next[k].role
       )
     if (changed) addPlayerForm = next
+  })
+
+  function updateTeamEditForm(teamId: string, patch: Record<string, string>) {
+    const current =
+      teamEditForm[teamId] ??
+      ({
+        name: '',
+        tag: '',
+        status: 'active',
+      } as const)
+    teamEditForm = {
+      ...teamEditForm,
+      [teamId]: {
+        ...current,
+        ...patch,
+      },
+    }
+  }
+
+  $effect(() => {
+    const next: Record<string, any> = {}
+    const nextLogos: Record<string, File | null> = {}
+    for (const team of approvedTeams ?? []) {
+      next[team.id] = teamEditForm[team.id] ?? {
+        name: team.name ?? '',
+        tag: team.tag ?? '',
+        status: (team as any).status ?? 'active',
+      }
+      nextLogos[team.id] = teamLogoFileById[team.id] ?? null
+    }
+    const teamKeys = Object.keys(next)
+    const currentKeys = Object.keys(teamEditForm)
+    const teamChanged =
+      teamKeys.length !== currentKeys.length ||
+      teamKeys.some(
+        (key) => JSON.stringify(teamEditForm[key] ?? {}) !== JSON.stringify(next[key] ?? {})
+      )
+    if (teamChanged) teamEditForm = next
+
+    const logoKeys = Object.keys(nextLogos)
+    const currentLogoKeys = Object.keys(teamLogoFileById)
+    const logoChanged =
+      logoKeys.length !== currentLogoKeys.length ||
+      logoKeys.some((key) => teamLogoFileById[key] !== nextLogos[key])
+    if (logoChanged) teamLogoFileById = nextLogos
   })
 
   const membershipRoleOptions = [
@@ -126,21 +206,63 @@
     { value: 'coach', label: 'Coach' },
   ]
 
-  const playerOptions = $derived.by(() => {
-    return (users ?? [])
-      .filter((u) => u.role !== 'banned' && u.role !== 'restricted')
-      .map((u) => {
-        const labelParts = [u.riot_id_base || u.display_name || u.email || u.id]
-        if (u.riot_id_base && u.display_name && u.display_name !== u.riot_id_base) {
-          labelParts.push(u.display_name)
-        }
-        return { value: u.id, label: labelParts.filter(Boolean).join(' - ') }
-      })
-  })
+  const teamStatusOptions = [
+    { value: 'active', label: 'Active' },
+    { value: 'inactive', label: 'Inactive' },
+    { value: 'disbanded', label: 'Disbanded' },
+  ]
+
+  const matchStatusOptions = [
+    { value: 'scheduled', label: 'Scheduled' },
+    { value: 'live', label: 'Live' },
+    { value: 'completed', label: 'Completed' },
+    { value: 'cancelled', label: 'Cancelled' },
+  ]
+
+  const streamPlatformOptions = [
+    { value: 'twitch', label: 'Twitch' },
+    { value: 'youtube', label: 'YouTube' },
+    { value: 'kick', label: 'Kick' },
+    { value: 'other', label: 'Other' },
+  ]
+
+  const streamStatusOptions = [
+    { value: 'scheduled', label: 'Scheduled' },
+    { value: 'live', label: 'Live' },
+    { value: 'ended', label: 'Ended' },
+  ]
+
+  let createTeamLogoInput = $state<HTMLInputElement | null>(null)
 
   let finalizeForm = $state<
     Record<string, { teamAScore: string; teamBScore: string; winnerTeamId: string }>
   >({})
+  let matchEditForm = $state<Record<string, any>>({})
+  let streamForm = $state<
+    Record<
+      string,
+      {
+        platform: string
+        streamUrl: string
+        displayName: string
+        status: string
+        isPrimary: boolean
+      }
+    >
+  >({})
+  let existingStreamForm = $state<
+    Record<
+      string,
+      {
+        platform: string
+        streamUrl: string
+        displayName: string
+        status: string
+        isPrimary: boolean
+      }
+    >
+  >({})
+  let vodForm = $state<Record<string, string>>({})
 
   function updateFinalizeForm(
     matchId: string,
@@ -185,6 +307,161 @@
     if (changed) finalizeForm = next
   })
 
+  function toDatetimeLocal(value: string | null | undefined) {
+    if (!value) return ''
+    const date = new Date(value)
+    const yyyy = date.getFullYear()
+    const mm = String(date.getMonth() + 1).padStart(2, '0')
+    const dd = String(date.getDate()).padStart(2, '0')
+    const hh = String(date.getHours()).padStart(2, '0')
+    const min = String(date.getMinutes()).padStart(2, '0')
+    return `${yyyy}-${mm}-${dd}T${hh}:${min}`
+  }
+
+  function updateMatchEditForm(matchId: string, patch: Record<string, string>) {
+    const current =
+      matchEditForm[matchId] ??
+      ({
+        teamAId: '',
+        teamBId: '',
+        bestOf: '3',
+        status: 'scheduled',
+        scheduledAt: '',
+        teamAScore: '0',
+        teamBScore: '0',
+        winnerTeamId: '',
+        mapVetoes: '',
+      } as const)
+    matchEditForm = {
+      ...matchEditForm,
+      [matchId]: {
+        ...current,
+        ...patch,
+      },
+    }
+  }
+
+  $effect(() => {
+    const next: Record<string, any> = {}
+    for (const match of matches ?? []) {
+      next[match.id] = matchEditForm[match.id] ?? {
+        teamAId: match.team_a_id,
+        teamBId: match.team_b_id,
+        bestOf: String(match.best_of ?? 3),
+        status: match.status ?? 'scheduled',
+        scheduledAt: toDatetimeLocal(match.scheduled_at),
+        teamAScore: String(match.team_a_score ?? 0),
+        teamBScore: String(match.team_b_score ?? 0),
+        winnerTeamId: match.winner_team_id ?? '',
+        mapVetoes: Array.isArray(match.metadata?.map_vetoes)
+          ? match.metadata.map_vetoes.join('\n')
+          : '',
+      }
+    }
+    const keys = Object.keys(next)
+    const currentKeys = Object.keys(matchEditForm)
+    const changed =
+      keys.length !== currentKeys.length ||
+      keys.some(
+        (key) => JSON.stringify(matchEditForm[key] ?? {}) !== JSON.stringify(next[key] ?? {})
+      )
+    if (changed) matchEditForm = next
+  })
+
+  $effect(() => {
+    const next: Record<
+      string,
+      {
+        platform: string
+        streamUrl: string
+        displayName: string
+        status: string
+        isPrimary: boolean
+      }
+    > = {}
+    for (const match of matches ?? []) {
+      next[match.id] = streamForm[match.id] ?? {
+        platform: 'twitch',
+        streamUrl: '',
+        displayName: '',
+        status: match.status === 'live' ? 'live' : 'scheduled',
+        isPrimary: !(match.streams?.length > 0),
+      }
+    }
+    const keys = Object.keys(next)
+    const currentKeys = Object.keys(streamForm)
+    const changed =
+      keys.length !== currentKeys.length ||
+      keys.some((key) => JSON.stringify(streamForm[key] ?? {}) !== JSON.stringify(next[key] ?? {}))
+    if (changed) streamForm = next
+  })
+
+  $effect(() => {
+    const next: Record<
+      string,
+      {
+        platform: string
+        streamUrl: string
+        displayName: string
+        status: string
+        isPrimary: boolean
+      }
+    > = {}
+    for (const match of matches ?? []) {
+      for (const stream of match.streams ?? []) {
+        next[stream.id] = existingStreamForm[stream.id] ?? {
+          platform: stream.platform ?? 'twitch',
+          streamUrl: stream.stream_url ?? '',
+          displayName: stream.metadata?.display_name ?? '',
+          status: stream.status ?? 'scheduled',
+          isPrimary: Boolean(stream.is_primary),
+        }
+      }
+    }
+    const keys = Object.keys(next)
+    const currentKeys = Object.keys(existingStreamForm)
+    const changed =
+      keys.length !== currentKeys.length ||
+      keys.some(
+        (key) => JSON.stringify(existingStreamForm[key] ?? {}) !== JSON.stringify(next[key] ?? {})
+      )
+    if (changed) existingStreamForm = next
+  })
+
+  $effect(() => {
+    const next: Record<string, string> = {}
+    for (const match of matches ?? []) {
+      next[match.id] = vodForm[match.id] ?? match.vod_url ?? ''
+    }
+    const keys = Object.keys(next)
+    const currentKeys = Object.keys(vodForm)
+    const changed =
+      keys.length !== currentKeys.length ||
+      keys.some((key) => (vodForm[key] ?? '') !== (next[key] ?? ''))
+    if (changed) vodForm = next
+  })
+
+  $effect(() => {
+    const next: Record<string, any> = {}
+    for (const season of seasons ?? []) {
+      next[season.id] = seasonEditForm[season.id] ?? {
+        code: season.code ?? '',
+        name: season.name ?? '',
+        startsOn: season.starts_on ?? '',
+        endsOn: season.ends_on ?? '',
+        isActive: Boolean(season.is_active),
+      }
+    }
+    const keys = Object.keys(next)
+    const currentKeys = Object.keys(seasonEditForm)
+    const changed =
+      keys.length !== currentKeys.length ||
+      keys.some(
+        (key) => JSON.stringify(seasonEditForm[key] ?? {}) !== JSON.stringify(next[key] ?? {})
+      )
+    if (changed) seasonEditForm = next
+  })
+
   function teamName(value: unknown) {
     if (!value) return 'Team'
     if (Array.isArray(value)) {
@@ -215,6 +492,7 @@
   let playersSearch = $state('')
   let observersSearch = $state('')
   let usersSearch = $state('')
+  let userRiotIdForm = $state<Record<string, string>>({})
   let teamsSearch = $state('')
   let pendingRankChange = $state<{
     registrationId: number
@@ -254,6 +532,7 @@
     | {
         kind: 'remove_player'
         teamId: string
+        membershipId: number | null
         profileId: string
         riotId: string
         role: string
@@ -262,9 +541,56 @@
         confirmLabel: string
       }
     | {
-        kind: 'purge_user'
-        profileId: string
-        label: string
+        kind: 'finalize_match'
+        matchId: string
+        teamAScore: string
+        teamBScore: string
+        winnerTeamId: string
+        title: string
+        message: string
+        confirmLabel: string
+      }
+    | {
+        kind: 'cancel_match'
+        matchId: string
+        title: string
+        message: string
+        confirmLabel: string
+      }
+    | {
+        kind: 'save_team'
+        teamId: string
+        title: string
+        message: string
+        confirmLabel: string
+      }
+    | {
+        kind: 'save_match'
+        matchId: string
+        title: string
+        message: string
+        confirmLabel: string
+      }
+    | {
+        kind: 'delete_match'
+        matchId: string
+        title: string
+        message: string
+        confirmLabel: string
+      }
+    | {
+        kind: 'delete_stream'
+        matchId: string
+        streamId: string
+        title: string
+        message: string
+        confirmLabel: string
+      }
+    | {
+        kind: 'save_user_riot'
+        userId: string
+        userName: string
+        riotIdBase: string
         title: string
         message: string
         confirmLabel: string
@@ -318,6 +644,19 @@
     })
   })
 
+  $effect(() => {
+    const next: Record<string, string> = {}
+    for (const user of users ?? []) {
+      next[user.id] = userRiotIdForm[user.id] ?? user.riot_id_base ?? ''
+    }
+    const keys = Object.keys(next)
+    const currentKeys = Object.keys(userRiotIdForm)
+    const changed =
+      keys.length !== currentKeys.length ||
+      keys.some((key) => (userRiotIdForm[key] ?? '') !== (next[key] ?? ''))
+    if (changed) userRiotIdForm = next
+  })
+
   const displayedApprovedTeams = $derived.by(() => {
     const search = normalizeSearchValue(teamsSearch)
     return approvedTeams.filter((team) => {
@@ -348,15 +687,20 @@
     successMessage = null
 
     try {
-      const [usersResponse, teamsResponse, matchesResponse] = await Promise.all([
-        fetch('/api/admin/users'),
-        fetch('/api/admin/teams'),
-        fetch('/api/admin/matches'),
+      const [usersResponse, seasonsResponse, teamsResponse, matchesResponse] = await Promise.all([
+        window.fetch('/api/admin/users'),
+        window.fetch('/api/admin/seasons'),
+        window.fetch('/api/admin/teams'),
+        window.fetch('/api/admin/matches'),
       ])
 
       if (!usersResponse.ok) {
         const err = await usersResponse.json()
         throw new Error(err.message || 'Failed to fetch users')
+      }
+      if (!seasonsResponse.ok) {
+        const err = await seasonsResponse.json()
+        throw new Error(err.message || 'Failed to fetch seasons')
       }
       if (!teamsResponse.ok) {
         const err = await teamsResponse.json()
@@ -368,10 +712,12 @@
       }
 
       const usersResult = await usersResponse.json()
+      const seasonsResult = await seasonsResponse.json()
       const teamsResult = await teamsResponse.json()
       const matchesResult = await matchesResponse.json()
 
       users = usersResult.users
+      seasons = seasonsResult.seasons
       teamQueue = teamsResult.queue
       approvedTeams = teamsResult.approved
       matches = matchesResult.matches
@@ -388,23 +734,38 @@
       teamBScore: String(match.team_b_score ?? 0),
       winnerTeamId: match.winner_team_id ?? match.team_a_id,
     }
-    const confirmed = window.confirm(
-      'Are you sure you want to finalize this match? This is official.'
-    )
-    if (!confirmed) return
 
+    pendingActionConfirmation = {
+      kind: 'finalize_match',
+      matchId: match.id,
+      teamAScore: state.teamAScore,
+      teamBScore: state.teamBScore,
+      winnerTeamId: state.winnerTeamId,
+      title: 'Confirm Match Finalization',
+      message: `Finalize ${teamName(match.team_a)} vs ${teamName(match.team_b)} at ${state.teamAScore}-${state.teamBScore}? This will mark the result official.`,
+      confirmLabel: 'Finalize Match',
+    }
+    showActionConfirmation = true
+  }
+
+  async function executeFinalizeMatch(action: {
+    matchId: string
+    teamAScore: string
+    teamBScore: string
+    winnerTeamId: string
+  }) {
     errorMessage = null
     successMessage = null
 
     try {
-      const response = await fetch(`/api/admin/matches/${match.id}`, {
+      const response = await window.fetch(`/api/admin/matches/${action.matchId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'finalize',
-          winnerTeamId: state.winnerTeamId,
-          teamAScore: Number(state.teamAScore),
-          teamBScore: Number(state.teamBScore),
+          winnerTeamId: action.winnerTeamId,
+          teamAScore: Number(action.teamAScore),
+          teamBScore: Number(action.teamBScore),
         }),
       })
 
@@ -418,14 +779,22 @@
   }
 
   async function cancelMatch(match: any) {
-    const confirmed = window.confirm('Are you sure you want to cancel this match?')
-    if (!confirmed) return
+    pendingActionConfirmation = {
+      kind: 'cancel_match',
+      matchId: match.id,
+      title: 'Confirm Match Cancellation',
+      message: `Cancel ${teamName(match.team_a)} vs ${teamName(match.team_b)}? This will keep the match record but mark it cancelled.`,
+      confirmLabel: 'Cancel Match',
+    }
+    showActionConfirmation = true
+  }
 
+  async function executeCancelMatch(matchId: string) {
     errorMessage = null
     successMessage = null
 
     try {
-      const response = await fetch(`/api/admin/matches/${match.id}`, {
+      const response = await window.fetch(`/api/admin/matches/${matchId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'cancel' }),
@@ -455,7 +824,7 @@
 
     isCreatingMatch = true
     try {
-      const response = await fetch('/api/admin/matches', {
+      const response = await window.fetch('/api/admin/matches', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -495,7 +864,7 @@
       form.set('tag', createTeamTag)
       if (createTeamLogoFile) form.set('logo', createTeamLogoFile)
 
-      const response = await fetch('/api/admin/teams', {
+      const response = await window.fetch('/api/admin/teams', {
         method: 'POST',
         body: form,
       })
@@ -512,6 +881,7 @@
       createTeamName = ''
       createTeamTag = ''
       createTeamLogoFile = null
+      if (createTeamLogoInput) createTeamLogoInput.value = ''
       await refreshData()
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Failed to create team'
@@ -520,10 +890,319 @@
     }
   }
 
+  async function executeSaveTeamEdits(teamId: string) {
+    const state = teamEditForm[teamId]
+    if (!state) return
+
+    processingTeamId = teamId
+    errorMessage = null
+    successMessage = null
+
+    try {
+      const form = new FormData()
+      form.set('name', state.name ?? '')
+      form.set('tag', state.tag ?? '')
+      form.set('status', state.status ?? 'active')
+      if (teamLogoFileById[teamId]) form.set('logo', teamLogoFileById[teamId]!)
+
+      const response = await window.fetch(`/api/admin/teams/${teamId}`, {
+        method: 'PATCH',
+        body: form,
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(result.message || 'Failed to update team')
+
+      successMessage = 'Team updated.'
+      teamLogoFileById = { ...teamLogoFileById, [teamId]: null }
+      await refreshData()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to update team'
+    } finally {
+      processingTeamId = null
+    }
+  }
+
+  async function executeSaveMatchEdits(matchId: string) {
+    const state = matchEditForm[matchId]
+    if (!state) return
+
+    errorMessage = null
+    successMessage = null
+
+    try {
+      const response = await window.fetch(`/api/admin/matches/${matchId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'update',
+          teamAId: state.teamAId,
+          teamBId: state.teamBId,
+          bestOf: Number(state.bestOf),
+          status: state.status,
+          scheduledAt: state.scheduledAt || null,
+          teamAScore: Number(state.teamAScore),
+          teamBScore: Number(state.teamBScore),
+          winnerTeamId: state.winnerTeamId || null,
+          youtubeVodUrl: vodForm[matchId] || null,
+          mapVetoes: state.mapVetoes || '',
+        }),
+      })
+
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(result.message || 'Failed to update match')
+
+      successMessage = 'Match updated.'
+      await refreshData()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to update match'
+    }
+  }
+
+  function saveTeamEdits(teamId: string, teamName: string) {
+    pendingActionConfirmation = {
+      kind: 'save_team',
+      teamId,
+      title: 'Confirm Team Update',
+      message: `Save edits for ${teamName}? This updates public team details and import aliases.`,
+      confirmLabel: 'Save Team Changes',
+    }
+    showActionConfirmation = true
+  }
+
+  function saveMatchEdits(matchId: string, match: any) {
+    pendingActionConfirmation = {
+      kind: 'save_match',
+      matchId,
+      title: 'Confirm Match Update',
+      message: `Save edits for ${teamName(match.team_a)} vs ${teamName(match.team_b)}?`,
+      confirmLabel: 'Save Match Changes',
+    }
+    showActionConfirmation = true
+  }
+
+  function deleteMatch(matchId: string, match: any) {
+    pendingActionConfirmation = {
+      kind: 'delete_match',
+      matchId,
+      title: 'Confirm Match Deletion',
+      message: `Delete ${teamName(match.team_a)} vs ${teamName(match.team_b)} permanently? This is only for cleanup mistakes and cannot be undone.`,
+      confirmLabel: 'Delete Match',
+    }
+    showActionConfirmation = true
+  }
+
+  async function executeDeleteMatch(matchId: string) {
+    errorMessage = null
+    successMessage = null
+    try {
+      const response = await window.fetch(`/api/admin/matches/${matchId}`, { method: 'DELETE' })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(result.message || 'Failed to delete match')
+      successMessage = 'Match deleted.'
+      await refreshData()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to delete match'
+    }
+  }
+
+  async function addMatchStream(matchId: string) {
+    const state = streamForm[matchId]
+    if (!state?.streamUrl?.trim()) {
+      errorMessage = 'Stream URL is required'
+      return
+    }
+
+    errorMessage = null
+    successMessage = null
+    try {
+      const response = await window.fetch(`/api/admin/matches/${matchId}/streams`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(state),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(result.message || 'Failed to add stream')
+      successMessage = 'Stream added.'
+      streamForm = {
+        ...streamForm,
+        [matchId]: {
+          platform: state.platform,
+          streamUrl: '',
+          displayName: '',
+          status: state.status,
+          isPrimary: false,
+        },
+      }
+      await refreshData()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to add stream'
+    }
+  }
+
+  async function saveExistingMatchStream(matchId: string, streamId: string) {
+    const state = existingStreamForm[streamId]
+    if (!state?.streamUrl?.trim()) {
+      errorMessage = 'Stream URL is required'
+      return
+    }
+
+    errorMessage = null
+    successMessage = null
+    try {
+      const response = await window.fetch(`/api/admin/matches/${matchId}/streams`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          streamId,
+          platform: state.platform,
+          streamUrl: state.streamUrl,
+          displayName: state.displayName,
+          status: state.status,
+          isPrimary: state.isPrimary,
+        }),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(result.message || 'Failed to update stream')
+      successMessage = 'Stream updated.'
+      await refreshData()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to update stream'
+    }
+  }
+
+  async function createSeason() {
+    if (!createSeasonCode.trim() || !createSeasonName.trim()) {
+      errorMessage = 'Season code and name are required'
+      return
+    }
+
+    isCreatingSeason = true
+    errorMessage = null
+    successMessage = null
+    try {
+      const response = await window.fetch('/api/admin/seasons', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code: createSeasonCode,
+          name: createSeasonName,
+          startsOn: createSeasonStartsOn || null,
+          endsOn: createSeasonEndsOn || null,
+          isActive: createSeasonIsActive,
+        }),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(result.message || 'Failed to create season')
+      successMessage = 'Season created.'
+      createSeasonCode = ''
+      createSeasonName = ''
+      createSeasonStartsOn = ''
+      createSeasonEndsOn = ''
+      createSeasonIsActive = false
+      await refreshData()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to create season'
+    } finally {
+      isCreatingSeason = false
+    }
+  }
+
+  async function saveSeason(seasonId: string) {
+    const state = seasonEditForm[seasonId]
+    if (!state) return
+
+    errorMessage = null
+    successMessage = null
+    try {
+      const response = await window.fetch('/api/admin/seasons', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: seasonId,
+          code: state.code,
+          name: state.name,
+          startsOn: state.startsOn || null,
+          endsOn: state.endsOn || null,
+          isActive: Boolean(state.isActive),
+        }),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(result.message || 'Failed to update season')
+      successMessage = 'Season updated.'
+      await refreshData()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to update season'
+    }
+  }
+
+  function requestUserRiotIdSave(userId: string, userName: string) {
+    const riotIdBase = (userRiotIdForm[userId] ?? '').trim()
+    pendingActionConfirmation = {
+      kind: 'save_user_riot',
+      userId,
+      userName,
+      riotIdBase,
+      title: 'Confirm Riot ID Update',
+      message: riotIdBase
+        ? `Set ${userName}'s Riot ID to ${riotIdBase}?`
+        : `Clear ${userName}'s Riot ID?`,
+      confirmLabel: 'Save Riot ID',
+    }
+    showActionConfirmation = true
+  }
+
+  async function executeSaveUserRiotId(userId: string, riotIdBase: string) {
+    errorMessage = null
+    successMessage = null
+    try {
+      const response = await window.fetch('/api/admin/users', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, riotIdBase }),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(result.message || 'Failed to update Riot ID')
+      successMessage = 'Riot ID updated.'
+      await refreshData()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to update Riot ID'
+    }
+  }
+
+  function removeMatchStream(matchId: string, streamId: string, label: string) {
+    pendingActionConfirmation = {
+      kind: 'delete_stream',
+      matchId,
+      streamId,
+      title: 'Confirm Stream Removal',
+      message: `Remove stream ${label}? This will remove it from the public match page.`,
+      confirmLabel: 'Remove Stream',
+    }
+    showActionConfirmation = true
+  }
+
+  async function executeRemoveMatchStream(matchId: string, streamId: string) {
+    errorMessage = null
+    successMessage = null
+    try {
+      const response = await window.fetch(`/api/admin/matches/${matchId}/streams`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ streamId }),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(result.message || 'Failed to remove stream')
+      successMessage = 'Stream removed.'
+      await refreshData()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to remove stream'
+    }
+  }
+
   async function addPlayerToTeam(teamId: string) {
-    const state = addPlayerForm[teamId] ?? { profileId: '', role: 'player' }
-    if (!state.profileId) {
-      errorMessage = 'Select a player to add'
+    const state = addPlayerForm[teamId] ?? { playerName: '', role: 'player' }
+    if (!state.playerName.trim()) {
+      errorMessage = 'Enter a player name to add'
       return
     }
 
@@ -531,16 +1210,16 @@
     successMessage = null
 
     try {
-      const res = await fetch('/api/admin/teams/manage', {
+      const res = await window.fetch('/api/admin/teams/manage', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ teamId, profileId: state.profileId, role: state.role }),
+        body: JSON.stringify({ teamId, playerName: state.playerName.trim(), role: state.role }),
       })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(body?.message ?? 'Failed to add player')
 
       successMessage = 'Player added to team.'
-      updateAddPlayerForm(teamId, { profileId: '', role: 'player' })
+      updateAddPlayerForm(teamId, { playerName: '', role: 'player' })
       await refreshData()
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Failed to add player'
@@ -577,7 +1256,7 @@
     errorMessage = null
 
     try {
-      const response = await fetch('/api/admin/users', {
+      const response = await window.fetch('/api/admin/users', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -607,44 +1286,6 @@
     }
   }
 
-  function requestPurgeUserFromLists(profileId: string, label: string) {
-    pendingActionConfirmation = {
-      kind: 'purge_user',
-      profileId,
-      label,
-      title: 'Confirm Removal From Lists',
-      message:
-        `Remove ${label} from all participation lists? ` +
-        `This deletes their player registration, observer application, team memberships (removes them from teams), and any team invites. ` +
-        `This does not delete the account profile.`,
-      confirmLabel: 'Remove From Lists',
-    }
-    showActionConfirmation = true
-  }
-
-  async function executePurgeUserFromLists(profileId: string) {
-    errorMessage = null
-    successMessage = null
-    isLoading = true
-
-    try {
-      const response = await fetch('/api/admin/users/purge', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: profileId }),
-      })
-      const result = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(result.message || 'Failed to purge user')
-
-      successMessage = 'User removed from participation lists.'
-      await refreshData()
-    } catch (err) {
-      errorMessage = err instanceof Error ? err.message : 'Failed to purge user'
-    } finally {
-      isLoading = false
-    }
-  }
-
   async function moderateTeam(
     teamId: string,
     action: 'approve' | 'reject',
@@ -657,7 +1298,7 @@
     errorMessage = null
 
     try {
-      const response = await fetch('/api/admin/teams', {
+      const response = await window.fetch('/api/admin/teams', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -734,7 +1375,7 @@
     successMessage = null
 
     try {
-      const response = await fetch('/api/admin/teams/logo', {
+      const response = await window.fetch('/api/admin/teams/logo', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path }),
@@ -774,7 +1415,7 @@
     successMessage = null
 
     try {
-      const response = await fetch('/api/admin/teams/manage', {
+      const response = await window.fetch('/api/admin/teams/manage', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ teamId }),
@@ -796,6 +1437,7 @@
 
   function removeApprovedTeamPlayer(
     teamId: string,
+    membershipId: number | null,
     profileId: string,
     riotId: string,
     role: string
@@ -804,6 +1446,7 @@
     pendingActionConfirmation = {
       kind: 'remove_player',
       teamId,
+      membershipId,
       profileId,
       riotId,
       role,
@@ -816,6 +1459,7 @@
 
   async function executeRemoveApprovedTeamPlayer(
     teamId: string,
+    membershipId: number | null,
     profileId: string,
     riotId: string
   ) {
@@ -824,10 +1468,10 @@
     successMessage = null
 
     try {
-      const response = await fetch('/api/admin/teams/manage', {
+      const response = await window.fetch('/api/admin/teams/manage', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ teamId, profileId }),
+        body: JSON.stringify({ teamId, profileId: profileId || null, membershipId }),
       })
 
       const result = await response.json()
@@ -837,7 +1481,9 @@
 
       approvedTeams = approvedTeams.map((team) => {
         if (team.id !== teamId) return team
-        const nextRoster = (team.roster ?? []).filter((player) => player.profile_id !== profileId)
+        const nextRoster = (team.roster ?? []).filter(
+          (player) => player.membership_id !== membershipId
+        )
         return {
           ...team,
           roster: nextRoster,
@@ -874,19 +1520,56 @@
       return
     }
 
-    if (action.kind === 'purge_user') {
-      await executePurgeUserFromLists(action.profileId)
+    if (action.kind === 'finalize_match') {
+      await executeFinalizeMatch(action)
       return
     }
 
-    await executeRemoveApprovedTeamPlayer(action.teamId, action.profileId, action.riotId)
+    if (action.kind === 'cancel_match') {
+      await executeCancelMatch(action.matchId)
+      return
+    }
+
+    if (action.kind === 'save_team') {
+      await executeSaveTeamEdits(action.teamId)
+      return
+    }
+
+    if (action.kind === 'save_match') {
+      await executeSaveMatchEdits(action.matchId)
+      return
+    }
+
+    if (action.kind === 'delete_match') {
+      await executeDeleteMatch(action.matchId)
+      return
+    }
+
+    if (action.kind === 'delete_stream') {
+      await executeRemoveMatchStream(action.matchId, action.streamId)
+      return
+    }
+
+    if (action.kind === 'save_user_riot') {
+      await executeSaveUserRiotId(action.userId, action.riotIdBase)
+      return
+    }
+
+    if (action.kind === 'remove_player') {
+      await executeRemoveApprovedTeamPlayer(
+        action.teamId,
+        action.membershipId,
+        action.profileId,
+        action.riotId
+      )
+    }
   }
 
   async function updatePlayerRank(registrationId: number, rankLabel: string) {
     processingRankRegistrationId = registrationId
     errorMessage = null
     try {
-      const response = await fetch('/api/admin/player-ranks', {
+      const response = await window.fetch('/api/admin/player-ranks', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ registrationId, rankLabel }),
@@ -948,6 +1631,22 @@
     <div class="w-full max-w-6xl">
       <div class="mb-4 flex flex-wrap justify-end gap-2">
         <a
+          href="/admin/leaderboard-import"
+          class="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold"
+          style="background: rgba(234,179,8,0.18); color: #fcd34d;"
+        >
+          <Upload size={16} />
+          Leaderboard Import
+        </a>
+        <a
+          href="/admin/matches-import"
+          class="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold"
+          style="background: rgba(168,85,247,0.18); color: #d8b4fe;"
+        >
+          <Upload size={16} />
+          Match Import
+        </a>
+        <a
           href="/admin/stats-import"
           class="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold"
           style="background: rgba(59,130,246,0.2); color: #93c5fd;"
@@ -955,33 +1654,9 @@
           <Upload size={16} />
           Stats Import
         </a>
-        <button
-          type="button"
-          class="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold"
-          style="background: rgba(59,130,246,0.12); color: #93c5fd; border: 1px solid rgba(59,130,246,0.25);"
-          onclick={async () => {
-            errorMessage = null
-            successMessage = null
-            try {
-              const res = await fetch('/api/admin/stats/rematch', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ batchId: null }),
-              })
-              const body = await res.json().catch(() => ({}))
-              if (!res.ok) throw new Error(body?.message ?? 'Failed to rematch')
-              successMessage = `Rematched: ${body.updated} updated, ${body.remaining_unmatched} still unmatched.`
-              await refreshData()
-            } catch (err) {
-              errorMessage = err instanceof Error ? err.message : 'Failed to rematch'
-            }
-          }}
-        >
-          Rematch Links
-        </button>
       </div>
       <div class="mb-8 flex flex-col items-center">
-        <Shield size={48} style="color: var(--text);" class="mb-4" />
+        <UserCog size={48} style="color: var(--text);" class="mb-4" />
         <h1 class="responsive-title mb-2 text-center">Admin Dashboard</h1>
         <p class="responsive-text text-center" style="color: var(--text);">
           Manage everything from one place
@@ -1022,6 +1697,17 @@
           >
             <CalendarDays size={18} />
             <span>Matches ({matches.length})</span>
+          </button>
+          <button
+            type="button"
+            class="flex items-center gap-2 border-b-2 px-3 py-3 text-sm sm:px-5 sm:text-base"
+            style={activeTab === 'seasons'
+              ? 'border-color: var(--accent); color: var(--text); background: rgba(255, 255, 255, 0.05);'
+              : 'border-color: transparent; color: rgba(255,255,255,0.7);'}
+            onclick={() => (activeTab = 'seasons')}
+          >
+            <Layers3 size={18} />
+            <span>Seasons ({seasons.length})</span>
           </button>
           <button
             type="button"
@@ -1084,19 +1770,34 @@
                       />
                     </div>
 
-                    <div class="mt-3 flex gap-2">
+                    <div class="mt-3 flex items-end gap-2">
+                      <label class="min-w-0 flex-1 text-xs" style="color: rgba(255,255,255,0.82);">
+                        Riot ID
+                        <input
+                          value={userRiotIdForm[user.id] ?? ''}
+                          class="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+                          style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                          placeholder="Riot ID base"
+                          oninput={(e) => {
+                            userRiotIdForm = {
+                              ...userRiotIdForm,
+                              [user.id]: (e.currentTarget as HTMLInputElement).value,
+                            }
+                          }}
+                        />
+                      </label>
                       <button
                         type="button"
-                        class="rounded px-2 py-1 text-xs"
-                        style="background: rgba(248,113,113,0.2); color: #f87171;"
-                        onclick={() =>
-                          requestPurgeUserFromLists(
-                            user.id,
-                            user.display_name || user.email || 'user'
-                          )}
+                        class="rounded px-3 py-2 text-xs font-semibold"
+                        style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+                        onclick={() => requestUserRiotIdSave(user.id, user.display_name || '—')}
                       >
-                        Remove From Lists
+                        Save
                       </button>
+                    </div>
+
+                    <div class="mt-3 text-xs" style="color: rgba(255,255,255,0.55);">
+                      Account-level role management only.
                     </div>
                   </article>
                 {/each}
@@ -1108,7 +1809,7 @@
                     <tr class="text-xs tracking-wide uppercase opacity-70">
                       <th class="px-3 py-2">Discord</th>
                       <th class="px-3 py-2">Role</th>
-                      <th class="px-3 py-2">Actions</th>
+                      <th class="px-3 py-2">Riot ID</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1132,18 +1833,29 @@
                           </div>
                         </td>
                         <td class="px-3 py-2">
-                          <button
-                            type="button"
-                            class="rounded px-2 py-1 text-xs"
-                            style="background: rgba(248,113,113,0.2); color: #f87171;"
-                            onclick={() =>
-                              requestPurgeUserFromLists(
-                                user.id,
-                                user.display_name || user.email || 'user'
-                              )}
-                          >
-                            Remove From Lists
-                          </button>
+                          <div class="flex items-center gap-2">
+                            <input
+                              value={userRiotIdForm[user.id] ?? ''}
+                              class="w-full max-w-[220px] rounded-md border px-3 py-2 text-sm"
+                              style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                              placeholder="Riot ID base"
+                              oninput={(e) => {
+                                userRiotIdForm = {
+                                  ...userRiotIdForm,
+                                  [user.id]: (e.currentTarget as HTMLInputElement).value,
+                                }
+                              }}
+                            />
+                            <button
+                              type="button"
+                              class="rounded px-3 py-2 text-xs font-semibold"
+                              style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+                              onclick={() =>
+                                requestUserRiotIdSave(user.id, user.display_name || '—')}
+                            >
+                              Save
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     {/each}
@@ -1183,9 +1895,10 @@
                   />
                 </label>
                 <label class="flex flex-col gap-1 text-sm" style="color: var(--text);">
-                  Tag (optional)
+                  Tag
                   <input
                     bind:value={createTeamTag}
+                    required
                     maxlength="4"
                     minlength="2"
                     class="rounded-md border px-3 py-2"
@@ -1194,10 +1907,12 @@
                   />
                 </label>
                 <label class="flex flex-col gap-1 text-sm" style="color: var(--text);">
-                  Logo (optional)
+                  Logo
                   <input
+                    bind:this={createTeamLogoInput}
                     type="file"
                     accept="image/*"
+                    required
                     class="rounded-md border px-3 py-2 text-sm"
                     style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
                     oninput={(e) => {
@@ -1235,7 +1950,12 @@
               {:else}
                 <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
                   {#each displayedApprovedTeams as team}
-                    {@const addState = addPlayerForm[team.id] ?? { profileId: '', role: 'player' }}
+                    {@const addState = addPlayerForm[team.id] ?? { playerName: '', role: 'player' }}
+                    {@const editState = teamEditForm[team.id] ?? {
+                      name: team.name,
+                      tag: team.tag ?? '',
+                      status: (team as any).status ?? 'active',
+                    }}
                     <article
                       class="rounded-lg border p-3"
                       style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
@@ -1271,6 +1991,84 @@
                         <div>Captain: {profileLabel(team.captain_profile)}</div>
                       </div>
 
+                      <div
+                        class="mt-3 rounded-md border p-3"
+                        style="border-color: rgba(255,255,255,0.12);"
+                      >
+                        <div
+                          class="mb-2 text-[11px] font-semibold tracking-wide uppercase"
+                          style="color: rgba(255,255,255,0.7);"
+                        >
+                          Team Details
+                        </div>
+                        <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
+                          <label class="text-xs" style="color: rgba(255,255,255,0.82);">
+                            Name
+                            <input
+                              value={editState.name}
+                              class="mt-1 w-full rounded-md border px-2 py-1 text-sm"
+                              style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                              oninput={(e) =>
+                                updateTeamEditForm(team.id, {
+                                  name: (e.currentTarget as HTMLInputElement).value,
+                                })}
+                            />
+                          </label>
+                          <label class="text-xs" style="color: rgba(255,255,255,0.82);">
+                            Tag
+                            <input
+                              value={editState.tag}
+                              class="mt-1 w-full rounded-md border px-2 py-1 text-sm"
+                              style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                              oninput={(e) =>
+                                updateTeamEditForm(team.id, {
+                                  tag: (e.currentTarget as HTMLInputElement).value,
+                                })}
+                            />
+                          </label>
+                          <label class="text-xs" style="color: rgba(255,255,255,0.82);">
+                            Status
+                            <div class="mt-1">
+                              <CustomSelect
+                                options={teamStatusOptions}
+                                value={editState.status}
+                                compact={true}
+                                placeholder="Status"
+                                onSelect={(value) => updateTeamEditForm(team.id, { status: value })}
+                              />
+                            </div>
+                          </label>
+                          <label
+                            class="text-xs md:col-span-2"
+                            style="color: rgba(255,255,255,0.82);"
+                          >
+                            Replace Logo
+                            <input
+                              type="file"
+                              accept="image/*"
+                              class="mt-1 w-full rounded-md border px-2 py-1 text-sm"
+                              style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                              oninput={(e) => {
+                                const file =
+                                  (e.currentTarget as HTMLInputElement).files?.[0] ?? null
+                                teamLogoFileById = { ...teamLogoFileById, [team.id]: file }
+                              }}
+                            />
+                          </label>
+                        </div>
+                        <div class="mt-2 flex justify-end">
+                          <button
+                            type="button"
+                            class="rounded px-2 py-1 text-xs font-semibold"
+                            style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+                            disabled={processingTeamId === team.id}
+                            onclick={() => saveTeamEdits(team.id, team.name)}
+                          >
+                            {processingTeamId === team.id ? 'Saving...' : 'Save Team'}
+                          </button>
+                        </div>
+                      </div>
+
                       {#if (team.roster ?? []).length > 0}
                         <div
                           class="mt-3 rounded-md border p-2"
@@ -1291,6 +2089,7 @@
                                 <div class="min-w-0 text-xs" style="color: var(--text);">
                                   <span class="font-semibold"
                                     >{player.riot_id_base ??
+                                      player.player_name ??
                                       player.display_name ??
                                       player.email ??
                                       'User'}</span
@@ -1313,8 +2112,10 @@
                                   onclick={() =>
                                     removeApprovedTeamPlayer(
                                       team.id,
+                                      player.membership_id ?? null,
                                       player.profile_id,
                                       player.riot_id_base ??
+                                        player.player_name ??
                                         player.display_name ??
                                         player.email ??
                                         'User',
@@ -1342,14 +2143,15 @@
 
                         <div class="grid grid-cols-1 gap-2 md:grid-cols-3">
                           <div class="md:col-span-2">
-                            <CustomSelect
-                              options={playerOptions}
-                              value={addState.profileId}
-                              placeholder={'Select player'}
-                              compact={true}
-                              disabled={false}
-                              onSelect={(value) =>
-                                updateAddPlayerForm(team.id, { profileId: value })}
+                            <input
+                              value={addState.playerName}
+                              class="w-full rounded-md border px-3 py-2 text-sm"
+                              style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                              placeholder="Enter player name as it should appear"
+                              oninput={(e) =>
+                                updateAddPlayerForm(team.id, {
+                                  playerName: (e.currentTarget as HTMLInputElement).value,
+                                })}
                             />
                           </div>
                           <div>
@@ -1357,7 +2159,6 @@
                               options={membershipRoleOptions}
                               value={addState.role}
                               placeholder="Role"
-                              compact={true}
                               onSelect={(value) => updateAddPlayerForm(team.id, { role: value })}
                             />
                           </div>
@@ -1459,7 +2260,7 @@
                       aria-label="Scheduled at (UTC)"
                     />
                     <div class="mt-1 text-xs" style="color: rgba(255,255,255,0.65);">
-                      Optional. Interpreted as UTC.
+                      Optional. Uses your local browser time.
                     </div>
                   </div>
                   <div class="md:col-span-1">
@@ -1487,105 +2288,825 @@
                   </h3>
                 </div>
 
-                {#if matches.length === 0}
-                  <p class="text-sm" style="color: rgba(255,255,255,0.72);">No matches found.</p>
+                <div class="mb-3 space-y-3">
+                  <input
+                    bind:value={matchSearchQuery}
+                    class="w-full rounded-lg border px-3 py-2 text-sm md:max-w-md"
+                    style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2); color: var(--text);"
+                    placeholder="Search teams or match status"
+                  />
+                  <label
+                    class="inline-flex w-full items-center gap-2 text-sm"
+                    style="color: rgba(255,255,255,0.8);"
+                  >
+                    <input bind:checked={showCompletedAdminMatches} type="checkbox" />
+                    Show completed matches
+                  </label>
+                </div>
+
+                {#if filteredAdminMatches.length === 0}
+                  <p class="text-sm" style="color: rgba(255,255,255,0.72);">
+                    {matches.length === 0
+                      ? 'No matches found.'
+                      : 'No matches match the current filters.'}
+                  </p>
                 {:else}
                   <div class="flex flex-col gap-2">
-                    {#each matches as match}
+                    {#each filteredAdminMatches as match}
                       {@const state = finalizeForm[match.id] ?? {
                         teamAScore: String(match.team_a_score ?? 0),
                         teamBScore: String(match.team_b_score ?? 0),
                         winnerTeamId: match.winner_team_id ?? match.team_a_id,
                       }}
+                      {@const editState = matchEditForm[match.id] ?? {
+                        teamAId: match.team_a_id,
+                        teamBId: match.team_b_id,
+                        bestOf: String(match.best_of ?? 3),
+                        status: match.status ?? 'scheduled',
+                        scheduledAt: toDatetimeLocal(match.scheduled_at),
+                        teamAScore: String(match.team_a_score ?? 0),
+                        teamBScore: String(match.team_b_score ?? 0),
+                        winnerTeamId: match.winner_team_id ?? '',
+                        mapVetoes: Array.isArray(match.metadata?.map_vetoes)
+                          ? match.metadata.map_vetoes.join('\n')
+                          : '',
+                      }}
+                      {@const streamState = streamForm[match.id] ?? {
+                        platform: 'twitch',
+                        streamUrl: '',
+                        status: match.status === 'live' ? 'live' : 'scheduled',
+                        isPrimary: !(match.streams?.length > 0),
+                      }}
                       <article
                         class="rounded-md border p-3"
                         style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
                       >
-                        <div class="flex flex-wrap items-center justify-between gap-2">
-                          <div class="text-sm" style="color: var(--text);">
-                            <strong>{teamName(match.team_a)}</strong> vs
-                            <strong>{teamName(match.team_b)}</strong>
+                        <button
+                          type="button"
+                          class="flex w-full flex-wrap items-center justify-between gap-2 text-left"
+                          onclick={() =>
+                            (expandedAdminMatchId =
+                              expandedAdminMatchId === match.id ? null : match.id)}
+                        >
+                          <div>
+                            <div class="text-sm" style="color: var(--text);">
+                              <strong>{teamName(match.team_a)}</strong> vs
+                              <strong>{teamName(match.team_b)}</strong>
+                            </div>
+                            <div class="mt-1 text-xs" style="color: rgba(255,255,255,0.68);">
+                              BO{match.best_of}
+                              {#if match.scheduled_at}
+                                <span>
+                                  • {toDatetimeLocal(match.scheduled_at).replace('T', ' ')}</span
+                                >
+                              {/if}
+                              {#if match.status === 'completed'}
+                                <span> • {match.team_a_score}-{match.team_b_score}</span>
+                              {/if}
+                            </div>
                           </div>
-                          <span
-                            class="rounded-full px-2 py-1 text-xs font-bold"
-                            style="background: rgba(255,255,255,0.12); color: var(--text);"
-                          >
-                            {match.status}
-                          </span>
-                        </div>
+                          <div class="flex items-center gap-2">
+                            <span
+                              class="rounded-full px-2 py-1 text-xs font-bold"
+                              style="background: rgba(255,255,255,0.12); color: var(--text);"
+                            >
+                              {match.status}
+                            </span>
+                            <span class="text-xs" style="color: rgba(255,255,255,0.7);">
+                              {expandedAdminMatchId === match.id ? 'Hide' : 'Show'}
+                            </span>
+                          </div>
+                        </button>
 
-                        <div class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-4">
+                        {#if expandedAdminMatchId === match.id}
+                          <div class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-4">
+                            <input
+                              type="number"
+                              min="0"
+                              value={state.teamAScore}
+                              class="rounded-md border px-2 py-1"
+                              style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                              placeholder="Team A score"
+                              oninput={(e) =>
+                                updateFinalizeForm(match.id, {
+                                  teamAScore: (e.currentTarget as HTMLInputElement).value,
+                                })}
+                            />
+                            <input
+                              type="number"
+                              min="0"
+                              value={state.teamBScore}
+                              class="rounded-md border px-2 py-1"
+                              style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                              placeholder="Team B score"
+                              oninput={(e) =>
+                                updateFinalizeForm(match.id, {
+                                  teamBScore: (e.currentTarget as HTMLInputElement).value,
+                                })}
+                            />
+                            <CustomSelect
+                              options={[
+                                { value: match.team_a_id, label: teamName(match.team_a) },
+                                { value: match.team_b_id, label: teamName(match.team_b) },
+                              ]}
+                              value={state.winnerTeamId}
+                              compact={true}
+                              placeholder="Winner"
+                              onSelect={(value) =>
+                                updateFinalizeForm(match.id, {
+                                  winnerTeamId: value,
+                                })}
+                            />
+                            <div class="flex gap-2">
+                              <button
+                                type="button"
+                                class="rounded px-2 py-1 text-xs"
+                                style="background: rgba(74,222,128,0.2); color: #4ade80;"
+                                onclick={() => finalizeMatch(match)}
+                              >
+                                Finalize
+                              </button>
+                              <button
+                                type="button"
+                                class="rounded px-2 py-1 text-xs"
+                                style="background: rgba(248,113,113,0.2); color: #f87171;"
+                                onclick={() => cancelMatch(match)}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+
+                          <div
+                            class="mt-3 rounded-md border p-3"
+                            style="border-color: rgba(255,255,255,0.10);"
+                          >
+                            <div
+                              class="mb-2 text-[11px] font-semibold tracking-wide uppercase"
+                              style="color: rgba(255,255,255,0.7);"
+                            >
+                              Edit Match
+                            </div>
+                            <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
+                              <div>
+                                <CustomSelect
+                                  options={approvedTeamOptions}
+                                  value={editState.teamAId}
+                                  compact={true}
+                                  placeholder="Team A"
+                                  onSelect={(value) =>
+                                    updateMatchEditForm(match.id, { teamAId: value })}
+                                />
+                              </div>
+                              <div>
+                                <CustomSelect
+                                  options={approvedTeamOptions}
+                                  value={editState.teamBId}
+                                  compact={true}
+                                  placeholder="Team B"
+                                  onSelect={(value) =>
+                                    updateMatchEditForm(match.id, { teamBId: value })}
+                                />
+                              </div>
+                              <div>
+                                <CustomSelect
+                                  options={bestOfOptions}
+                                  value={editState.bestOf}
+                                  compact={true}
+                                  placeholder="Best Of"
+                                  onSelect={(value) =>
+                                    updateMatchEditForm(match.id, { bestOf: value })}
+                                />
+                              </div>
+                              <div>
+                                <CustomSelect
+                                  options={matchStatusOptions}
+                                  value={editState.status}
+                                  compact={true}
+                                  placeholder="Status"
+                                  onSelect={(value) =>
+                                    updateMatchEditForm(match.id, { status: value })}
+                                />
+                              </div>
+                              <label
+                                class="text-xs md:col-span-2"
+                                style="color: rgba(255,255,255,0.82);"
+                              >
+                                Scheduled
+                                <input
+                                  type="datetime-local"
+                                  value={editState.scheduledAt}
+                                  class="mt-1 w-full rounded-md border px-2 py-1 text-sm"
+                                  style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                                  oninput={(e) =>
+                                    updateMatchEditForm(match.id, {
+                                      scheduledAt: (e.currentTarget as HTMLInputElement).value,
+                                    })}
+                                />
+                              </label>
+                              <label class="text-xs" style="color: rgba(255,255,255,0.82);">
+                                Team A Score
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={editState.teamAScore}
+                                  class="mt-1 w-full rounded-md border px-2 py-1 text-sm"
+                                  style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                                  oninput={(e) =>
+                                    updateMatchEditForm(match.id, {
+                                      teamAScore: (e.currentTarget as HTMLInputElement).value,
+                                    })}
+                                />
+                              </label>
+                              <label class="text-xs" style="color: rgba(255,255,255,0.82);">
+                                Team B Score
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={editState.teamBScore}
+                                  class="mt-1 w-full rounded-md border px-2 py-1 text-sm"
+                                  style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                                  oninput={(e) =>
+                                    updateMatchEditForm(match.id, {
+                                      teamBScore: (e.currentTarget as HTMLInputElement).value,
+                                    })}
+                                />
+                              </label>
+                              <div class="md:col-span-2">
+                                <CustomSelect
+                                  options={[
+                                    { value: '', label: 'Unset winner' },
+                                    {
+                                      value: editState.teamAId,
+                                      label:
+                                        approvedTeams.find((team) => team.id === editState.teamAId)
+                                          ?.name ?? 'Team A',
+                                    },
+                                    {
+                                      value: editState.teamBId,
+                                      label:
+                                        approvedTeams.find((team) => team.id === editState.teamBId)
+                                          ?.name ?? 'Team B',
+                                    },
+                                  ]}
+                                  value={editState.winnerTeamId}
+                                  compact={true}
+                                  placeholder="Winner"
+                                  onSelect={(value) =>
+                                    updateMatchEditForm(match.id, { winnerTeamId: value })}
+                                />
+                              </div>
+                            </div>
+                            <div class="mt-3 flex flex-wrap justify-end gap-2">
+                              <button
+                                type="button"
+                                class="rounded px-2 py-1 text-xs font-semibold"
+                                style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+                                onclick={() => saveMatchEdits(match.id, match)}
+                              >
+                                Save Match
+                              </button>
+                              <button
+                                type="button"
+                                class="rounded px-2 py-1 text-xs font-semibold"
+                                style="background: rgba(248,113,113,0.2); color: #fca5a5;"
+                                onclick={() => deleteMatch(match.id, match)}
+                              >
+                                Delete Match
+                              </button>
+                            </div>
+                          </div>
+
+                          <div
+                            class="mt-3 rounded-md border p-3"
+                            style="border-color: rgba(255,255,255,0.10);"
+                          >
+                            <div
+                              class="mb-2 text-[11px] font-semibold tracking-wide uppercase"
+                              style="color: rgba(255,255,255,0.7);"
+                            >
+                              Map Vetoes
+                            </div>
+                            <textarea
+                              rows="5"
+                              value={editState.mapVetoes}
+                              class="w-full rounded-md border px-3 py-2 text-sm leading-5"
+                              style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                              placeholder={`One line per veto item\nBan: Team A - Haven\nPick: Team B - Lotus\nDecider: Pearl`}
+                              oninput={(e) =>
+                                updateMatchEditForm(match.id, {
+                                  mapVetoes: (e.currentTarget as HTMLTextAreaElement).value,
+                                })}
+                            ></textarea>
+                            <div class="mt-2 flex items-center justify-between gap-2">
+                              <div class="text-[11px]" style="color: rgba(255,255,255,0.6);">
+                                Saves via the same match update flow.
+                              </div>
+                              <button
+                                type="button"
+                                class="rounded px-3 py-2 text-xs font-semibold"
+                                style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+                                onclick={() => saveMatchEdits(match.id, match)}
+                              >
+                                Save Vetoes
+                              </button>
+                            </div>
+                          </div>
+
+                          <div
+                            class="mt-3 rounded-md border p-3"
+                            style="border-color: rgba(255,255,255,0.10);"
+                          >
+                            <div
+                              class="mb-2 text-[11px] font-semibold tracking-wide uppercase"
+                              style="color: rgba(255,255,255,0.7);"
+                            >
+                              Streams
+                            </div>
+                            {#if (match.streams ?? []).length > 0}
+                              <div class="mb-3 flex flex-col gap-2">
+                                {#each match.streams as stream}
+                                  {@const existingState = existingStreamForm[stream.id] ?? {
+                                    platform: stream.platform,
+                                    streamUrl: stream.stream_url,
+                                    status: stream.status,
+                                    isPrimary: stream.is_primary,
+                                  }}
+                                  <div
+                                    class="rounded-md border px-2 py-2 text-xs"
+                                    style="border-color: rgba(255,255,255,0.10); background: rgba(255,255,255,0.04);"
+                                  >
+                                    <div class="min-w-0">
+                                      <div style="color: var(--text);">
+                                        {stream.metadata?.display_name || stream.platform}
+                                        {stream.is_primary ? '• Primary' : ''}
+                                      </div>
+                                      <div class="truncate" style="color: rgba(255,255,255,0.68);">
+                                        {stream.stream_url}
+                                      </div>
+                                    </div>
+                                    <div class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-4">
+                                      <div class="md:col-span-2">
+                                        <input
+                                          class="w-full rounded-md border px-3 py-2 text-sm"
+                                          style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                                          value={existingState.displayName}
+                                          placeholder="Display name"
+                                          oninput={(e) => {
+                                            existingStreamForm = {
+                                              ...existingStreamForm,
+                                              [stream.id]: {
+                                                ...existingState,
+                                                displayName: (e.currentTarget as HTMLInputElement)
+                                                  .value,
+                                              },
+                                            }
+                                          }}
+                                        />
+                                      </div>
+                                    </div>
+                                    <div class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-4">
+                                      <div>
+                                        <CustomSelect
+                                          options={streamPlatformOptions}
+                                          value={existingState.platform}
+                                          compact={true}
+                                          placeholder="Platform"
+                                          onSelect={(value) => {
+                                            existingStreamForm = {
+                                              ...existingStreamForm,
+                                              [stream.id]: { ...existingState, platform: value },
+                                            }
+                                          }}
+                                        />
+                                      </div>
+                                      <div class="md:col-span-2">
+                                        <input
+                                          class="w-full rounded-md border px-3 py-2 text-sm"
+                                          style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                                          value={existingState.streamUrl}
+                                          oninput={(e) => {
+                                            existingStreamForm = {
+                                              ...existingStreamForm,
+                                              [stream.id]: {
+                                                ...existingState,
+                                                streamUrl: (e.currentTarget as HTMLInputElement)
+                                                  .value,
+                                              },
+                                            }
+                                          }}
+                                        />
+                                      </div>
+                                      <div>
+                                        <CustomSelect
+                                          options={streamStatusOptions}
+                                          value={existingState.status}
+                                          compact={true}
+                                          placeholder="Stream status"
+                                          onSelect={(value) => {
+                                            existingStreamForm = {
+                                              ...existingStreamForm,
+                                              [stream.id]: { ...existingState, status: value },
+                                            }
+                                          }}
+                                        />
+                                      </div>
+                                    </div>
+                                    <div
+                                      class="mt-2 flex flex-wrap items-center justify-between gap-2"
+                                    >
+                                      <label
+                                        class="inline-flex items-center gap-2 text-xs"
+                                        style="color: rgba(255,255,255,0.82);"
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={existingState.isPrimary}
+                                          onchange={(e) => {
+                                            existingStreamForm = {
+                                              ...existingStreamForm,
+                                              [stream.id]: {
+                                                ...existingState,
+                                                isPrimary: (e.currentTarget as HTMLInputElement)
+                                                  .checked,
+                                              },
+                                            }
+                                          }}
+                                        />
+                                        Mark as primary stream
+                                      </label>
+                                      <div class="flex gap-2">
+                                        <button
+                                          type="button"
+                                          class="rounded px-2 py-1 text-[11px] font-semibold"
+                                          style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+                                          onclick={() =>
+                                            saveExistingMatchStream(match.id, stream.id)}
+                                        >
+                                          Save
+                                        </button>
+                                        <button
+                                          type="button"
+                                          class="rounded px-2 py-1 text-[11px] font-semibold"
+                                          style="background: rgba(248,113,113,0.2); color: #fca5a5;"
+                                          onclick={() =>
+                                            removeMatchStream(match.id, stream.id, stream.platform)}
+                                        >
+                                          Remove
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                {/each}
+                              </div>
+                            {/if}
+
+                            <div class="grid grid-cols-1 gap-2 md:grid-cols-4">
+                              <div class="md:col-span-2">
+                                <input
+                                  class="w-full rounded-md border px-3 py-2 text-sm"
+                                  style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                                  value={streamState.displayName}
+                                  placeholder="Display name"
+                                  oninput={(e) => {
+                                    streamForm = {
+                                      ...streamForm,
+                                      [match.id]: {
+                                        ...streamState,
+                                        displayName: (e.currentTarget as HTMLInputElement).value,
+                                      },
+                                    }
+                                  }}
+                                />
+                              </div>
+                            </div>
+                            <div class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-4">
+                              <div>
+                                <CustomSelect
+                                  options={streamPlatformOptions}
+                                  value={streamState.platform}
+                                  compact={true}
+                                  placeholder="Platform"
+                                  onSelect={(value) => {
+                                    streamForm = {
+                                      ...streamForm,
+                                      [match.id]: {
+                                        ...streamState,
+                                        platform: value,
+                                      },
+                                    }
+                                  }}
+                                />
+                              </div>
+                              <div class="md:col-span-2">
+                                <input
+                                  class="w-full rounded-md border px-3 py-2 text-sm"
+                                  style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                                  value={streamState.streamUrl}
+                                  placeholder="Input stream link here"
+                                  oninput={(e) => {
+                                    streamForm = {
+                                      ...streamForm,
+                                      [match.id]: {
+                                        ...streamState,
+                                        streamUrl: (e.currentTarget as HTMLInputElement).value,
+                                      },
+                                    }
+                                  }}
+                                />
+                              </div>
+                              <div>
+                                <CustomSelect
+                                  options={streamStatusOptions}
+                                  value={streamState.status}
+                                  compact={true}
+                                  placeholder="Stream status"
+                                  onSelect={(value) => {
+                                    streamForm = {
+                                      ...streamForm,
+                                      [match.id]: {
+                                        ...streamState,
+                                        status: value,
+                                      },
+                                    }
+                                  }}
+                                />
+                              </div>
+                            </div>
+                            <label
+                              class="mt-2 inline-flex items-center gap-2 text-xs"
+                              style="color: rgba(255,255,255,0.82);"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={streamState.isPrimary}
+                                onchange={(e) => {
+                                  streamForm = {
+                                    ...streamForm,
+                                    [match.id]: {
+                                      ...streamState,
+                                      isPrimary: (e.currentTarget as HTMLInputElement).checked,
+                                    },
+                                  }
+                                }}
+                              />
+                              Mark as primary stream
+                            </label>
+                            <div class="mt-2 flex justify-end">
+                              <button
+                                type="button"
+                                class="rounded px-2 py-1 text-xs font-semibold"
+                                style="background: rgba(34,197,94,0.2); color: #86efac;"
+                                onclick={() => addMatchStream(match.id)}
+                              >
+                                Add Stream
+                              </button>
+                            </div>
+
+                            <div
+                              class="mt-4 border-t pt-4"
+                              style="border-color: rgba(255,255,255,0.10);"
+                            >
+                              <div
+                                class="mb-2 text-[11px] font-semibold tracking-wide uppercase"
+                                style="color: rgba(255,255,255,0.7);"
+                              >
+                                YouTube VOD
+                              </div>
+                              <div class="flex flex-col gap-2 md:flex-row">
+                                <input
+                                  class="w-full flex-1 rounded-md border px-3 py-2 text-sm"
+                                  style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                                  value={vodForm[match.id] ?? ''}
+                                  placeholder="https://youtube.com/watch?..."
+                                  oninput={(e) => {
+                                    vodForm = {
+                                      ...vodForm,
+                                      [match.id]: (e.currentTarget as HTMLInputElement).value,
+                                    }
+                                  }}
+                                />
+                                <button
+                                  type="button"
+                                  class="rounded px-3 py-2 text-xs font-semibold"
+                                  style="background: rgba(234,179,8,0.18); color: #fcd34d;"
+                                  onclick={() => saveMatchEdits(match.id, match)}
+                                >
+                                  Save VOD
+                                </button>
+                              </div>
+                              <div class="mt-2 text-[11px]" style="color: rgba(255,255,255,0.6);">
+                                Saves via the same match update flow.
+                              </div>
+                            </div>
+                          </div>
+
+                          <div class="mt-2 flex flex-wrap gap-2">
+                            <a
+                              href={`/matches/${match.id}`}
+                              class="rounded px-2 py-1 text-xs font-semibold"
+                              style="background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.85);"
+                            >
+                              Open Match Page
+                            </a>
+                            <a
+                              href={`/admin/matches/${match.id}/stats-import`}
+                              class="rounded px-2 py-1 text-xs font-semibold"
+                              style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+                            >
+                              Import Map Stats
+                            </a>
+                          </div>
+                        {/if}
+                      </article>
+                    {/each}
+                  </div>
+                {/if}
+              </section>
+            </div>
+          {/if}
+
+          {#if activeTab === 'seasons'}
+            <div class="grid grid-cols-1 gap-4">
+              <section class="rounded-md border p-3" style="border-color: rgba(255,255,255,0.12);">
+                <div class="mb-3 flex items-center gap-2">
+                  <Layers3 size={18} />
+                  <h3
+                    class="text-sm font-semibold tracking-wide uppercase"
+                    style="color: rgba(255,255,255,0.8);"
+                  >
+                    Create Season
+                  </h3>
+                </div>
+
+                <div class="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-5">
+                  <input
+                    bind:value={createSeasonCode}
+                    placeholder="Code (rivals4)"
+                    class="rounded-md border px-3 py-2 text-sm"
+                    style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                  />
+                  <input
+                    bind:value={createSeasonName}
+                    placeholder="Name (Rivals 4)"
+                    class="rounded-md border px-3 py-2 text-sm xl:col-span-2"
+                    style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                  />
+                  <input
+                    type="date"
+                    bind:value={createSeasonStartsOn}
+                    class="rounded-md border px-3 py-2 text-sm"
+                    style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                  />
+                  <input
+                    type="date"
+                    bind:value={createSeasonEndsOn}
+                    class="rounded-md border px-3 py-2 text-sm"
+                    style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                  />
+                </div>
+                <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
+                  <label
+                    class="inline-flex items-center gap-2 text-sm"
+                    style="color: rgba(255,255,255,0.82);"
+                  >
+                    <input type="checkbox" bind:checked={createSeasonIsActive} />
+                    Set as active season
+                  </label>
+                  <button
+                    type="button"
+                    class="rounded-md px-3 py-2 text-sm font-semibold"
+                    style="background: rgba(74,222,128,0.2); color: #86efac;"
+                    onclick={createSeason}
+                    disabled={isCreatingSeason}
+                  >
+                    {isCreatingSeason ? 'Creating...' : 'Create Season'}
+                  </button>
+                </div>
+              </section>
+
+              <section class="rounded-md border p-3" style="border-color: rgba(255,255,255,0.12);">
+                <div class="mb-3 flex items-center gap-2">
+                  <Layers3 size={18} />
+                  <h3
+                    class="text-sm font-semibold tracking-wide uppercase"
+                    style="color: rgba(255,255,255,0.8);"
+                  >
+                    Seasons ({seasons.length})
+                  </h3>
+                </div>
+
+                {#if seasons.length === 0}
+                  <div class="text-sm" style="color: rgba(255,255,255,0.72);">
+                    No seasons created yet.
+                  </div>
+                {:else}
+                  <div class="flex flex-col gap-3">
+                    {#each seasons as season}
+                      {@const state = seasonEditForm[season.id] ?? {
+                        code: season.code ?? '',
+                        name: season.name ?? '',
+                        startsOn: season.starts_on ?? '',
+                        endsOn: season.ends_on ?? '',
+                        isActive: Boolean(season.is_active),
+                      }}
+                      <article
+                        class="rounded-md border p-3"
+                        style="border-color: rgba(255,255,255,0.10); background: rgba(0,0,0,0.18);"
+                      >
+                        <div class="mb-2 flex items-center justify-between gap-2">
+                          <div class="font-semibold" style="color: var(--text);">{season.name}</div>
+                          {#if season.is_active}
+                            <span
+                              class="rounded-full px-2 py-1 text-xs font-bold"
+                              style="background: rgba(74,222,128,0.18); color: #86efac;"
+                              >Active</span
+                            >
+                          {/if}
+                        </div>
+                        <div class="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-5">
                           <input
-                            type="number"
-                            min="0"
-                            value={state.teamAScore}
-                            class="rounded-md border px-2 py-1"
-                            style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-                            placeholder="Team A score"
+                            value={state.code}
                             oninput={(e) =>
-                              updateFinalizeForm(match.id, {
-                                teamAScore: (e.currentTarget as HTMLInputElement).value,
+                              (seasonEditForm = {
+                                ...seasonEditForm,
+                                [season.id]: {
+                                  ...state,
+                                  code: (e.currentTarget as HTMLInputElement).value,
+                                },
                               })}
+                            class="rounded-md border px-3 py-2 text-sm"
+                            style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
                           />
                           <input
-                            type="number"
-                            min="0"
-                            value={state.teamBScore}
-                            class="rounded-md border px-2 py-1"
-                            style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-                            placeholder="Team B score"
+                            value={state.name}
                             oninput={(e) =>
-                              updateFinalizeForm(match.id, {
-                                teamBScore: (e.currentTarget as HTMLInputElement).value,
+                              (seasonEditForm = {
+                                ...seasonEditForm,
+                                [season.id]: {
+                                  ...state,
+                                  name: (e.currentTarget as HTMLInputElement).value,
+                                },
                               })}
-                          />
-                          <select
-                            value={state.winnerTeamId}
-                            class="rounded-md border px-2 py-1"
+                            class="rounded-md border px-3 py-2 text-sm xl:col-span-2"
                             style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-                            onchange={(e) =>
-                              updateFinalizeForm(match.id, {
-                                winnerTeamId: (e.currentTarget as HTMLSelectElement).value,
+                          />
+                          <input
+                            type="date"
+                            value={state.startsOn}
+                            oninput={(e) =>
+                              (seasonEditForm = {
+                                ...seasonEditForm,
+                                [season.id]: {
+                                  ...state,
+                                  startsOn: (e.currentTarget as HTMLInputElement).value,
+                                },
                               })}
-                          >
-                            <option value={match.team_a_id}>{teamName(match.team_a)}</option>
-                            <option value={match.team_b_id}>{teamName(match.team_b)}</option>
-                          </select>
-                          <div class="flex gap-2">
-                            <button
-                              type="button"
-                              class="rounded px-2 py-1 text-xs"
-                              style="background: rgba(74,222,128,0.2); color: #4ade80;"
-                              onclick={() => finalizeMatch(match)}
-                            >
-                              Finalize
-                            </button>
-                            <button
-                              type="button"
-                              class="rounded px-2 py-1 text-xs"
-                              style="background: rgba(248,113,113,0.2); color: #f87171;"
-                              onclick={() => cancelMatch(match)}
-                            >
-                              Cancel
-                            </button>
-                          </div>
+                            class="rounded-md border px-3 py-2 text-sm"
+                            style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                          />
+                          <input
+                            type="date"
+                            value={state.endsOn}
+                            oninput={(e) =>
+                              (seasonEditForm = {
+                                ...seasonEditForm,
+                                [season.id]: {
+                                  ...state,
+                                  endsOn: (e.currentTarget as HTMLInputElement).value,
+                                },
+                              })}
+                            class="rounded-md border px-3 py-2 text-sm"
+                            style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                          />
                         </div>
-
-                        <div class="mt-2 flex flex-wrap gap-2">
-                          <a
-                            href={`/matches/${match.id}`}
-                            class="rounded px-2 py-1 text-xs font-semibold"
-                            style="background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.85);"
+                        <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
+                          <label
+                            class="inline-flex items-center gap-2 text-sm"
+                            style="color: rgba(255,255,255,0.82);"
                           >
-                            Open Match Page
-                          </a>
-                          <a
-                            href={`/admin/matches/${match.id}/stats-import`}
-                            class="rounded px-2 py-1 text-xs font-semibold"
-                            style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+                            <input
+                              type="checkbox"
+                              checked={state.isActive}
+                              onchange={(e) =>
+                                (seasonEditForm = {
+                                  ...seasonEditForm,
+                                  [season.id]: {
+                                    ...state,
+                                    isActive: (e.currentTarget as HTMLInputElement).checked,
+                                  },
+                                })}
+                            />
+                            Active season
+                          </label>
+                          <button
+                            type="button"
+                            class="rounded-md px-3 py-2 text-sm font-semibold"
+                            style="background: rgba(59,130,246,0.18); color: #93c5fd;"
+                            onclick={() => saveSeason(season.id)}
                           >
-                            Import Map Stats
-                          </a>
+                            Save Season
+                          </button>
                         </div>
                       </article>
                     {/each}

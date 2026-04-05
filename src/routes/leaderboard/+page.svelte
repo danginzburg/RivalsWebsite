@@ -5,6 +5,7 @@
   let { data } = $props() as { data: any }
 
   const rows = $derived((data.rows ?? []) as any[])
+  const batch = $derived(data.batch ?? null)
   function teamLabel(team: any) {
     return team?.name ?? 'Team'
   }
@@ -19,8 +20,16 @@
           <div>
             <h1 class="responsive-title">Leaderboard</h1>
             <p class="text-sm" style="color: rgba(255,255,255,0.72);">
-              Calculated from match results.
+              Showing the most recently imported standings.
             </p>
+            {#if batch}
+              <p class="mt-1 text-xs" style="color: rgba(255,255,255,0.58);">
+                {batch.display_name}
+                {#if batch.as_of_date}
+                  <span> • As of {batch.as_of_date}</span>
+                {/if}
+              </p>
+            {/if}
           </div>
         </div>
       </div>
@@ -48,13 +57,15 @@
                 <th class="px-3 py-2"># Maps</th>
                 <th class="px-3 py-2">Map Wins</th>
                 <th class="px-3 py-2">Map Losses</th>
-                <th class="px-3 py-2">Map Diff.</th>
+                <th class="px-3 py-2">Round Diff.</th>
               </tr>
             </thead>
             <tbody>
               {#each rows as row, i}
                 <tr class="border-t" style="border-color: rgba(255,255,255,0.10);">
-                  <td class="px-3 py-2" style="color: rgba(255,255,255,0.82);">{i + 1}</td>
+                  <td class="px-3 py-2" style="color: rgba(255,255,255,0.82);"
+                    >{row.rank || i + 1}</td
+                  >
                   <td class="px-3 py-2" style="color: var(--text);">
                     <div class="flex items-center gap-2">
                       {#if row.team?.logo_url}
@@ -69,9 +80,13 @@
                           style="border-color: rgba(255,255,255,0.15);"
                         ></div>
                       {/if}
-                      <span class="font-semibold" style="color: var(--text);">
+                      <a
+                        href={row.team?.id ? `/teams/${row.team.id}` : '/teams'}
+                        class="font-semibold underline"
+                        style="color: var(--text);"
+                      >
                         {teamLabel(row.team)}
-                      </span>
+                      </a>
                       {#if row.team?.tag}
                         <span class="text-xs" style="color: rgba(255,255,255,0.65);"
                           >[{String(row.team.tag).toUpperCase()}]</span
@@ -91,7 +106,7 @@
                   >
                   <td class="px-3 py-2" style="color: rgba(255,255,255,0.82);">{row.map_wins}</td>
                   <td class="px-3 py-2" style="color: rgba(255,255,255,0.82);">{row.map_losses}</td>
-                  <td class="px-3 py-2" style="color: rgba(255,255,255,0.82);">{row.map_diff}</td>
+                  <td class="px-3 py-2" style="color: rgba(255,255,255,0.82);">{row.round_diff}</td>
                 </tr>
               {/each}
             </tbody>

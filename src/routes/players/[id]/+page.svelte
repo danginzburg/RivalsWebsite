@@ -1,7 +1,8 @@
 <script lang="ts">
   import PageContainer from '$lib/components/PageContainer.svelte'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
-  import { BarChart3, Users, Swords } from 'lucide-svelte'
+  import { BarChart3, Users, Swords, User } from 'lucide-svelte'
+  import miksIcon from '$lib/assets/agents/Miks_icon.png'
 
   import { enhance } from '$app/forms'
 
@@ -18,8 +19,10 @@
   const matchHistory = $derived((data.matchHistory ?? []) as any[])
 
   let riotIdBaseValue = $state('')
+  let statsPlayerNameValue = $state('')
   $effect(() => {
     riotIdBaseValue = player.riot_id_base ?? ''
+    statsPlayerNameValue = player.stats_player_name ?? ''
   })
 
   const agentAssetModules = import.meta.glob('$lib/assets/agents/*_icon.png', {
@@ -36,6 +39,7 @@
       map.set(normalize(base), url)
     }
     if (map.has('harbor')) map.set('harbour', map.get('harbor')!)
+    map.set('miks', miksIcon)
     return map
   })
 
@@ -74,40 +78,52 @@
     if (Array.isArray(value)) return (value[0] as { name?: string } | undefined)?.name ?? 'Team'
     return (value as { name?: string }).name ?? 'Team'
   }
-
-  function opponentFor(match: any, teamId: string) {
-    return match?.team_a_id === teamId ? match?.team_b : match?.team_a
-  }
-
-  function scoreFor(match: any, teamId: string) {
-    const a = Number(match?.team_a_score ?? 0)
-    const b = Number(match?.team_b_score ?? 0)
-    if (match?.team_a_id === teamId) return { us: a, them: b }
-    return { us: b, them: a }
-  }
 </script>
 
 <PageContainer>
   <div class="flex justify-center px-4 py-8">
     <div class="w-full max-w-6xl">
-      <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <div class="flex items-center gap-3">
-          <BarChart3 size={34} style="color: var(--text);" />
+      <div class="mb-6 flex flex-wrap items-start justify-between gap-4">
+        <div class="flex items-start gap-4">
+          {#if activeTeam?.logo_url}
+            <img
+              src={activeTeam.logo_url}
+              alt="{activeTeam.name} logo"
+              class="h-20 w-20 rounded object-contain md:h-24 md:w-24"
+            />
+          {:else}
+            <div
+              class="flex h-20 w-20 items-center justify-center rounded border md:h-24 md:w-24"
+              style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.18);"
+            >
+              <User size={34} style="color: var(--text);" />
+            </div>
+          {/if}
           <div>
             <h1 class="responsive-title">{player.riot_id}</h1>
-            <p class="text-sm" style="color: rgba(255,255,255,0.72);">
-              {#if activeTeam}
-                <a href={`/teams/${activeTeam.id}`} style="color: #93c5fd;">{activeTeam.name}</a>
+            {#if activeTeam}
+              <a
+                href={`/teams/${activeTeam.id}`}
+                class="mt-2 inline-flex items-center gap-2 rounded-md px-1 py-1 transition-colors hover:bg-white/5"
+                style="color: var(--text);"
+              >
+                <span class="font-medium" style="color: rgba(255,255,255,0.88);"
+                  >{activeTeam.name}</span
+                >
                 {#if activeTeam.tag}
-                  <span> [{String(activeTeam.tag).toUpperCase()}]</span>
+                  <span class="text-sm" style="color: rgba(255,255,255,0.62);"
+                    >[{String(activeTeam.tag).toUpperCase()}]</span
+                  >
                 {/if}
                 {#if activeTeam.role}
-                  <span class="opacity-80"> • {activeTeam.role}</span>
+                  <span class="text-sm capitalize" style="color: rgba(255,255,255,0.52);"
+                    >{activeTeam.role}</span
+                  >
                 {/if}
-              {:else}
-                No active team
-              {/if}
-            </p>
+              </a>
+            {:else}
+              <p class="mt-2 text-sm" style="color: rgba(255,255,255,0.72);">No active team</p>
+            {/if}
           </div>
         </div>
 
@@ -160,6 +176,40 @@
           </div>
         {/if}
 
+        {#if viewer.canEditRiotIdBase && player.has_unmatched_stats_candidate}
+          <div
+            class="mb-4 rounded-md border p-3"
+            style="border-color: rgba(168,85,247,0.25); background: rgba(168,85,247,0.10);"
+          >
+            <div class="mb-1 text-sm font-semibold" style="color: rgba(255,255,255,0.92);">
+              Alternate Stats Name
+            </div>
+            <div class="text-xs" style="color: rgba(255,255,255,0.72);">
+              Use this when imported stats still list an old Riot or display name. This will also
+              try to relink past imported stats.
+            </div>
+
+            <form class="mt-3 flex flex-col gap-2 md:flex-row" method="POST" use:enhance>
+              <input
+                name="stats_player_name"
+                bind:value={statsPlayerNameValue}
+                class="w-full flex-1 rounded-md border px-3 py-2 text-sm"
+                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                placeholder="Example: OldName"
+                autocomplete="off"
+              />
+              <button
+                type="submit"
+                formaction="?/setStatsPlayerName"
+                class="rounded-md px-3 py-2 text-sm font-semibold"
+                style="background: rgba(168,85,247,0.2); color: #d8b4fe;"
+              >
+                Save Alt Name
+              </button>
+            </form>
+          </div>
+        {/if}
+
         <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div
             class="text-xs font-semibold tracking-wide uppercase"
@@ -191,7 +241,7 @@
             {/if}
           </div>
 
-          <div class="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div class="grid grid-cols-2 gap-3 md:grid-cols-5">
             <div
               class="rounded-md border p-3"
               style="border-color: rgba(255,255,255,0.10); background: rgba(0,0,0,0.18);"
@@ -226,6 +276,15 @@
               <div class="text-xs" style="color: rgba(255,255,255,0.65);">ADR</div>
               <div class="text-lg font-semibold" style="color: var(--text);">
                 {fmt(selected.adr, 0)}
+              </div>
+            </div>
+            <div
+              class="rounded-md border p-3"
+              style="border-color: rgba(255,255,255,0.10); background: rgba(0,0,0,0.18);"
+            >
+              <div class="text-xs" style="color: rgba(255,255,255,0.65);">HS%</div>
+              <div class="text-lg font-semibold" style="color: var(--text);">
+                {fmt(selected.hs_pct, 0)}
               </div>
             </div>
           </div>
@@ -296,17 +355,20 @@
             <table class="min-w-full text-left text-sm">
               <thead>
                 <tr class="text-xs tracking-wide uppercase" style="color: rgba(255,255,255,0.75);">
-                  <th class="px-3 py-2">Match</th>
-                  <th class="px-3 py-2">When</th>
+                  <th class="px-3 py-2">Opponent</th>
+                  <th class="px-3 py-2">Agent</th>
+                  <th class="px-3 py-2">ACS</th>
+                  <th class="px-3 py-2">K/D/A</th>
+                  <th class="px-3 py-2">KAST</th>
+                  <th class="px-3 py-2">HS%</th>
                   <th class="px-3 py-2">Result</th>
-                  <th class="px-3 py-2">Status</th>
                 </tr>
               </thead>
               <tbody>
                 {#each matchHistory as entry}
                   {@const match = entry.match}
-                  {@const opp = opponentFor(match, entry.team_id)}
-                  {@const score = scoreFor(match, entry.team_id)}
+                  {@const opp = entry.opponent}
+                  {@const score = entry.score}
                   <tr class="border-t" style="border-color: rgba(255,255,255,0.10);">
                     <td class="px-3 py-2" style="color: var(--text);">
                       <a
@@ -317,13 +379,49 @@
                         vs {teamName(opp)}
                       </a>
                     </td>
-                    <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);"
-                      >{formatUtc(match.ended_at ?? match.scheduled_at)}</td
-                    >
                     <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);">
-                      {score.us}-{score.them}
+                      {#if parseAgents(entry.agents).length === 0}
+                        —
+                      {:else}
+                        <div class="agents-icons">
+                          {#each parseAgents(entry.agents) as agent}
+                            {@const url = agentIconUrl(agent)}
+                            {#if url}
+                              <img
+                                src={url}
+                                alt={agent}
+                                title={agent}
+                                class="h-7 w-7 rounded-sm object-contain"
+                                style="background: rgba(0,0,0,0.15);"
+                              />
+                            {:else}
+                              <span
+                                class="inline-flex h-7 w-7 items-center justify-center rounded-sm border text-[10px] font-bold"
+                                style="border-color: rgba(255,255,255,0.15); color: rgba(255,255,255,0.8);"
+                                title={agent}
+                              >
+                                {agent.slice(0, 3).toUpperCase()}
+                              </span>
+                            {/if}
+                          {/each}
+                        </div>
+                      {/if}
                     </td>
-                    <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);">{entry.status}</td>
+                    <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);">
+                      {fmt(entry.acs, 0)}
+                    </td>
+                    <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);">
+                      {entry.kills ?? 0}/{entry.deaths ?? 0}/{entry.assists ?? 0}
+                    </td>
+                    <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);"
+                      >{fmt(entry.kast_pct, 0)}%</td
+                    >
+                    <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);"
+                      >{fmt(entry.hs_pct, 0)}%</td
+                    >
+                    <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);"
+                      >{score.us}-{score.them}</td
+                    >
                   </tr>
                 {/each}
               </tbody>

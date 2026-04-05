@@ -3,6 +3,7 @@
   import PageContainer from '$lib/components/PageContainer.svelte'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
   import { BarChart3 } from 'lucide-svelte'
+  import miksIcon from '$lib/assets/agents/Miks_icon.png'
 
   let { data } = $props() as { data: any }
 
@@ -131,6 +132,7 @@
     }
     // Common aliases
     if (map.has('harbor')) map.set('harbour', map.get('harbor')!)
+    map.set('miks', miksIcon)
     return map
   })
 
@@ -512,6 +514,7 @@
           <table class="stats-table min-w-full text-left text-sm">
             <thead>
               <tr class="text-xs tracking-wide uppercase" style="color: rgba(255,255,255,0.75);">
+                <th class="px-3 py-2">#</th>
                 <th class="px-3 py-2">
                   <button
                     type="button"
@@ -551,17 +554,20 @@
               </tr>
             </thead>
             <tbody>
-              {#each sortedRows as row}
+              {#each sortedRows as row, index}
                 <tr
                   class="border-t"
                   id={row.profile_id ? `profile-${row.profile_id}` : undefined}
                   style={`border-color: rgba(255,255,255,0.10); ${row.profile_id && row.profile_id === highlightedProfileId ? 'background: rgba(74,222,128,0.08);' : ''}`}
                 >
+                  <td class="px-3 py-2 font-semibold" style="color: rgba(255,255,255,0.82);">
+                    {index + 1}
+                  </td>
                   <td class="px-3 py-2 font-semibold" style="color: var(--text);">
                     <div class="flex items-center gap-2">
                       {#if row.profile_id}
                         <a
-                          class="min-w-0 truncate underline"
+                          class="min-w-0 truncate"
                           style="color: var(--text);"
                           href={`/players/${row.profile_id}`}
                         >
@@ -569,24 +575,13 @@
                         </a>
                       {:else}
                         <a
-                          class="min-w-0 truncate underline"
+                          class="min-w-0 truncate"
                           style="color: var(--text);"
                           href={unclaimedHref(String(row.player_name ?? 'Player'))}
                         >
                           {row.player_name}
                         </a>
                       {/if}
-                      <!-- Match/unmatched badge temporarily disabled -->
-                      <!--
-                      {#if !row.profile_id}
-                        <span
-                          class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase"
-                          style="background: rgba(250,204,21,0.18); color: #fde68a;"
-                        >
-                          unmatched
-                        </span>
-                      {/if}
-                      -->
                     </div>
                   </td>
                   {#each allColumns as col}

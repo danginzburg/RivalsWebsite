@@ -2,6 +2,7 @@ import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { logAdminAction } from '$lib/server/audit/admin-actions'
+import { resolveProfileIdForPlayerName } from '$lib/server/teams/membership'
 
 function normalizeOptional(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -26,9 +27,13 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
   const teamId = normalizeOptional(body.teamId)
   const profileId = normalizeOptional(body.profileId)
+  const playerName = normalizeOptional(body.playerName)
   const role = normalizeMembershipRole(body.role)
+  const resolvedProfileId =
+    profileId ?? (playerName ? await resolveProfileIdForPlayerName(playerName) : null)
 
-  if (!teamId || !profileId) throw error(400, 'Missing teamId or profileId')
+  if (!teamId || (!resolvedProfileId && !playerName))
+    throw error(400, 'Missing teamId and player identity')
 
   const { data: team, error: teamError } = await supabaseAdmin
     .from('teams')
@@ -41,25 +46,48 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     throw error(400, 'Team must be approved before adding players')
   }
 
-  const { data: profile, error: profileError } = await supabaseAdmin
-    .from('profiles')
-    .select('id')
-    .eq('id', profileId)
-    .maybeSingle()
+  if (resolvedProfileId) {
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .select('id')
+      .eq('id', resolvedProfileId)
+      .maybeSingle()
 
-  if (profileError || !profile) throw error(404, 'User not found')
+    if (profileError || !profile) throw error(404, 'User not found')
+  }
 
-  const { data: existing, error: existingError } = await supabaseAdmin
-    .from('team_memberships')
-    .select('id, team_id')
-    .eq('profile_id', profileId)
-    .eq('is_active', true)
-    .is('left_at', null)
-    .maybeSingle()
+  const profileQuery = resolvedProfileId
+    ? supabaseAdmin
+        .from('team_memberships')
+        .select('id, team_id')
+        .eq('profile_id', resolvedProfileId)
+        .eq('is_active', true)
+        .is('left_at', null)
+        .maybeSingle()
+    : Promise.resolve({ data: null, error: null } as any)
+
+  const playerNameQuery = playerName
+    ? supabaseAdmin
+        .from('team_memberships')
+        .select('id, team_id')
+        .ilike('player_name', playerName)
+        .eq('is_active', true)
+        .is('left_at', null)
+        .maybeSingle()
+    : Promise.resolve({ data: null, error: null } as any)
+
+  const [
+    { data: existing, error: existingError },
+    { data: existingByName, error: existingByNameError },
+  ] = await Promise.all([profileQuery, playerNameQuery])
 
   if (existingError) throw error(500, 'Failed to validate existing membership')
+  if (existingByNameError) throw error(500, 'Failed to validate existing named membership')
   if (existing) {
     throw error(409, 'Player is already on a team (remove them first)')
+  }
+  if (existingByName) {
+    throw error(409, 'That player name is already on a team (remove them first)')
   }
 
   const today = new Date().toISOString().slice(0, 10)
@@ -67,7 +95,8 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     .from('team_memberships')
     .insert({
       team_id: teamId,
-      profile_id: profileId,
+      profile_id: resolvedProfileId,
+      player_name: playerName,
       role,
       joined_at: today,
       is_active: true,
@@ -82,7 +111,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     actionType: 'team_player_added',
     targetTable: 'team_memberships',
     targetId: String(created.id),
-    details: { teamId, profileId, role },
+    details: { teamId, profileId: resolvedProfileId, playerName, role },
   })
 
   return json({ success: true })
@@ -148,19 +177,24 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
 
   const teamId = normalizeOptional(body.teamId)
   const profileId = normalizeOptional(body.profileId)
+  const membershipId = Number(body.membershipId)
 
-  if (!teamId || !profileId) {
-    throw error(400, 'Missing teamId or profileId')
+  if (!teamId || (!profileId && !Number.isFinite(membershipId))) {
+    throw error(400, 'Missing teamId or membership target')
   }
 
-  const { data: membership, error: membershipError } = await supabaseAdmin
+  let query = supabaseAdmin
     .from('team_memberships')
-    .select('id, role')
+    .select('id, role, profile_id, player_name')
     .eq('team_id', teamId)
-    .eq('profile_id', profileId)
     .eq('is_active', true)
     .is('left_at', null)
-    .maybeSingle()
+
+  query = Number.isFinite(membershipId)
+    ? query.eq('id', membershipId)
+    : query.eq('profile_id', profileId)
+
+  const { data: membership, error: membershipError } = await query.maybeSingle()
 
   if (membershipError) {
     throw error(500, 'Failed to validate membership')
@@ -190,6 +224,7 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
     details: {
       teamId,
       profileId,
+      playerName: membership.player_name ?? null,
       role: membership.role,
     },
   })

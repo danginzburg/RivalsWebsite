@@ -1,55 +1,15 @@
 <script lang="ts">
   import PageContainer from '$lib/components/PageContainer.svelte'
-  import CustomSelect from '$lib/components/CustomSelect.svelte'
-  import { Users } from 'lucide-svelte'
+  import { Trophy, Users, CalendarDays, BarChart3 } from 'lucide-svelte'
 
   let { data } = $props() as { data: any }
 
   const team = $derived(data.team)
   const roster = $derived(data.roster ?? [])
+  const upcomingMatches = $derived(data.upcomingMatches ?? [])
   const matchHistory = $derived(data.matchHistory ?? [])
-  const viewer = $derived(data.viewer ?? { isAdmin: false })
-
-  let playerPool = $state<any[]>([])
-  let isLoadingPlayerPool = $state(false)
-  let addProfileId = $state('')
-  let addRole = $state('player')
-  let editError = $state<string | null>(null)
-
-  const membershipRoleOptions = [
-    { value: 'player', label: 'Player' },
-    { value: 'captain', label: 'Captain' },
-    { value: 'substitute', label: 'Substitute' },
-    { value: 'coach', label: 'Coach' },
-    { value: 'manager', label: 'Manager' },
-  ]
-
-  const playerOptions = $derived.by(() => {
-    return (playerPool ?? [])
-      .filter((u) => u.role !== 'banned' && u.role !== 'restricted')
-      .map((p) => {
-        const labelParts = [p.riot_id_base || p.display_name || p.email || p.id]
-        if (p.riot_id_base && p.display_name && p.display_name !== p.riot_id_base) {
-          labelParts.push(p.display_name)
-        }
-        return { value: p.id, label: labelParts.filter(Boolean).join(' - ') }
-      })
-  })
-
-  function profileLabel(
-    entry:
-      | { display_name?: string | null; email?: string | null }
-      | { display_name?: string | null; email?: string | null }[]
-      | null
-      | undefined
-  ) {
-    if (!entry) return '—'
-    if (Array.isArray(entry)) {
-      const first = entry[0]
-      return first?.display_name || first?.email || '—'
-    }
-    return entry.display_name || entry.email || '—'
-  }
+  const leaderboard = $derived(data.leaderboard ?? null)
+  const activeSeason = $derived(data.activeSeason ?? null)
 
   function formatUtc(value: string | null | undefined) {
     if (!value) return 'Date TBD'
@@ -63,6 +23,12 @@
     return (value as { name?: string }).name ?? 'Team'
   }
 
+  function teamTag(value: unknown) {
+    if (!value) return null
+    if (Array.isArray(value)) return (value[0] as { tag?: string } | undefined)?.tag ?? null
+    return (value as { tag?: string }).tag ?? null
+  }
+
   function opponentFor(match: any, teamId: string) {
     return match?.team_a_id === teamId ? match?.team_b : match?.team_a
   }
@@ -74,230 +40,291 @@
     return { us: b, them: a }
   }
 
-  async function loadPlayerPool() {
-    if (isLoadingPlayerPool) return
-    isLoadingPlayerPool = true
-    try {
-      const res = await fetch('/api/admin/users')
-      const body = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(body?.message ?? 'Failed to load users')
-      playerPool = body.users ?? []
-    } catch (err) {
-      editError = err instanceof Error ? err.message : 'Failed to load users'
-    } finally {
-      isLoadingPlayerPool = false
-    }
+  function fmt(value: unknown, digits = 1) {
+    const num = Number(value)
+    return Number.isFinite(num) ? num.toFixed(digits) : '—'
   }
-
-  async function addPlayer() {
-    editError = null
-    if (!addProfileId) {
-      editError = 'Select a user'
-      return
-    }
-    try {
-      const res = await fetch('/api/admin/teams/manage', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ teamId: team.id, profileId: addProfileId, role: addRole }),
-      })
-      const body = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(body?.message ?? 'Failed to add user')
-      window.location.reload()
-    } catch (err) {
-      editError = err instanceof Error ? err.message : 'Failed to add user'
-    }
-  }
-
-  async function removePlayer(profileId: string) {
-    const confirmed = window.confirm('Remove this user from the team?')
-    if (!confirmed) return
-    editError = null
-    try {
-      const res = await fetch('/api/admin/teams/manage', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ teamId: team.id, profileId }),
-      })
-      const body = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(body?.message ?? 'Failed to remove user')
-      window.location.reload()
-    } catch (err) {
-      editError = err instanceof Error ? err.message : 'Failed to remove user'
-    }
-  }
-
-  $effect(() => {
-    if (viewer.isAdmin && playerPool.length === 0) loadPlayerPool()
-  })
 </script>
 
 <PageContainer>
   <div class="flex justify-center px-4 py-8">
-    <div class="w-full max-w-5xl">
-      <div class="mb-6 flex flex-col items-center text-center">
-        {#if team.logo_url}
-          <img
-            src={team.logo_url}
-            alt="{team.name} logo"
-            class="mb-3 h-16 w-16 rounded object-contain"
-          />
-        {:else}
-          <Users size={48} class="mb-3" style="color: var(--text);" />
-        {/if}
-        <h1 class="responsive-title mb-2">{team.name}{team.tag ? ` [${team.tag}]` : ''}</h1>
+    <div class="w-full max-w-6xl space-y-4">
+      <section
+        class="rounded-lg border p-5"
+        style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
+      >
+        <div class="flex items-center gap-4">
+          {#if team.logo_url}
+            <img
+              src={team.logo_url}
+              alt="{team.name} logo"
+              class="h-20 w-20 rounded object-contain"
+            />
+          {:else}
+            <div
+              class="flex h-20 w-20 items-center justify-center rounded border"
+              style="border-color: rgba(255,255,255,0.12);"
+            >
+              <Users size={34} style="color: var(--text);" />
+            </div>
+          {/if}
+          <div>
+            <h1 class="responsive-title">{team.name}{team.tag ? ` [${team.tag}]` : ''}</h1>
+            {#if team.org || team.created_at}
+              <p class="text-sm" style="color: rgba(255,255,255,0.72);">
+                {#if team.org}{team.org}{/if}
+                {#if team.created_at}
+                  <span
+                    >{team.org ? ' • ' : ''}Created {new Date(
+                      team.created_at
+                    ).toLocaleDateString()}</span
+                  >
+                {/if}
+              </p>
+            {/if}
+            {#if team.about}
+              <p class="mt-2 max-w-3xl text-sm" style="color: rgba(255,255,255,0.82);">
+                {team.about}
+              </p>
+            {/if}
+          </div>
+        </div>
+      </section>
+
+      {#if leaderboard}
+        <section
+          class="rounded-lg border p-4"
+          style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
+        >
+          <div class="mb-3 flex items-center gap-2">
+            <Trophy size={18} />
+            <h2
+              class="text-sm font-semibold tracking-wide uppercase"
+              style="color: rgba(255,255,255,0.8);"
+            >
+              Current Standings
+            </h2>
+          </div>
+          <div class="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <div
+              class="rounded-md border p-3"
+              style="border-color: rgba(255,255,255,0.10); background: rgba(255,255,255,0.04);"
+            >
+              <div class="text-xs uppercase" style="color: rgba(255,255,255,0.65);">Rank</div>
+              <div class="text-xl font-semibold" style="color: var(--text);">
+                #{leaderboard.rank}
+              </div>
+            </div>
+            <div
+              class="rounded-md border p-3"
+              style="border-color: rgba(255,255,255,0.10); background: rgba(255,255,255,0.04);"
+            >
+              <div class="text-xs uppercase" style="color: rgba(255,255,255,0.65);">Points</div>
+              <div class="text-xl font-semibold" style="color: var(--text);">
+                {leaderboard.points}
+              </div>
+            </div>
+            <div
+              class="rounded-md border p-3"
+              style="border-color: rgba(255,255,255,0.10); background: rgba(255,255,255,0.04);"
+            >
+              <div class="text-xs uppercase" style="color: rgba(255,255,255,0.65);">Series</div>
+              <div class="text-xl font-semibold" style="color: var(--text);">
+                {leaderboard.wins}-{leaderboard.losses}
+              </div>
+            </div>
+            <div
+              class="rounded-md border p-3"
+              style="border-color: rgba(255,255,255,0.10); background: rgba(255,255,255,0.04);"
+            >
+              <div class="text-xs uppercase" style="color: rgba(255,255,255,0.65);">Round Diff</div>
+              <div class="text-xl font-semibold" style="color: var(--text);">
+                {leaderboard.round_diff}
+              </div>
+            </div>
+          </div>
+        </section>
+      {/if}
+
+      <div class="grid grid-cols-1 gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+        <section
+          class="rounded-lg border p-4"
+          style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
+        >
+          <div class="mb-3 flex items-center gap-2">
+            <Users size={18} />
+            <h2
+              class="text-sm font-semibold tracking-wide uppercase"
+              style="color: rgba(255,255,255,0.8);"
+            >
+              Roster
+            </h2>
+          </div>
+
+          <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+            {#each roster as player}
+              <svelte:element
+                this={player.profile_id ? 'a' : 'div'}
+                href={player.profile_id ? `/players/${player.profile_id}` : undefined}
+                class="rounded-md border p-3 transition-colors hover:bg-white/5"
+                style="border-color: rgba(255,255,255,0.10);"
+              >
+                <div class="flex items-start justify-between gap-3">
+                  <div>
+                    <div class="font-semibold" style="color: var(--text);">
+                      {player.riot_id_base ??
+                        player.display_name ??
+                        player.player_name ??
+                        player.email ??
+                        'Player'}
+                    </div>
+                    <div class="text-xs uppercase" style="color: rgba(255,255,255,0.62);">
+                      {player.role}
+                    </div>
+                  </div>
+                  {#if player.stats}
+                    <div class="text-right text-xs" style="color: rgba(255,255,255,0.78);">
+                      <div>ACS {fmt(player.stats.acs, 0)}</div>
+                      <div>KD {fmt(player.stats.kd, 2)}</div>
+                    </div>
+                  {/if}
+                </div>
+                {#if player.stats}
+                  <div class="mt-2 text-xs" style="color: rgba(255,255,255,0.68);">
+                    ADR {fmt(player.stats.adr, 0)}
+                  </div>
+                {/if}
+              </svelte:element>
+            {/each}
+          </div>
+          {#if !activeSeason}
+            <div class="mt-3 text-sm" style="color: rgba(255,255,255,0.62);">
+              Player season stats will appear once an active season exists and season stats are
+              imported.
+            </div>
+          {/if}
+        </section>
+
+        <section class="space-y-4">
+          <div
+            class="rounded-lg border p-4"
+            style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
+          >
+            <div class="mb-3 flex items-center gap-2">
+              <Trophy size={18} />
+              <h2
+                class="text-sm font-semibold tracking-wide uppercase"
+                style="color: rgba(255,255,255,0.8);"
+              >
+                Season Snapshot
+              </h2>
+            </div>
+            {#if leaderboard}
+              <div class="space-y-2 text-sm" style="color: rgba(255,255,255,0.82);">
+                <div>Active season: {activeSeason?.name ?? 'No active season'}</div>
+                <div>Latest batch: {leaderboard.batch?.display_name ?? 'Imported snapshot'}</div>
+                {#if leaderboard.batch?.as_of_date}
+                  <div>As of: {leaderboard.batch.as_of_date}</div>
+                {/if}
+              </div>
+            {:else}
+              <div class="text-sm" style="color: rgba(255,255,255,0.72);">
+                No current season standings yet.
+              </div>
+            {/if}
+          </div>
+
+          <div
+            class="rounded-lg border p-4"
+            style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
+          >
+            <div class="mb-3 flex items-center gap-2">
+              <CalendarDays size={18} />
+              <h2
+                class="text-sm font-semibold tracking-wide uppercase"
+                style="color: rgba(255,255,255,0.8);"
+              >
+                Upcoming Matches
+              </h2>
+            </div>
+            {#if upcomingMatches.length === 0}
+              <div class="text-sm" style="color: rgba(255,255,255,0.72);">
+                No upcoming matches listed.
+              </div>
+            {:else}
+              <div class="space-y-2">
+                {#each upcomingMatches as match}
+                  {@const opp = opponentFor(match, team.id)}
+                  <a
+                    href={`/matches/${match.id}`}
+                    class="block rounded-md border p-3 transition-colors hover:bg-white/5"
+                    style="border-color: rgba(255,255,255,0.10);"
+                  >
+                    <div class="font-semibold" style="color: var(--text);">vs {teamName(opp)}</div>
+                    <div class="text-xs" style="color: rgba(255,255,255,0.68);">
+                      {formatUtc(match.scheduled_at)} • {match.status}
+                    </div>
+                  </a>
+                {/each}
+              </div>
+            {/if}
+          </div>
+        </section>
       </div>
 
-      <section class="info-card info-card-surface">
-        <h2 class="mb-3 text-lg font-bold" style="color: var(--title);">Roster</h2>
-        {#if roster.length === 0}
-          <p class="text-sm" style="color: rgba(255,255,255,0.75);">No active roster listed.</p>
+      <section
+        class="rounded-lg border p-4"
+        style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
+      >
+        <div class="mb-3 flex items-center gap-2">
+          <BarChart3 size={18} />
+          <h2
+            class="text-sm font-semibold tracking-wide uppercase"
+            style="color: rgba(255,255,255,0.8);"
+          >
+            Match History
+          </h2>
+        </div>
+        {#if matchHistory.length === 0}
+          <div class="text-sm" style="color: rgba(255,255,255,0.72);">
+            No completed matches yet.
+          </div>
         {:else}
           <div class="overflow-x-auto">
             <table class="w-full text-left text-sm">
               <thead>
-                <tr
-                  class="border-b"
-                  style="border-color: rgba(255,255,255,0.12); color: rgba(255,255,255,0.75);"
-                >
-                  <th class="px-2 py-2">Name</th>
-                  <th class="px-2 py-2">Role</th>
-                  <th class="px-2 py-2">User</th>
-                  {#if viewer.isAdmin}
-                    <th class="px-2 py-2">Actions</th>
-                  {/if}
+                <tr class="text-xs uppercase" style="color: rgba(255,255,255,0.75);">
+                  <th class="px-3 py-2">Opponent</th>
+                  <th class="px-3 py-2">When</th>
+                  <th class="px-3 py-2">Score</th>
+                  <th class="px-3 py-2">Tag</th>
                 </tr>
               </thead>
               <tbody>
-                {#each roster as player}
-                  <tr class="border-b" style="border-color: rgba(255,255,255,0.08);">
-                    <td class="px-2 py-2 font-semibold" style="color: var(--text);">
-                      <a
-                        href={`/players/${player.profile_id}`}
-                        class="underline"
-                        style="color: var(--text);"
-                        >{player.riot_id_base ?? player.display_name ?? player.email ?? 'Player'}</a
+                {#each matchHistory as match}
+                  {@const opp = opponentFor(match, team.id)}
+                  {@const score = scoreFor(match, team.id)}
+                  <tr class="border-t" style="border-color: rgba(255,255,255,0.10);">
+                    <td class="px-3 py-2 font-semibold" style="color: var(--text);">
+                      <a href={`/matches/${match.id}`} class="underline" style="color: var(--text);"
+                        >{teamName(opp)}</a
                       >
                     </td>
-                    <td class="px-2 py-2" style="color: var(--text);">{player.role}</td>
-                    <td class="px-2 py-2" style="color: var(--text);">{profileLabel(player)}</td>
-                    {#if viewer.isAdmin}
-                      <td class="px-2 py-2">
-                        <button
-                          type="button"
-                          class="rounded px-2 py-1 text-xs font-semibold"
-                          style="background: rgba(248,113,113,0.2); color: #f87171;"
-                          onclick={() => removePlayer(player.profile_id)}
-                        >
-                          Remove
-                        </button>
-                      </td>
-                    {/if}
+                    <td class="px-3 py-2" style="color: rgba(255,255,255,0.9);">
+                      {formatUtc(match.scheduled_at)}
+                    </td>
+                    <td class="px-3 py-2" style="color: rgba(255,255,255,0.9);"
+                      >{score.us}-{score.them}</td
+                    >
+                    <td class="px-3 py-2" style="color: rgba(255,255,255,0.9);">
+                      {teamTag(opp) ? `[${teamTag(opp)}]` : '—'}
+                    </td>
                   </tr>
                 {/each}
               </tbody>
             </table>
           </div>
         {/if}
-
-        {#if viewer.isAdmin}
-          <div
-            class="mt-4 rounded-md border p-3"
-            style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.18);"
-          >
-            <div
-              class="mb-2 text-xs font-semibold tracking-wide uppercase"
-              style="color: rgba(255,255,255,0.75);"
-            >
-              Admin: Edit Roster
-            </div>
-
-            {#if editError}
-              <div
-                class="mb-2 rounded-md border p-2 text-sm"
-                style="border-color: rgba(248,113,113,0.35); background: rgba(248,113,113,0.08); color: #fecaca;"
-              >
-                {editError}
-              </div>
-            {/if}
-
-            <div class="grid grid-cols-1 gap-2 md:grid-cols-3">
-              <div class="md:col-span-2">
-                <CustomSelect
-                  options={playerOptions}
-                  value={addProfileId}
-                  placeholder={isLoadingPlayerPool ? 'Loading users...' : 'Select user'}
-                  compact={true}
-                  disabled={isLoadingPlayerPool}
-                  onSelect={(value) => (addProfileId = value)}
-                />
-              </div>
-              <div>
-                <CustomSelect
-                  options={membershipRoleOptions}
-                  value={addRole}
-                  placeholder="Role"
-                  compact={true}
-                  onSelect={(value) => (addRole = value)}
-                />
-              </div>
-            </div>
-
-            <div class="mt-2 flex justify-end">
-              <button
-                type="button"
-                class="rounded px-2 py-1 text-xs font-semibold"
-                style="background: rgba(74,222,128,0.2); color: #4ade80;"
-                onclick={addPlayer}
-                disabled={isLoadingPlayerPool}
-              >
-                Add
-              </button>
-            </div>
-          </div>
-        {/if}
-
-        <div class="mt-8">
-          <h2 class="mb-3 text-lg font-bold" style="color: var(--title);">Match History</h2>
-
-          {#if matchHistory.length === 0}
-            <p class="text-sm" style="color: rgba(255,255,255,0.75);">No completed matches yet.</p>
-          {:else}
-            <div class="overflow-x-auto">
-              <table class="w-full text-left text-sm">
-                <thead>
-                  <tr
-                    class="border-b"
-                    style="border-color: rgba(255,255,255,0.12); color: rgba(255,255,255,0.75);"
-                  >
-                    <th class="px-2 py-2">Match</th>
-                    <th class="px-2 py-2">When</th>
-                    <th class="px-2 py-2">Score</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {#each matchHistory as match}
-                    {@const opp = opponentFor(match, team.id)}
-                    {@const score = scoreFor(match, team.id)}
-                    <tr class="border-b" style="border-color: rgba(255,255,255,0.08);">
-                      <td class="px-2 py-2 font-semibold" style="color: var(--text);">
-                        <a
-                          href={`/matches/${match.id}`}
-                          class="underline"
-                          style="color: var(--text);">vs {teamName(opp)}</a
-                        >
-                      </td>
-                      <td class="px-2 py-2" style="color: var(--text);"
-                        >{formatUtc(match.ended_at ?? match.scheduled_at)}</td
-                      >
-                      <td class="px-2 py-2" style="color: var(--text);">{score.us}-{score.them}</td>
-                    </tr>
-                  {/each}
-                </tbody>
-              </table>
-            </div>
-          {/if}
-        </div>
       </section>
     </div>
   </div>

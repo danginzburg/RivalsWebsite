@@ -380,7 +380,7 @@
     submitResult = null
 
     try {
-      const response = await fetch('/api/admin/stats', {
+      const response = await window.fetch('/api/admin/stats', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

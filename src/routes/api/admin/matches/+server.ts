@@ -12,10 +12,8 @@ function parseScheduledAt(value: unknown): string | null {
   const raw = normalizeOptional(value)
   if (!raw) return null
 
-  // Support <input type="datetime-local"> value (YYYY-MM-DDTHH:mm)
-  const looksLikeLocal = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(raw)
-  const asIso = looksLikeLocal ? `${raw}:00Z` : raw
-  const d = new Date(asIso)
+  // <input type="datetime-local"> is interpreted in the viewer's local timezone.
+  const d = new Date(raw)
   if (!Number.isFinite(d.getTime())) {
     throw error(400, 'Invalid scheduledAt')
   }
@@ -34,6 +32,8 @@ export const GET: RequestHandler = async ({ locals }) => {
       approval_status,
       best_of,
       scheduled_at,
+      ended_at,
+      metadata,
       team_a_id,
       team_b_id,
       winner_team_id,
@@ -47,7 +47,35 @@ export const GET: RequestHandler = async ({ locals }) => {
 
   if (matchesError) throw error(500, 'Failed to load matches')
 
-  return json({ matches: matches ?? [] })
+  const matchIds = (matches ?? []).map((match) => match.id)
+  let streamsByMatch: Record<string, any[]> = {}
+  if (matchIds.length > 0) {
+    const { data: streams, error: streamsError } = await supabaseAdmin
+      .from('match_streams')
+      .select('id, match_id, platform, stream_url, is_primary, status, metadata')
+      .in('match_id', matchIds)
+      .order('is_primary', { ascending: false })
+      .order('created_at', { ascending: true })
+
+    if (streamsError) throw error(500, 'Failed to load match streams')
+
+    streamsByMatch = (streams ?? []).reduce(
+      (acc, stream) => {
+        if (!acc[stream.match_id]) acc[stream.match_id] = []
+        acc[stream.match_id].push(stream)
+        return acc
+      },
+      {} as Record<string, any[]>
+    )
+  }
+
+  return json({
+    matches: (matches ?? []).map((match) => ({
+      ...match,
+      streams: streamsByMatch[match.id] ?? [],
+      vod_url: match.metadata?.youtube_vod_url ?? null,
+    })),
+  })
 }
 
 export const POST: RequestHandler = async ({ locals, request }) => {
@@ -61,7 +89,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
   if (!teamAId || !teamBId) throw error(400, 'teamAId and teamBId are required')
   if (teamAId === teamBId) throw error(400, 'Teams must be different')
-  if (![1, 3, 5, 7].includes(bestOf)) throw error(400, 'bestOf must be one of 1, 3, 5, 7')
+  if (![3, 5].includes(bestOf)) throw error(400, 'bestOf must be one of 3 or 5')
 
   const { data: teams, error: teamsError } = await supabaseAdmin
     .from('teams')
@@ -95,6 +123,8 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       approval_status,
       best_of,
       scheduled_at,
+      ended_at,
+      metadata,
       team_a_id,
       team_b_id,
       winner_team_id,

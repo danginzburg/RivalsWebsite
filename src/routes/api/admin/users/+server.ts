@@ -2,6 +2,19 @@ import { json, error } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
 import { supabaseAdmin } from '$lib/supabase/admin'
 
+function normalizeRiotBase(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  return trimmed.split('#')[0].trim() || null
+}
+
+function isValidRiotBase(value: string | null) {
+  if (!value) return true
+  if (value.includes('#')) return false
+  return value.length >= 3 && value.length <= 24
+}
+
 // GET all users
 export const GET: RequestHandler = async ({ locals }) => {
   // Check if user is authenticated
@@ -82,16 +95,20 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
 
   const body = await request.json()
   const { userId, newRole } = body
+  const riotIdBase = normalizeRiotBase(body.riotIdBase)
 
-  if (!userId || !newRole) {
-    throw error(400, 'User ID and new role are required')
+  if (!userId) {
+    throw error(400, 'User ID is required')
   }
 
-  // Validate the role
-  const validRoles = ['user', 'admin', 'restricted', 'banned']
-  if (!validRoles.includes(newRole)) {
-    throw error(400, 'Invalid role')
+  if (newRole) {
+    const validRoles = ['user', 'admin', 'restricted', 'banned']
+    if (!validRoles.includes(newRole)) {
+      throw error(400, 'Invalid role')
+    }
   }
+
+  if (!isValidRiotBase(riotIdBase)) throw error(400, 'Invalid Riot ID base')
 
   // Prevent admin from changing their own role (safety measure)
   if (userId === profile.id) {
@@ -110,14 +127,34 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
   }
 
   // Prevent removing admin access from other admins (can only be done in database)
-  if (targetUser.role === 'admin' && newRole !== 'admin') {
+  if (newRole && targetUser.role === 'admin' && newRole !== 'admin') {
     throw error(403, 'Cannot remove admin access. This can only be done directly in the database.')
   }
 
-  // Update the user's role
+  if (riotIdBase) {
+    const { data: existingRiotId } = await supabaseAdmin
+      .from('profiles')
+      .select('id')
+      .ilike('riot_id_base', riotIdBase)
+      .neq('id', userId)
+      .maybeSingle()
+
+    if (existingRiotId?.id) {
+      throw error(409, 'That Riot ID is already claimed by another account')
+    }
+  }
+
+  const updatePayload: Record<string, unknown> = {}
+  if (newRole) updatePayload.role = newRole
+  if ('riotIdBase' in body) updatePayload.riot_id_base = riotIdBase
+
+  if (Object.keys(updatePayload).length === 0) {
+    throw error(400, 'No user updates provided')
+  }
+
   const { error: updateError } = await supabaseAdmin
     .from('profiles')
-    .update({ role: newRole })
+    .update(updatePayload)
     .eq('id', userId)
 
   if (updateError) {
@@ -125,5 +162,8 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
     throw error(500, 'Failed to update user role')
   }
 
-  return json({ success: true, message: `User role updated to ${newRole}` })
+  return json({
+    success: true,
+    message: newRole ? `User role updated to ${newRole}` : 'User updated successfully',
+  })
 }

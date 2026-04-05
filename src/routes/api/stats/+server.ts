@@ -125,5 +125,9 @@ export const GET: RequestHandler = async ({ url }) => {
   const { data: rows, error: rowsError } = await query.limit(limit)
   if (rowsError) throw error(500, 'Failed to load stats')
 
-  return json({ batchId: effectiveBatchId, batch, rows: rows ?? [] })
+  return json({
+    batchId: effectiveBatchId,
+    batch,
+    rows: rows ?? [],
+  })
 }
