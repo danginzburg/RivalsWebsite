@@ -98,7 +98,7 @@
         class="rounded-md border p-4"
         style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
       >
-        {#if viewer?.profileId}
+        {#if viewer?.profileId && !viewer?.riotIdBase}
           <div
             class="mb-4 rounded-md border p-3"
             style="border-color: rgba(59,130,246,0.25); background: rgba(59,130,246,0.10);"

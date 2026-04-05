@@ -30,6 +30,11 @@
     return row.profile_name ?? row.player_name ?? 'Player'
   }
 
+  function playerHref(row: any) {
+    if (row.profile_id) return `/players/${row.profile_id}`
+    return `/players/unclaimed?name=${encodeURIComponent(row.player_name ?? '')}`
+  }
+
   function fmt(value: unknown, digits = 0) {
     const num = Number(value)
     return Number.isFinite(num) ? num.toFixed(digits) : '0'
@@ -342,11 +347,13 @@
                           style="border-color: rgba(255,255,255,0.08); color: rgba(255,255,255,0.9);"
                         >
                           <td class="px-3 py-2 font-semibold" style="color: var(--text);">
-                            {#if row.profile_id}
-                              <a href={`/players/${row.profile_id}`}>{playerLabel(row)}</a>
-                            {:else}
+                            <a
+                              href={playerHref(row)}
+                              class="transition-colors hover:text-[#93c5fd] hover:underline"
+                              style="color: var(--text);"
+                            >
                               {playerLabel(row)}
-                            {/if}
+                            </a>
                           </td>
                           <td class="px-3 py-2">
                             <div class="flex flex-wrap gap-1">
@@ -412,11 +419,13 @@
                           style="border-color: rgba(255,255,255,0.08); color: rgba(255,255,255,0.9);"
                         >
                           <td class="px-3 py-2 font-semibold" style="color: var(--text);">
-                            {#if row.profile_id}
-                              <a href={`/players/${row.profile_id}`}>{playerLabel(row)}</a>
-                            {:else}
+                            <a
+                              href={playerHref(row)}
+                              class="transition-colors hover:text-[#93c5fd] hover:underline"
+                              style="color: var(--text);"
+                            >
                               {playerLabel(row)}
-                            {/if}
+                            </a>
                           </td>
                           <td class="px-3 py-2">
                             <div class="flex flex-wrap gap-1">
