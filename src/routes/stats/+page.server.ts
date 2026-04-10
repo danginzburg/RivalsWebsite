@@ -1,11 +1,11 @@
 import type { PageServerLoad } from './$types'
 import { supabaseAdmin } from '$lib/supabase/admin'
-
-function safeInt(value: string | null, fallback: number) {
-  if (!value) return fallback
-  const n = Number(value)
-  return Number.isFinite(n) ? Math.trunc(n) : fallback
-}
+import { safeInt } from '$lib/server/parse'
+import {
+  normalizeRivalsGroupStatBatchFromDb,
+  type NormalizedRivalsGroupStatBatch,
+  type StatImportBatchRow,
+} from '$lib/server/stats/rivals-batch'
 
 function normalizeSort(value: string | null): string {
   const v = String(value ?? '')
@@ -80,7 +80,7 @@ export const load: PageServerLoad = async ({ fetch, url, locals }) => {
     }
   }
 
-  let batches: any[] = []
+  let batches: NormalizedRivalsGroupStatBatch[] = []
   const { data: batchRows, error: batchError } = await supabaseAdmin
     .from('stat_import_batches')
     .select(
@@ -92,15 +92,11 @@ export const load: PageServerLoad = async ({ fetch, url, locals }) => {
     .limit(100)
 
   if (!batchError) {
-    batches = (batchRows ?? []).map((b: any) => ({
-      id: b.id,
-      source_filename: b.source_filename,
-      display_name: b.display_name ?? b.source_filename,
-      import_kind: b.import_kind ?? b.metadata?.import_kind ?? null,
-      week_label: b.week_label ?? b.metadata?.week_label ?? null,
-      created_at: b.created_at,
-      sort_order: (b as any).sort_order ?? null,
-    }))
+    batches = (batchRows ?? []).map((b: StatImportBatchRow) =>
+      normalizeRivalsGroupStatBatchFromDb(b, {
+        displayNameFallback: 'source_filename',
+      })
+    )
   }
 
   return {

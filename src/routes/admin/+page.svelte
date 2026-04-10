@@ -14,9 +14,11 @@
     Layers3,
   } from 'lucide-svelte'
   import { TEAM_BALANCE_RANKS } from '$lib/team-balance'
+  import { formatUtc, teamName, toDatetimeLocal } from '$lib/admin/match-ui'
+  import AdminActionConfirmationModal from '$lib/components/admin/AdminActionConfirmationModal.svelte'
+  import type { PageData, PageProps } from './$types'
 
-  // Get data from server load
-  let { data } = $props() as { data: any }
+  let { data: pageData }: PageProps = $props()
 
   type TeamQueueEntry = {
     id: string
@@ -47,6 +49,15 @@
     captain_profile?: { display_name?: string | null; email?: string | null } | null
   }
 
+  /** Server load plus optional fields referenced before client fetch populates them. */
+  type AdminPageData = PageData & {
+    players?: unknown[]
+    observers?: unknown[]
+    teamQueue?: TeamQueueEntry[]
+  }
+
+  const data = $derived(pageData as AdminPageData)
+
   let activeTab = $state<'users' | 'teams' | 'matches' | 'seasons'>('matches')
   let isLoading = $state(false)
   let errorMessage = $state<string | null>(null)
@@ -65,7 +76,7 @@
   let users = $state<any[]>(getInitialUsers())
   let seasons = $state<any[]>(getInitialSeasons())
   let teamQueue = $state<TeamQueueEntry[]>(getInitialTeamQueue())
-  let approvedTeams = $state<TeamQueueEntry[]>(getInitialApprovedTeams())
+  let approvedTeams = $state<TeamQueueEntry[]>(getInitialApprovedTeams() as TeamQueueEntry[])
   let matches = $state<any[]>(getInitialMatches())
   let matchSearchQuery = $state('')
   let showCompletedAdminMatches = $state(false)
@@ -307,17 +318,6 @@
     if (changed) finalizeForm = next
   })
 
-  function toDatetimeLocal(value: string | null | undefined) {
-    if (!value) return ''
-    const date = new Date(value)
-    const yyyy = date.getFullYear()
-    const mm = String(date.getMonth() + 1).padStart(2, '0')
-    const dd = String(date.getDate()).padStart(2, '0')
-    const hh = String(date.getHours()).padStart(2, '0')
-    const min = String(date.getMinutes()).padStart(2, '0')
-    return `${yyyy}-${mm}-${dd}T${hh}:${min}`
-  }
-
   function updateMatchEditForm(matchId: string, patch: Record<string, string>) {
     const current =
       matchEditForm[matchId] ??
@@ -461,22 +461,6 @@
       )
     if (changed) seasonEditForm = next
   })
-
-  function teamName(value: unknown) {
-    if (!value) return 'Team'
-    if (Array.isArray(value)) {
-      const first = value[0] as { name?: string } | undefined
-      return first?.name ?? 'Team'
-    }
-    const team = value as { name?: string }
-    return team.name ?? 'Team'
-  }
-
-  function formatUtc(value: string | null | undefined) {
-    if (!value) return 'No date'
-    const date = new Date(value)
-    return `${date.toLocaleString(undefined, { timeZone: 'UTC' })} UTC`
-  }
 
   // Role change confirmation
   let showRoleConfirmation = $state(false)
@@ -3241,37 +3225,12 @@
     </div>
   {/if}
 
-  {#if showActionConfirmation && pendingActionConfirmation}
-    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
-      <div
-        class="w-full max-w-md rounded-lg border p-6 text-center"
-        style="border-color: rgba(255, 255, 255, 0.2); background: var(--secondary-background);"
-      >
-        <h3 class="mb-3 text-xl font-bold" style="color: var(--title);">
-          {pendingActionConfirmation.title}
-        </h3>
-        <p class="mb-5 text-sm" style="color: var(--text);">
-          {pendingActionConfirmation.message}
-        </p>
-        <div class="flex justify-center gap-3">
-          <button
-            type="button"
-            class="rounded-md border px-4 py-2"
-            style="border-color: rgba(255,255,255,0.2); color: var(--text);"
-            onclick={cancelActionConfirmation}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            class="rounded-md px-4 py-2 font-semibold"
-            style="background: var(--accent); color: var(--text);"
-            onclick={confirmActionConfirmation}
-          >
-            {pendingActionConfirmation.confirmLabel}
-          </button>
-        </div>
-      </div>
-    </div>
-  {/if}
+  <AdminActionConfirmationModal
+    open={showActionConfirmation && Boolean(pendingActionConfirmation)}
+    title={pendingActionConfirmation?.title ?? ''}
+    message={pendingActionConfirmation?.message ?? ''}
+    confirmLabel={pendingActionConfirmation?.confirmLabel ?? 'Confirm'}
+    onCancel={cancelActionConfirmation}
+    onConfirm={confirmActionConfirmation}
+  />
 </PageContainer>

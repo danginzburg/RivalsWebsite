@@ -1,9 +1,5 @@
 import { supabaseAdmin } from '$lib/supabase/admin'
-
-function getTeamLogoUrl(team: any): string | null {
-  if (!team?.logo_path) return null
-  return supabaseAdmin.storage.from('team-logos').getPublicUrl(team.logo_path).data.publicUrl
-}
+import { getTeamLogoUrl } from '$lib/server/teams/logo'
 
 export const load = async () => {
   const { data: matches, error: matchesError } = await supabaseAdmin

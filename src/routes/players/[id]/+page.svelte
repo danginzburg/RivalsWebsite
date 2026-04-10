@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
   import { BarChart3, Users, Swords, User } from 'lucide-svelte'
@@ -6,17 +7,15 @@
 
   import { enhance } from '$app/forms'
 
-  let { data, form } = $props() as { data: any; form: any }
+  let { data, form }: PageProps = $props()
 
   const player = $derived(data.player)
   const activeTeam = $derived(data.activeTeam)
   const viewer = $derived(data.viewer ?? { canEditRiotIdBase: false })
-  const selected = $derived((data.stats?.selected ?? null) as any | null)
-  const selectedBatchId = $derived((data.stats?.selectedBatchId ?? null) as string | null)
-  const batchOptions = $derived(
-    (data.stats?.batchOptions ?? []) as Array<{ label: string; value: string }>
-  )
-  const matchHistory = $derived((data.matchHistory ?? []) as any[])
+  const selected = $derived(data.stats?.selected ?? null)
+  const selectedBatchId = $derived(data.stats?.selectedBatchId ?? null)
+  const batchOptions = $derived(data.stats?.batchOptions ?? [])
+  const matchHistory = $derived(data.matchHistory ?? [])
 
   let riotIdBaseValue = $state('')
   let statsPlayerNameValue = $state('')

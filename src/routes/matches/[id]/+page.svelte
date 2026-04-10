@@ -1,9 +1,10 @@
 <script lang="ts">
+  import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import { BarChart3, CalendarDays, RadioTower, Video } from 'lucide-svelte'
   import miksIcon from '$lib/assets/agents/Miks_icon.png'
 
-  let { data } = $props() as { data: any }
+  let { data }: PageProps = $props()
 
   const match = $derived(data.match)
   let activeStatsTab = $state<'total' | string>('total')
@@ -32,11 +33,11 @@
     return status.charAt(0).toUpperCase() + status.slice(1)
   }
 
-  function playerLabel(row: any) {
+  function playerLabel(row: { profile_name?: string | null; player_name?: string | null }) {
     return row.profile_name ?? row.player_name ?? 'Player'
   }
 
-  function playerHref(row: any) {
+  function playerHref(row: { profile_id?: string | null; player_name?: string | null }) {
     if (row.profile_id) return `/players/${row.profile_id}`
     return `/players/unclaimed?name=${encodeURIComponent(row.player_name ?? '')}`
   }
@@ -86,7 +87,7 @@
   }
 
   const statsTabs = $derived([
-    ...(match.maps ?? []).map((map: any) => ({
+    ...(match.maps ?? []).map((map) => ({
       key: map.id,
       label: `${map.map_label}${map.map_name ? ` • ${map.map_name}` : ''}`,
       team_a_rounds: map.team_a_rounds,
@@ -115,10 +116,10 @@
     statsTabs.find((tab) => tab.key === activeStatsTab) ?? statsTabs.at(-1) ?? null
   )
   const teamAStats = $derived(
-    (activeStats?.rows ?? []).filter((row: any) => row.team_id === match.team_a_id)
+    (activeStats?.rows ?? []).filter((row) => row.team_id === match.team_a_id)
   )
   const teamBStats = $derived(
-    (activeStats?.rows ?? []).filter((row: any) => row.team_id === match.team_b_id)
+    (activeStats?.rows ?? []).filter((row) => row.team_id === match.team_b_id)
   )
 </script>
 
@@ -317,7 +318,7 @@
                 style={activeStatsTab === tab.key
                   ? 'background: rgba(59,130,246,0.2); color: #93c5fd; border: 1px solid rgba(59,130,246,0.28);'
                   : 'background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.78); border: 1px solid rgba(255,255,255,0.10);'}
-                onclick={() => (activeStatsTab = tab.key)}
+                onclick={() => (activeStatsTab = String(tab.key))}
               >
                 {tab.label}
               </button>

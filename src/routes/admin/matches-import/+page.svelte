@@ -2,7 +2,9 @@
   import PageContainer from '$lib/components/PageContainer.svelte'
   import { Swords, Upload, Loader2, AlertTriangle, CheckCircle2, Layers3 } from 'lucide-svelte'
 
-  let { data } = $props() as { data: any }
+  import type { PageProps } from './$types'
+
+  let { data }: PageProps = $props()
 
   type ParsedPlayerRow = {
     player_name: string

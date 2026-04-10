@@ -1,15 +1,16 @@
 <script lang="ts">
+  import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import { CalendarDays } from 'lucide-svelte'
 
-  let { data } = $props() as { data: any }
+  let { data }: PageProps = $props()
   const matches = $derived(data.matches ?? [])
   let searchQuery = $state('')
   let showCompleted = $state(false)
 
   const filteredMatches = $derived.by(() => {
     const query = searchQuery.trim().toLowerCase()
-    return matches.filter((match: any) => {
+    return matches.filter((match: { status?: string; team_a?: unknown; team_b?: unknown }) => {
       if (!showCompleted && match.status === 'completed') return false
 
       if (!query) return true

@@ -1,35 +1,22 @@
 import { error, redirect } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { rematchNamedTeamMemberships } from '$lib/server/teams/membership'
+import { normalizeRiotBase, isValidRiotBase } from '$lib/server/riot-id'
+import { supabaseErrorMessageIncludes } from '$lib/server/supabase/errors'
+import { toBatchLabel } from '$lib/server/stats/batch-label'
+import {
+  extractNumericLabel,
+  isLatestLabel,
+  normalizeRivalsGroupStatBatchFromDb,
+  type NormalizedRivalsGroupStatBatch,
+  type StatImportBatchRow,
+} from '$lib/server/stats/rivals-batch'
+import { getTeamLogoUrl } from '$lib/server/teams/logo'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
-function extractNumericLabel(value: unknown): number | null {
-  if (typeof value !== 'string') return null
-  const m = value.match(/(\d+)/)
-  if (!m) return null
-  const n = Number(m[1])
-  return Number.isFinite(n) ? n : null
-}
-
-function isLatestLabel(value: unknown): boolean {
-  if (typeof value !== 'string') return false
-  return value.trim().toLowerCase().includes('latest')
-}
-
-function toBatchLabel(b: any): string {
-  const base = (b?.display_name ?? b?.id ?? '').toString()
-  if (b?.import_kind === 'weekly' && b?.week_label) return `${base} (${b.week_label})`
-  return base
-}
-
 function kindOrder(kind: unknown): number {
   return kind === 'aggregate' ? 0 : kind === 'weekly' ? 1 : 2
-}
-
-function getTeamLogoUrl(team: any): string | null {
-  if (!team?.logo_path) return null
-  return supabaseAdmin.storage.from('team-logos').getPublicUrl(team.logo_path).data.publicUrl
 }
 
 export const load = async ({
@@ -53,8 +40,8 @@ export const load = async ({
     .maybeSingle()
 
   if (profileError) {
-    const msg = String((profileError as any).message ?? '')
-    if (msg.toLowerCase().includes('riot_id_base')) {
+    const msg = String((profileError as { message?: string }).message ?? '')
+    if (supabaseErrorMessageIncludes(profileError, 'riot_id_base')) {
       throw error(500, 'Database missing profiles.riot_id_base; apply the Supabase migration')
     }
     throw error(500, msg || 'Failed to load player')
@@ -151,16 +138,14 @@ export const load = async ({
         .order('created_at', { ascending: false })
     : { data: [] }
 
-  const batchById = new Map<string, any>()
+  const batchById = new Map<string, NormalizedRivalsGroupStatBatch>()
   for (const b of batches ?? []) {
-    batchById.set(b.id, {
-      id: b.id,
-      display_name: b.display_name ?? b.source_filename,
-      import_kind: b.import_kind ?? b.metadata?.import_kind ?? null,
-      week_label: b.week_label ?? b.metadata?.week_label ?? null,
-      created_at: b.created_at,
-      sort_order: (b as any).sort_order ?? null,
-    })
+    batchById.set(
+      b.id,
+      normalizeRivalsGroupStatBatchFromDb(b as StatImportBatchRow, {
+        displayNameFallback: 'source_filename',
+      })
+    )
   }
 
   const batchOptions = Array.from(batchById.values())
@@ -353,19 +338,6 @@ export const load = async ({
     },
     matchHistory,
   }
-}
-
-function normalizeRiotBase(value: unknown): string {
-  const raw = String(value ?? '').trim()
-  if (!raw) return ''
-  return raw.split('#')[0].trim()
-}
-
-function isValidRiotBase(value: string) {
-  if (!value) return false
-  if (value.includes('#')) return false
-  if (value.length < 3 || value.length > 24) return false
-  return true
 }
 
 export const actions = {

@@ -1,20 +1,19 @@
 <script lang="ts">
+  import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
   import { BarChart3, Users } from 'lucide-svelte'
   import { enhance } from '$app/forms'
   import miksIcon from '$lib/assets/agents/Miks_icon.png'
 
-  let { data, form } = $props() as { data: any; form: any }
+  let { data, form }: PageProps = $props()
 
   const clickedName = $derived(String(data.clickedName ?? 'Player'))
   const base = $derived(String(data.base ?? ''))
-  const batchId = $derived((data.batchId ?? null) as string | null)
-  const batchOptions = $derived(
-    (data.batchOptions ?? []) as Array<{ label: string; value: string }>
-  )
-  const selected = $derived((data.selected ?? null) as any | null)
-  const matchHistory = $derived((data.matchHistory ?? []) as any[])
+  const batchId = $derived(data.batchId ?? null)
+  const batchOptions = $derived(data.batchOptions ?? [])
+  const selected = $derived(data.selected ?? null)
+  const matchHistory = $derived(data.matchHistory ?? [])
   const viewer = $derived(
     (data.viewer ?? null) as {
       profileId: string

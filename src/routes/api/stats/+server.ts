@@ -1,24 +1,13 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
-
-function safeInt(value: string | null, fallback: number) {
-  if (!value) return fallback
-  const n = Number(value)
-  return Number.isFinite(n) ? n : fallback
-}
-
-function extractNumericLabel(value: unknown): number | null {
-  if (typeof value !== 'string') return null
-  const m = value.match(/(\d+)/)
-  if (!m) return null
-  const n = Number(m[1])
-  return Number.isFinite(n) ? n : null
-}
-
-function isLatestLabel(value: unknown): boolean {
-  if (typeof value !== 'string') return false
-  return value.trim().toLowerCase().includes('latest')
-}
+import { safeInt } from '$lib/server/parse'
+import {
+  extractNumericLabel,
+  isLatestLabel,
+  normalizeRivalsGroupStatBatchFromDb,
+  type NormalizedRivalsGroupStatBatch,
+  type StatImportBatchRow,
+} from '$lib/server/stats/rivals-batch'
 
 export const GET: RequestHandler = async ({ url }) => {
   const batchId = url.searchParams.get('batchId')
@@ -39,19 +28,15 @@ export const GET: RequestHandler = async ({ url }) => {
 
     if (batchError) throw error(500, 'Failed to load stats')
 
-    const normalized = (batchRows ?? []).map((b: any) => ({
-      id: b.id,
-      display_name: b.display_name ?? '',
-      import_kind: b.import_kind ?? b.metadata?.import_kind ?? null,
-      week_label: b.week_label ?? b.metadata?.week_label ?? null,
-      created_at: b.created_at,
-      sort_order: b.sort_order ?? null,
-    }))
+    const normalized: NormalizedRivalsGroupStatBatch[] = (batchRows ?? []).map(
+      (b: StatImportBatchRow) =>
+        normalizeRivalsGroupStatBatchFromDb(b, { displayNameFallback: 'empty' })
+    )
 
     const aggregates = normalized.filter((b) => b.import_kind === 'aggregate')
     const weeklies = normalized.filter((b) => b.import_kind === 'weekly')
 
-    const pickFrom = (arr: any[]) => {
+    const pickFrom = (arr: typeof normalized) => {
       if (arr.length === 0) return null
       const copy = [...arr]
       copy.sort((a, b) => {
@@ -87,7 +72,7 @@ export const GET: RequestHandler = async ({ url }) => {
 
   if (!effectiveBatchId) return json({ batchId: null, batch: null, rows: [] })
 
-  let batch: any | null = null
+  let batch: NormalizedRivalsGroupStatBatch | null = null
   const { data: batchRow, error: batchError } = await supabaseAdmin
     .from('stat_import_batches')
     .select('id, source_filename, display_name, import_kind, week_label, created_at, metadata')
@@ -95,14 +80,9 @@ export const GET: RequestHandler = async ({ url }) => {
     .maybeSingle()
 
   if (!batchError && batchRow) {
-    batch = {
-      id: batchRow.id,
-      source_filename: batchRow.source_filename,
-      display_name: batchRow.display_name ?? batchRow.source_filename,
-      import_kind: batchRow.import_kind ?? batchRow.metadata?.import_kind ?? null,
-      week_label: batchRow.week_label ?? batchRow.metadata?.week_label ?? null,
-      created_at: batchRow.created_at,
-    }
+    batch = normalizeRivalsGroupStatBatchFromDb(batchRow as StatImportBatchRow, {
+      displayNameFallback: 'source_filename',
+    })
   }
 
   let query = supabaseAdmin

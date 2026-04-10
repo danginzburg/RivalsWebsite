@@ -1,6 +1,7 @@
 import { redirect } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { requireAdmin } from '$lib/server/auth/profile'
+import { getTeamLogoUrl } from '$lib/server/teams/logo'
 
 export const load = async ({ locals }: { locals: App.Locals }) => {
   if (!locals.user) {
@@ -125,12 +126,10 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     }
   }
 
-  const withLogoUrl = (teams: any[]) =>
+  const withLogoUrl = (teams: { id: string; logo_path?: string | null }[]) =>
     teams.map((team) => ({
       ...team,
-      logo_url: team.logo_path
-        ? supabaseAdmin.storage.from('team-logos').getPublicUrl(team.logo_path).data.publicUrl
-        : null,
+      logo_url: getTeamLogoUrl(team),
       captain_profile: approvedCaptainMap.get(team.id) ?? null,
       roster_count: approvedRosterCountMap.get(team.id) ?? 0,
       roster: approvedRosterMap.get(team.id) ?? [],

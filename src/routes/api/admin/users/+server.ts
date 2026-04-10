@@ -1,70 +1,29 @@
 import { json, error } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { requireAdmin } from '$lib/server/auth/profile'
+import { normalizeRiotBaseNullable, isValidRiotBaseLenient } from '$lib/server/riot-id'
+import { queryProfilesWithOptionalRiotIdBase } from '$lib/server/supabase/profiles'
 
-function normalizeRiotBase(value: unknown): string | null {
-  if (typeof value !== 'string') return null
-  const trimmed = value.trim()
-  if (!trimmed) return null
-  return trimmed.split('#')[0].trim() || null
-}
-
-function isValidRiotBase(value: string | null) {
-  if (!value) return true
-  if (value.includes('#')) return false
-  return value.length >= 3 && value.length <= 24
+type AdminUserRow = {
+  id: string
+  email: string | null
+  display_name: string | null
+  role: string | null
+  riot_id_base: string | null
+  created_at: string | null
 }
 
 // GET all users
 export const GET: RequestHandler = async ({ locals }) => {
-  // Check if user is authenticated
-  if (!locals.user) {
-    throw error(401, 'You must be logged in')
-  }
+  await requireAdmin(locals.user)
 
-  // Check if user is an admin
-  const { data: profile, error: profileError } = await supabaseAdmin
-    .from('profiles')
-    .select('id, role')
-    .eq('auth0_sub', locals.user.sub)
-    .single()
-
-  if (profileError || !profile) {
-    throw error(403, 'Profile not found')
-  }
-
-  if (profile.role !== 'admin') {
-    throw error(403, 'Access denied. Administrator privileges required.')
-  }
-
-  // Fetch all users
-  let users: any[] = []
-  {
-    const { data, error: usersError } = await supabaseAdmin
-      .from('profiles')
-      .select('id, email, display_name, role, riot_id_base, created_at')
-      .order('created_at', { ascending: false })
-
-    if (usersError) {
-      const msg = String((usersError as any).message ?? '')
-      if (msg.toLowerCase().includes('riot_id_base')) {
-        const { data: fallback, error: fallbackError } = await supabaseAdmin
-          .from('profiles')
-          .select('id, email, display_name, role, created_at')
-          .order('created_at', { ascending: false })
-        if (fallbackError) {
-          console.error('Error fetching users:', fallbackError)
-          throw error(500, 'Failed to fetch users')
-        }
-        users = (fallback ?? []).map((u: any) => ({ ...u, riot_id_base: null }))
-      } else {
-        console.error('Error fetching users:', usersError)
-        throw error(500, 'Failed to fetch users')
-      }
-    } else {
-      users = data ?? []
-    }
-  }
+  const users = await queryProfilesWithOptionalRiotIdBase<AdminUserRow>({
+    selectWithRiot: 'id, email, display_name, role, riot_id_base, created_at',
+    selectWithoutRiot: 'id, email, display_name, role, created_at',
+    order: { column: 'created_at', ascending: false },
+    fatalMessage: 'Failed to fetch users',
+  })
 
   return json({
     users: users || [],
@@ -73,29 +32,11 @@ export const GET: RequestHandler = async ({ locals }) => {
 
 // PATCH update user role
 export const PATCH: RequestHandler = async ({ locals, request }) => {
-  // Check if user is authenticated
-  if (!locals.user) {
-    throw error(401, 'You must be logged in')
-  }
-
-  // Check if user is an admin
-  const { data: profile, error: profileError } = await supabaseAdmin
-    .from('profiles')
-    .select('id, role')
-    .eq('auth0_sub', locals.user.sub)
-    .single()
-
-  if (profileError || !profile) {
-    throw error(403, 'Profile not found')
-  }
-
-  if (profile.role !== 'admin') {
-    throw error(403, 'Access denied. Administrator privileges required.')
-  }
+  const profile = await requireAdmin(locals.user)
 
   const body = await request.json()
   const { userId, newRole } = body
-  const riotIdBase = normalizeRiotBase(body.riotIdBase)
+  const riotIdBase = normalizeRiotBaseNullable(body.riotIdBase)
 
   if (!userId) {
     throw error(400, 'User ID is required')
@@ -108,7 +49,7 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
     }
   }
 
-  if (!isValidRiotBase(riotIdBase)) throw error(400, 'Invalid Riot ID base')
+  if (!isValidRiotBaseLenient(riotIdBase)) throw error(400, 'Invalid Riot ID base')
 
   // Prevent admin from changing their own role (safety measure)
   if (userId === profile.id) {

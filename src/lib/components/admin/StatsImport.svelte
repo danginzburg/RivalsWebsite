@@ -17,8 +17,10 @@
     Shield,
   } from 'lucide-svelte'
 
+  import type { PageData } from '../../../routes/admin/stats-import/$types'
+
   interface Props {
-    data: any
+    data: PageData
   }
 
   let { data }: Props = $props()

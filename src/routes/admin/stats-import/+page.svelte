@@ -1,10 +1,11 @@
 <script lang="ts">
+  import type { PageProps } from './$types'
   import StatsImport from '$lib/components/admin/StatsImport.svelte'
   import { Save } from 'lucide-svelte'
 
-  let { data } = $props() as { data: any }
+  let { data }: PageProps = $props()
 
-  const batches = $derived((data.batches ?? []) as any[])
+  const batches = $derived(data.batches ?? [])
 
   let orderById = $state<Record<string, string>>({})
   let savingId = $state<string | null>(null)

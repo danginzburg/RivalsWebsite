@@ -1,38 +1,7 @@
 import { error } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
-
-function getTeamLogoUrl(team: any): string | null {
-  if (!team?.logo_path) return null
-  return supabaseAdmin.storage.from('team-logos').getPublicUrl(team.logo_path).data.publicUrl
-}
-
-function average(values: Array<number | null | undefined>) {
-  const nums = values.map((value) => Number(value)).filter((value) => Number.isFinite(value))
-  if (nums.length === 0) return null
-  return nums.reduce((total, value) => total + value, 0) / nums.length
-}
-
-function weightedAverage(rows: any[], valueKey: string, weightKey: string) {
-  const weighted = rows
-    .map((row) => ({ value: Number(row?.[valueKey]), weight: Number(row?.[weightKey]) }))
-    .filter(
-      (entry) => Number.isFinite(entry.value) && Number.isFinite(entry.weight) && entry.weight > 0
-    )
-
-  if (weighted.length === 0) return null
-
-  const totalWeight = weighted.reduce((total, entry) => total + entry.weight, 0)
-  if (totalWeight <= 0) return null
-
-  return weighted.reduce((total, entry) => total + entry.value * entry.weight, 0) / totalWeight
-}
-
-function sum(values: Array<number | null | undefined>) {
-  return values.reduce<number>(
-    (total, value) => total + (Number.isFinite(Number(value)) ? Number(value) : 0),
-    0
-  )
-}
+import { average, sum, weightedAverage } from '$lib/server/math'
+import { getTeamLogoUrl } from '$lib/server/teams/logo'
 
 function normalizePlayerKey(
   teamId: string | null | undefined,

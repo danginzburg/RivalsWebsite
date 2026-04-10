@@ -1,10 +1,11 @@
 <script lang="ts">
+  import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
   import { Trophy, Upload, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-svelte'
 
-  let { data } = $props() as { data: any }
-  const seasons = $derived((data.seasons ?? []) as any[])
+  let { data }: PageProps = $props()
+  const seasons = $derived(data.seasons ?? [])
 
   type ParsedRow = {
     team: string
@@ -51,7 +52,7 @@
   })
 
   const seasonOptions = $derived(
-    seasons.map((season: any) => ({
+    seasons.map((season: { id: string; name: string; is_active?: boolean | null }) => ({
       value: season.id,
       label: season.is_active ? `${season.name} (Active)` : season.name,
     }))
@@ -59,7 +60,10 @@
 
   $effect(() => {
     if (seasonId) return
-    seasonId = seasons.find((season: any) => season.is_active)?.id ?? seasons[0]?.id ?? ''
+    seasonId =
+      seasons.find((season: { id: string; is_active?: boolean | null }) => season.is_active)?.id ??
+      seasons[0]?.id ??
+      ''
   })
 
   const stats = $derived.by(() => {

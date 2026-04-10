@@ -1,11 +1,10 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
-
-function safeInt(value: string | null, fallback: number) {
-  if (!value) return fallback
-  const n = Number(value)
-  return Number.isFinite(n) ? n : fallback
-}
+import { safeInt } from '$lib/server/parse'
+import {
+  normalizeRivalsGroupStatBatchFromDb,
+  type StatImportBatchRow,
+} from '$lib/server/stats/rivals-batch'
 
 export const GET: RequestHandler = async ({ url }) => {
   const limit = Math.min(200, Math.max(1, safeInt(url.searchParams.get('limit'), 50)))
@@ -22,14 +21,11 @@ export const GET: RequestHandler = async ({ url }) => {
     return json({ batches: [] })
   }
 
-  const normalized = (batches ?? []).map((b: any) => ({
-    id: b.id,
-    source_filename: b.source_filename,
-    display_name: b.display_name ?? b.source_filename,
-    import_kind: b.import_kind ?? b.metadata?.import_kind ?? null,
-    week_label: b.week_label ?? b.metadata?.week_label ?? null,
-    created_at: b.created_at,
-  }))
+  const normalized = (batches ?? []).map((b: StatImportBatchRow) =>
+    normalizeRivalsGroupStatBatchFromDb(b, {
+      displayNameFallback: 'source_filename',
+    })
+  )
 
   return json({ batches: normalized })
 }
