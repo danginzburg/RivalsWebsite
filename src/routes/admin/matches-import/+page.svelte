@@ -301,15 +301,11 @@
   <div class="flex justify-center px-4 py-8">
     <div class="w-full max-w-6xl space-y-6">
       <div class="flex items-center gap-3">
-        <Swords size={34} style="color: var(--text);" />
-        <div>
+        <div class="min-w-0 space-y-2">
           <h1 class="responsive-title">Match Import</h1>
-          <p class="text-sm" style="color: rgba(255,255,255,0.72);">
-            Upload all maps from a BO3/BO5 series together.
-          </p>
-          <p class="text-xs" style="color: rgba(255,255,255,0.6);">
-            The importer creates or reuses one match, stores one `match_maps` row per CSV, and
-            derives the series score from the map wins.
+          <p class="text-sm" style="color: rgba(255,255,255,0.78);">
+            Upload all maps from a BO3/BO5 series together. The importer creates or reuses one
+            match, stores one match_maps row per CSV, and derives the series score from map wins.
           </p>
         </div>
       </div>
@@ -336,8 +332,11 @@
           />
         </label>
 
-        <label class="mt-3 block text-sm" style="color: var(--text);">
-          <div class="mb-1 text-xs font-semibold uppercase" style="color: rgba(255,255,255,0.72);">
+        <label class="mt-4 block text-sm" style="color: var(--text);">
+          <div
+            class="mb-1 text-xs font-semibold tracking-wide uppercase"
+            style="color: rgba(255,255,255,0.7);"
+          >
             Display Name
           </div>
           <input
@@ -371,7 +370,7 @@
           class="rounded-lg border p-4"
           style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
         >
-          <div class="flex items-center gap-2 text-sm font-semibold">
+          <div class="flex items-center gap-2 text-sm font-semibold" style="color: var(--text);">
             <Layers3 size={16} /> Maps
           </div>
           <div class="mt-2 text-3xl font-bold" style="color: var(--title);">
@@ -382,7 +381,7 @@
           class="rounded-lg border p-4"
           style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
         >
-          <div class="flex items-center gap-2 text-sm font-semibold">
+          <div class="flex items-center gap-2 text-sm font-semibold" style="color: var(--text);">
             <CheckCircle2 size={16} /> Matched Players
           </div>
           <div class="mt-2 text-3xl font-bold" style="color: #86efac;">
@@ -393,7 +392,7 @@
           class="rounded-lg border p-4"
           style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
         >
-          <div class="flex items-center gap-2 text-sm font-semibold">
+          <div class="flex items-center gap-2 text-sm font-semibold" style="color: var(--text);">
             <AlertTriangle size={16} /> Unmatched Players
           </div>
           <div class="mt-2 text-3xl font-bold" style="color: #fca5a5;">
@@ -404,16 +403,11 @@
           class="rounded-lg border p-4"
           style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
         >
-          <div class="flex items-center gap-2 text-sm font-semibold">
+          <div class="flex items-center gap-2 text-sm font-semibold" style="color: var(--text);">
             <CheckCircle2 size={16} /> Teams Matched
           </div>
           <div class="mt-2 text-3xl font-bold" style="color: var(--title);">
-            {seriesSummary.first && teamNameMap.get(normalizeKey(seriesSummary.first.teamAName))
-              ? 1
-              : 0 +
-                (seriesSummary.first && teamNameMap.get(normalizeKey(seriesSummary.first.teamBName))
-                  ? 1
-                  : 0)}/2
+            {seriesSummary.teamsMatched}/2
           </div>
         </div>
       </section>
@@ -425,7 +419,7 @@
         <div class="mb-3 flex items-center justify-between gap-3">
           <div>
             <div class="text-sm font-semibold" style="color: var(--text);">Series Summary</div>
-            <div class="text-xs" style="color: rgba(255,255,255,0.7);">
+            <div class="mt-1 text-xs leading-relaxed" style="color: rgba(255,255,255,0.72);">
               Review the series-level match info and each imported map below.
             </div>
           </div>
@@ -448,7 +442,12 @@
               class="rounded-md border p-3"
               style="border-color: rgba(255,255,255,0.10); background: rgba(255,255,255,0.04);"
             >
-              <div class="text-xs uppercase" style="color: rgba(255,255,255,0.7);">Teams</div>
+              <div
+                class="text-xs font-semibold tracking-wide uppercase"
+                style="color: rgba(255,255,255,0.7);"
+              >
+                Teams
+              </div>
               <div class="mt-1 font-semibold" style="color: var(--text);">
                 {seriesSummary.first.teamAName} vs {seriesSummary.first.teamBName}
               </div>
@@ -457,7 +456,10 @@
               class="rounded-md border p-3"
               style="border-color: rgba(255,255,255,0.10); background: rgba(255,255,255,0.04);"
             >
-              <div class="text-xs uppercase" style="color: rgba(255,255,255,0.7);">
+              <div
+                class="text-xs font-semibold tracking-wide uppercase"
+                style="color: rgba(255,255,255,0.7);"
+              >
                 Series Score
               </div>
               <div class="mt-1 font-semibold" style="color: var(--text);">
@@ -468,7 +470,12 @@
               class="rounded-md border p-3"
               style="border-color: rgba(255,255,255,0.10); background: rgba(255,255,255,0.04);"
             >
-              <div class="text-xs uppercase" style="color: rgba(255,255,255,0.7);">Date</div>
+              <div
+                class="text-xs font-semibold tracking-wide uppercase"
+                style="color: rgba(255,255,255,0.7);"
+              >
+                Date
+              </div>
               <div class="mt-1 font-semibold" style="color: var(--text);">
                 {seriesSummary.first.scheduledAt || '—'}
               </div>
@@ -489,14 +496,16 @@
                     {map.teamARounds}-{map.teamBRounds}
                   </div>
                 </div>
-                <div class="mt-1 text-xs" style="color: rgba(255,255,255,0.62);">
+                <div class="mt-1.5 text-xs leading-relaxed" style="color: rgba(255,255,255,0.72);">
                   {map.sourceFilename}
                 </div>
               </div>
             {/each}
           </div>
         {:else}
-          <div class="text-sm" style="color: rgba(255,255,255,0.72);">No series parsed yet.</div>
+          <div class="text-sm leading-relaxed" style="color: rgba(255,255,255,0.78);">
+            No series parsed yet.
+          </div>
         {/if}
       </section>
     </div>

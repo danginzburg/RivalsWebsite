@@ -293,7 +293,6 @@
             style="border-color: rgba(255,255,255,0.10); background: rgba(0,0,0,0.18);"
           >
             <div class="mb-2 flex items-center gap-2">
-              <Users size={16} />
               <div
                 class="text-xs font-semibold tracking-wide uppercase"
                 style="color: rgba(255,255,255,0.72);"
@@ -336,7 +335,6 @@
         style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
       >
         <div class="mb-3 flex items-center gap-2">
-          <Swords size={18} />
           <div
             class="text-xs font-semibold tracking-wide uppercase"
             style="color: rgba(255,255,255,0.72);"

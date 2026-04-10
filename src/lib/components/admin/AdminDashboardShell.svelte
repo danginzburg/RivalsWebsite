@@ -61,7 +61,6 @@
       </a>
     </div>
     <div class="mb-8 flex flex-col items-center">
-      <UserCog size={48} style="color: var(--text);" class="mb-4" />
       <h1 class="responsive-title mb-2 text-center">Admin Dashboard</h1>
       <p class="responsive-text text-center" style="color: var(--text);">
         Manage everything from one place
