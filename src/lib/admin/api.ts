@@ -1,5 +1,5 @@
 type DashboardUsersResult = { users: unknown[] }
-type DashboardSeasonsResult = { seasons: unknown[] }
+type DashboardSeasonsResult = { seasons: unknown[]; leaderboardBatches: unknown[] }
 import type { TeamQueueEntry } from './types'
 
 type DashboardTeamsResult = { queue: TeamQueueEntry[]; approved: TeamQueueEntry[] }
@@ -97,6 +97,7 @@ export async function adminFormRequest<T>(
 export async function fetchAdminDashboardData(): Promise<{
   users: unknown[]
   seasons: unknown[]
+  leaderboardBatches: unknown[]
   queue: TeamQueueEntry[]
   approved: TeamQueueEntry[]
   matches: unknown[]
@@ -119,6 +120,7 @@ export async function fetchAdminDashboardData(): Promise<{
   return {
     users: usersResult.users,
     seasons: seasonsResult.seasons,
+    leaderboardBatches: seasonsResult.leaderboardBatches,
     queue: teamsResult.queue,
     approved: teamsResult.approved,
     matches: matchesResult.matches,

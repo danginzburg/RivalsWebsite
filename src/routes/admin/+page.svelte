@@ -27,7 +27,7 @@
   let { data: pageData }: PageProps = $props()
 
   /** Server load plus optional fields referenced before client fetch populates them. */
-  type AdminPageData = PageData & AdminPageDataExtras
+  type AdminPageData = PageData & AdminPageDataExtras & { leaderboardBatches?: unknown[] }
 
   const data = $derived(pageData as AdminPageData)
 
@@ -38,11 +38,13 @@
 
   const getInitialUsers = () => data.users || []
   const getInitialSeasons = () => data.seasons || []
+  const getInitialLeaderboardBatches = () => data.leaderboardBatches || []
   const getInitialApprovedTeams = () => data.approvedTeams || []
   const getInitialMatches = () => data.matches || []
 
   let users = $state<any[]>(getInitialUsers())
   let seasons = $state<any[]>(getInitialSeasons())
+  let leaderboardBatches = $state<any[]>(getInitialLeaderboardBatches())
   let approvedTeams = $state<ApprovedTeamEntry[]>(getInitialApprovedTeams() as ApprovedTeamEntry[])
   let matches = $state<any[]>(getInitialMatches())
   let matchSearchQuery = $state('')
@@ -364,6 +366,11 @@
         startsOn: season.starts_on ?? '',
         endsOn: season.ends_on ?? '',
         isActive: Boolean(season.is_active),
+        pickemEnabled: Boolean(season.pickem?.enabled),
+        pickemLeaderboardBatchId: season.pickem?.leaderboard_batch_id ?? '',
+        pickemBaselineCompletedRounds: String(season.pickem?.baseline_completed_rounds ?? 2),
+        pickemLockAt: season.pickem?.lock_at ? String(season.pickem.lock_at).slice(0, 16) : '',
+        pickemStatus: season.pickem?.status ?? 'draft',
       }
     }
     const keys = Object.keys(next)
@@ -430,6 +437,7 @@
 
       users = dashboardData.users
       seasons = dashboardData.seasons
+      leaderboardBatches = dashboardData.leaderboardBatches
       approvedTeams = dashboardData.approved as ApprovedTeamEntry[]
       matches = dashboardData.matches
     } catch (err) {
@@ -810,6 +818,18 @@
           startsOn: state.startsOn || null,
           endsOn: state.endsOn || null,
           isActive: Boolean(state.isActive),
+          pickem: {
+            enabled: Boolean(state.pickemEnabled),
+            leaderboard_batch_id: state.pickemLeaderboardBatchId || null,
+            participant_count: 24,
+            baseline_completed_rounds: Math.max(
+              1,
+              Number(state.pickemBaselineCompletedRounds) || 2
+            ),
+            prediction_round: 3,
+            lock_at: state.pickemLockAt ? new Date(state.pickemLockAt).toISOString() : null,
+            status: state.pickemStatus || 'draft',
+          },
         },
         fallbackMessage: 'Failed to update season',
       })
@@ -1235,6 +1255,7 @@
     {#if activeTab === 'seasons'}
       <AdminSeasonsTab
         {seasons}
+        {leaderboardBatches}
         {createSeasonCode}
         {createSeasonName}
         {createSeasonStartsOn}

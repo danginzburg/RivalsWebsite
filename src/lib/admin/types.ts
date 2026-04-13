@@ -38,6 +38,7 @@ export type TeamQueueEntry = {
 
 export type AdminPageDataExtras = {
   teamQueue?: TeamQueueEntry[]
+  leaderboardBatches?: unknown[]
 }
 
 export type ApprovedTeamEntry = TeamQueueEntry & {

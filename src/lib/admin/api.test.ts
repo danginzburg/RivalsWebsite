@@ -58,7 +58,7 @@ describe('admin api helpers', () => {
   it('fetches dashboard resources and returns grouped data', async () => {
     const responses = [
       { users: [{ id: 'u1' }] },
-      { seasons: [{ id: 's1' }] },
+      { seasons: [{ id: 's1' }], leaderboardBatches: [{ id: 'b1' }] },
       { queue: [{ id: 'q1' }], approved: [{ id: 't1' }] },
       { matches: [{ id: 'm1' }] },
     ]
@@ -73,6 +73,7 @@ describe('admin api helpers', () => {
     await expect(fetchAdminDashboardData()).resolves.toEqual({
       users: [{ id: 'u1' }],
       seasons: [{ id: 's1' }],
+      leaderboardBatches: [{ id: 'b1' }],
       queue: [{ id: 'q1' }],
       approved: [{ id: 't1' }],
       matches: [{ id: 'm1' }],

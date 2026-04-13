@@ -57,7 +57,7 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
     await Promise.all([
       supabaseAdmin
         .from('match_maps')
-        .select('id, map_order, map_name, team_a_rounds, team_b_rounds')
+        .select('id, map_order, map_name, team_a_rounds, team_b_rounds, metadata')
         .eq('match_id', matchId)
         .order('map_order', { ascending: true }),
       supabaseAdmin
@@ -122,6 +122,9 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
         }
       })
 
+    const meta = map.metadata as Record<string, unknown> | null | undefined
+    const mapForfeit = meta?.forfeit as { forfeiting_team_id?: string; label?: string } | undefined
+
     return {
       id: map.id,
       map_order: map.map_order,
@@ -130,11 +133,55 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
       team_a_rounds: map.team_a_rounds ?? 0,
       team_b_rounds: map.team_b_rounds ?? 0,
       stats: rows,
+      forfeit: mapForfeit ?? null,
     }
   })
 
+  const teamARow = Array.isArray(match.team_a) ? match.team_a[0] : match.team_a
+  const teamBRow = Array.isArray(match.team_b) ? match.team_b[0] : match.team_b
+
+  function nameForTeamId(teamId: string | null | undefined): string | null {
+    if (!teamId) return null
+    if (teamARow && (teamARow as { id?: string }).id === teamId)
+      return (teamARow as { name?: string }).name ?? null
+    if (teamBRow && (teamBRow as { id?: string }).id === teamId)
+      return (teamBRow as { name?: string }).name ?? null
+    return null
+  }
+
+  const matchMeta = match.metadata as Record<string, unknown> | null
+  const rawForfeit = matchMeta?.forfeit as
+    | {
+        kind?: string
+        forfeiting_team_id?: string
+        reason?: string
+        map_notes?: Record<string, string>
+      }
+    | undefined
+
+  const forfeitDisplay =
+    rawForfeit?.kind === 'admin_award' || rawForfeit?.kind === 'no_show'
+      ? {
+          kind: rawForfeit.kind as 'admin_award' | 'no_show',
+          forfeitingTeamName: nameForTeamId(rawForfeit.forfeiting_team_id),
+          reason: typeof rawForfeit.reason === 'string' ? rawForfeit.reason : null,
+          winnerTeamName: nameForTeamId(match.winner_team_id),
+        }
+      : null
+
+  const normalizedMapsWithForfeitNames = normalizedMaps.map((m) => ({
+    ...m,
+    forfeit: m.forfeit
+      ? {
+          forfeiting_team_id: m.forfeit.forfeiting_team_id,
+          label: m.forfeit.label,
+          forfeiting_team_name: nameForTeamId(m.forfeit.forfeiting_team_id),
+        }
+      : null,
+  }))
+
   const totalByPlayer = new Map<string, any[]>()
-  for (const map of normalizedMaps) {
+  for (const map of normalizedMapsWithForfeitNames) {
     for (const row of map.stats) {
       const key = normalizePlayerKey(row.team_id, row.profile_id, row.player_name)
       const current = totalByPlayer.get(key) ?? []
@@ -196,8 +243,9 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
         : null,
       streams: streams ?? [],
       vod_url: match.metadata?.youtube_vod_url ?? null,
-      maps: normalizedMaps,
+      maps: normalizedMapsWithForfeitNames,
       total_stats: totalStats,
+      forfeit_display: forfeitDisplay,
     },
   }
 }

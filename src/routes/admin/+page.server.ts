@@ -1,4 +1,11 @@
 import { redirect } from '@sveltejs/kit'
+
+import {
+  getLeaderboardRowsForBatch,
+  listLeaderboardBatches,
+  pickemConfigFromSeasonMetadata,
+  validatePickemBaseline,
+} from '$lib/server/pickems'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
@@ -22,13 +29,20 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
 
   const { data: seasons, error: seasonsError } = await supabaseAdmin
     .from('seasons')
-    .select('id, code, name, starts_on, ends_on, is_active, created_at')
+    .select('id, code, name, starts_on, ends_on, is_active, metadata, created_at')
     .order('is_active', { ascending: false })
     .order('starts_on', { ascending: false, nullsFirst: false })
     .order('created_at', { ascending: false })
 
   if (seasonsError) {
     console.error('Error fetching seasons:', seasonsError)
+  }
+
+  let leaderboardBatches = [] as Awaited<ReturnType<typeof listLeaderboardBatches>>
+  try {
+    leaderboardBatches = await listLeaderboardBatches(50)
+  } catch (batchError) {
+    console.error('Error fetching leaderboard batches:', batchError)
   }
 
   // Teams are admin-managed; load approved teams.
@@ -185,9 +199,53 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     }
   }
 
+  const normalizedSeasons = await Promise.all(
+    (seasons ?? []).map(async (season) => {
+      const pickem = pickemConfigFromSeasonMetadata(season.metadata)
+      if (!pickem.leaderboard_batch_id) {
+        return {
+          ...season,
+          pickem,
+          pickem_preview_rows: [],
+          pickem_preview_error: null,
+        }
+      }
+
+      try {
+        const rows = (await getLeaderboardRowsForBatch(pickem.leaderboard_batch_id)).slice(
+          0,
+          pickem.participant_count
+        )
+        validatePickemBaseline(rows, pickem.participant_count, pickem.baseline_completed_rounds)
+        return {
+          ...season,
+          pickem,
+          pickem_preview_rows: rows.map((row) => ({
+            team_id: row.team?.id ?? null,
+            wins: row.wins,
+            losses: row.losses,
+            round_diff: row.round_diff,
+          })),
+          pickem_preview_error: null,
+        }
+      } catch (previewError) {
+        return {
+          ...season,
+          pickem,
+          pickem_preview_rows: [],
+          pickem_preview_error:
+            previewError instanceof Error
+              ? previewError.message
+              : 'Failed to validate pickem batch',
+        }
+      }
+    })
+  )
+
   return {
     users: users || [],
-    seasons: seasons || [],
+    seasons: normalizedSeasons,
+    leaderboardBatches,
     approvedTeams: withLogoUrl(approvedTeams || []),
     matches: (matches ?? []).map((match) => ({
       ...match,

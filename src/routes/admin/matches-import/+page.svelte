@@ -1,6 +1,6 @@
 <script lang="ts">
   import PageContainer from '$lib/components/PageContainer.svelte'
-  import { Swords, Upload, Loader2, AlertTriangle, CheckCircle2, Layers3 } from 'lucide-svelte'
+  import { Upload, Loader2, AlertTriangle, CheckCircle2, Layers3 } from 'lucide-svelte'
 
   import type { PageProps } from './$types'
 
@@ -37,12 +37,27 @@
     playerRows: ParsedPlayerRow[]
   }
 
+  type ImportMode = 'series_csv' | 'forfeit_no_show'
+
+  let importMode = $state<ImportMode>('series_csv')
   let fileName = $state('')
   let displayName = $state('')
   let seriesMaps = $state<ParsedMap[]>([])
   let parseError = $state<string | null>(null)
   let submitMessage = $state<string | null>(null)
   let isSubmitting = $state(false)
+
+  let officialWinnerSide = $state<'map' | 'a' | 'b'>('map')
+  let forfeitReason = $state('')
+  let mapNoteByOrder = $state<Record<string, string>>({})
+
+  let ffTeamAId = $state('')
+  let ffTeamBId = $state('')
+  let ffScheduledAt = $state('')
+  let ffWinnerTeamId = $state('')
+  let ffTeamAScore = $state(2)
+  let ffTeamBScore = $state(0)
+  let ffBestOf = $state(3)
 
   function normalizeKey(value: unknown) {
     return String(value ?? '')
@@ -69,6 +84,7 @@
   }
 
   const profileMap = $derived.by(() => {
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity -- key/value lookup for CSV matching
     const map = new Map<string, string>()
     for (const profile of data.profiles ?? []) {
       if (profile.riot_id_base) {
@@ -88,11 +104,44 @@
   })
 
   const teamNameMap = $derived.by(() => {
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity -- key/value lookup for CSV matching
     const map = new Map<string, string>()
     for (const team of data.teams ?? []) {
       map.set(normalizeKey(team.name), team.id)
+      const meta = team.metadata as Record<string, unknown> | null | undefined
+      const aliases = meta?.match_import_names
+      if (Array.isArray(aliases)) {
+        for (const a of aliases) {
+          const s = String(a ?? '').trim()
+          if (s) map.set(normalizeKey(s), team.id)
+        }
+      }
     }
     return map
+  })
+
+  const mapWinnerTeamId = $derived.by(() => {
+    const first = seriesMaps[0] ?? null
+    if (!first) return null as string | null
+    const idA = teamNameMap.get(normalizeKey(first.teamAName)) ?? null
+    const idB = teamNameMap.get(normalizeKey(first.teamBName)) ?? null
+    if (!idA || !idB) return null
+
+    const canonicalizedMaps = seriesMaps.map((map) => {
+      const flipped = isFlippedAgainst(first, map)
+      return {
+        canonicalTeamARounds: flipped ? map.teamBRounds : map.teamARounds,
+        canonicalTeamBRounds: flipped ? map.teamARounds : map.teamBRounds,
+      }
+    })
+    const winsA = canonicalizedMaps.filter(
+      (m) => m.canonicalTeamARounds > m.canonicalTeamBRounds
+    ).length
+    const winsB = canonicalizedMaps.filter(
+      (m) => m.canonicalTeamBRounds > m.canonicalTeamARounds
+    ).length
+    if (winsA === winsB) return null
+    return winsA > winsB ? idA : idB
   })
 
   const seriesSummary = $derived.by(() => {
@@ -130,6 +179,17 @@
       seriesWinsA,
       seriesWinsB,
     }
+  })
+
+  const showForfeitExtras = $derived.by(() => {
+    const first = seriesMaps[0] ?? null
+    if (!first || officialWinnerSide === 'map') return false
+    const idA = teamNameMap.get(normalizeKey(first.teamAName)) ?? null
+    const idB = teamNameMap.get(normalizeKey(first.teamBName)) ?? null
+    const officialTeamId =
+      officialWinnerSide === 'a' ? idA : officialWinnerSide === 'b' ? idB : null
+    if (!officialTeamId) return false
+    return mapWinnerTeamId === null || officialTeamId !== mapWinnerTeamId
   })
 
   function parseNumber(value: string) {
@@ -270,6 +330,58 @@
     isSubmitting = true
     submitMessage = null
     try {
+      if (importMode === 'forfeit_no_show') {
+        const teams = data.teams ?? []
+        const teamA = teams.find((t) => t.id === ffTeamAId)
+        const teamB = teams.find((t) => t.id === ffTeamBId)
+        if (!teamA || !teamB) throw new Error('Select both teams for the forfeit.')
+        if (teamA.id === teamB.id) throw new Error('Teams must be different.')
+        const response = await window.fetch('/api/admin/matches/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            importKind: 'forfeit_no_show',
+            displayName: displayName.trim() || 'forfeit-no-show',
+            teamAName: teamA.name,
+            teamBName: teamB.name,
+            scheduledAt: ffScheduledAt.trim(),
+            winnerTeamId: ffWinnerTeamId.trim(),
+            teamAScore: ffTeamAScore,
+            teamBScore: ffTeamBScore,
+            bestOf: ffBestOf,
+          }),
+        })
+        const result = await response.json().catch(() => ({}))
+        if (!response.ok) throw new Error(result.message ?? 'Failed to record forfeit')
+        submitMessage = `Forfeit match saved (match id ${result.matchId ?? '—'}).`
+        return
+      }
+
+      const first = seriesMaps[0] ?? null
+      const idA = first ? teamNameMap.get(normalizeKey(first.teamAName)) : null
+      const idB = first ? teamNameMap.get(normalizeKey(first.teamBName)) : null
+
+      const officialTeamId =
+        officialWinnerSide === 'a' ? idA : officialWinnerSide === 'b' ? idB : null
+
+      if (seriesSummary.seriesWinsA === seriesSummary.seriesWinsB) {
+        if (officialWinnerSide === 'map' || !officialTeamId) {
+          throw new Error(
+            'Series is tied on maps — choose an official series winner (Team A or B).'
+          )
+        }
+      }
+
+      const sendOfficial =
+        Boolean(officialTeamId) && (mapWinnerTeamId === null || officialTeamId !== mapWinnerTeamId)
+
+      const mapNotes =
+        Object.keys(mapNoteByOrder).length > 0
+          ? Object.fromEntries(
+              Object.entries(mapNoteByOrder).filter(([, v]) => String(v).trim().length > 0)
+            )
+          : undefined
+
       const response = await window.fetch('/api/admin/matches/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -277,6 +389,9 @@
           displayName,
           bestOf: seriesMaps.length >= 5 ? 5 : 3,
           maps: seriesMaps,
+          ...(sendOfficial && officialTeamId ? { officialWinnerTeamId: officialTeamId } : {}),
+          ...(sendOfficial && forfeitReason.trim() ? { forfeitReason: forfeitReason.trim() } : {}),
+          ...(sendOfficial && mapNotes && Object.keys(mapNotes).length > 0 ? { mapNotes } : {}),
         }),
       })
 
@@ -289,6 +404,9 @@
       seriesMaps = []
       fileName = ''
       displayName = ''
+      officialWinnerSide = 'map'
+      forfeitReason = ''
+      mapNoteByOrder = {}
     } catch (err) {
       submitMessage = err instanceof Error ? err.message : 'Failed to import series CSVs'
     } finally {
@@ -304,8 +422,9 @@
         <div class="min-w-0 space-y-2">
           <h1 class="responsive-title">Match Import</h1>
           <p class="text-sm" style="color: rgba(255,255,255,0.78);">
-            Upload all maps from a BO3/BO5 series together. The importer creates or reuses one
-            match, stores one match_maps row per CSV, and derives the series score from map wins.
+            Upload all maps from a BO3/BO5 series together, or record a no-show forfeit without
+            player stats. Series CSV import can override the official winner (e.g. rule violation)
+            while keeping played map scores.
           </p>
         </div>
       </div>
@@ -314,23 +433,148 @@
         class="rounded-lg border p-4"
         style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
       >
-        <label
-          class="flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed px-4 py-6 text-sm font-semibold"
-          style="border-color: rgba(255,255,255,0.18); color: var(--text);"
-        >
-          <Upload size={16} />
-          <span>{fileName || 'Choose one or more map CSVs'}</span>
-          <input
-            type="file"
-            accept=".csv"
-            multiple
-            class="hidden"
-            onchange={(event) => {
-              const files = (event.currentTarget as HTMLInputElement).files
-              if (files) handleFiles(files)
-            }}
-          />
-        </label>
+        <div class="mb-4 flex flex-wrap gap-4 text-sm" style="color: var(--text);">
+          <label class="inline-flex cursor-pointer items-center gap-2">
+            <input type="radio" bind:group={importMode} value="series_csv" />
+            <span>Series (map CSVs)</span>
+          </label>
+          <label class="inline-flex cursor-pointer items-center gap-2">
+            <input type="radio" bind:group={importMode} value="forfeit_no_show" />
+            <span>No-show forfeit (no stats)</span>
+          </label>
+        </div>
+
+        {#if importMode === 'forfeit_no_show'}
+          <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <label class="block text-sm" style="color: var(--text);">
+              <span
+                class="mb-1 block text-xs font-semibold uppercase"
+                style="color: rgba(255,255,255,0.7);">Team A</span
+              >
+              <select
+                bind:value={ffTeamAId}
+                class="w-full rounded-md border px-3 py-2"
+                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+              >
+                <option value="">Select team…</option>
+                {#each data.teams ?? [] as team (team.id)}
+                  <option value={team.id}>{team.name}{team.tag ? ` [${team.tag}]` : ''}</option>
+                {/each}
+              </select>
+            </label>
+            <label class="block text-sm" style="color: var(--text);">
+              <span
+                class="mb-1 block text-xs font-semibold uppercase"
+                style="color: rgba(255,255,255,0.7);">Team B</span
+              >
+              <select
+                bind:value={ffTeamBId}
+                class="w-full rounded-md border px-3 py-2"
+                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+              >
+                <option value="">Select team…</option>
+                {#each data.teams ?? [] as team (team.id)}
+                  <option value={team.id}>{team.name}{team.tag ? ` [${team.tag}]` : ''}</option>
+                {/each}
+              </select>
+            </label>
+            <label class="block text-sm md:col-span-2" style="color: var(--text);">
+              <span
+                class="mb-1 block text-xs font-semibold uppercase"
+                style="color: rgba(255,255,255,0.7);">Match date</span
+              >
+              <input
+                bind:value={ffScheduledAt}
+                placeholder="DD/MM/YYYY or ISO date"
+                class="w-full rounded-md border px-3 py-2"
+                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+              />
+            </label>
+            <label class="block text-sm md:col-span-2" style="color: var(--text);">
+              <span
+                class="mb-1 block text-xs font-semibold uppercase"
+                style="color: rgba(255,255,255,0.7);">Winner</span
+              >
+              <select
+                bind:value={ffWinnerTeamId}
+                class="w-full rounded-md border px-3 py-2"
+                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+              >
+                <option value="">Select winner…</option>
+                {#if ffTeamAId}
+                  <option value={ffTeamAId}
+                    >{(data.teams ?? []).find((t) => t.id === ffTeamAId)?.name ?? 'Team A'}</option
+                  >
+                {/if}
+                {#if ffTeamBId}
+                  <option value={ffTeamBId}
+                    >{(data.teams ?? []).find((t) => t.id === ffTeamBId)?.name ?? 'Team B'}</option
+                  >
+                {/if}
+              </select>
+            </label>
+            <label class="block text-sm" style="color: var(--text);">
+              <span
+                class="mb-1 block text-xs font-semibold uppercase"
+                style="color: rgba(255,255,255,0.7);">Score (team A)</span
+              >
+              <input
+                type="number"
+                min="0"
+                bind:value={ffTeamAScore}
+                class="w-full rounded-md border px-3 py-2"
+                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+              />
+            </label>
+            <label class="block text-sm" style="color: var(--text);">
+              <span
+                class="mb-1 block text-xs font-semibold uppercase"
+                style="color: rgba(255,255,255,0.7);">Score (team B)</span
+              >
+              <input
+                type="number"
+                min="0"
+                bind:value={ffTeamBScore}
+                class="w-full rounded-md border px-3 py-2"
+                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+              />
+            </label>
+            <label class="block text-sm md:col-span-2" style="color: var(--text);">
+              <span
+                class="mb-1 block text-xs font-semibold uppercase"
+                style="color: rgba(255,255,255,0.7);">Best of</span
+              >
+              <select
+                bind:value={ffBestOf}
+                class="w-full max-w-xs rounded-md border px-3 py-2"
+                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+              >
+                <option value={1}>1</option>
+                <option value={3}>3</option>
+                <option value={5}>5</option>
+                <option value={7}>7</option>
+              </select>
+            </label>
+          </div>
+        {:else}
+          <label
+            class="flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed px-4 py-6 text-sm font-semibold"
+            style="border-color: rgba(255,255,255,0.18); color: var(--text);"
+          >
+            <Upload size={16} />
+            <span>{fileName || 'Choose one or more map CSVs'}</span>
+            <input
+              type="file"
+              accept=".csv"
+              multiple
+              class="hidden"
+              onchange={(event) => {
+                const files = (event.currentTarget as HTMLInputElement).files
+                if (files) handleFiles(files)
+              }}
+            />
+          </label>
+        {/if}
 
         <label class="mt-4 block text-sm" style="color: var(--text);">
           <div
@@ -365,52 +609,54 @@
         {/if}
       </section>
 
-      <section class="grid grid-cols-1 gap-4 md:grid-cols-4">
-        <div
-          class="rounded-lg border p-4"
-          style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
-        >
-          <div class="flex items-center gap-2 text-sm font-semibold" style="color: var(--text);">
-            <Layers3 size={16} /> Maps
+      {#if importMode === 'series_csv'}
+        <section class="grid grid-cols-1 gap-4 md:grid-cols-4">
+          <div
+            class="rounded-lg border p-4"
+            style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
+          >
+            <div class="flex items-center gap-2 text-sm font-semibold" style="color: var(--text);">
+              <Layers3 size={16} /> Maps
+            </div>
+            <div class="mt-2 text-3xl font-bold" style="color: var(--title);">
+              {seriesSummary.mapCount}
+            </div>
           </div>
-          <div class="mt-2 text-3xl font-bold" style="color: var(--title);">
-            {seriesSummary.mapCount}
+          <div
+            class="rounded-lg border p-4"
+            style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
+          >
+            <div class="flex items-center gap-2 text-sm font-semibold" style="color: var(--text);">
+              <CheckCircle2 size={16} /> Matched Players
+            </div>
+            <div class="mt-2 text-3xl font-bold" style="color: #86efac;">
+              {seriesSummary.matchedPlayers}
+            </div>
           </div>
-        </div>
-        <div
-          class="rounded-lg border p-4"
-          style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
-        >
-          <div class="flex items-center gap-2 text-sm font-semibold" style="color: var(--text);">
-            <CheckCircle2 size={16} /> Matched Players
+          <div
+            class="rounded-lg border p-4"
+            style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
+          >
+            <div class="flex items-center gap-2 text-sm font-semibold" style="color: var(--text);">
+              <AlertTriangle size={16} /> Unmatched Players
+            </div>
+            <div class="mt-2 text-3xl font-bold" style="color: #fca5a5;">
+              {seriesSummary.unmatchedPlayers}
+            </div>
           </div>
-          <div class="mt-2 text-3xl font-bold" style="color: #86efac;">
-            {seriesSummary.matchedPlayers}
+          <div
+            class="rounded-lg border p-4"
+            style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
+          >
+            <div class="flex items-center gap-2 text-sm font-semibold" style="color: var(--text);">
+              <CheckCircle2 size={16} /> Teams Matched
+            </div>
+            <div class="mt-2 text-3xl font-bold" style="color: var(--title);">
+              {seriesSummary.teamsMatched}/2
+            </div>
           </div>
-        </div>
-        <div
-          class="rounded-lg border p-4"
-          style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
-        >
-          <div class="flex items-center gap-2 text-sm font-semibold" style="color: var(--text);">
-            <AlertTriangle size={16} /> Unmatched Players
-          </div>
-          <div class="mt-2 text-3xl font-bold" style="color: #fca5a5;">
-            {seriesSummary.unmatchedPlayers}
-          </div>
-        </div>
-        <div
-          class="rounded-lg border p-4"
-          style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
-        >
-          <div class="flex items-center gap-2 text-sm font-semibold" style="color: var(--text);">
-            <CheckCircle2 size={16} /> Teams Matched
-          </div>
-          <div class="mt-2 text-3xl font-bold" style="color: var(--title);">
-            {seriesSummary.teamsMatched}/2
-          </div>
-        </div>
-      </section>
+        </section>
+      {/if}
 
       <section
         class="rounded-lg border p-4"
@@ -418,9 +664,15 @@
       >
         <div class="mb-3 flex items-center justify-between gap-3">
           <div>
-            <div class="text-sm font-semibold" style="color: var(--text);">Series Summary</div>
+            <div class="text-sm font-semibold" style="color: var(--text);">
+              {importMode === 'forfeit_no_show' ? 'No-show forfeit' : 'Series Summary'}
+            </div>
             <div class="mt-1 text-xs leading-relaxed" style="color: rgba(255,255,255,0.72);">
-              Review the series-level match info and each imported map below.
+              {#if importMode === 'forfeit_no_show'}
+                Save a completed match with no map stats (e.g. opponent no-show).
+              {:else}
+                Review the series-level match info and each imported map below.
+              {/if}
             </div>
           </div>
           <button
@@ -428,15 +680,18 @@
             class="rounded-md px-3 py-2 text-sm font-semibold"
             style="background: rgba(59,130,246,0.18); color: #93c5fd;"
             onclick={submitImport}
-            disabled={isSubmitting || seriesMaps.length === 0}
+            disabled={isSubmitting ||
+              (importMode === 'series_csv' && seriesMaps.length === 0) ||
+              (importMode === 'forfeit_no_show' &&
+                (!ffTeamAId || !ffTeamBId || !ffScheduledAt.trim() || !ffWinnerTeamId))}
           >
             {#if isSubmitting}<span class="inline-flex items-center gap-2"
-                ><Loader2 size={16} class="animate-spin" /> Importing...</span
-              >{:else}Import Series{/if}
+                ><Loader2 size={16} class="animate-spin" /> Saving…</span
+              >{:else if importMode === 'forfeit_no_show'}Save forfeit match{:else}Import Series{/if}
           </button>
         </div>
 
-        {#if seriesSummary.first}
+        {#if importMode === 'series_csv' && seriesSummary.first}
           <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
             <div
               class="rounded-md border p-3"
@@ -482,8 +737,58 @@
             </div>
           </div>
 
+          {#if seriesSummary.teamsMatched === 2}
+            <div
+              class="mt-4 space-y-2 rounded-md border p-3"
+              style="border-color: rgba(251,191,36,0.35); background: rgba(251,191,36,0.06);"
+            >
+              <div class="text-sm font-semibold" style="color: var(--text);">
+                Official series winner
+              </div>
+              <p class="text-xs leading-relaxed" style="color: rgba(255,255,255,0.72);">
+                Map-derived winner (from round scores):
+                {#if mapWinnerTeamId}
+                  {mapWinnerTeamId === teamNameMap.get(normalizeKey(seriesSummary.first.teamAName))
+                    ? seriesSummary.first.teamAName
+                    : seriesSummary.first.teamBName}
+                {:else}
+                  Tie — choose the official winner below.
+                {/if}
+              </p>
+              <label class="block text-sm" style="color: var(--text);">
+                <span
+                  class="mb-1 block text-xs font-semibold uppercase"
+                  style="color: rgba(255,255,255,0.7);">Series winner</span
+                >
+                <select
+                  bind:value={officialWinnerSide}
+                  class="w-full max-w-md rounded-md border px-3 py-2"
+                  style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                >
+                  <option value="map">Same as map result</option>
+                  <option value="a">{seriesSummary.first.teamAName} (footer team A)</option>
+                  <option value="b">{seriesSummary.first.teamBName} (footer team B)</option>
+                </select>
+              </label>
+              {#if showForfeitExtras}
+                <label class="block text-sm" style="color: var(--text);">
+                  <span
+                    class="mb-1 block text-xs font-semibold uppercase"
+                    style="color: rgba(255,255,255,0.7);">Note (optional)</span
+                  >
+                  <input
+                    bind:value={forfeitReason}
+                    class="w-full rounded-md border px-3 py-2"
+                    style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                    placeholder="e.g. Rule violation — series awarded to opponent"
+                  />
+                </label>
+              {/if}
+            </div>
+          {/if}
+
           <div class="mt-4 space-y-3">
-            {#each seriesMaps as map, index}
+            {#each seriesMaps as map, index (map.sourceFilename + ':' + index)}
               <div
                 class="rounded-md border p-3"
                 style="border-color: rgba(255,255,255,0.10); background: rgba(255,255,255,0.04);"
@@ -499,10 +804,30 @@
                 <div class="mt-1.5 text-xs leading-relaxed" style="color: rgba(255,255,255,0.72);">
                   {map.sourceFilename}
                 </div>
+                {#if showForfeitExtras}
+                  <label class="mt-2 block text-xs" style="color: rgba(255,255,255,0.75);">
+                    <span class="mb-1 block font-semibold" style="color: var(--text);"
+                      >Map disclaimer (optional)</span
+                    >
+                    <textarea
+                      class="mt-1 w-full rounded-md border px-2 py-1.5 text-sm"
+                      style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.2); color: var(--text);"
+                      rows="2"
+                      placeholder="Shown on the public match page for this map"
+                      value={mapNoteByOrder[String(index + 1)] ?? ''}
+                      oninput={(e) => {
+                        mapNoteByOrder = {
+                          ...mapNoteByOrder,
+                          [String(index + 1)]: e.currentTarget.value,
+                        }
+                      }}
+                    ></textarea>
+                  </label>
+                {/if}
               </div>
             {/each}
           </div>
-        {:else}
+        {:else if importMode === 'series_csv'}
           <div class="text-sm leading-relaxed" style="color: rgba(255,255,255,0.78);">
             No series parsed yet.
           </div>
