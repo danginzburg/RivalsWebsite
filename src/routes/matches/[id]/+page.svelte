@@ -2,7 +2,7 @@
   import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import { BarChart3, CalendarDays, RadioTower, Video } from 'lucide-svelte'
-  import miksIcon from '$lib/assets/agents/Miks_icon.png'
+  import miksIcon from '$lib/assets/agents/Miks_icon.webp'
 
   let { data }: PageProps = $props()
 
@@ -72,7 +72,7 @@
     })
   }
 
-  const agentAssetModules = import.meta.glob('$lib/assets/agents/*_icon.png', {
+  const agentAssetModules = import.meta.glob('$lib/assets/agents/*_icon.webp', {
     eager: true,
     import: 'default',
   }) as Record<string, string>
@@ -83,7 +83,7 @@
 
     for (const [path, url] of Object.entries(agentAssetModules)) {
       const filename = path.split('/').pop() ?? ''
-      const base = filename.replace(/_icon\.png$/i, '')
+      const base = filename.replace(/_icon\.webp$/i, '')
       map.set(normalize(base), url)
     }
 

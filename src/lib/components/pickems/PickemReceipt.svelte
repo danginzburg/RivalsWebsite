@@ -2,7 +2,7 @@
   import type { PickemTeamRow } from '$lib/server/pickems'
   import type { PickemBucket } from '$lib/pickemBuckets'
   import { PICKEM_BUCKETS } from '$lib/pickemBuckets'
-  import rivalsLogo from '$lib/assets/rivals_logo.png'
+  import rivalsLogo from '$lib/assets/rivals_logo.webp'
 
   type Props = {
     seasonName: string

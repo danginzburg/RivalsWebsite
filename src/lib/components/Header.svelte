@@ -15,7 +15,7 @@
     User,
     UserCog,
   } from 'lucide-svelte'
-  import rivalsLogo from '$lib/assets/rivals_logo.png'
+  import rivalsLogo from '$lib/assets/rivals_logo.webp'
 
   let isMobileMenuOpen = $state(false)
   let isBrandHovered = $state(false)

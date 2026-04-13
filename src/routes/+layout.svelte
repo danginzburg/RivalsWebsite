@@ -1,6 +1,6 @@
 <script lang="ts">
   import './layout.css'
-  import favicon from '$lib/assets/rivals_logo.png'
+  import favicon from '$lib/assets/rivals_logo.webp'
   import Header from '$lib/components/Header.svelte'
   import { user, isLoading } from '$lib/stores/auth'
 
