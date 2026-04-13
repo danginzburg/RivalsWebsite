@@ -1,12 +1,13 @@
 <script lang="ts">
+  import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import { Trophy } from 'lucide-svelte'
 
-  let { data } = $props() as { data: any }
+  let { data }: PageProps = $props()
 
-  const rows = $derived((data.rows ?? []) as any[])
+  const rows = $derived(data.rows ?? [])
   const batch = $derived(data.batch ?? null)
-  function teamLabel(team: any) {
+  function teamLabel(team: { name?: string | null } | null | undefined) {
     return team?.name ?? 'Team'
   }
 </script>

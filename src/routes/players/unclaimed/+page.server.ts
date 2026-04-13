@@ -1,24 +1,19 @@
 import { error, redirect, type Actions } from '@sveltejs/kit'
 import type { PageServerLoad } from './$types'
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { average, sum } from '$lib/server/math'
+import { normalizeRiotBase, isValidRiotBase } from '$lib/server/riot-id'
+import { toBatchLabel } from '$lib/server/stats/batch-label'
+import {
+  normalizeRivalsGroupStatBatchFromDb,
+  type NormalizedRivalsGroupStatBatch,
+  type StatImportBatchRow,
+} from '$lib/server/stats/rivals-batch'
 
 function normalizeNameBase(value: unknown): string {
   const raw = String(value ?? '').trim()
   if (!raw) return ''
   return raw.split('#')[0].trim()
-}
-
-function normalizeRiotBase(value: unknown): string {
-  const raw = String(value ?? '').trim()
-  if (!raw) return ''
-  return raw.split('#')[0].trim()
-}
-
-function isValidRiotBase(value: string) {
-  if (!value) return false
-  if (value.includes('#')) return false
-  if (value.length < 3 || value.length > 24) return false
-  return true
 }
 
 function quoteOrValue(value: string): string {
@@ -27,27 +22,8 @@ function quoteOrValue(value: string): string {
   return `"${value.replaceAll('"', '""')}"`
 }
 
-function toBatchLabel(b: any): string {
-  const base = (b?.display_name ?? b?.id ?? '').toString()
-  if (b?.import_kind === 'weekly' && b?.week_label) return `${base} (${b.week_label})`
-  return base
-}
-
 function kindOrder(kind: unknown): number {
   return kind === 'aggregate' ? 0 : kind === 'weekly' ? 1 : 2
-}
-
-function average(values: Array<number | null | undefined>) {
-  const nums = values.map((value) => Number(value)).filter((value) => Number.isFinite(value))
-  if (nums.length === 0) return null
-  return nums.reduce((total, value) => total + value, 0) / nums.length
-}
-
-function sum(values: Array<number | null | undefined>) {
-  return values.reduce<number>(
-    (total, value) => total + (Number.isFinite(Number(value)) ? Number(value) : 0),
-    0
-  )
 }
 
 export const load: PageServerLoad = async ({ url, locals }) => {
@@ -95,7 +71,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
     new Set((appearances ?? []).map((r: any) => String(r.import_batch_id)).filter(Boolean))
   )
 
-  const batchById = new Map<string, any>()
+  const batchById = new Map<string, NormalizedRivalsGroupStatBatch>()
   if (batchIds.length > 0) {
     const { data: batchRows, error: batchError } = await supabaseAdmin
       .from('stat_import_batches')
@@ -110,14 +86,12 @@ export const load: PageServerLoad = async ({ url, locals }) => {
     }
 
     for (const b of batchRows ?? []) {
-      batchById.set(b.id, {
-        id: b.id,
-        display_name: b.display_name ?? b.source_filename,
-        import_kind: b.import_kind ?? b.metadata?.import_kind ?? null,
-        week_label: b.week_label ?? b.metadata?.week_label ?? null,
-        created_at: b.created_at,
-        sort_order: (b as any).sort_order ?? null,
-      })
+      batchById.set(
+        b.id,
+        normalizeRivalsGroupStatBatchFromDb(b as StatImportBatchRow, {
+          displayNameFallback: 'source_filename',
+        })
+      )
     }
   }
 

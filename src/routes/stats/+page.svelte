@@ -1,16 +1,17 @@
 <script lang="ts">
   import { tick } from 'svelte'
+  import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
   import { BarChart3 } from 'lucide-svelte'
-  import miksIcon from '$lib/assets/agents/Miks_icon.png'
+  import miksIcon from '$lib/assets/agents/Miks_icon.webp'
 
-  let { data } = $props() as { data: any }
+  let { data }: PageProps = $props()
 
   const batchId = $derived(data.batchId as string | null)
-  const batch = $derived(data.batch as any | null)
-  const rows = $derived((data.rows ?? []) as any[])
-  const batches = $derived((data.batches ?? []) as any[])
+  const batch = $derived(data.batch)
+  const rows = $derived(data.rows ?? [])
+  const batches = $derived(data.batches ?? [])
   const viewer = $derived(
     (data.viewer ?? null) as { profileId: string; displayName: string | null } | null
   )
@@ -116,7 +117,7 @@
     return v.toFixed(digits)
   }
 
-  const agentAssetModules = import.meta.glob('$lib/assets/agents/*_icon.png', {
+  const agentAssetModules = import.meta.glob('$lib/assets/agents/*_icon.webp', {
     eager: true,
     import: 'default',
   }) as Record<string, string>
@@ -127,7 +128,7 @@
 
     for (const [path, url] of Object.entries(agentAssetModules)) {
       const filename = path.split('/').pop() ?? ''
-      const base = filename.replace(/_icon\.png$/i, '')
+      const base = filename.replace(/_icon\.webp$/i, '')
       map.set(normalize(base), url)
     }
     // Common aliases
@@ -206,7 +207,7 @@
     visibleColumns = Array.from(defaultVisible)
   }
 
-  function compareValues(a: any, b: any, key: string) {
+  function compareValues(a: Record<string, unknown>, b: Record<string, unknown>, key: string) {
     const av = a?.[key]
     const bv = b?.[key]
     if (key === 'player_name') {
@@ -249,7 +250,7 @@
     const q = search.trim().toLowerCase()
     const mg = Math.max(0, Math.trunc(minGames))
 
-    return rows.filter((r) => {
+    return rows.filter((r: Record<string, unknown>) => {
       const nameOk = !q
         ? true
         : String(r.player_name ?? '')

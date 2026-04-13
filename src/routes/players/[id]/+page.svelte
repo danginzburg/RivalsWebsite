@@ -1,22 +1,21 @@
 <script lang="ts">
+  import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
   import { BarChart3, Users, Swords, User } from 'lucide-svelte'
-  import miksIcon from '$lib/assets/agents/Miks_icon.png'
+  import miksIcon from '$lib/assets/agents/Miks_icon.webp'
 
   import { enhance } from '$app/forms'
 
-  let { data, form } = $props() as { data: any; form: any }
+  let { data, form }: PageProps = $props()
 
   const player = $derived(data.player)
   const activeTeam = $derived(data.activeTeam)
   const viewer = $derived(data.viewer ?? { canEditRiotIdBase: false })
-  const selected = $derived((data.stats?.selected ?? null) as any | null)
-  const selectedBatchId = $derived((data.stats?.selectedBatchId ?? null) as string | null)
-  const batchOptions = $derived(
-    (data.stats?.batchOptions ?? []) as Array<{ label: string; value: string }>
-  )
-  const matchHistory = $derived((data.matchHistory ?? []) as any[])
+  const selected = $derived(data.stats?.selected ?? null)
+  const selectedBatchId = $derived(data.stats?.selectedBatchId ?? null)
+  const batchOptions = $derived(data.stats?.batchOptions ?? [])
+  const matchHistory = $derived(data.matchHistory ?? [])
 
   let riotIdBaseValue = $state('')
   let statsPlayerNameValue = $state('')
@@ -25,7 +24,7 @@
     statsPlayerNameValue = player.stats_player_name ?? ''
   })
 
-  const agentAssetModules = import.meta.glob('$lib/assets/agents/*_icon.png', {
+  const agentAssetModules = import.meta.glob('$lib/assets/agents/*_icon.webp', {
     eager: true,
     import: 'default',
   }) as Record<string, string>
@@ -35,7 +34,7 @@
     const normalize = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, '')
     for (const [path, url] of Object.entries(agentAssetModules)) {
       const filename = path.split('/').pop() ?? ''
-      const base = filename.replace(/_icon\.png$/i, '')
+      const base = filename.replace(/_icon\.webp$/i, '')
       map.set(normalize(base), url)
     }
     if (map.has('harbor')) map.set('harbour', map.get('harbor')!)
@@ -294,7 +293,6 @@
             style="border-color: rgba(255,255,255,0.10); background: rgba(0,0,0,0.18);"
           >
             <div class="mb-2 flex items-center gap-2">
-              <Users size={16} />
               <div
                 class="text-xs font-semibold tracking-wide uppercase"
                 style="color: rgba(255,255,255,0.72);"
@@ -337,7 +335,6 @@
         style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
       >
         <div class="mb-3 flex items-center gap-2">
-          <Swords size={18} />
           <div
             class="text-xs font-semibold tracking-wide uppercase"
             style="color: rgba(255,255,255,0.72);"

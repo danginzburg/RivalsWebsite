@@ -1,20 +1,19 @@
 <script lang="ts">
+  import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
   import { BarChart3, Users } from 'lucide-svelte'
   import { enhance } from '$app/forms'
-  import miksIcon from '$lib/assets/agents/Miks_icon.png'
+  import miksIcon from '$lib/assets/agents/Miks_icon.webp'
 
-  let { data, form } = $props() as { data: any; form: any }
+  let { data, form }: PageProps = $props()
 
   const clickedName = $derived(String(data.clickedName ?? 'Player'))
   const base = $derived(String(data.base ?? ''))
-  const batchId = $derived((data.batchId ?? null) as string | null)
-  const batchOptions = $derived(
-    (data.batchOptions ?? []) as Array<{ label: string; value: string }>
-  )
-  const selected = $derived((data.selected ?? null) as any | null)
-  const matchHistory = $derived((data.matchHistory ?? []) as any[])
+  const batchId = $derived(data.batchId ?? null)
+  const batchOptions = $derived(data.batchOptions ?? [])
+  const selected = $derived(data.selected ?? null)
+  const matchHistory = $derived(data.matchHistory ?? [])
   const viewer = $derived(
     (data.viewer ?? null) as {
       profileId: string
@@ -28,7 +27,7 @@
     riotIdBaseValue = viewer?.riotIdBase ?? base ?? ''
   })
 
-  const agentAssetModules = import.meta.glob('$lib/assets/agents/*_icon.png', {
+  const agentAssetModules = import.meta.glob('$lib/assets/agents/*_icon.webp', {
     eager: true,
     import: 'default',
   }) as Record<string, string>
@@ -38,7 +37,7 @@
     const normalize = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, '')
     for (const [path, url] of Object.entries(agentAssetModules)) {
       const filename = path.split('/').pop() ?? ''
-      const base = filename.replace(/_icon\.png$/i, '')
+      const base = filename.replace(/_icon\.webp$/i, '')
       map.set(normalize(base), url)
     }
     if (map.has('harbor')) map.set('harbour', map.get('harbor')!)

@@ -1,8 +1,9 @@
 <script lang="ts">
+  import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import { Trophy, Users, CalendarDays, BarChart3 } from 'lucide-svelte'
 
-  let { data } = $props() as { data: any }
+  let { data }: PageProps = $props()
 
   const team = $derived(data.team)
   const roster = $derived(data.roster ?? [])
@@ -29,11 +30,21 @@
     return (value as { tag?: string }).tag ?? null
   }
 
-  function opponentFor(match: any, teamId: string) {
+  function opponentFor(
+    match: { team_a_id?: string; team_b_id?: string; team_a?: unknown; team_b?: unknown } | null,
+    teamId: string
+  ) {
     return match?.team_a_id === teamId ? match?.team_b : match?.team_a
   }
 
-  function scoreFor(match: any, teamId: string) {
+  function scoreFor(
+    match: {
+      team_a_id?: string
+      team_a_score?: unknown
+      team_b_score?: unknown
+    } | null,
+    teamId: string
+  ) {
     const a = Number(match?.team_a_score ?? 0)
     const b = Number(match?.team_b_score ?? 0)
     if (match?.team_a_id === teamId) return { us: a, them: b }

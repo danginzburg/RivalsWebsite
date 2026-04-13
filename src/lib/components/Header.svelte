@@ -15,16 +15,18 @@
     User,
     UserCog,
   } from 'lucide-svelte'
-  import rivalsLogo from '$lib/assets/rivals_logo.png'
+  import rivalsLogo from '$lib/assets/rivals_logo.webp'
 
   let isMobileMenuOpen = $state(false)
   let isBrandHovered = $state(false)
   let openDesktopGroup = $state<string | null>(null)
   let desktopNavRef = $state<HTMLElement | null>(null)
 
-  // Get user from page data (set by +layout.server.ts)
   const user = $derived($page.data.user)
   const isAdmin = $derived(user?.role === 'admin')
+  const activePickemHref = $derived(
+    $page.data.activePickemSeasonCode ? `/pickems/${$page.data.activePickemSeasonCode}` : null
+  )
 
   const navItems = $derived.by(() => {
     const items: Array<{ href: string; label: string; icon: any }> = [
@@ -35,6 +37,10 @@
       { href: '/team-balance', label: 'Calculator', icon: Calculator },
       { href: '/teams', label: 'Teams', icon: Users },
     ]
+
+    if (activePickemHref) {
+      items.splice(1, 0, { href: activePickemHref, label: "Pick'ems", icon: Trophy })
+    }
 
     if (user) {
       items.push({ href: '/account', label: 'Account', icon: User })
@@ -51,8 +57,10 @@
     const groups = [
       {
         label: 'Competition',
-        items: navItems.filter((item) =>
-          ['/leaderboard', '/matches', '/teams'].includes(item.href)
+        items: navItems.filter(
+          (item) =>
+            ['/leaderboard', '/matches', '/teams'].includes(item.href) ||
+            item.href === activePickemHref
         ),
       },
       {
@@ -71,7 +79,7 @@
       (item) =>
         !['/leaderboard', '/matches', '/teams', '/rulebook', '/stats', '/team-balance'].includes(
           item.href
-        )
+        ) && item.href !== activePickemHref
     )
   )
 

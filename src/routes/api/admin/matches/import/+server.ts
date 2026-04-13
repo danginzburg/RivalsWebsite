@@ -2,6 +2,13 @@ import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import {
+  type AdminAwardResolution,
+  parseMapNotes,
+  parseOptionalUuid,
+  resolveAdminAwardForfeit,
+  winnerFromMapSeriesScore,
+} from '$lib/server/imports/matchImportForfeit'
+import {
   buildProfileMatcher,
   buildTeamMatcher,
   getApprovedTeamsForImports,
@@ -46,9 +53,26 @@ function normalizeTeamKey(value: string | null | undefined) {
     .replace(/\s+/g, ' ')
 }
 
+function flipSide(side: 'a' | 'b') {
+  return side === 'a' ? 'b' : 'a'
+}
+
+function stripForfeitFromMetadata(meta: Record<string, unknown> | null | undefined) {
+  if (!meta || typeof meta !== 'object') return {}
+  const rest = { ...(meta as Record<string, unknown>) }
+  delete rest.forfeit
+  return rest
+}
+
 export const POST: RequestHandler = async ({ locals, request }) => {
   const admin = await requireAdmin(locals.user)
-  const body = await request.json().catch(() => ({}))
+  const body = (await request.json().catch(() => ({}))) as Record<string, unknown>
+
+  const importKind = normalizeOptional(body.importKind) ?? 'series_csv'
+
+  if (importKind === 'forfeit_no_show') {
+    return handleForfeitNoShow(body, admin.id)
+  }
 
   const maps = Array.isArray(body.maps) ? body.maps : []
 
@@ -167,7 +191,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
   const importMatchesTeamA = match.team_a_id === importedTeamA.id
 
-  const normalizedSeriesMaps = normalizedMaps.map((map: any, mapIndex: number) => {
+  const preliminarySeriesMaps = normalizedMaps.map((map: any, mapIndex: number) => {
     const mapTeamAName = normalizeOptional(map.teamAName)
     const mapTeamBName = normalizeOptional(map.teamBName)
     const isCanonicalOrder =
@@ -183,7 +207,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
     const rawTeamARounds = parseInteger(map.teamARounds, `Map ${mapIndex + 1} Team A rounds`)
     const rawTeamBRounds = parseInteger(map.teamBRounds, `Map ${mapIndex + 1} Team B rounds`)
-    const baseRows = (map.playerRows as any[]).map((row: any, index: number) => ({
+    const rawRows = (map.playerRows as any[]).map((row: any, index: number) => ({
       player_name: normalizeOptional(row.player_name) ?? `Player ${index + 1}`,
       agents: normalizeOptional(row.agents),
       side: row.side === 'b' ? 'b' : 'a',
@@ -203,62 +227,111 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       plants: parseInteger(row.plants ?? 0, 'Plants'),
       defuses: parseInteger(row.defuses ?? 0, 'Defuses'),
       econ_rating: Number(row.econ_rating ?? 0),
-      games: 1,
-      games_won:
-        row.side === 'a'
-          ? rawTeamARounds > rawTeamBRounds
-            ? 1
-            : 0
-          : rawTeamBRounds > rawTeamARounds
-            ? 1
-            : 0,
-      games_lost:
-        row.side === 'a'
-          ? rawTeamARounds < rawTeamBRounds
-            ? 1
-            : 0
-          : rawTeamBRounds < rawTeamARounds
-            ? 1
-            : 0,
-      rounds: rawTeamARounds + rawTeamBRounds,
-      rounds_won: row.side === 'a' ? rawTeamARounds : rawTeamBRounds,
-      rounds_lost: row.side === 'a' ? rawTeamBRounds : rawTeamARounds,
-      kpg: parseInteger(row.kills ?? 0, 'Kills'),
-      kpr:
-        rawTeamARounds + rawTeamBRounds > 0
-          ? Number(row.kills ?? 0) / (rawTeamARounds + rawTeamBRounds)
-          : 0,
-      dpg: parseInteger(row.deaths ?? 0, 'Deaths'),
-      dpr:
-        rawTeamARounds + rawTeamBRounds > 0
-          ? Number(row.deaths ?? 0) / (rawTeamARounds + rawTeamBRounds)
-          : 0,
-      apg: parseInteger(row.assists ?? 0, 'Assists'),
-      apr:
-        rawTeamARounds + rawTeamBRounds > 0
-          ? Number(row.assists ?? 0) / (rawTeamARounds + rawTeamBRounds)
-          : 0,
-      fkpg: parseInteger(row.fk ?? 0, 'FK'),
-      fdpg: parseInteger(row.fd ?? 0, 'FD'),
-      plants_per_game: parseInteger(row.plants ?? 0, 'Plants'),
-      defuses_per_game: parseInteger(row.defuses ?? 0, 'Defuses'),
     }))
-
-    const normalizedRows = isFlippedOrder
-      ? baseRows.map((row: any) => ({
-          ...row,
-          side: row.side === 'a' ? 'b' : 'a',
-        }))
-      : baseRows
-
-    const canonicalTeamARounds = isFlippedOrder ? rawTeamBRounds : rawTeamARounds
-    const canonicalTeamBRounds = isFlippedOrder ? rawTeamARounds : rawTeamBRounds
 
     return {
       sourceFilename: normalizeOptional(map.sourceFilename) ?? `map-${mapIndex + 1}.csv`,
       mapName: normalizeOptional(map.mapName),
       rawTeamARounds,
       rawTeamBRounds,
+      isFlippedOrder,
+      footerTeamAId: isFlippedOrder ? importedTeamB.id : importedTeamA.id,
+      footerTeamBId: isFlippedOrder ? importedTeamA.id : importedTeamB.id,
+      rawRows,
+    }
+  })
+
+  const resolvedProfileIds = Array.from(
+    new Set(
+      preliminarySeriesMaps.flatMap((map) =>
+        map.rawRows.map((row: any) => row.profile_id).filter(Boolean)
+      )
+    )
+  ) as string[]
+
+  let importedTeamByProfileId = new Map<string, string>()
+  if (resolvedProfileIds.length > 0) {
+    const { data: memberships, error: membershipsError } = await supabaseAdmin
+      .from('team_memberships')
+      .select('profile_id, team_id')
+      .in('profile_id', resolvedProfileIds)
+      .in('team_id', [importedTeamA.id, importedTeamB.id])
+      .eq('is_active', true)
+      .is('left_at', null)
+
+    if (membershipsError) throw error(500, 'Failed to resolve imported player teams')
+
+    importedTeamByProfileId = new Map(
+      (memberships ?? []).map((membership) => [membership.profile_id, membership.team_id])
+    )
+  }
+
+  const normalizedSeriesMaps = preliminarySeriesMaps.map((map) => {
+    const directMatches = map.rawRows.reduce((total: number, row: any) => {
+      const teamId = row.profile_id ? (importedTeamByProfileId.get(row.profile_id) ?? null) : null
+      if (!teamId) return total
+      return (
+        total +
+        Number(
+          (row.side === 'a' && teamId === map.footerTeamAId) ||
+            (row.side === 'b' && teamId === map.footerTeamBId)
+        )
+      )
+    }, 0)
+
+    const swappedMatches = map.rawRows.reduce((total: number, row: any) => {
+      const teamId = row.profile_id ? (importedTeamByProfileId.get(row.profile_id) ?? null) : null
+      if (!teamId) return total
+      return (
+        total +
+        Number(
+          (row.side === 'a' && teamId === map.footerTeamBId) ||
+            (row.side === 'b' && teamId === map.footerTeamAId)
+        )
+      )
+    }, 0)
+
+    const footerAlignedRows =
+      swappedMatches > directMatches
+        ? map.rawRows.map((row: any) => ({ ...row, side: flipSide(row.side) }))
+        : map.rawRows
+
+    const canonicalTeamARounds = map.isFlippedOrder ? map.rawTeamBRounds : map.rawTeamARounds
+    const canonicalTeamBRounds = map.isFlippedOrder ? map.rawTeamARounds : map.rawTeamBRounds
+    const totalRounds = canonicalTeamARounds + canonicalTeamBRounds
+
+    const normalizedRows = footerAlignedRows.map((row: any) => {
+      const side = map.isFlippedOrder ? flipSide(row.side) : row.side
+      const roundsWon = side === 'a' ? canonicalTeamARounds : canonicalTeamBRounds
+      const roundsLost = side === 'a' ? canonicalTeamBRounds : canonicalTeamARounds
+
+      return {
+        ...row,
+        side,
+        games: 1,
+        games_won: roundsWon > roundsLost ? 1 : 0,
+        games_lost: roundsWon < roundsLost ? 1 : 0,
+        rounds: totalRounds,
+        rounds_won: roundsWon,
+        rounds_lost: roundsLost,
+        kpg: row.kills,
+        kpr: totalRounds > 0 ? row.kills / totalRounds : 0,
+        dpg: row.deaths,
+        dpr: totalRounds > 0 ? row.deaths / totalRounds : 0,
+        apg: row.assists,
+        apr: totalRounds > 0 ? row.assists / totalRounds : 0,
+        fkpg: row.fk,
+        fdpg: row.fd,
+        plants_per_game: row.plants,
+        defuses_per_game: row.defuses,
+      }
+    })
+
+    return {
+      sourceFilename: map.sourceFilename,
+      mapName: map.mapName,
+      rawTeamARounds: map.rawTeamARounds,
+      rawTeamBRounds: map.rawTeamBRounds,
       mapTeamARounds: importMatchesTeamA ? canonicalTeamARounds : canonicalTeamBRounds,
       mapTeamBRounds: importMatchesTeamA ? canonicalTeamBRounds : canonicalTeamARounds,
       normalizedRows,
@@ -281,12 +354,40 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     (total, map) => total + (map.mapTeamBRounds > map.mapTeamARounds ? 1 : 0),
     0
   )
-  const winnerTeamId =
-    seriesTeamAScore === seriesTeamBScore
-      ? null
-      : seriesTeamAScore > seriesTeamBScore
-        ? match.team_a_id
-        : match.team_b_id
+
+  const mapWinnerTeamId = winnerFromMapSeriesScore(
+    seriesTeamAScore,
+    seriesTeamBScore,
+    match.team_a_id,
+    match.team_b_id
+  )
+
+  const officialWinnerTeamId = parseOptionalUuid(body.officialWinnerTeamId)
+  const forfeitingTeamIdOpt = parseOptionalUuid(body.forfeitingTeamId)
+  const forfeitingReason = normalizeOptional(body.forfeitReason)
+  const mapNotes = parseMapNotes(body.mapNotes)
+
+  let winnerTeamId: string | null
+  let adminMatchForfeit: AdminAwardResolution['matchForfeit'] = null
+  let perMapForfeitMeta: AdminAwardResolution['perMapForfeitMeta'] = new Map()
+
+  try {
+    const resolved = resolveAdminAwardForfeit({
+      mapWinnerTeamId,
+      officialWinnerTeamId,
+      forfeitingTeamId: forfeitingTeamIdOpt,
+      teamAId: match.team_a_id,
+      teamBId: match.team_b_id,
+      reason: forfeitingReason,
+      mapNotes,
+      mapCount: normalizedSeriesMaps.length,
+    })
+    winnerTeamId = resolved.winnerTeamId
+    adminMatchForfeit = resolved.matchForfeit
+    perMapForfeitMeta = resolved.perMapForfeitMeta
+  } catch (e) {
+    throw error(400, e instanceof Error ? e.message : 'Invalid forfeit override')
+  }
 
   const batchId = crypto.randomUUID()
   const importedAt = new Date().toISOString()
@@ -345,11 +446,13 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   const insertedMapIds: string[] = []
 
   for (const [mapIndex, map] of normalizedSeriesMaps.entries()) {
+    const mapOrder = mapIndex + 1
+    const forfeitSlice = perMapForfeitMeta.get(mapOrder)
     const { data: createdMap, error: createMapError } = await supabaseAdmin
       .from('match_maps')
       .insert({
         match_id: match.id,
-        map_order: mapIndex + 1,
+        map_order: mapOrder,
         map_name: map.mapName,
         team_a_rounds: map.mapTeamARounds,
         team_b_rounds: map.mapTeamBRounds,
@@ -358,6 +461,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
         metadata: {
           import_batch_id: batchId,
           imported_at: importedAt,
+          ...(forfeitSlice ? { forfeit: forfeitSlice } : {}),
         },
       })
       .select('id')
@@ -425,6 +529,8 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
   await rebuildPlayerMatchStats(match.id)
 
+  const metaBase = stripForfeitFromMetadata(match.metadata as Record<string, unknown> | null)
+
   const { error: updateMatchError } = await supabaseAdmin
     .from('matches')
     .update({
@@ -435,11 +541,12 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       team_b_score: seriesTeamBScore,
       winner_team_id: winnerTeamId,
       metadata: {
-        ...(match.metadata ?? {}),
+        ...metaBase,
         imported_from_csv: true,
         has_series_result: true,
         latest_map_import_batch_id: batchId,
         imported_map_count: insertedMapIds.length,
+        ...(adminMatchForfeit ? { forfeit: adminMatchForfeit } : {}),
       },
     })
     .eq('id', match.id)
@@ -453,5 +560,151 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     teamAScore: seriesTeamAScore,
     teamBScore: seriesTeamBScore,
     unresolvedPlayers,
+  })
+}
+
+async function handleForfeitNoShow(body: Record<string, unknown>, adminProfileId: string) {
+  const teamAName = normalizeOptional(body.teamAName)
+  const teamBName = normalizeOptional(body.teamBName)
+  const scheduledAtRaw = normalizeOptional(body.scheduledAt)
+  const displayName = normalizeOptional(body.displayName) ?? 'forfeit-no-show'
+
+  if (!teamAName || !teamBName) throw error(400, 'Both team names are required')
+  if (!scheduledAtRaw) throw error(400, 'scheduledAt is required')
+  if (teamAName === teamBName) throw error(400, 'Teams must be different')
+
+  const scheduledAt = parseMatchCsvDate(scheduledAtRaw)
+  const winnerTeamId = parseOptionalUuid(body.winnerTeamId)
+  if (!winnerTeamId) throw error(400, 'winnerTeamId must be a valid UUID')
+
+  const teamAScore = Number(body.teamAScore ?? 2)
+  const teamBScore = Number(body.teamBScore ?? 0)
+  if (!Number.isInteger(teamAScore) || teamAScore < 0)
+    throw error(400, 'teamAScore must be a non-negative integer')
+  if (!Number.isInteger(teamBScore) || teamBScore < 0)
+    throw error(400, 'teamBScore must be a non-negative integer')
+
+  const bestOf = [1, 3, 5, 7].includes(Number(body.bestOf)) ? Number(body.bestOf) : 3
+
+  const [teams] = await Promise.all([getApprovedTeamsForImports()])
+  const teamMatcher = buildTeamMatcher(teams)
+
+  const importedTeamA = teamMatcher.byMatchName(teamAName)
+  const importedTeamB = teamMatcher.byMatchName(teamBName)
+  if (!importedTeamA || !importedTeamB) {
+    throw error(
+      400,
+      `Unmatched teams: ${[!importedTeamA ? teamAName : null, !importedTeamB ? teamBName : null].filter(Boolean).join(', ')}`
+    )
+  }
+  if (importedTeamA.id === importedTeamB.id)
+    throw error(400, 'Teams must resolve to different teams')
+
+  if (![importedTeamA.id, importedTeamB.id].includes(winnerTeamId)) {
+    throw error(400, 'winnerTeamId must be one of the two resolved teams')
+  }
+
+  const winnerAhead =
+    winnerTeamId === importedTeamA.id ? teamAScore > teamBScore : teamBScore > teamAScore
+  if (!winnerAhead) {
+    throw error(400, 'Scores must favor the winning team')
+  }
+
+  const { start, end } = dayRange(scheduledAt)
+  const { data: existingMatches, error: existingMatchesError } = await supabaseAdmin
+    .from('matches')
+    .select('id, team_a_id, team_b_id, metadata, status, scheduled_at')
+    .or(
+      `and(team_a_id.eq.${importedTeamA.id},team_b_id.eq.${importedTeamB.id}),and(team_a_id.eq.${importedTeamB.id},team_b_id.eq.${importedTeamA.id})`
+    )
+    .gte('scheduled_at', start)
+    .lte('scheduled_at', end)
+
+  if (existingMatchesError) throw error(500, 'Failed to check existing matches')
+
+  let match = (existingMatches ?? [])[0] as any
+  if (!match) {
+    const { data: createdMatch, error: createMatchError } = await supabaseAdmin
+      .from('matches')
+      .insert({
+        status: 'completed',
+        approval_status: 'approved',
+        best_of: bestOf,
+        scheduled_at: scheduledAt,
+        ended_at: scheduledAt,
+        team_a_id: importedTeamA.id,
+        team_b_id: importedTeamB.id,
+        team_a_score: 0,
+        team_b_score: 0,
+        winner_team_id: null,
+        submitted_by_profile_id: adminProfileId,
+        approved_by_profile_id: adminProfileId,
+        approved_at: new Date().toISOString(),
+        metadata: {
+          imported_from_csv: true,
+          has_series_result: true,
+          match_import_name_a: teamAName,
+          match_import_name_b: teamBName,
+        },
+      })
+      .select('id, team_a_id, team_b_id, metadata, status, scheduled_at')
+      .single()
+
+    if (createMatchError || !createdMatch) throw error(500, 'Failed to create match')
+    match = createdMatch
+  }
+
+  const canonicalAScore = match.team_a_id === importedTeamA.id ? teamAScore : teamBScore
+  const canonicalBScore = match.team_b_id === importedTeamB.id ? teamBScore : teamAScore
+
+  const { data: existingMaps, error: existingMapsError } = await supabaseAdmin
+    .from('match_maps')
+    .select('id')
+    .eq('match_id', match.id)
+
+  if (existingMapsError) throw error(500, 'Failed to load existing maps')
+
+  if ((existingMaps ?? []).length > 0) {
+    const existingMapIds = (existingMaps ?? []).map((entry) => entry.id)
+    await supabaseAdmin.from('player_match_map_stats').delete().in('match_map_id', existingMapIds)
+    await supabaseAdmin.from('match_maps').delete().eq('match_id', match.id)
+  }
+
+  await rebuildPlayerMatchStats(match.id)
+
+  const metaBase = stripForfeitFromMetadata(match.metadata as Record<string, unknown> | null)
+  const forfeitingTeamId = winnerTeamId === match.team_a_id ? match.team_b_id : match.team_a_id
+
+  const { error: updateMatchError } = await supabaseAdmin
+    .from('matches')
+    .update({
+      best_of: bestOf,
+      status: 'completed',
+      ended_at: new Date().toISOString(),
+      team_a_score: canonicalAScore,
+      team_b_score: canonicalBScore,
+      winner_team_id: winnerTeamId,
+      metadata: {
+        ...metaBase,
+        imported_from_csv: true,
+        has_series_result: true,
+        import_display_name: displayName,
+        forfeit: {
+          kind: 'no_show',
+          forfeiting_team_id: forfeitingTeamId,
+        },
+      },
+    })
+    .eq('id', match.id)
+
+  if (updateMatchError) throw error(500, 'Failed to update forfeit match')
+
+  return json({
+    success: true,
+    matchId: match.id,
+    mapIds: [] as string[],
+    teamAScore: canonicalAScore,
+    teamBScore: canonicalBScore,
+    unresolvedPlayers: [] as string[],
   })
 }

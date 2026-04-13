@@ -1,11 +1,14 @@
 <script lang="ts">
+  import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import { User } from 'lucide-svelte'
 
   import { enhance } from '$app/forms'
 
-  let { data, form } = $props() as { data: any; form: any }
-  const profile = $derived(data.profile)
+  /** GET always redirects; `profile` is only used if load data is ever returned. */
+  type AccountPageData = { profile: { riot_id_base?: string | null } }
+  let { data, form }: PageProps = $props()
+  const profile = $derived((data as unknown as AccountPageData).profile)
 
   let value = $state('')
 

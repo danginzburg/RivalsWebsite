@@ -1,9 +1,10 @@
 <script lang="ts">
+  import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import { BarChart3, CalendarDays, RadioTower, Video } from 'lucide-svelte'
-  import miksIcon from '$lib/assets/agents/Miks_icon.png'
+  import miksIcon from '$lib/assets/agents/Miks_icon.webp'
 
-  let { data } = $props() as { data: any }
+  let { data }: PageProps = $props()
 
   const match = $derived(data.match)
   let activeStatsTab = $state<'total' | string>('total')
@@ -32,11 +33,11 @@
     return status.charAt(0).toUpperCase() + status.slice(1)
   }
 
-  function playerLabel(row: any) {
+  function playerLabel(row: { profile_name?: string | null; player_name?: string | null }) {
     return row.profile_name ?? row.player_name ?? 'Player'
   }
 
-  function playerHref(row: any) {
+  function playerHref(row: { profile_id?: string | null; player_name?: string | null }) {
     if (row.profile_id) return `/players/${row.profile_id}`
     return `/players/unclaimed?name=${encodeURIComponent(row.player_name ?? '')}`
   }
@@ -46,7 +47,32 @@
     return Number.isFinite(num) ? num.toFixed(digits) : '0'
   }
 
-  const agentAssetModules = import.meta.glob('$lib/assets/agents/*_icon.png', {
+  function sortByKillsDesc<
+    T extends {
+      kills?: unknown
+      acs?: unknown
+      profile_name?: string | null
+      player_name?: string | null
+    },
+  >(rows: T[]): T[] {
+    return [...rows].sort((a, b) => {
+      const ak = Number(a.kills ?? 0)
+      const bk = Number(b.kills ?? 0)
+      const killsA = Number.isFinite(ak) ? ak : 0
+      const killsB = Number.isFinite(bk) ? bk : 0
+      if (killsB !== killsA) return killsB - killsA
+
+      const aAcs = Number(a.acs ?? 0)
+      const bAcs = Number(b.acs ?? 0)
+      const acsA = Number.isFinite(aAcs) ? aAcs : 0
+      const acsB = Number.isFinite(bAcs) ? bAcs : 0
+      if (acsB !== acsA) return acsB - acsA
+
+      return playerLabel(a).localeCompare(playerLabel(b), undefined, { sensitivity: 'base' })
+    })
+  }
+
+  const agentAssetModules = import.meta.glob('$lib/assets/agents/*_icon.webp', {
     eager: true,
     import: 'default',
   }) as Record<string, string>
@@ -57,7 +83,7 @@
 
     for (const [path, url] of Object.entries(agentAssetModules)) {
       const filename = path.split('/').pop() ?? ''
-      const base = filename.replace(/_icon\.png$/i, '')
+      const base = filename.replace(/_icon\.webp$/i, '')
       map.set(normalize(base), url)
     }
 
@@ -86,13 +112,21 @@
   }
 
   const statsTabs = $derived([
-    ...(match.maps ?? []).map((map: any) => ({
+    ...(match.maps ?? []).map((map) => ({
       key: map.id,
       label: `${map.map_label}${map.map_name ? ` • ${map.map_name}` : ''}`,
       team_a_rounds: map.team_a_rounds,
       team_b_rounds: map.team_b_rounds,
       rows: map.stats ?? [],
       isTotal: false,
+      forfeit:
+        map.forfeit && typeof map.forfeit === 'object'
+          ? (map.forfeit as {
+              forfeiting_team_id?: string
+              label?: string
+              forfeiting_team_name?: string | null
+            })
+          : null,
     })),
     {
       key: 'total',
@@ -101,6 +135,7 @@
       team_b_rounds: null,
       rows: match.total_stats ?? [],
       isTotal: true,
+      forfeit: null,
     },
   ])
 
@@ -115,10 +150,10 @@
     statsTabs.find((tab) => tab.key === activeStatsTab) ?? statsTabs.at(-1) ?? null
   )
   const teamAStats = $derived(
-    (activeStats?.rows ?? []).filter((row: any) => row.team_id === match.team_a_id)
+    sortByKillsDesc((activeStats?.rows ?? []).filter((row) => row.team_id === match.team_a_id))
   )
   const teamBStats = $derived(
-    (activeStats?.rows ?? []).filter((row: any) => row.team_id === match.team_b_id)
+    sortByKillsDesc((activeStats?.rows ?? []).filter((row) => row.team_id === match.team_b_id))
   )
 </script>
 
@@ -180,6 +215,43 @@
           {/if}
         </div>
       </div>
+
+      {#if match.forfeit_display}
+        <div
+          class="mb-4 rounded-md border p-3 text-sm leading-relaxed"
+          style="border-color: rgba(251,191,36,0.4); background: rgba(251,191,36,0.08); color: rgba(255,255,255,0.9);"
+        >
+          {#if match.forfeit_display.kind === 'admin_award'}
+            <div class="font-semibold" style="color: #fcd34d;">Series result (forfeit)</div>
+            <p class="mt-1">
+              Official winner:
+              <span style="color: var(--text);">{match.forfeit_display.winnerTeamName ?? '—'}</span
+              >. Map scores ({match.team_a_score}-{match.team_b_score}) reflect play on the server.
+              {#if match.forfeit_display.forfeitingTeamName}
+                <span class="mt-1 block">
+                  Forfeiting side (penalized / lost the series): {match.forfeit_display
+                    .forfeitingTeamName}.
+                </span>
+              {/if}
+              {#if match.forfeit_display.reason}
+                <span class="mt-1 block text-xs" style="color: rgba(255,255,255,0.75);"
+                  >{match.forfeit_display.reason}</span
+                >
+              {/if}
+            </p>
+          {:else if match.forfeit_display.kind === 'no_show'}
+            <div class="font-semibold" style="color: #fcd34d;">No-show forfeit</div>
+            <p class="mt-1">
+              Winner:
+              <span style="color: var(--text);">{match.forfeit_display.winnerTeamName ?? '—'}</span
+              >.
+              {#if match.forfeit_display.forfeitingTeamName}
+                Opponent did not field a team in time: {match.forfeit_display.forfeitingTeamName}.
+              {/if}
+            </p>
+          {/if}
+        </div>
+      {/if}
 
       <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
         <section
@@ -317,7 +389,7 @@
                 style={activeStatsTab === tab.key
                   ? 'background: rgba(59,130,246,0.2); color: #93c5fd; border: 1px solid rgba(59,130,246,0.28);'
                   : 'background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.78); border: 1px solid rgba(255,255,255,0.10);'}
-                onclick={() => (activeStatsTab = tab.key)}
+                onclick={() => (activeStatsTab = String(tab.key))}
               >
                 {tab.label}
               </button>
@@ -326,6 +398,23 @@
 
           {#if activeStats}
             {#if !activeStats.isTotal}
+              {#if activeStats.forfeit?.forfeiting_team_id}
+                <div
+                  class="mb-3 rounded-md border p-2 text-xs leading-relaxed"
+                  style="border-color: rgba(251,191,36,0.35); background: rgba(251,191,36,0.06); color: rgba(255,255,255,0.88);"
+                >
+                  <span class="font-semibold" style="color: #fcd34d;">Forfeit note (this map)</span>
+                  {#if activeStats.forfeit.forfeiting_team_name}
+                    <span class="ml-1"
+                      >— {activeStats.forfeit.forfeiting_team_name} forfeited this map in the context
+                      of the series ruling.</span
+                    >
+                  {/if}
+                  {#if activeStats.forfeit.label}
+                    <span class="mt-1 block">{activeStats.forfeit.label}</span>
+                  {/if}
+                </div>
+              {/if}
               <div class="mb-3 text-sm" style="color: rgba(255,255,255,0.74);">
                 {teamName(match.team_a)}
                 {activeStats.team_a_rounds}-{activeStats.team_b_rounds}

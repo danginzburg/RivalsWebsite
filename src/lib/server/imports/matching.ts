@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { average, sum } from '$lib/server/math'
 
 type TeamRow = {
   id: string
@@ -139,19 +140,6 @@ export function parseMatchCsvDate(value: string): string {
     throw new Error('Invalid match date in CSV')
   }
   return parsed.toISOString()
-}
-
-function sum(values: Array<number | null | undefined>) {
-  return values.reduce<number>(
-    (total, value) => total + (Number.isFinite(Number(value)) ? Number(value) : 0),
-    0
-  )
-}
-
-function average(values: Array<number | null | undefined>) {
-  const nums = values.map((value) => Number(value)).filter((value) => Number.isFinite(value))
-  if (nums.length === 0) return null
-  return nums.reduce((total, value) => total + value, 0) / nums.length
 }
 
 export async function rebuildPlayerMatchStats(matchId: string) {

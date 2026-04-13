@@ -1,8 +1,9 @@
 <script lang="ts">
+  import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import { Users } from 'lucide-svelte'
 
-  let { data } = $props() as { data: any }
+  let { data }: PageProps = $props()
   const teams = $derived(data.teams ?? [])
   const myTeam = $derived(data.myTeam ?? null)
 </script>

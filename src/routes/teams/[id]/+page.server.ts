@@ -1,12 +1,8 @@
 import { error } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { getTeamLogoUrl } from '$lib/server/teams/logo'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-
-function getTeamLogoUrl(team: any): string | null {
-  if (!team?.logo_path) return null
-  return supabaseAdmin.storage.from('team-logos').getPublicUrl(team.logo_path).data.publicUrl
-}
 
 export const load = async ({ params, locals }: { params: { id: string }; locals: any }) => {
   const teamId = params.id

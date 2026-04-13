@@ -1,14 +1,6 @@
 import { supabaseAdmin } from '$lib/supabase/admin'
-
-function getTeamLogoUrl(team: any): string | null {
-  if (!team?.logo_path) return null
-  return supabaseAdmin.storage.from('team-logos').getPublicUrl(team.logo_path).data.publicUrl
-}
-
-function safeInt(value: unknown) {
-  const n = Number(value)
-  return Number.isFinite(n) ? n : 0
-}
+import { safeNumber } from '$lib/server/parse'
+import { getTeamLogoUrl } from '$lib/server/teams/logo'
 
 export const load = async () => {
   const { data: batch } = await supabaseAdmin
@@ -50,15 +42,15 @@ export const load = async () => {
     const team = Array.isArray(entry.teams) ? entry.teams[0] : entry.teams
     return {
       id: entry.id,
-      rank: safeInt(entry.rank),
-      points: safeInt(entry.points),
-      series_played: safeInt(entry.matches_played),
-      series_wins: safeInt(entry.wins),
-      series_losses: safeInt(entry.losses),
-      map_wins: safeInt(entry.map_wins),
-      map_losses: safeInt(entry.map_losses),
-      maps_played: safeInt(entry.map_wins) + safeInt(entry.map_losses),
-      round_diff: safeInt(entry.round_diff),
+      rank: safeNumber(entry.rank),
+      points: safeNumber(entry.points),
+      series_played: safeNumber(entry.matches_played),
+      series_wins: safeNumber(entry.wins),
+      series_losses: safeNumber(entry.losses),
+      map_wins: safeNumber(entry.map_wins),
+      map_losses: safeNumber(entry.map_losses),
+      maps_played: safeNumber(entry.map_wins) + safeNumber(entry.map_losses),
+      round_diff: safeNumber(entry.round_diff),
       team: team
         ? {
             id: team.id,

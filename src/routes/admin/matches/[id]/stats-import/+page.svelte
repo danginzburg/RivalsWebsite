@@ -1,11 +1,12 @@
 <script lang="ts">
+  import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import { Upload, Swords } from 'lucide-svelte'
 
-  let { data } = $props() as { data: any }
+  let { data }: PageProps = $props()
 
   const match = $derived(data.match)
-  const existingMaps = $derived((data.existingMaps ?? []) as any[])
+  const existingMaps = $derived(data.existingMaps ?? [])
 
   let mapOrder = $state('1')
   let mapName = $state('')
