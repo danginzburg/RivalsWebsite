@@ -51,10 +51,10 @@
     return entry.display_name || entry.email || '—'
   }
 
-  function formatUtc(value: string | null | undefined) {
+  function formatLocal(value: string | null | undefined) {
     if (!value) return 'Date TBD'
     const date = new Date(value)
-    return `${date.toLocaleString(undefined, { timeZone: 'UTC' })} UTC`
+    return date.toLocaleString(undefined, { timeZoneName: 'short' })
   }
 
   function teamName(value: unknown) {
@@ -288,7 +288,7 @@
                         >
                       </td>
                       <td class="px-2 py-2" style="color: var(--text);"
-                        >{formatUtc(match.ended_at ?? match.scheduled_at)}</td
+                        >{formatLocal(match.ended_at ?? match.scheduled_at)}</td
                       >
                       <td class="px-2 py-2" style="color: var(--text);">{score.us}-{score.them}</td>
                     </tr>

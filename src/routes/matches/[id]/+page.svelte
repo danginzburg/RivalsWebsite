@@ -12,10 +12,10 @@
     return (value as { name?: string }).name ?? 'Team'
   }
 
-  function formatUtc(value: string | null | undefined) {
+  function formatLocal(value: string | null | undefined) {
     if (!value) return 'Date TBD'
     const date = new Date(value)
-    return `${date.toLocaleString(undefined, { timeZone: 'UTC' })} UTC`
+    return date.toLocaleString(undefined, { timeZoneName: 'short' })
   }
 </script>
 
@@ -28,7 +28,7 @@
           <div>
             <h1 class="responsive-title">{teamName(match.team_a)} vs {teamName(match.team_b)}</h1>
             <p class="text-sm" style="color: rgba(255,255,255,0.72);">
-              BO{match.best_of} • {formatUtc(match.scheduled_at)}
+              BO{match.best_of} • {formatLocal(match.scheduled_at)}
             </p>
           </div>
         </div>
@@ -69,18 +69,20 @@
           <div class="space-y-2 text-sm" style="color: rgba(255,255,255,0.78);">
             <div>
               <span style="color: rgba(255,255,255,0.55);">Scheduled:</span>
-              <span class="ml-2" style="color: var(--text);">{formatUtc(match.scheduled_at)}</span>
+              <span class="ml-2" style="color: var(--text);">{formatLocal(match.scheduled_at)}</span
+              >
             </div>
             {#if match.started_at}
               <div>
                 <span style="color: rgba(255,255,255,0.55);">Started:</span>
-                <span class="ml-2" style="color: var(--text);">{formatUtc(match.started_at)}</span>
+                <span class="ml-2" style="color: var(--text);">{formatLocal(match.started_at)}</span
+                >
               </div>
             {/if}
             {#if match.ended_at}
               <div>
                 <span style="color: rgba(255,255,255,0.55);">Ended:</span>
-                <span class="ml-2" style="color: var(--text);">{formatUtc(match.ended_at)}</span>
+                <span class="ml-2" style="color: var(--text);">{formatLocal(match.ended_at)}</span>
               </div>
             {/if}
           </div>

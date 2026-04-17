@@ -14,8 +14,9 @@ function parseScheduledAt(value: unknown): string | null {
 
   // Support <input type="datetime-local"> value (YYYY-MM-DDTHH:mm)
   const looksLikeLocal = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(raw)
-  const asIso = looksLikeLocal ? `${raw}:00Z` : raw
-  const d = new Date(asIso)
+  // datetime-local is a local wall-clock time with no timezone.
+  // Interpret it as the browser's local time and convert to UTC for storage.
+  const d = new Date(looksLikeLocal ? raw : raw)
   if (!Number.isFinite(d.getTime())) {
     throw error(400, 'Invalid scheduledAt')
   }

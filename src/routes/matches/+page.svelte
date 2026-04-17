@@ -11,10 +11,10 @@
     return (value as { name?: string }).name ?? 'Team'
   }
 
-  function formatUtc(value: string | null | undefined) {
+  function formatLocal(value: string | null | undefined) {
     if (!value) return 'Date TBD'
     const date = new Date(value)
-    return `${date.toLocaleString(undefined, { timeZone: 'UTC' })} UTC`
+    return date.toLocaleString(undefined, { timeZoneName: 'short' })
   }
 </script>
 
@@ -66,7 +66,7 @@
                 </div>
 
                 <div class="mt-1 text-xs" style="color: rgba(255,255,255,0.72);">
-                  BO{match.best_of} • {formatUtc(match.scheduled_at)}
+                  BO{match.best_of} • {formatLocal(match.scheduled_at)}
                   {#if match.status === 'completed'}
                     <span> • Score {match.team_a_score}-{match.team_b_score}</span>
                   {/if}

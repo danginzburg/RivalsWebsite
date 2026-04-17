@@ -195,10 +195,10 @@
     return team.name ?? 'Team'
   }
 
-  function formatUtc(value: string | null | undefined) {
+  function formatLocal(value: string | null | undefined) {
     if (!value) return 'No date'
     const date = new Date(value)
-    return `${date.toLocaleString(undefined, { timeZone: 'UTC' })} UTC`
+    return date.toLocaleString(undefined, { timeZoneName: 'short' })
   }
 
   // Role change confirmation
@@ -1454,12 +1454,12 @@
                       bind:value={createMatchScheduledAt}
                       class="w-full rounded-md border px-3 py-2 text-sm"
                       style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-                      placeholder="Scheduled (UTC)"
+                      placeholder="Scheduled (local time)"
                       disabled={isCreatingMatch}
-                      aria-label="Scheduled at (UTC)"
+                      aria-label="Scheduled at (local time)"
                     />
                     <div class="mt-1 text-xs" style="color: rgba(255,255,255,0.65);">
-                      Optional. Interpreted as UTC.
+                      Optional. Interpreted as your local time and stored in UTC.
                     </div>
                   </div>
                   <div class="md:col-span-1">
