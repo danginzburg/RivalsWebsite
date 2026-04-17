@@ -22,10 +22,10 @@
     return (value as { logo_url?: string }).logo_url ?? null
   }
 
-  function formatUtc(value: string | null | undefined) {
+  function formatLocal(value: string | null | undefined) {
     if (!value) return 'Date TBD'
     const date = new Date(value)
-    return date.toLocaleString()
+    return date.toLocaleString(undefined, { timeZoneName: 'short' })
   }
 
   function formatStatus(status: string | null | undefined) {
@@ -193,7 +193,7 @@
               </span>
             </h1>
             <p class="text-sm" style="color: rgba(255,255,255,0.72);">
-              BO{match.best_of} • {formatUtc(match.scheduled_at)}
+              BO{match.best_of} • {formatLocal(match.scheduled_at)}
             </p>
           </div>
         </div>
@@ -271,12 +271,14 @@
           <div class="space-y-2 text-sm" style="color: rgba(255,255,255,0.78);">
             <div>
               <span style="color: rgba(255,255,255,0.55);">Scheduled:</span>
-              <span class="ml-2" style="color: var(--text);">{formatUtc(match.scheduled_at)}</span>
+              <span class="ml-2" style="color: var(--text);">{formatLocal(match.scheduled_at)}</span
+              >
             </div>
             {#if match.started_at}
               <div>
                 <span style="color: rgba(255,255,255,0.55);">Started:</span>
-                <span class="ml-2" style="color: var(--text);">{formatUtc(match.started_at)}</span>
+                <span class="ml-2" style="color: var(--text);">{formatLocal(match.started_at)}</span
+                >
               </div>
             {/if}
             {#if (match.metadata?.map_vetoes?.length ?? 0) > 0}

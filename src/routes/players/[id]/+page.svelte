@@ -66,10 +66,10 @@
     window.location.href = `/players/${player.profile_id}?batchId=${encodeURIComponent(batchId)}`
   }
 
-  function formatUtc(value: string | null | undefined) {
+  function formatLocal(value: string | null | undefined) {
     if (!value) return 'Date TBD'
     const date = new Date(value)
-    return `${date.toLocaleString(undefined, { timeZone: 'UTC' })} UTC`
+    return date.toLocaleString(undefined, { timeZoneName: 'short' })
   }
 
   function teamName(value: unknown) {

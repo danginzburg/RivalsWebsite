@@ -228,10 +228,12 @@
     bucketAssignments = next
   }
 
-  function formatUtc(value: string | null | undefined) {
+  function formatLocal(value: string | null | undefined) {
     if (!value) return 'Not scheduled'
     const date = new Date(value)
-    return Number.isFinite(date.getTime()) ? date.toLocaleString() : 'Not scheduled'
+    return Number.isFinite(date.getTime())
+      ? date.toLocaleString(undefined, { timeZoneName: 'short' })
+      : 'Not scheduled'
   }
 
   function buildPayload() {
@@ -349,7 +351,7 @@
               {/if}
             </div>
             <div class="text-sm" style="color: rgba(255,255,255,0.78);">
-              Lock: {formatUtc(data.config.lock_at)}
+              Lock: {formatLocal(data.config.lock_at)}
             </div>
           </div>
 
@@ -514,7 +516,7 @@
           <div class="mt-4 flex flex-wrap items-center justify-between gap-3">
             <div class="text-xs" style="color: rgba(255,255,255,0.62);">
               {#if submissionMeta}
-                Submitted {formatUtc(submissionMeta.updatedAt)}
+                Submitted {formatLocal(submissionMeta.updatedAt)}
               {:else}
                 Not submitted yet.
               {/if}

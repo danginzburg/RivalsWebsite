@@ -3,10 +3,10 @@
 
   let { matches }: { matches: any[] } = $props()
 
-  function formatUtc(value: string | null | undefined) {
+  function formatLocal(value: string | null | undefined) {
     if (!value) return 'TBD'
     const date = new Date(value)
-    return `${date.toLocaleString(undefined, { timeZone: 'UTC' })} UTC`
+    return date.toLocaleString(undefined, { timeZoneName: 'short' })
   }
 
   function teamName(value: unknown) {
@@ -69,7 +69,7 @@
                   </a>
                 </td>
                 <td class="px-3 py-2" style="color: rgba(255,255,255,0.82);">
-                  {formatUtc(match.scheduled_at ?? match.ended_at)}
+                  {formatLocal(match.scheduled_at ?? match.ended_at)}
                 </td>
                 <td class="px-3 py-2" style="color: rgba(255,255,255,0.82);">{match.status}</td>
               </tr>

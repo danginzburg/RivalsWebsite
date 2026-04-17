@@ -144,9 +144,9 @@
           bind:value={createMatchScheduledAt}
           class="w-full rounded-md border px-3 py-2 text-sm"
           style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-          placeholder="Scheduled (UTC)"
+          placeholder="Scheduled (local time)"
           disabled={isCreatingMatch}
-          aria-label="Scheduled at (UTC)"
+          aria-label="Scheduled at (local time)"
           oninput={(e) =>
             onCreateMatchScheduledAtChange((e.currentTarget as HTMLInputElement).value)}
         />
