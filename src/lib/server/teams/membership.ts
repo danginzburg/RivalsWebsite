@@ -1,11 +1,6 @@
 import { supabaseAdmin } from '$lib/supabase/admin'
-
-type ProfileRow = {
-  id: string
-  display_name: string | null
-  riot_id_base: string | null
-  stats_player_name?: string | null
-}
+import { relinkTeamMembershipsForClaim } from '$lib/server/players/claim-relink'
+import type { ProfileRow } from '$lib/server/imports/matching'
 
 function normalize(value: unknown) {
   return String(value ?? '')
@@ -70,55 +65,8 @@ export async function resolveProfileIdForPlayerName(playerName: string) {
   return profileIds.length === 1 ? profileIds[0] : null
 }
 
+/** @returns Count of name-only memberships linked to this profile (not duplicates deactivated). */
 export async function rematchNamedTeamMemberships(profileId: string) {
-  const { data: activeMembership } = await supabaseAdmin
-    .from('team_memberships')
-    .select('id')
-    .eq('profile_id', profileId)
-    .eq('is_active', true)
-    .is('left_at', null)
-    .maybeSingle()
-
-  if (activeMembership?.id) return 0
-
-  const { data: profile, error: profileError } = await supabaseAdmin
-    .from('profiles')
-    .select('id, display_name, riot_id_base, stats_player_name')
-    .eq('id', profileId)
-    .maybeSingle()
-
-  if (profileError || !profile) throw new Error('Failed to load profile for team rematch')
-
-  const names = Array.from(
-    new Set(
-      [profile.display_name, profile.riot_id_base, (profile as any).stats_player_name]
-        .map((value) => normalize(value))
-        .filter(Boolean)
-    )
-  )
-
-  if (names.length === 0) return 0
-
-  const { data: memberships, error: membershipsError } = await supabaseAdmin
-    .from('team_memberships')
-    .select('id, player_name, profile_id')
-    .is('profile_id', null)
-    .eq('is_active', true)
-    .is('left_at', null)
-
-  if (membershipsError) throw new Error('Failed to load named team memberships')
-
-  const matchingIds = (memberships ?? [])
-    .filter((membership) => names.includes(normalize((membership as any).player_name)))
-    .map((membership) => membership.id)
-
-  if (matchingIds.length === 0) return 0
-
-  const { error: updateError } = await supabaseAdmin
-    .from('team_memberships')
-    .update({ profile_id: profileId })
-    .in('id', matchingIds)
-
-  if (updateError) throw new Error('Failed to link named team memberships')
-  return matchingIds.length
+  const result = await relinkTeamMembershipsForClaim(profileId)
+  return result.linked
 }

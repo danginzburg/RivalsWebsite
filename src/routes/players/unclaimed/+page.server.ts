@@ -9,6 +9,7 @@ import {
   type NormalizedRivalsGroupStatBatch,
   type StatImportBatchRow,
 } from '$lib/server/stats/rivals-batch'
+import { claimRelinkAfterProfileUpdate } from '$lib/server/players/claim-relink'
 
 function normalizeNameBase(value: unknown): string {
   const raw = String(value ?? '').trim()
@@ -295,11 +296,11 @@ export const actions: Actions = {
 
     if (updateError) return { success: false, message: updateError.message }
 
-    // Best-effort auto-relink.
-    const { error: rpcError } = await supabaseAdmin.rpc('rematch_rivals_group_stats', {
-      batch_id: null,
-    })
-    if (rpcError) console.warn('rematch_rivals_group_stats failed:', rpcError)
+    try {
+      await claimRelinkAfterProfileUpdate(profile.id)
+    } catch (err) {
+      console.warn('claimRelinkAfterProfileUpdate failed:', err)
+    }
 
     throw redirect(303, `/players/${profile.id}`)
   },

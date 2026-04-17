@@ -9,7 +9,7 @@ type TeamRow = {
   approval_status?: string | null
 }
 
-type ProfileRow = {
+export type ProfileRow = {
   id: string
   display_name: string | null
   riot_id_base: string | null

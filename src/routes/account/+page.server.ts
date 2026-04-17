@@ -3,6 +3,7 @@ import type { PageServerLoad } from './$types'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { normalizeRiotBase, isValidRiotBase } from '$lib/server/riot-id'
 import { supabaseErrorMessageIncludes } from '$lib/server/supabase/errors'
+import { claimRelinkAfterProfileUpdate } from '$lib/server/players/claim-relink'
 
 export const load: PageServerLoad = async ({ locals }) => {
   if (!locals.user) throw redirect(303, '/auth/login?returnTo=/account')
@@ -62,12 +63,10 @@ export const actions: Actions = {
 
     if (updateError) return { success: false, message: updateError.message }
 
-    // Best-effort auto-relink of imported stats after claiming Riot ID.
-    const { error: rpcError } = await supabaseAdmin.rpc('rematch_rivals_group_stats', {
-      batch_id: null,
-    })
-    if (rpcError) {
-      console.warn('rematch_rivals_group_stats failed:', rpcError)
+    try {
+      await claimRelinkAfterProfileUpdate(profile.id)
+    } catch (err) {
+      console.warn('claimRelinkAfterProfileUpdate failed:', err)
     }
 
     throw redirect(303, `/players/${profile.id}`)

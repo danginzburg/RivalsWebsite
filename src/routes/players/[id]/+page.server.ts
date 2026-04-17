@@ -1,6 +1,6 @@
 import { error, redirect } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
-import { rematchNamedTeamMemberships } from '$lib/server/teams/membership'
+import { claimRelinkAfterProfileUpdate } from '$lib/server/players/claim-relink'
 import { normalizeRiotBase, isValidRiotBase } from '$lib/server/riot-id'
 import { supabaseErrorMessageIncludes } from '$lib/server/supabase/errors'
 import { toBatchLabel } from '$lib/server/stats/batch-label'
@@ -397,18 +397,9 @@ export const actions = {
     if (updateError) return { success: false, message: updateError.message }
 
     try {
-      await rematchNamedTeamMemberships(target.id)
+      await claimRelinkAfterProfileUpdate(target.id)
     } catch (err) {
-      console.warn('Failed to rematch named team memberships after riot_id_base save:', err)
-    }
-
-    // Best-effort auto-relink of imported stats after claiming Riot ID.
-    // This avoids needing a manual admin rematch step.
-    const { error: rpcError } = await supabaseAdmin.rpc('rematch_rivals_group_stats', {
-      batch_id: null,
-    })
-    if (rpcError) {
-      console.warn('rematch_rivals_group_stats failed:', rpcError)
+      console.warn('claimRelinkAfterProfileUpdate failed after riot_id_base save:', err)
     }
 
     throw redirect(303, `/players/${target.id}`)
@@ -472,21 +463,9 @@ export const actions = {
     if (updateError) return { success: false, message: updateError.message }
 
     try {
-      await rematchNamedTeamMemberships(target.id)
+      await claimRelinkAfterProfileUpdate(target.id)
     } catch (err) {
-      console.warn('Failed to rematch named team memberships after stats_player_name save:', err)
-    }
-
-    const lower = statsPlayerName.toLowerCase()
-    const candidates = [statsPlayerName, lower]
-
-    const { error: rematchError } = await supabaseAdmin
-      .from('rivals_group_stats')
-      .update({ profile_id: target.id })
-      .or(`player_name.ilike.${statsPlayerName},player_name.ilike.${lower}`)
-
-    if (rematchError) {
-      console.warn('Failed to rematch stats_player_name:', rematchError, candidates)
+      console.warn('claimRelinkAfterProfileUpdate failed after stats_player_name save:', err)
     }
 
     throw redirect(303, `/players/${target.id}`)
