@@ -12,10 +12,10 @@
   const leaderboard = $derived(data.leaderboard ?? null)
   const activeSeason = $derived(data.activeSeason ?? null)
 
-  function formatUtc(value: string | null | undefined) {
+  function formatLocal(value: string | null | undefined) {
     if (!value) return 'Date TBD'
     const date = new Date(value)
-    return `${date.toLocaleString(undefined, { timeZone: 'UTC' })} UTC`
+    return date.toLocaleString(undefined, { timeZoneName: 'short' })
   }
 
   function teamName(value: unknown) {
@@ -273,7 +273,7 @@
                   >
                     <div class="font-semibold" style="color: var(--text);">vs {teamName(opp)}</div>
                     <div class="text-xs" style="color: rgba(255,255,255,0.68);">
-                      {formatUtc(match.scheduled_at)} • {match.status}
+                      {formatLocal(match.scheduled_at)} • {match.status}
                     </div>
                   </a>
                 {/each}
@@ -322,7 +322,7 @@
                       >
                     </td>
                     <td class="px-3 py-2" style="color: rgba(255,255,255,0.9);">
-                      {formatUtc(match.scheduled_at)}
+                      {formatLocal(match.scheduled_at)}
                     </td>
                     <td class="px-3 py-2" style="color: rgba(255,255,255,0.9);"
                       >{score.us}-{score.them}</td
