@@ -10,9 +10,18 @@
     submittedAt: string | null
     baselineRows: PickemTeamRow[]
     bucketAssignments: Map<string, string>
+    /** When set (after scoring), team ids map to whether the submitted bucket matched the final result. */
+    pickAccuracyByTeamId?: Record<string, boolean> | null
   }
 
-  let { seasonName, userName, submittedAt, baselineRows, bucketAssignments }: Props = $props()
+  let {
+    seasonName,
+    userName,
+    submittedAt,
+    baselineRows,
+    bucketAssignments,
+    pickAccuracyByTeamId = null,
+  }: Props = $props()
 
   const bucketConfig: Record<PickemBucket, { label: string; accent: string; glow: string }> = {
     '3-0': { label: '3-0', accent: '#a78bfa', glow: 'rgba(167, 139, 250, 0.35)' },
@@ -91,13 +100,19 @@
         </div>
         <div class="receipt__bucket-teams">
           {#each teams as row (row.team?.id ?? row.rank)}
+            {@const tid = row.team?.id}
+            {@const acc = tid && pickAccuracyByTeamId ? pickAccuracyByTeamId[tid] : undefined}
             <div class="receipt__team" title={row.team?.name ?? 'Team'}>
               {#if row.team?.logo_url}
                 <img src={row.team.logo_url} alt="" class="receipt__team-logo" />
               {:else}
                 <div class="receipt__team-logo-placeholder"></div>
               {/if}
-              <span class="receipt__team-name">{teamShortLabel(row.team)}</span>
+              <span
+                class="receipt__team-name"
+                class:receipt__team-name--correct={acc === true}
+                class:receipt__team-name--incorrect={acc === false}>{teamShortLabel(row.team)}</span
+              >
             </div>
           {/each}
         </div>
@@ -310,6 +325,16 @@
     text-overflow: ellipsis;
     line-height: 1.3;
     letter-spacing: 0.01em;
+  }
+
+  .receipt__team-name--correct {
+    color: #86efac;
+    font-weight: 600;
+  }
+
+  .receipt__team-name--incorrect {
+    color: #fda4af;
+    font-weight: 600;
   }
 
   .receipt__footer {

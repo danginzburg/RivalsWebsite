@@ -463,11 +463,126 @@ export function getCurrentBuckets(rows: PickemTeamRow[], baselineCompletedRounds
   )
 }
 
-export async function getPickemFinalOutcomesForSeason(
+/**
+ * Picks the newest applied leaderboard batch that is strictly after the pick'em baseline batch
+ * (never the baseline itself). `batchesOrderedNewestFirst` must match `listLeaderboardBatches` order.
+ */
+export function resolveLatestScoringLeaderboardBatch(
+  baselineBatchId: string,
+  baselineBatchMeta: PickemSourceBatch | null,
+  batchesOrderedNewestFirst: PickemSourceBatch[]
+): PickemSourceBatch | null {
+  const baseline =
+    baselineBatchMeta ?? batchesOrderedNewestFirst.find((b) => b.id === baselineBatchId) ?? null
+  if (!baseline) return null
+
+  for (const batch of batchesOrderedNewestFirst) {
+    if (!isLeaderboardBatchStrictlyAfterBaseline(batch, baseline)) continue
+    return batch
+  }
+  return null
+}
+
+function isLeaderboardBatchStrictlyAfterBaseline(
+  candidate: PickemSourceBatch,
+  baseline: PickemSourceBatch
+): boolean {
+  if (candidate.id === baseline.id) return false
+
+  if (baseline.as_of_date && candidate.as_of_date) {
+    return candidate.as_of_date > baseline.as_of_date
+  }
+
+  return candidate.created_at > baseline.created_at
+}
+
+export function validatePickemFinalLeaderboardForScoring(
+  baselineRows: PickemTeamRow[],
+  finalRows: PickemTeamRow[],
+  participantCount: number,
+  predictionRound: number
+): void {
+  if (finalRows.length < participantCount) {
+    throw error(
+      400,
+      `Final leaderboard batch must include at least ${participantCount} teams (found ${finalRows.length})`
+    )
+  }
+
+  const slice = finalRows.slice(0, participantCount)
+  const byId = new Map(
+    slice.map((r) => [r.team?.id ?? '', r] as const).filter(([id]) => Boolean(id))
+  )
+
+  for (const row of baselineRows) {
+    const id = row.team?.id
+    if (!id) throw error(400, 'Baseline leaderboard row is missing a team id')
+    const fin = byId.get(id)
+    const label = row.team?.name?.trim() || id
+    if (!fin?.team) {
+      throw error(
+        400,
+        `Final leaderboard batch is missing team ${label} (top ${participantCount} by rank)`
+      )
+    }
+    if (fin.series_played !== predictionRound) {
+      throw error(
+        400,
+        `Final leaderboard for ${fin.team.name} must show ${predictionRound} matches played (found ${fin.series_played})`
+      )
+    }
+    if (fin.wins + fin.losses !== predictionRound) {
+      throw error(
+        400,
+        `Final record for ${fin.team.name} must sum to ${predictionRound} series for pick'em scoring`
+      )
+    }
+    const bucket = `${fin.wins}-${fin.losses}` as PickemBucket
+    if (!PICKEM_BUCKETS.includes(bucket)) {
+      throw error(
+        400,
+        `Final record ${fin.wins}-${fin.losses} for ${fin.team.name} is not a valid pick'em bucket`
+      )
+    }
+  }
+}
+
+export function buildPickemFinalOutcomes(
+  baselineRows: PickemTeamRow[],
+  finalRowsSlice: PickemTeamRow[]
+): PickemFinalTeamOutcome[] {
+  const byId = new Map(
+    finalRowsSlice.map((r) => [r.team?.id ?? '', r] as const).filter(([id]) => Boolean(id))
+  )
+
+  return baselineRows.map((row) => {
+    const id = row.team!.id
+    const finalRow = byId.get(id)!
+    return {
+      ...row,
+      final_wins: finalRow.wins,
+      final_losses: finalRow.losses,
+      final_round_diff: finalRow.round_diff,
+      final_bucket: `${finalRow.wins}-${finalRow.losses}` as PickemBucket,
+    }
+  })
+}
+
+export type PickemResolvedFinalOutcomes = {
+  outcomes: PickemFinalTeamOutcome[]
+  scoringBatch: PickemSourceBatch
+  config: PickemConfig
+}
+
+/**
+ * Resolves final bucket outcomes from the latest stored leaderboard batch after the pick'em baseline.
+ * Does not run imports; only reads `stat_import_batches` / `leaderboard_entries`.
+ */
+export async function resolvePickemFinalOutcomesForSeason(
   seasonId: string
-): Promise<PickemFinalTeamOutcome[]> {
+): Promise<PickemResolvedFinalOutcomes | null> {
   const baseline = await getPickemBaselineForSeason(seasonId)
-  if (!baseline.config.leaderboard_batch_id) return []
+  if (!baseline.config.leaderboard_batch_id) return null
 
   validatePickemBaseline(
     baseline.rows,
@@ -475,42 +590,136 @@ export async function getPickemFinalOutcomesForSeason(
     baseline.config.baseline_completed_rounds
   )
 
-  const finalBatches = await listLeaderboardBatches(100, seasonId)
-  const scoredBatch = finalBatches.find((batch) => {
-    if (baseline.sourceBatch?.split && batch.split !== baseline.sourceBatch.split) return false
-    if (
-      baseline.sourceBatch?.as_of_date &&
-      batch.as_of_date &&
-      batch.as_of_date <= baseline.sourceBatch.as_of_date
+  const batches = await listLeaderboardBatches(100, seasonId)
+  const baselineMeta =
+    baseline.sourceBatch ??
+    batches.find((b) => b.id === baseline.config.leaderboard_batch_id) ??
+    null
+  if (!baselineMeta) {
+    throw error(
+      400,
+      'Pickem baseline leaderboard batch was not found among applied imports for this season'
     )
-      return false
-    return true
-  })
+  }
 
-  if (!scoredBatch) return []
+  const scoringBatch = resolveLatestScoringLeaderboardBatch(
+    baseline.config.leaderboard_batch_id,
+    baselineMeta,
+    batches
+  )
+  if (!scoringBatch) return null
 
-  const finalRows = await getLeaderboardRowsForBatch(scoredBatch.id)
-  const finalByTeamId = new Map(finalRows.map((row) => [row.team?.id ?? '', row]))
+  const finalRows = await getLeaderboardRowsForBatch(scoringBatch.id)
+  const slice = finalRows.slice(0, baseline.config.participant_count)
+  validatePickemFinalLeaderboardForScoring(
+    baseline.rows,
+    slice,
+    baseline.config.participant_count,
+    baseline.config.prediction_round
+  )
+  const outcomes = buildPickemFinalOutcomes(baseline.rows, slice)
 
-  return baseline.rows
-    .map((row) => {
-      const finalRow = row.team?.id ? finalByTeamId.get(row.team.id) : null
-      const finalWins = finalRow?.wins ?? row.wins
-      const finalLosses = finalRow?.losses ?? row.losses
-      const finalRoundDiff = finalRow?.round_diff ?? row.round_diff
-      const finalBucket = `${finalWins}-${finalLosses}` as PickemBucket
+  return { outcomes, scoringBatch, config: baseline.config }
+}
 
-      if (!PICKEM_BUCKETS.includes(finalBucket)) return null
+export async function getPickemFinalOutcomesForSeason(
+  seasonId: string
+): Promise<PickemFinalTeamOutcome[]> {
+  const resolved = await resolvePickemFinalOutcomesForSeason(seasonId)
+  return resolved?.outcomes ?? []
+}
 
-      return {
-        ...row,
-        final_wins: finalWins,
-        final_losses: finalLosses,
-        final_round_diff: finalRoundDiff,
-        final_bucket: finalBucket,
-      }
-    })
-    .filter((row): row is PickemFinalTeamOutcome => Boolean(row))
+export type PickemBatchScoreSummary = {
+  seasonId: string
+  scoringBatch: {
+    id: string
+    display_name: string
+    created_at: string
+    as_of_date: string | null
+  }
+  submissionsScored: number
+  scoredAt: string
+}
+
+/**
+ * Scores all pick'em submissions for a season from the latest suitable leaderboard batch,
+ * updates `pickem_submissions.score` / `scored_at`, and sets `metadata.pickem.status` to `scored`.
+ */
+export async function scoreAllPickemSubmissionsForSeason(
+  seasonId: string
+): Promise<PickemBatchScoreSummary> {
+  const baselineCtx = await getPickemBaselineForSeason(seasonId)
+  if (!baselineCtx.config.enabled) {
+    throw error(400, "Pick'em is not enabled for this season")
+  }
+
+  const resolved = await resolvePickemFinalOutcomesForSeason(seasonId)
+  if (!resolved) {
+    throw error(
+      400,
+      "No leaderboard batch found after the pick'em baseline. Import or ensure a newer applied leaderboard exists for this season."
+    )
+  }
+
+  const { outcomes, scoringBatch } = resolved
+  const scoredAt = new Date().toISOString()
+
+  const { data: submissions, error: listError } = await supabaseAdmin
+    .from('pickem_submissions')
+    .select('id, payload')
+    .eq('season_id', seasonId)
+    .eq('kind', PICKEM_KIND)
+
+  if (listError) throw error(500, 'Failed to load pickem submissions')
+
+  let submissionsScored = 0
+  for (const sub of submissions ?? []) {
+    const payload = parseSubmissionPayload(sub.payload)
+    const score = scoreBucketSubmission(payload, outcomes)
+    const { error: updateError } = await supabaseAdmin
+      .from('pickem_submissions')
+      .update({ score, scored_at: scoredAt })
+      .eq('id', sub.id)
+
+    if (updateError) throw error(500, 'Failed to update pickem submission score')
+    submissionsScored += 1
+  }
+
+  const { data: seasonRow, error: seasonReadError } = await supabaseAdmin
+    .from('seasons')
+    .select('metadata')
+    .eq('id', seasonId)
+    .maybeSingle()
+
+  if (seasonReadError || !seasonRow) {
+    throw error(500, 'Failed to load season for pickem status update')
+  }
+
+  const meta =
+    seasonRow.metadata !== null && typeof seasonRow.metadata === 'object'
+      ? { ...(seasonRow.metadata as Record<string, unknown>) }
+      : {}
+  const pickemCurrent = normalizePickemConfig(meta.pickem)
+  const nextPickem = { ...pickemCurrent, status: 'scored' as const }
+
+  const { error: seasonUpdateError } = await supabaseAdmin
+    .from('seasons')
+    .update({ metadata: { ...meta, pickem: nextPickem } })
+    .eq('id', seasonId)
+
+  if (seasonUpdateError) throw error(500, 'Failed to update season pickem status')
+
+  return {
+    seasonId,
+    scoringBatch: {
+      id: scoringBatch.id,
+      display_name: scoringBatch.display_name,
+      created_at: scoringBatch.created_at,
+      as_of_date: scoringBatch.as_of_date,
+    },
+    submissionsScored,
+    scoredAt,
+  }
 }
 
 export function scoreBucketSubmission(
@@ -529,6 +738,49 @@ export function scoreBucketSubmission(
   }
 
   return score
+}
+
+export type PickemWrongPick = {
+  teamId: string
+  name: string
+  tag: string | null
+  logo_url: string | null
+  predicted: PickemBucket
+  actual: PickemBucket
+}
+
+/**
+ * Teams whose submitted bucket does not match the resolved final bucket (baseline order).
+ */
+export function buildPickemWrongPicks(
+  payload: PickemSubmissionPayload,
+  finalOutcomes: PickemFinalTeamOutcome[]
+): PickemWrongPick[] {
+  const predictedByTeamId = new Map<string, PickemBucket>()
+  for (const bucket of PICKEM_BUCKETS) {
+    for (const teamId of payload.buckets[bucket]) {
+      predictedByTeamId.set(teamId, bucket)
+    }
+  }
+
+  const misses: PickemWrongPick[] = []
+  for (const row of finalOutcomes) {
+    const id = row.team?.id
+    if (!id) continue
+    const predicted = predictedByTeamId.get(id)
+    if (!predicted) continue
+    const actual = row.final_bucket
+    if (predicted === actual) continue
+    misses.push({
+      teamId: id,
+      name: row.team?.name?.trim() || 'Team',
+      tag: row.team?.tag ?? null,
+      logo_url: row.team?.logo_url ?? null,
+      predicted,
+      actual,
+    })
+  }
+  return misses
 }
 
 export async function getPickemSubmissionForProfile(seasonId: string, profileId: string) {
@@ -601,4 +853,96 @@ export async function listPickemSubmissionsForSeason(
   )
 
   return sortPickemSubmissionEntriesByName(rows)
+}
+
+export type PickemLeaderboardEntry = {
+  id: string
+  rank: number
+  score: number
+  scoredAt: string | null
+  submittedAt: string
+  wrongPicks: PickemWrongPick[]
+  user: {
+    id: string | null
+    name: string
+  }
+}
+
+/**
+ * Competition-style ranks: tied scores share the same rank; next rank skips (e.g. 1, 1, 3).
+ * Sort: score desc, then submittedAt asc, then name (case-insensitive).
+ */
+export function rankPickemLeaderboardEntries(
+  rows: Omit<PickemLeaderboardEntry, 'rank'>[]
+): PickemLeaderboardEntry[] {
+  const sorted = [...rows].sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score
+    const ta = new Date(a.submittedAt).getTime()
+    const tb = new Date(b.submittedAt).getTime()
+    if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb
+    return a.user.name.localeCompare(b.user.name, undefined, { sensitivity: 'base' })
+  })
+
+  let currentRank = 1
+  return sorted.map((row, i) => {
+    if (i > 0 && row.score !== sorted[i - 1]!.score) {
+      currentRank = i + 1
+    }
+    return { ...row, rank: currentRank }
+  })
+}
+
+/**
+ * Ranked pick'em leaderboard for a season after scoring (`scored_at` set on submissions).
+ * Returns empty entries when nothing has been scored yet.
+ */
+export async function listPickemRankedLeaderboardForSeason(
+  seasonId: string
+): Promise<PickemLeaderboardEntry[]> {
+  const { data, error: listError } = await supabaseAdmin
+    .from('pickem_submissions')
+    .select(
+      'id, created_at, score, scored_at, payload, profiles!pickem_submissions_profile_id_fkey (id, display_name, email)'
+    )
+    .eq('season_id', seasonId)
+    .eq('kind', PICKEM_KIND)
+
+  if (listError) throw error(500, 'Failed to load pickem submissions')
+
+  const rows = (data ?? []).filter(
+    (row: { scored_at: string | null }) => row.scored_at != null && String(row.scored_at).length > 0
+  ) as Array<{
+    id: string
+    created_at: string
+    score: number
+    scored_at: string
+    payload: unknown
+    profiles:
+      | { id: string | null; display_name: string | null; email: string | null }
+      | { id: string | null; display_name: string | null; email: string | null }[]
+      | null
+  }>
+
+  if (rows.length === 0) return []
+
+  const outcomes = await getPickemFinalOutcomesForSeason(seasonId)
+
+  const base: Omit<PickemLeaderboardEntry, 'rank'>[] = rows.map((row) => {
+    const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles
+    const payload = parseSubmissionPayload(row.payload)
+    const wrongPicks = outcomes.length > 0 ? buildPickemWrongPicks(payload, outcomes) : []
+    return {
+      id: row.id,
+      score: row.score,
+      scoredAt: row.scored_at,
+      submittedAt: row.created_at,
+      wrongPicks,
+      user: {
+        id: profile?.id ?? null,
+        name: profile?.display_name?.trim() || profile?.email?.trim() || 'User',
+      },
+    }
+  })
+
+  return rankPickemLeaderboardEntries(base)
 }
