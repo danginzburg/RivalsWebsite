@@ -19,6 +19,8 @@
     onSeasonEditChange: (seasonId: string, nextState: any) => void
     onCreateSeason: () => void
     onSaveSeason: (seasonId: string) => void
+    scoringPickemSeasonId: string | null
+    onScorePickem: (seasonId: string) => void
   }
 
   let {
@@ -39,6 +41,8 @@
     onSeasonEditChange,
     onCreateSeason,
     onSaveSeason,
+    scoringPickemSeasonId,
+    onScorePickem,
   }: Props = $props()
 
   const pickemStatusOptions = [
@@ -382,6 +386,35 @@
               {#if season.pickem_preview_error}
                 <p class="mt-3 text-sm" style="color: #fda4af;">{season.pickem_preview_error}</p>
               {/if}
+
+              <div
+                class="mt-4 flex flex-col gap-2 border-t pt-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
+                style="border-color: rgba(255,255,255,0.08);"
+              >
+                <p class="max-w-xl text-xs leading-relaxed" style="color: rgba(255,255,255,0.58);">
+                  After Swiss finishes, import the final leaderboard batch, then run scoring here.
+                  This compares every submission to that import and sets points; it also marks the
+                  pick'em as scored.
+                </p>
+                <button
+                  type="button"
+                  class="shrink-0 rounded-md px-3 py-2 text-sm font-semibold disabled:opacity-45"
+                  style="background: rgba(250,204,21,0.16); color: #fde047;"
+                  disabled={!Boolean(state.pickemEnabled) ||
+                    scoringPickemSeasonId === season.id ||
+                    !state.pickemLeaderboardBatchId}
+                  onclick={() => onScorePickem(season.id)}
+                  title={!state.pickemLeaderboardBatchId
+                    ? 'Save a baseline leaderboard batch first'
+                    : undefined}
+                >
+                  {#if scoringPickemSeasonId === season.id}
+                    Scoring…
+                  {:else}
+                    Run pick'em scoring
+                  {/if}
+                </button>
+              </div>
             </div>
           </article>
         {/each}

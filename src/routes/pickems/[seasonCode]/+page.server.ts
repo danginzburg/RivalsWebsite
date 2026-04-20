@@ -6,6 +6,7 @@ import {
   getPickemBaselineForSeason,
   getPickemSubmissionForProfile,
   isPickemLocked,
+  listPickemRankedLeaderboardForSeason,
   listPickemSubmissionsForSeason,
   validatePickemBaseline,
 } from '$lib/server/pickems'
@@ -54,11 +55,12 @@ export const load = async ({ params, locals }) => {
     }
   }
 
-  const [submission, submissionsList] = await Promise.all([
+  const [submission, submissionsList, pickemLeaderboard] = await Promise.all([
     viewer?.profileId
       ? getPickemSubmissionForProfile(season.id, viewer.profileId)
       : Promise.resolve(null),
     listPickemSubmissionsForSeason(season.id),
+    listPickemRankedLeaderboardForSeason(season.id),
   ])
 
   const teamIds = baseline.rows.map((row) => row.team?.id).filter((id): id is string => Boolean(id))
@@ -80,5 +82,7 @@ export const load = async ({ params, locals }) => {
       : null,
     isLocked: isPickemLocked(baseline.config),
     submissionsList,
+    pickemLeaderboard,
+    hasScoredLeaderboard: pickemLeaderboard.length > 0,
   }
 }

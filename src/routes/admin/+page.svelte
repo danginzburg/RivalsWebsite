@@ -802,6 +802,44 @@
     }
   }
 
+  let scoringPickemSeasonId = $state<string | null>(null)
+
+  async function scorePickemSubmissions(seasonId: string) {
+    const state = seasonEditForm[seasonId]
+    if (!state?.pickemEnabled) return
+
+    if (
+      !window.confirm(
+        "Score all bucket pick'em submissions for this season? This uses the latest leaderboard import after the frozen baseline batch and updates every entrant's points."
+      )
+    ) {
+      return
+    }
+
+    errorMessage = null
+    successMessage = null
+    scoringPickemSeasonId = seasonId
+    try {
+      const result = await adminJsonRequest<{
+        submissionsScored?: number
+        scoringBatch?: { display_name?: string }
+      }>(`/api/admin/pickems/${seasonId}/score`, {
+        method: 'POST',
+        fallbackMessage: "Failed to score pick'em submissions",
+      })
+      const n = result.submissionsScored ?? 0
+      const batch = result.scoringBatch?.display_name?.trim()
+      successMessage = batch
+        ? `Pick'em scored: ${n} submission${n === 1 ? '' : 's'} (final import: ${batch}).`
+        : `Pick'em scored: ${n} submission${n === 1 ? '' : 's'}.`
+      await refreshData()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : "Failed to score pick'em submissions"
+    } finally {
+      scoringPickemSeasonId = null
+    }
+  }
+
   async function saveSeason(seasonId: string) {
     const state = seasonEditForm[seasonId]
     if (!state) return
@@ -1275,6 +1313,8 @@
           })}
         onCreateSeason={createSeason}
         onSaveSeason={saveSeason}
+        {scoringPickemSeasonId}
+        onScorePickem={scorePickemSubmissions}
       />
     {/if}
   </AdminDashboardShell>

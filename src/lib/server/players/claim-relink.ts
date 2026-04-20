@@ -265,7 +265,24 @@ export async function claimRelinkAfterProfileUpdate(profileId: string): Promise<
   }
 
   const map = await relinkPlayerMatchMapStatsForClaim(profileId)
-  for (const matchId of map.matchIds) {
+  // Rebuild series stats for matches we just linked, and also for any match that already had
+  // this profile_id on map rows (e.g. SQL backfill or prior claim) where rebuild never ran.
+  const matchIdsToRebuild = new Set<string>(map.matchIds)
+  const { data: existingMapRows, error: existingMapErr } = await supabaseAdmin
+    .from('player_match_map_stats')
+    .select('match_id')
+    .eq('profile_id', profileId)
+
+  if (existingMapErr) {
+    console.warn('claimRelink: failed to list map stats by profile for rebuild:', existingMapErr)
+  } else {
+    for (const row of existingMapRows ?? []) {
+      const mid = (row as { match_id?: string | null }).match_id
+      if (mid) matchIdsToRebuild.add(String(mid))
+    }
+  }
+
+  for (const matchId of matchIdsToRebuild) {
     try {
       await rebuildPlayerMatchStats(matchId)
     } catch (e) {
@@ -292,7 +309,7 @@ export async function claimRelinkAfterProfileUpdate(profileId: string): Promise<
     teamMembershipDuplicatesDeactivated: team.duplicatesDeactivated,
     teamMembershipConflicts: team.conflicts,
     matchMapRowsLinked: map.rowsLinked,
-    matchesRebuilt: map.matchIds.length,
+    matchesRebuilt: matchIdsToRebuild.size,
     rivalsGroupStatsRowsUpdated: rivalsExtra,
   }
 }
