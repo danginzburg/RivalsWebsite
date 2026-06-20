@@ -642,13 +642,15 @@
     padding: 0;
     justify-content: flex-start;
     align-items: stretch;
-    height: calc(100svh - 4rem);
-    overflow: hidden;
+    min-height: calc(100svh - 4rem);
+    height: auto;
+    overflow: visible;
   }
 
   .stats-viewport {
-    height: 100%;
-    overflow: hidden;
+    width: 100%;
+    min-height: inherit;
+    overflow: visible;
     display: flex;
     justify-content: center;
     padding: 24px 16px;
@@ -672,13 +674,13 @@
   .stats-shell {
     display: flex;
     flex-direction: column;
-    height: 100%;
+    height: auto;
     min-height: 0;
   }
 
   .stats-table-wrap {
-    flex: 1 1 auto;
-    overflow: auto;
+    overflow-x: auto;
+    overflow-y: visible;
     min-height: 0;
   }
 
