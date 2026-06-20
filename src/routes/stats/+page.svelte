@@ -7,6 +7,7 @@
   import { SvelteMap, SvelteURLSearchParams } from 'svelte/reactivity'
   import { resolve } from '$app/paths'
   import miksIcon from '$lib/assets/agents/Miks_icon.webp'
+  import { statsRowKey } from '$lib/stats/ui'
 
   let { data }: PageProps = $props()
 
@@ -557,7 +558,7 @@
               </tr>
             </thead>
             <tbody>
-              {#each sortedRows as row, index (row.profile_id ?? index)}
+              {#each sortedRows as row, index (statsRowKey(row, index))}
                 <tr
                   class="border-t"
                   id={row.profile_id ? `profile-${row.profile_id}` : undefined}
