@@ -124,3 +124,9 @@ export async function fetchAdminDashboardData(): Promise<{
     matches: matchesResult.matches,
   }
 }
+
+export const adminDashboardFetchAdapter = {
+  json: adminJsonRequest,
+  form: adminFormRequest,
+  fetchDashboardData: fetchAdminDashboardData,
+}

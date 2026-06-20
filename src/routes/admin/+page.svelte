@@ -1,7 +1,8 @@
 <script lang="ts">
   import PageContainer from '$lib/components/PageContainer.svelte'
   import { teamName, toDatetimeLocal } from '$lib/admin/match-ui'
-  import { adminFormRequest, adminJsonRequest, fetchAdminDashboardData } from '$lib/admin/api'
+  import { adminDashboardFetchAdapter, adminFormRequest, adminJsonRequest } from '$lib/admin/api'
+  import { createAdminDashboardState } from '$lib/admin/dashboard/state'
   import {
     buildApprovedTeamOptions,
     filterAdminMatches,
@@ -37,6 +38,7 @@
   type AdminPageData = PageData & AdminPageDataExtras
 
   const data = $derived(pageData as AdminPageData)
+  const dashboardState = createAdminDashboardState({ fetchAdapter: adminDashboardFetchAdapter })
 
   let activeTab = $state<AdminTabId>('matches')
   let isLoading = $state(false)
@@ -389,22 +391,17 @@
   })
 
   async function refreshData() {
-    isLoading = true
-    errorMessage = null
-    successMessage = null
-
-    try {
-      const dashboardData = await fetchAdminDashboardData()
-
-      users = dashboardData.users
-      seasons = dashboardData.seasons
-      approvedTeams = dashboardData.approved as ApprovedTeamEntry[]
-      matches = dashboardData.matches
-    } catch (err) {
-      errorMessage = err instanceof Error ? err.message : 'Failed to refresh data'
-    } finally {
-      isLoading = false
-    }
+    await dashboardState.refresh({
+      setLoading: (value) => (isLoading = value),
+      setError: (message) => (errorMessage = message),
+      setSuccess: (message) => (successMessage = message),
+      replaceData: (dashboardData) => {
+        users = dashboardData.users as AdminUser[]
+        seasons = dashboardData.seasons as AdminSeason[]
+        approvedTeams = dashboardData.approved as ApprovedTeamEntry[]
+        matches = dashboardData.matches
+      },
+    })
   }
 
   async function finalizeMatch(match: AdminMatch) {
@@ -414,16 +411,7 @@
       winnerTeamId: match.winner_team_id ?? match.team_a_id,
     }
 
-    pendingActionConfirmation = {
-      kind: 'finalize_match',
-      matchId: match.id,
-      teamAScore: state.teamAScore,
-      teamBScore: state.teamBScore,
-      winnerTeamId: state.winnerTeamId,
-      title: 'Confirm Match Finalization',
-      message: `Finalize ${teamName(match.team_a)} vs ${teamName(match.team_b)} at ${state.teamAScore}-${state.teamBScore}? This will mark the result official.`,
-      confirmLabel: 'Finalize Match',
-    }
+    pendingActionConfirmation = dashboardState.buildFinalizeConfirmation(match, state)
     showActionConfirmation = true
   }
 
@@ -437,17 +425,8 @@
     successMessage = null
 
     try {
-      await adminJsonRequest(`/api/admin/matches/${action.matchId}`, {
-        method: 'PATCH',
-        body: {
-          action: 'finalize',
-          winnerTeamId: action.winnerTeamId,
-          teamAScore: Number(action.teamAScore),
-          teamBScore: Number(action.teamBScore),
-        },
-        fallbackMessage: 'Failed to finalize match',
-      })
-      successMessage = 'Match finalized.'
+      const result = await dashboardState.finalizeMatch(action)
+      successMessage = result.success ?? 'Match finalized.'
       await refreshData()
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Failed to finalize match'
@@ -455,13 +434,7 @@
   }
 
   async function cancelMatch(match: AdminMatch) {
-    pendingActionConfirmation = {
-      kind: 'cancel_match',
-      matchId: match.id,
-      title: 'Confirm Match Cancellation',
-      message: `Cancel ${teamName(match.team_a)} vs ${teamName(match.team_b)}? This will keep the match record but mark it cancelled.`,
-      confirmLabel: 'Cancel Match',
-    }
+    pendingActionConfirmation = dashboardState.buildCancelConfirmation(match)
     showActionConfirmation = true
   }
 
@@ -470,12 +443,8 @@
     successMessage = null
 
     try {
-      await adminJsonRequest(`/api/admin/matches/${matchId}`, {
-        method: 'PATCH',
-        body: { action: 'cancel' },
-        fallbackMessage: 'Failed to cancel match',
-      })
-      successMessage = 'Match cancelled.'
+      const result = await dashboardState.cancelMatch(matchId)
+      successMessage = result.success ?? 'Match cancelled.'
       await refreshData()
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Failed to cancel match'
@@ -497,18 +466,18 @@
 
     isCreatingMatch = true
     try {
-      await adminJsonRequest('/api/admin/matches', {
-        method: 'POST',
-        body: {
-          teamAId: createMatchTeamAId,
-          teamBId: createMatchTeamBId,
-          bestOf: Number(createMatchBestOf),
-          scheduledAt: createMatchScheduledAt || null,
-        },
-        fallbackMessage: 'Failed to create match',
+      const result = await dashboardState.createMatch({
+        teamAId: createMatchTeamAId,
+        teamBId: createMatchTeamBId,
+        bestOf: createMatchBestOf,
+        scheduledAt: createMatchScheduledAt,
       })
+      if (result.error) {
+        errorMessage = result.error
+        return
+      }
 
-      successMessage = 'Match created.'
+      successMessage = result.success ?? 'Match created.'
       createMatchScheduledAt = ''
       await refreshData()
     } catch (err) {
@@ -593,25 +562,8 @@
     successMessage = null
 
     try {
-      await adminJsonRequest(`/api/admin/matches/${matchId}`, {
-        method: 'PATCH',
-        body: {
-          action: 'update',
-          teamAId: state.teamAId,
-          teamBId: state.teamBId,
-          bestOf: Number(state.bestOf),
-          status: state.status,
-          scheduledAt: state.scheduledAt || null,
-          teamAScore: Number(state.teamAScore),
-          teamBScore: Number(state.teamBScore),
-          winnerTeamId: state.winnerTeamId || null,
-          youtubeVodUrl: vodForm[matchId] || null,
-          mapVetoes: state.mapVetoes || '',
-        },
-        fallbackMessage: 'Failed to update match',
-      })
-
-      successMessage = 'Match updated.'
+      const result = await dashboardState.saveMatch(matchId, state, vodForm[matchId] || null)
+      successMessage = result.success
       await refreshData()
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Failed to update match'
@@ -655,11 +607,8 @@
     errorMessage = null
     successMessage = null
     try {
-      await adminJsonRequest(`/api/admin/matches/${matchId}`, {
-        method: 'DELETE',
-        fallbackMessage: 'Failed to delete match',
-      })
-      successMessage = 'Match deleted.'
+      const result = await dashboardState.deleteMatch(matchId)
+      successMessage = result.success
       await refreshData()
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Failed to delete match'
@@ -676,12 +625,12 @@
     errorMessage = null
     successMessage = null
     try {
-      await adminJsonRequest(`/api/admin/matches/${matchId}/streams`, {
-        method: 'POST',
-        body: state,
-        fallbackMessage: 'Failed to add stream',
-      })
-      successMessage = 'Stream added.'
+      const result = await dashboardState.addMatchStream(matchId, state)
+      if (result.error) {
+        errorMessage = result.error
+        return
+      }
+      successMessage = result.success ?? 'Stream added.'
       streamForm = {
         ...streamForm,
         [matchId]: {
