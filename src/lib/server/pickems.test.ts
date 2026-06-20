@@ -120,7 +120,7 @@ describe('pickem helpers', () => {
       { team: { id: 'm' }, final_bucket: '1-2' },
       { team: { id: 'v' }, final_bucket: '0-3' },
       { team: { id: 'b' }, final_bucket: '2-1' },
-    ] as any
+    ] as Parameters<typeof scoreBucketSubmission>[1]
 
     expect(scoreBucketSubmission(payload, finalOutcomes)).toBe(4)
   })
@@ -130,7 +130,7 @@ describe('pickem helpers', () => {
       [
         { wins: 1, losses: 0, team: { id: 'a' } },
         { wins: 0, losses: 1, team: { id: 'b' } },
-      ] as any,
+      ] as Parameters<typeof getCurrentBuckets>[0],
       1
     )
 

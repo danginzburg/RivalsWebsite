@@ -1,6 +1,7 @@
 <script lang="ts">
   import { page } from '$app/stores'
   import { invalidateAll } from '$app/navigation'
+  import { resolve } from '$app/paths'
   import {
     Menu,
     X,
@@ -24,12 +25,18 @@
 
   const user = $derived($page.data.user)
   const isAdmin = $derived(user?.role === 'admin')
-  const activePickemHref = $derived(
-    $page.data.activePickemSeasonCode ? `/pickems/${$page.data.activePickemSeasonCode}` : null
-  )
+  type NavHref =
+    | '/leaderboard'
+    | '/matches'
+    | '/rulebook'
+    | '/stats'
+    | '/team-balance'
+    | '/teams'
+    | '/account'
+    | '/admin'
 
   const navItems = $derived.by(() => {
-    const items: Array<{ href: string; label: string; icon: any }> = [
+    const items: Array<{ href: NavHref; label: string; icon: typeof Trophy }> = [
       { href: '/leaderboard', label: 'Leaderboard', icon: Trophy },
       { href: '/matches', label: 'Matches', icon: Calendar },
       { href: '/rulebook', label: 'Rulebook', icon: BookOpen },
@@ -37,10 +44,6 @@
       { href: '/team-balance', label: 'Calculator', icon: Calculator },
       { href: '/teams', label: 'Teams', icon: Users },
     ]
-
-    if (activePickemHref) {
-      items.splice(1, 0, { href: activePickemHref, label: "Pick'ems", icon: Trophy })
-    }
 
     if (user) {
       items.push({ href: '/account', label: 'Account', icon: User })
@@ -57,10 +60,8 @@
     const groups = [
       {
         label: 'Competition',
-        items: navItems.filter(
-          (item) =>
-            ['/leaderboard', '/matches', '/teams'].includes(item.href) ||
-            item.href === activePickemHref
+        items: navItems.filter((item) =>
+          ['/leaderboard', '/matches', '/teams'].includes(item.href)
         ),
       },
       {
@@ -79,7 +80,7 @@
       (item) =>
         !['/leaderboard', '/matches', '/teams', '/rulebook', '/stats', '/team-balance'].includes(
           item.href
-        ) && item.href !== activePickemHref
+        )
     )
   )
 
@@ -158,7 +159,7 @@
     <div class="flex h-16 items-center justify-between">
       <!-- Logo/Brand -->
       <a
-        href="/"
+        href={resolve('/')}
         class="flex min-w-0 flex-shrink items-center gap-3 pr-3"
         style="color: var(--text);"
         onmouseenter={() => (isBrandHovered = true)}
@@ -200,7 +201,7 @@
                 {#each group.items as item (item.href)}
                   {@const Icon = item.icon}
                   <a
-                    href={item.href}
+                    href={resolve(item.href)}
                     class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors"
                     style={$page.url.pathname === item.href
                       ? 'color: var(--text); background-color: var(--active);'
@@ -221,7 +222,7 @@
           {@const Icon = item.icon}
           <li>
             <a
-              href={item.href}
+              href={resolve(item.href)}
               class="flex items-center gap-2 rounded-lg px-4 py-2 transition-colors"
               title={item.label}
               style={isActive ? getItemStyle(item.href, false) : 'color: var(--text);'}
@@ -292,7 +293,7 @@
           {@const Icon = item.icon}
           <li>
             <a
-              href={item.href}
+              href={resolve(item.href)}
               class={getClasses(item.href)}
               title={item.label}
               style={isActive ? getItemStyle(item.href, false) : 'color: var(--text);'}

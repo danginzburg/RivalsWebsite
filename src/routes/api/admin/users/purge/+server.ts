@@ -2,6 +2,7 @@ import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { logAdminAction } from '$lib/server/audit/admin-actions'
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { errorMessage } from '$lib/server/errors'
 
 function normalizeOptional(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -55,7 +56,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     .eq('profile_id', userId)
   if (
     freeAgentError &&
-    !String((freeAgentError as any).message ?? '').includes('free_agent_listings')
+    !errorMessage(freeAgentError).includes('free_agent_listings')
   ) {
     throw error(500, 'Failed to remove free agent listing')
   }

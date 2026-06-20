@@ -1,3 +1,5 @@
+import type { MatchStreamRow } from '$lib/server/db-rows'
+
 export type AdminTabId = 'users' | 'teams' | 'matches' | 'seasons'
 
 export type BestOfValue = '3' | '5'
@@ -21,6 +23,7 @@ export type TeamQueueEntry = {
     leaderboard_import_tags?: string[]
   } | null
   approval_status: string
+  status?: string | null
   approval_notes?: string | null
   roster_count?: number
   roster?: Array<{
@@ -38,7 +41,6 @@ export type TeamQueueEntry = {
 
 export type AdminPageDataExtras = {
   teamQueue?: TeamQueueEntry[]
-  leaderboardBatches?: unknown[]
 }
 
 export type ApprovedTeamEntry = TeamQueueEntry & {
@@ -55,6 +57,83 @@ export type ApprovedTeamEntry = TeamQueueEntry & {
     display_name: string | null
     email: string | null
   }>
+}
+
+export type AdminUser = {
+  id: string
+  email: string | null
+  display_name: string | null
+  role: string
+  riot_id_base: string | null
+  created_at: string
+}
+
+export type AdminSeason = {
+  id: string
+  code: string
+  name: string
+  starts_on: string | null
+  ends_on: string | null
+  is_active: boolean | null
+}
+
+export type AdminTeamLite = {
+  id: string
+  name: string
+  tag: string | null
+}
+
+export type AdminMatch = {
+  id: string
+  status: string | null
+  approval_status: string | null
+  best_of: number | null
+  scheduled_at: string | null
+  ended_at: string | null
+  metadata: { map_vetoes?: string[] | null } | Record<string, unknown> | null
+  team_a_id: string
+  team_b_id: string
+  winner_team_id: string | null
+  team_a_score: number | null
+  team_b_score: number | null
+  team_a: AdminTeamLite | AdminTeamLite[] | null
+  team_b: AdminTeamLite | AdminTeamLite[] | null
+  streams: MatchStreamRow[]
+  vod_url: string | null
+}
+
+export type TeamEditState = {
+  name: string
+  tag: string
+  status: string
+}
+
+export type MatchEditState = {
+  teamAId: string
+  teamBId: string
+  bestOf: string
+  status: string
+  scheduledAt: string
+  teamAScore: string
+  teamBScore: string
+  winnerTeamId: string
+  mapVetoes: string
+}
+
+export type MatchStreamFormState = {
+  platform: string
+  streamUrl: string
+  displayName: string
+  status: string
+  isPrimary: boolean
+}
+
+export type SeasonEditState = {
+  code: string
+  name: string
+  startsOn: string
+  endsOn: string
+  isActive: boolean
 }
 
 export type PendingRoleChange = {

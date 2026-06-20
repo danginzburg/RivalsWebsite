@@ -4,7 +4,35 @@ import { getTeamLogoUrl } from '$lib/server/teams/logo'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
-export const load = async ({ params, locals }: { params: { id: string }; locals: any }) => {
+type ProfileRow = {
+  id: string
+  display_name?: string | null
+  email?: string | null
+  riot_id_base?: string | null
+}
+
+type MembershipRow = {
+  profile_id?: string | null
+  player_name?: string | null
+  role?: string | null
+}
+
+type RosterStatRow = {
+  profile_id?: string | null
+  player_name?: string | null
+  acs?: number | null
+  kd?: number | null
+  adr?: number | null
+  games?: number | null
+}
+
+type StatsBatchRow = {
+  id: string
+  season_id?: string | null
+  import_kind?: string | null
+}
+
+export const load = async ({ params, locals }: { params: { id: string }; locals: App.Locals }) => {
   const teamId = params.id
   if (!UUID_RE.test(teamId)) throw error(404, 'Team not found')
 
@@ -34,7 +62,7 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
       (membershipRows ?? []).map((m) => m.profile_id).filter((id): id is string => Boolean(id))
     )
   )
-  const profileById = new Map<string, any>()
+  const profileById = new Map<string, ProfileRow>()
   if (profileIds.length > 0) {
     const { data: profileRows } = await supabaseAdmin
       .from('profiles')
@@ -43,8 +71,8 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
     for (const p of profileRows ?? []) profileById.set(p.id, p)
   }
 
-  const roster = (membershipRows ?? []).map((m: any) => {
-    const p = profileById.get(m.profile_id)
+  const roster = ((membershipRows ?? []) as MembershipRow[]).map((m) => {
+    const p = profileById.get(m.profile_id ?? '')
     return {
       profile_id: m.profile_id,
       player_name: m.player_name ?? null,
@@ -134,8 +162,8 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
     .limit(50)
 
   const currentSeasonStatsBatchId = activeSeason?.id
-    ? ((statsBatches ?? []).find(
-        (batch: any) => batch.import_kind === 'aggregate' && batch.season_id === activeSeason.id
+    ? (((statsBatches ?? []) as StatsBatchRow[]).find(
+        (batch) => batch.import_kind === 'aggregate' && batch.season_id === activeSeason.id
       )?.id ?? null)
     : null
 
@@ -149,8 +177,8 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
           .order('acs', { ascending: false })
       : { data: [] }
 
-  const statsByProfileId = new Map<string, any>()
-  for (const row of rosterStats ?? []) {
+  const statsByProfileId = new Map<string, RosterStatRow>()
+  for (const row of (rosterStats ?? []) as RosterStatRow[]) {
     if (row.profile_id) statsByProfileId.set(row.profile_id, row)
   }
 
@@ -167,7 +195,7 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
     },
     roster: roster.map((player) => ({
       ...player,
-      stats: statsByProfileId.get(player.profile_id) ?? null,
+      stats: statsByProfileId.get(player.profile_id ?? '') ?? null,
     })),
     matchHistory: matchHistory ?? [],
     upcomingMatches: upcomingMatches ?? [],

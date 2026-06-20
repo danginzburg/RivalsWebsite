@@ -3,6 +3,18 @@ import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { buildTeamMatcher, getApprovedTeamsForImports } from '$lib/server/imports/matching'
 
+type RawLeaderboardRow = {
+  team?: unknown
+  series_played?: unknown
+  series_wins?: unknown
+  series_losses?: unknown
+  map_wins?: unknown
+  map_losses?: unknown
+  maps_played?: unknown
+  points?: unknown
+  round_diff?: unknown
+}
+
 function normalizeOptional(value: unknown): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
@@ -47,7 +59,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   const seenTeamIds = new Set<string>()
   const unresolved: string[] = []
 
-  const resolvedRows = rows.map((row: any, index: number) => {
+  const resolvedRows = (rows as RawLeaderboardRow[]).map((row, index: number) => {
     const teamCode = normalizeOptional(row.team)
     if (!teamCode) throw error(400, `Row ${index + 1} is missing TEAM`)
 
@@ -79,7 +91,9 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     }
   })
 
-  const matchedRows = resolvedRows.filter(Boolean)
+  const matchedRows = resolvedRows.filter(
+    (row): row is NonNullable<typeof row> => Boolean(row)
+  )
   if (matchedRows.length === 0) throw error(400, 'No teams in this import matched approved teams')
 
   const batchId = crypto.randomUUID()
@@ -125,7 +139,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   if (deleteError)
     throw error(500, deleteError.message || 'Failed to clear existing leaderboard rows')
 
-  const rowsToInsert = matchedRows.map((row: any) => ({
+  const rowsToInsert = matchedRows.map((row) => ({
     season_id: seasonId,
     split,
     as_of_date: asOfDate,

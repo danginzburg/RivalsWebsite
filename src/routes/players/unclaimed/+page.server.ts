@@ -11,6 +11,45 @@ import {
 } from '$lib/server/stats/rivals-batch'
 import { claimRelinkAfterProfileUpdate } from '$lib/server/players/claim-relink'
 
+type StatBatchInfo = Partial<NormalizedRivalsGroupStatBatch> & { id: string; display_name: string }
+
+type CandidateRow = {
+  import_batch_id: string
+  player_name?: string | null
+  games?: number | null
+  imported_at?: string | null
+  [key: string]: unknown
+}
+
+type TeamLite = { id: string; name: string; tag?: string | null }
+
+type MatchRel = {
+  id: string
+  status?: string | null
+  approval_status?: string | null
+  scheduled_at?: string | null
+  ended_at?: string | null
+  team_a_id?: string | null
+  team_b_id?: string | null
+  team_a_score?: number | null
+  team_b_score?: number | null
+  team_a?: TeamLite | TeamLite[] | null
+  team_b?: TeamLite | TeamLite[] | null
+}
+
+type MatchMapRow = {
+  match_id?: string | null
+  team_id?: string | null
+  agents?: string | null
+  acs?: number | null
+  kills?: number | null
+  deaths?: number | null
+  assists?: number | null
+  kast_pct?: number | null
+  hs_pct?: number | null
+  matches?: MatchRel | MatchRel[] | null
+}
+
 function normalizeNameBase(value: unknown): string {
   const raw = String(value ?? '').trim()
   if (!raw) return ''
@@ -69,7 +108,11 @@ export const load: PageServerLoad = async ({ url, locals }) => {
   }
 
   const batchIds = Array.from(
-    new Set((appearances ?? []).map((r: any) => String(r.import_batch_id)).filter(Boolean))
+    new Set(
+      ((appearances ?? []) as Array<{ import_batch_id: string | null }>)
+        .map((r) => String(r.import_batch_id))
+        .filter(Boolean)
+    )
   )
 
   const batchById = new Map<string, NormalizedRivalsGroupStatBatch>()
@@ -121,7 +164,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
     batchOptions[0]?.value ??
     null
 
-  let selected: any | null = null
+  let selected: (CandidateRow & { batch?: StatBatchInfo }) | null = null
   if (batchId) {
     const clickedQuoted = quoteOrValue(clickedName)
     const baseLikeQuoted = quoteOrValue(`${base}#%`)
@@ -140,10 +183,10 @@ export const load: PageServerLoad = async ({ url, locals }) => {
     if (rowError) {
       console.error('Failed to load unclaimed row:', rowError)
     } else {
-      const list = candidates ?? []
+      const list = (candidates ?? []) as CandidateRow[]
       selected =
-        list.find((r: any) => String(r.player_name ?? '').trim() === clickedName) ??
-        list.sort((a: any, b: any) => {
+        list.find((r) => String(r.player_name ?? '').trim() === clickedName) ??
+        list.sort((a, b) => {
           const ga = Number(a?.games ?? 0)
           const gb = Number(b?.games ?? 0)
           if (ga !== gb) return gb - ga
@@ -201,8 +244,8 @@ export const load: PageServerLoad = async ({ url, locals }) => {
     .or(`player_name.eq.${baseQuoted},player_name.ilike.${baseTagLikeQuoted}`)
     .limit(500)
 
-  const byMatch = new Map<string, any[]>()
-  for (const row of matchRows ?? []) {
+  const byMatch = new Map<string, MatchMapRow[]>()
+  for (const row of (matchRows ?? []) as MatchMapRow[]) {
     const matchId = String(row.match_id ?? '')
     if (!matchId) continue
     const current = byMatch.get(matchId) ?? []
@@ -215,12 +258,13 @@ export const load: PageServerLoad = async ({ url, locals }) => {
       const first = rows[0]
       const matchRel = Array.isArray(first.matches) ? first.matches[0] : first.matches
       const perspectiveTeamId = first.team_id
-      const opponent =
+      const rawOpponent =
         matchRel?.team_a_id === perspectiveTeamId
           ? matchRel?.team_b
           : matchRel?.team_b_id === perspectiveTeamId
             ? matchRel?.team_a
             : null
+      const opponent = Array.isArray(rawOpponent) ? rawOpponent[0] ?? null : rawOpponent ?? null
       const score =
         matchRel?.team_a_id === perspectiveTeamId
           ? { us: Number(matchRel?.team_a_score ?? 0), them: Number(matchRel?.team_b_score ?? 0) }
@@ -246,7 +290,10 @@ export const load: PageServerLoad = async ({ url, locals }) => {
         hs_pct: average(rows.map((row) => row.hs_pct)),
       }
     })
-    .filter((entry) => entry.match && entry.match.approval_status === 'approved')
+    .filter(
+      (entry): entry is typeof entry & { match: MatchRel } =>
+        Boolean(entry.match) && entry.match?.approval_status === 'approved'
+    )
 
   return {
     clickedName,

@@ -13,7 +13,7 @@
 
 <div class="info-section-wrapper relative z-10">
   <div class="responsive-grid">
-    {#each items as item}
+    {#each items as item (item.href)}
       {@const Icon = item.icon}
       <div class="info-card info-card-surface">
         <div class="flex items-start gap-3">
@@ -21,6 +21,8 @@
             <Icon class="h-5 w-5" />
           </span>
           <div class="flex-1">
+            <!-- eslint-disable svelte/no-navigation-without-resolve -->
+            <!-- item.href may be an external URL; resolve() only accepts internal paths -->
             <a
               href={item.href}
               class="text-lg font-semibold hover:underline"
@@ -30,6 +32,7 @@
             >
               {item.title}
             </a>
+            <!-- eslint-enable svelte/no-navigation-without-resolve -->
             <p class="text-sm" style="color: var(--text);">{item.description}</p>
           </div>
         </div>

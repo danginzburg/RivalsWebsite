@@ -16,7 +16,7 @@ function normalizePlayerKey(
   }`
 }
 
-export const load = async ({ params, locals }: { params: { id: string }; locals: App.Locals }) => {
+export const load = async ({ params }: { params: { id: string } }) => {
   const matchId = params.id
   if (!matchId) throw error(400, 'Missing match id')
 
@@ -180,7 +180,8 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
       : null,
   }))
 
-  const totalByPlayer = new Map<string, any[]>()
+  type MapStatRow = (typeof normalizedMapsWithForfeitNames)[number]['stats'][number]
+  const totalByPlayer = new Map<string, MapStatRow[]>()
   for (const map of normalizedMapsWithForfeitNames) {
     for (const row of map.stats) {
       const key = normalizePlayerKey(row.team_id, row.profile_id, row.player_name)

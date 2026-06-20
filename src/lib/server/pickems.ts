@@ -290,10 +290,35 @@ export function isPickemLocked(config: PickemConfig, now = new Date()) {
   return Number.isFinite(lockAt.getTime()) && lockAt.getTime() <= now.getTime()
 }
 
-function normalizeBatch(batch: any): PickemSourceBatch {
+type BatchRow = {
+  id: string
+  display_name?: string | null
+  source_filename?: string | null
+  created_at: string
+  metadata?: { display_name?: string | null; as_of_date?: string | null; split?: string | null } | null
+}
+
+type TeamRel = {
+  id: string
+  name: string
+  tag?: string | null
+  logo_path?: string | null
+}
+
+type TeamEntryRow = {
+  id: string | number
+  rank: number | null
+  matches_played: number | null
+  wins: number | null
+  losses: number | null
+  round_diff: number | null
+  teams: TeamRel | TeamRel[] | null
+}
+
+function normalizeBatch(batch: BatchRow): PickemSourceBatch {
   return {
     id: batch.id,
-    display_name: batch.metadata?.display_name ?? batch.display_name ?? batch.source_filename,
+    display_name: batch.metadata?.display_name ?? batch.display_name ?? batch.source_filename ?? batch.id,
     source_filename: batch.source_filename ?? null,
     created_at: batch.created_at,
     as_of_date: batch.metadata?.as_of_date ?? null,
@@ -301,7 +326,7 @@ function normalizeBatch(batch: any): PickemSourceBatch {
   }
 }
 
-function normalizeTeamRow(entry: any): PickemTeamRow {
+function normalizeTeamRow(entry: TeamEntryRow): PickemTeamRow {
   const team = Array.isArray(entry.teams) ? entry.teams[0] : entry.teams
   return {
     leaderboard_entry_id: safeNumber(entry.id),

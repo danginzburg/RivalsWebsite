@@ -1,6 +1,18 @@
 import { redirect, error } from '@sveltejs/kit'
 import type { PageServerLoad } from './$types'
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { errorMessage } from '$lib/server/errors'
+
+type StatBatchRow = {
+  id: string
+  display_name: string | null
+  source_filename: string | null
+  import_kind: string | null
+  week_label: string | null
+  created_at: string
+  metadata: { import_kind?: string | null; week_label?: string | null } | null
+  sort_order: number | null
+}
 
 export const load: PageServerLoad = async ({ locals }) => {
   if (!locals.user) {
@@ -27,7 +39,7 @@ export const load: PageServerLoad = async ({ locals }) => {
     .order('display_name', { ascending: true })
 
   if (profilesError) {
-    const msg = String((profilesError as any).message ?? '')
+    const msg = errorMessage(profilesError)
     if (msg.toLowerCase().includes('riot_id_base')) {
       throw error(500, 'Database missing profiles.riot_id_base; apply the Supabase migration')
     }
@@ -35,7 +47,7 @@ export const load: PageServerLoad = async ({ locals }) => {
   }
 
   // Week label suggestions (best-effort; migrations may not be applied yet).
-  let weekLabels: string[] = []
+  const weekLabels: string[] = []
   {
     const { data: batches, error: batchesError } = await supabaseAdmin
       .from('stat_import_batches')
@@ -48,7 +60,7 @@ export const load: PageServerLoad = async ({ locals }) => {
     if (!batchesError) {
       const seen = new Set<string>()
       for (const b of batches ?? []) {
-        const w = String((b as any).week_label ?? '').trim()
+        const w = String((b as { week_label?: string | null }).week_label ?? '').trim()
         if (!w) continue
         const key = w.toLowerCase()
         if (seen.has(key)) continue
@@ -75,7 +87,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 
       if (batchError) return []
 
-      return (rows ?? []).map((b: any) => ({
+      return ((rows ?? []) as StatBatchRow[]).map((b) => ({
         id: b.id,
         display_name: b.display_name ?? b.source_filename ?? b.id,
         import_kind: b.import_kind ?? b.metadata?.import_kind ?? null,

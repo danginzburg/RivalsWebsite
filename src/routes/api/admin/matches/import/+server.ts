@@ -17,6 +17,47 @@ import {
   rebuildPlayerMatchStats,
 } from '$lib/server/imports/matching'
 
+type PlayerRowInput = {
+  player_name?: unknown
+  agents?: unknown
+  side?: unknown
+  profile_id?: unknown
+  acs?: unknown
+  kills?: unknown
+  deaths?: unknown
+  assists?: unknown
+  kd?: unknown
+  adr?: unknown
+  kast_pct?: unknown
+  fk?: unknown
+  fd?: unknown
+  hs_pct?: unknown
+  plants?: unknown
+  defuses?: unknown
+  econ_rating?: unknown
+}
+
+type MapInput = {
+  sourceFilename?: unknown
+  mapName?: unknown
+  scheduledAt?: unknown
+  teamAName?: unknown
+  teamBName?: unknown
+  teamARounds?: unknown
+  teamBRounds?: unknown
+  displayName?: unknown
+  playerRows?: unknown
+}
+
+type MatchRow = {
+  id: string
+  team_a_id: string
+  team_b_id: string
+  metadata: Record<string, unknown> | null
+  status: string | null
+  scheduled_at: string | null
+}
+
 function normalizeOptional(value: unknown): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
@@ -53,7 +94,7 @@ function normalizeTeamKey(value: string | null | undefined) {
     .replace(/\s+/g, ' ')
 }
 
-function flipSide(side: 'a' | 'b') {
+function flipSide(side: string): 'a' | 'b' {
   return side === 'a' ? 'b' : 'a'
 }
 
@@ -91,7 +132,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
             playerRows: Array.isArray(body.playerRows) ? body.playerRows : [],
           },
         ]
-  ) as any[]
+  ) as MapInput[]
 
   if (normalizedMaps.length === 0) throw error(400, 'No map rows provided')
 
@@ -157,7 +198,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
   if (existingMatchesError) throw error(500, 'Failed to check existing matches')
 
-  let match = (existingMatches ?? [])[0] as any
+  let match = (existingMatches ?? [])[0] as MatchRow
   if (!match) {
     const { data: createdMatch, error: createMatchError } = await supabaseAdmin
       .from('matches')
@@ -191,7 +232,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
   const importMatchesTeamA = match.team_a_id === importedTeamA.id
 
-  const preliminarySeriesMaps = normalizedMaps.map((map: any, mapIndex: number) => {
+  const preliminarySeriesMaps = normalizedMaps.map((map, mapIndex) => {
     const mapTeamAName = normalizeOptional(map.teamAName)
     const mapTeamBName = normalizeOptional(map.teamBName)
     const isCanonicalOrder =
@@ -207,7 +248,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
     const rawTeamARounds = parseInteger(map.teamARounds, `Map ${mapIndex + 1} Team A rounds`)
     const rawTeamBRounds = parseInteger(map.teamBRounds, `Map ${mapIndex + 1} Team B rounds`)
-    const rawRows = (map.playerRows as any[]).map((row: any, index: number) => ({
+    const rawRows = (map.playerRows as PlayerRowInput[]).map((row, index) => ({
       player_name: normalizeOptional(row.player_name) ?? `Player ${index + 1}`,
       agents: normalizeOptional(row.agents),
       side: row.side === 'b' ? 'b' : 'a',
@@ -244,7 +285,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   const resolvedProfileIds = Array.from(
     new Set(
       preliminarySeriesMaps.flatMap((map) =>
-        map.rawRows.map((row: any) => row.profile_id).filter(Boolean)
+        map.rawRows.map((row) => row.profile_id).filter(Boolean)
       )
     )
   ) as string[]
@@ -267,7 +308,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   }
 
   const normalizedSeriesMaps = preliminarySeriesMaps.map((map) => {
-    const directMatches = map.rawRows.reduce((total: number, row: any) => {
+    const directMatches = map.rawRows.reduce((total: number, row) => {
       const teamId = row.profile_id ? (importedTeamByProfileId.get(row.profile_id) ?? null) : null
       if (!teamId) return total
       return (
@@ -279,7 +320,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       )
     }, 0)
 
-    const swappedMatches = map.rawRows.reduce((total: number, row: any) => {
+    const swappedMatches = map.rawRows.reduce((total: number, row) => {
       const teamId = row.profile_id ? (importedTeamByProfileId.get(row.profile_id) ?? null) : null
       if (!teamId) return total
       return (
@@ -293,14 +334,14 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
     const footerAlignedRows =
       swappedMatches > directMatches
-        ? map.rawRows.map((row: any) => ({ ...row, side: flipSide(row.side) }))
+        ? map.rawRows.map((row) => ({ ...row, side: flipSide(row.side) }))
         : map.rawRows
 
     const canonicalTeamARounds = map.isFlippedOrder ? map.rawTeamBRounds : map.rawTeamARounds
     const canonicalTeamBRounds = map.isFlippedOrder ? map.rawTeamARounds : map.rawTeamBRounds
     const totalRounds = canonicalTeamARounds + canonicalTeamBRounds
 
-    const normalizedRows = footerAlignedRows.map((row: any) => {
+    const normalizedRows = footerAlignedRows.map((row) => {
       const side = map.isFlippedOrder ? flipSide(row.side) : row.side
       const roundsWon = side === 'a' ? canonicalTeamARounds : canonicalTeamBRounds
       const roundsLost = side === 'a' ? canonicalTeamBRounds : canonicalTeamARounds
@@ -341,7 +382,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   const unresolvedPlayers = Array.from(
     new Set(
       normalizedSeriesMaps.flatMap((map) =>
-        map.normalizedRows.filter((row: any) => !row.profile_id).map((row: any) => row.player_name)
+        map.normalizedRows.filter((row) => !row.profile_id).map((row) => row.player_name)
       )
     )
   )
@@ -472,7 +513,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
     insertedMapIds.push(matchMapId)
 
-    const rowsToInsert = map.normalizedRows.map((row: any) => {
+    const rowsToInsert = map.normalizedRows.map((row) => {
       const isImportTeamA = row.side === 'a'
       const teamId = isImportTeamA === importMatchesTeamA ? match.team_a_id : match.team_b_id
 
@@ -622,7 +663,7 @@ async function handleForfeitNoShow(body: Record<string, unknown>, adminProfileId
 
   if (existingMatchesError) throw error(500, 'Failed to check existing matches')
 
-  let match = (existingMatches ?? [])[0] as any
+  let match = (existingMatches ?? [])[0] as MatchRow
   if (!match) {
     const { data: createdMatch, error: createMatchError } = await supabaseAdmin
       .from('matches')
