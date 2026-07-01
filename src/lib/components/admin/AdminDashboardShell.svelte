@@ -8,6 +8,7 @@
     Layers3,
     Shield,
   } from 'lucide-svelte'
+  import { resolve } from '$app/paths'
 
   import type { AdminTabId } from '$lib/admin/types'
   import type { Snippet } from 'svelte'
@@ -45,7 +46,7 @@
   <div class="w-full max-w-6xl">
     <div class="mb-4 flex flex-wrap justify-end gap-2">
       <a
-        href="/admin/leaderboard-import"
+        href={resolve('/admin/leaderboard-import')}
         class="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold"
         style="background: rgba(234,179,8,0.18); color: #fcd34d;"
       >
@@ -53,7 +54,7 @@
         Leaderboard Import
       </a>
       <a
-        href="/admin/matches-import"
+        href={resolve('/admin/matches-import')}
         class="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold"
         style="background: rgba(168,85,247,0.18); color: #d8b4fe;"
       >
@@ -61,7 +62,7 @@
         Match Import
       </a>
       <a
-        href="/admin/stats-import"
+        href={resolve('/admin/stats-import')}
         class="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold"
         style="background: rgba(59,130,246,0.2); color: #93c5fd;"
       >

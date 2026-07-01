@@ -122,7 +122,7 @@
 
   {#if isOpen}
     <ul class="select-dropdown" role="listbox" style={dropdownStyle}>
-      {#each options as option}
+      {#each options as option (option.value)}
         {#if option.value !== undefined && option.value !== null}
           <li
             role="option"

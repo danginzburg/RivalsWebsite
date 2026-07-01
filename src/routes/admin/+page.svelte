@@ -1,7 +1,8 @@
 <script lang="ts">
   import PageContainer from '$lib/components/PageContainer.svelte'
   import { teamName, toDatetimeLocal } from '$lib/admin/match-ui'
-  import { adminFormRequest, adminJsonRequest, fetchAdminDashboardData } from '$lib/admin/api'
+  import { adminDashboardFetchAdapter, adminFormRequest, adminJsonRequest } from '$lib/admin/api'
+  import { createAdminDashboardState } from '$lib/admin/dashboard/state'
   import {
     buildApprovedTeamOptions,
     filterAdminMatches,
@@ -17,20 +18,28 @@
   import AdminActionConfirmationModal from '$lib/components/admin/AdminActionConfirmationModal.svelte'
   import type {
     ApprovedTeamEntry,
+    AdminMatch,
     AdminPageDataExtras,
+    AdminSeason,
     AdminTabId,
+    AdminUser,
     BestOfValue,
+    MatchEditState,
+    MatchStreamFormState,
     PendingActionConfirmation,
     PendingRoleChange,
+    SeasonEditState,
+    TeamEditState,
   } from '$lib/admin/types'
   import type { PageData, PageProps } from './$types'
 
   let { data: pageData }: PageProps = $props()
 
   /** Server load plus optional fields referenced before client fetch populates them. */
-  type AdminPageData = PageData & AdminPageDataExtras & { leaderboardBatches?: unknown[] }
+  type AdminPageData = PageData & AdminPageDataExtras
 
   const data = $derived(pageData as AdminPageData)
+  const dashboardState = createAdminDashboardState({ fetchAdapter: adminDashboardFetchAdapter })
 
   let activeTab = $state<AdminTabId>('matches')
   let isLoading = $state(false)
@@ -39,15 +48,13 @@
 
   const getInitialUsers = () => data.users || []
   const getInitialSeasons = () => data.seasons || []
-  const getInitialLeaderboardBatches = () => data.leaderboardBatches || []
   const getInitialApprovedTeams = () => data.approvedTeams || []
   const getInitialMatches = () => data.matches || []
 
-  let users = $state<any[]>(getInitialUsers())
-  let seasons = $state<any[]>(getInitialSeasons())
-  let leaderboardBatches = $state<any[]>(getInitialLeaderboardBatches())
+  let users = $state<AdminUser[]>(getInitialUsers())
+  let seasons = $state<AdminSeason[]>(getInitialSeasons())
   let approvedTeams = $state<ApprovedTeamEntry[]>(getInitialApprovedTeams() as ApprovedTeamEntry[])
-  let matches = $state<any[]>(getInitialMatches())
+  let matches = $state<AdminMatch[]>(getInitialMatches())
   let matchSearchQuery = $state('')
   let showCompletedAdminMatches = $state(false)
   let createSeasonCode = $state('')
@@ -56,7 +63,7 @@
   let createSeasonEndsOn = $state('')
   let createSeasonIsActive = $state(false)
   let isCreatingSeason = $state(false)
-  let seasonEditForm = $state<Record<string, any>>({})
+  let seasonEditForm = $state<Record<string, SeasonEditState>>({})
 
   const approvedTeamOptions = $derived(buildApprovedTeamOptions(approvedTeams ?? []))
 
@@ -284,7 +291,7 @@
   let isCreatingTeam = $state(false)
 
   let addPlayerForm = $state<Record<string, { playerName: string; role: string }>>({})
-  let teamEditForm = $state<Record<string, any>>({})
+  let teamEditForm = $state<Record<string, TeamEditState>>({})
   let teamLogoFileById = $state<Record<string, File | null>>({})
 
   function updateAddPlayerForm(
@@ -322,7 +329,7 @@
     if (changed) addPlayerForm = next
   })
 
-  function updateTeamEditForm(teamId: string, patch: Record<string, string>) {
+  function updateTeamEditForm(teamId: string, patch: Partial<TeamEditState>) {
     const current =
       teamEditForm[teamId] ??
       ({
@@ -340,13 +347,13 @@
   }
 
   $effect(() => {
-    const next: Record<string, any> = {}
+    const next: Record<string, TeamEditState> = {}
     const nextLogos: Record<string, File | null> = {}
     for (const team of approvedTeams ?? []) {
       next[team.id] = teamEditForm[team.id] ?? {
         name: team.name ?? '',
         tag: team.tag ?? '',
-        status: (team as any).status ?? 'active',
+        status: team.status ?? 'active',
       }
       nextLogos[team.id] = teamLogoFileById[team.id] ?? null
     }
@@ -372,31 +379,9 @@
   let finalizeForm = $state<
     Record<string, { teamAScore: string; teamBScore: string; winnerTeamId: string }>
   >({})
-  let matchEditForm = $state<Record<string, any>>({})
-  let streamForm = $state<
-    Record<
-      string,
-      {
-        platform: string
-        streamUrl: string
-        displayName: string
-        status: string
-        isPrimary: boolean
-      }
-    >
-  >({})
-  let existingStreamForm = $state<
-    Record<
-      string,
-      {
-        platform: string
-        streamUrl: string
-        displayName: string
-        status: string
-        isPrimary: boolean
-      }
-    >
-  >({})
+  let matchEditForm = $state<Record<string, MatchEditState>>({})
+  let streamForm = $state<Record<string, MatchStreamFormState>>({})
+  let existingStreamForm = $state<Record<string, MatchStreamFormState>>({})
   let vodForm = $state<Record<string, string>>({})
 
   function updateFinalizeForm(
@@ -442,7 +427,7 @@
     if (changed) finalizeForm = next
   })
 
-  function updateMatchEditForm(matchId: string, patch: Record<string, string>) {
+  function updateMatchEditForm(matchId: string, patch: Partial<MatchEditState>) {
     const current =
       matchEditForm[matchId] ??
       ({
@@ -466,7 +451,7 @@
   }
 
   $effect(() => {
-    const next: Record<string, any> = {}
+    const next: Record<string, MatchEditState> = {}
     for (const match of matches ?? []) {
       next[match.id] = matchEditForm[match.id] ?? {
         teamAId: match.team_a_id,
@@ -493,16 +478,7 @@
   })
 
   $effect(() => {
-    const next: Record<
-      string,
-      {
-        platform: string
-        streamUrl: string
-        displayName: string
-        status: string
-        isPrimary: boolean
-      }
-    > = {}
+    const next: Record<string, MatchStreamFormState> = {}
     for (const match of matches ?? []) {
       next[match.id] = streamForm[match.id] ?? {
         platform: 'twitch',
@@ -521,22 +497,14 @@
   })
 
   $effect(() => {
-    const next: Record<
-      string,
-      {
-        platform: string
-        streamUrl: string
-        displayName: string
-        status: string
-        isPrimary: boolean
-      }
-    > = {}
+    const next: Record<string, MatchStreamFormState> = {}
     for (const match of matches ?? []) {
       for (const stream of match.streams ?? []) {
         next[stream.id] = existingStreamForm[stream.id] ?? {
           platform: stream.platform ?? 'twitch',
           streamUrl: stream.stream_url ?? '',
-          displayName: stream.metadata?.display_name ?? '',
+          displayName:
+            typeof stream.metadata?.display_name === 'string' ? stream.metadata.display_name : '',
           status: stream.status ?? 'scheduled',
           isPrimary: Boolean(stream.is_primary),
         }
@@ -566,7 +534,7 @@
   })
 
   $effect(() => {
-    const next: Record<string, any> = {}
+    const next: Record<string, SeasonEditState> = {}
     for (const season of seasons ?? []) {
       next[season.id] = seasonEditForm[season.id] ?? {
         code: season.code ?? '',
@@ -574,11 +542,6 @@
         startsOn: season.starts_on ?? '',
         endsOn: season.ends_on ?? '',
         isActive: Boolean(season.is_active),
-        pickemEnabled: Boolean(season.pickem?.enabled),
-        pickemLeaderboardBatchId: season.pickem?.leaderboard_batch_id ?? '',
-        pickemBaselineCompletedRounds: String(season.pickem?.baseline_completed_rounds ?? 2),
-        pickemLockAt: season.pickem?.lock_at ? String(season.pickem.lock_at).slice(0, 16) : '',
-        pickemStatus: season.pickem?.status ?? 'draft',
       }
     }
     const keys = Object.keys(next)
@@ -636,42 +599,27 @@
   })
 
   async function refreshData() {
-    isLoading = true
-    errorMessage = null
-    successMessage = null
-
-    try {
-      const dashboardData = await fetchAdminDashboardData()
-
-      users = dashboardData.users
-      seasons = dashboardData.seasons
-      leaderboardBatches = dashboardData.leaderboardBatches
-      approvedTeams = dashboardData.approved as ApprovedTeamEntry[]
-      matches = dashboardData.matches
-    } catch (err) {
-      errorMessage = err instanceof Error ? err.message : 'Failed to refresh data'
-    } finally {
-      isLoading = false
-    }
+    await dashboardState.refresh({
+      setLoading: (value) => (isLoading = value),
+      setError: (message) => (errorMessage = message),
+      setSuccess: (message) => (successMessage = message),
+      replaceData: (dashboardData) => {
+        users = dashboardData.users as AdminUser[]
+        seasons = dashboardData.seasons as AdminSeason[]
+        approvedTeams = dashboardData.approved as ApprovedTeamEntry[]
+        matches = dashboardData.matches
+      },
+    })
   }
 
-  async function finalizeMatch(match: any) {
+  async function finalizeMatch(match: AdminMatch) {
     const state = finalizeForm[match.id] ?? {
       teamAScore: String(match.team_a_score ?? 0),
       teamBScore: String(match.team_b_score ?? 0),
       winnerTeamId: match.winner_team_id ?? match.team_a_id,
     }
 
-    pendingActionConfirmation = {
-      kind: 'finalize_match',
-      matchId: match.id,
-      teamAScore: state.teamAScore,
-      teamBScore: state.teamBScore,
-      winnerTeamId: state.winnerTeamId,
-      title: 'Confirm Match Finalization',
-      message: `Finalize ${teamName(match.team_a)} vs ${teamName(match.team_b)} at ${state.teamAScore}-${state.teamBScore}? This will mark the result official.`,
-      confirmLabel: 'Finalize Match',
-    }
+    pendingActionConfirmation = dashboardState.buildFinalizeConfirmation(match, state)
     showActionConfirmation = true
   }
 
@@ -685,31 +633,16 @@
     successMessage = null
 
     try {
-      await adminJsonRequest(`/api/admin/matches/${action.matchId}`, {
-        method: 'PATCH',
-        body: {
-          action: 'finalize',
-          winnerTeamId: action.winnerTeamId,
-          teamAScore: Number(action.teamAScore),
-          teamBScore: Number(action.teamBScore),
-        },
-        fallbackMessage: 'Failed to finalize match',
-      })
-      successMessage = 'Match finalized.'
+      const result = await dashboardState.finalizeMatch(action)
+      successMessage = result.success ?? 'Match finalized.'
       await refreshData()
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Failed to finalize match'
     }
   }
 
-  async function cancelMatch(match: any) {
-    pendingActionConfirmation = {
-      kind: 'cancel_match',
-      matchId: match.id,
-      title: 'Confirm Match Cancellation',
-      message: `Cancel ${teamName(match.team_a)} vs ${teamName(match.team_b)}? This will keep the match record but mark it cancelled.`,
-      confirmLabel: 'Cancel Match',
-    }
+  async function cancelMatch(match: AdminMatch) {
+    pendingActionConfirmation = dashboardState.buildCancelConfirmation(match)
     showActionConfirmation = true
   }
 
@@ -718,12 +651,8 @@
     successMessage = null
 
     try {
-      await adminJsonRequest(`/api/admin/matches/${matchId}`, {
-        method: 'PATCH',
-        body: { action: 'cancel' },
-        fallbackMessage: 'Failed to cancel match',
-      })
-      successMessage = 'Match cancelled.'
+      const result = await dashboardState.cancelMatch(matchId)
+      successMessage = result.success ?? 'Match cancelled.'
       await refreshData()
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Failed to cancel match'
@@ -745,18 +674,18 @@
 
     isCreatingMatch = true
     try {
-      await adminJsonRequest('/api/admin/matches', {
-        method: 'POST',
-        body: {
-          teamAId: createMatchTeamAId,
-          teamBId: createMatchTeamBId,
-          bestOf: Number(createMatchBestOf),
-          scheduledAt: createMatchScheduledAt || null,
-        },
-        fallbackMessage: 'Failed to create match',
+      const result = await dashboardState.createMatch({
+        teamAId: createMatchTeamAId,
+        teamBId: createMatchTeamBId,
+        bestOf: createMatchBestOf,
+        scheduledAt: createMatchScheduledAt,
       })
+      if (result.error) {
+        errorMessage = result.error
+        return
+      }
 
-      successMessage = 'Match created.'
+      successMessage = result.success ?? 'Match created.'
       createMatchScheduledAt = ''
       await refreshData()
     } catch (err) {
@@ -841,25 +770,8 @@
     successMessage = null
 
     try {
-      await adminJsonRequest(`/api/admin/matches/${matchId}`, {
-        method: 'PATCH',
-        body: {
-          action: 'update',
-          teamAId: state.teamAId,
-          teamBId: state.teamBId,
-          bestOf: Number(state.bestOf),
-          status: state.status,
-          scheduledAt: state.scheduledAt || null,
-          teamAScore: Number(state.teamAScore),
-          teamBScore: Number(state.teamBScore),
-          winnerTeamId: state.winnerTeamId || null,
-          youtubeVodUrl: vodForm[matchId] || null,
-          mapVetoes: state.mapVetoes || '',
-        },
-        fallbackMessage: 'Failed to update match',
-      })
-
-      successMessage = 'Match updated.'
+      const result = await dashboardState.saveMatch(matchId, state, vodForm[matchId] || null)
+      successMessage = result.success
       await refreshData()
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Failed to update match'
@@ -877,7 +789,7 @@
     showActionConfirmation = true
   }
 
-  function saveMatchEdits(matchId: string, match: any) {
+  function saveMatchEdits(matchId: string, match: AdminMatch) {
     pendingActionConfirmation = {
       kind: 'save_match',
       matchId,
@@ -888,7 +800,7 @@
     showActionConfirmation = true
   }
 
-  function deleteMatch(matchId: string, match: any) {
+  function deleteMatch(matchId: string, match: AdminMatch) {
     pendingActionConfirmation = {
       kind: 'delete_match',
       matchId,
@@ -903,11 +815,8 @@
     errorMessage = null
     successMessage = null
     try {
-      await adminJsonRequest(`/api/admin/matches/${matchId}`, {
-        method: 'DELETE',
-        fallbackMessage: 'Failed to delete match',
-      })
-      successMessage = 'Match deleted.'
+      const result = await dashboardState.deleteMatch(matchId)
+      successMessage = result.success
       await refreshData()
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Failed to delete match'
@@ -924,12 +833,12 @@
     errorMessage = null
     successMessage = null
     try {
-      await adminJsonRequest(`/api/admin/matches/${matchId}/streams`, {
-        method: 'POST',
-        body: state,
-        fallbackMessage: 'Failed to add stream',
-      })
-      successMessage = 'Stream added.'
+      const result = await dashboardState.addMatchStream(matchId, state)
+      if (result.error) {
+        errorMessage = result.error
+        return
+      }
+      successMessage = result.success ?? 'Stream added.'
       streamForm = {
         ...streamForm,
         [matchId]: {
@@ -1010,44 +919,6 @@
     }
   }
 
-  let scoringPickemSeasonId = $state<string | null>(null)
-
-  async function scorePickemSubmissions(seasonId: string) {
-    const state = seasonEditForm[seasonId]
-    if (!state?.pickemEnabled) return
-
-    if (
-      !window.confirm(
-        "Score all bucket pick'em submissions for this season? This uses the latest leaderboard import after the frozen baseline batch and updates every entrant's points."
-      )
-    ) {
-      return
-    }
-
-    errorMessage = null
-    successMessage = null
-    scoringPickemSeasonId = seasonId
-    try {
-      const result = await adminJsonRequest<{
-        submissionsScored?: number
-        scoringBatch?: { display_name?: string }
-      }>(`/api/admin/pickems/${seasonId}/score`, {
-        method: 'POST',
-        fallbackMessage: "Failed to score pick'em submissions",
-      })
-      const n = result.submissionsScored ?? 0
-      const batch = result.scoringBatch?.display_name?.trim()
-      successMessage = batch
-        ? `Pick'em scored: ${n} submission${n === 1 ? '' : 's'} (final import: ${batch}).`
-        : `Pick'em scored: ${n} submission${n === 1 ? '' : 's'}.`
-      await refreshData()
-    } catch (err) {
-      errorMessage = err instanceof Error ? err.message : "Failed to score pick'em submissions"
-    } finally {
-      scoringPickemSeasonId = null
-    }
-  }
-
   async function saveSeason(seasonId: string) {
     const state = seasonEditForm[seasonId]
     if (!state) return
@@ -1064,18 +935,6 @@
           startsOn: state.startsOn || null,
           endsOn: state.endsOn || null,
           isActive: Boolean(state.isActive),
-          pickem: {
-            enabled: Boolean(state.pickemEnabled),
-            leaderboard_batch_id: state.pickemLeaderboardBatchId || null,
-            participant_count: 24,
-            baseline_completed_rounds: Math.max(
-              1,
-              Number(state.pickemBaselineCompletedRounds) || 2
-            ),
-            prediction_round: 3,
-            lock_at: state.pickemLockAt ? new Date(state.pickemLockAt).toISOString() : null,
-            status: state.pickemStatus || 'draft',
-          },
         },
         fallbackMessage: 'Failed to update season',
       })
@@ -1509,7 +1368,6 @@
     {#if activeTab === 'seasons'}
       <AdminSeasonsTab
         {seasons}
-        {leaderboardBatches}
         {createSeasonCode}
         {createSeasonName}
         {createSeasonStartsOn}
@@ -1529,8 +1387,6 @@
           })}
         onCreateSeason={createSeason}
         onSaveSeason={saveSeason}
-        {scoringPickemSeasonId}
-        onScorePickem={scorePickemSubmissions}
       />
     {/if}
 

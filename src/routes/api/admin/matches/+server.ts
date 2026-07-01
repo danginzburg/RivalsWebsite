@@ -1,6 +1,7 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
+import type { MatchStreamRow } from '$lib/server/db-rows'
 
 function normalizeOptional(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -48,7 +49,7 @@ export const GET: RequestHandler = async ({ locals }) => {
   if (matchesError) throw error(500, 'Failed to load matches')
 
   const matchIds = (matches ?? []).map((match) => match.id)
-  let streamsByMatch: Record<string, any[]> = {}
+  let streamsByMatch: Record<string, MatchStreamRow[]> = {}
   if (matchIds.length > 0) {
     const { data: streams, error: streamsError } = await supabaseAdmin
       .from('match_streams')
@@ -59,13 +60,13 @@ export const GET: RequestHandler = async ({ locals }) => {
 
     if (streamsError) throw error(500, 'Failed to load match streams')
 
-    streamsByMatch = (streams ?? []).reduce(
+    streamsByMatch = ((streams ?? []) as MatchStreamRow[]).reduce(
       (acc, stream) => {
         if (!acc[stream.match_id]) acc[stream.match_id] = []
         acc[stream.match_id].push(stream)
         return acc
       },
-      {} as Record<string, any[]>
+      {} as Record<string, MatchStreamRow[]>
     )
   }
 
@@ -98,7 +99,11 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
   if (teamsError) throw error(500, 'Failed to validate teams')
   if ((teams ?? []).length !== 2) throw error(400, 'One or more teams not found')
-  if ((teams ?? []).some((t: any) => t.approval_status !== 'approved')) {
+  if (
+    ((teams ?? []) as Array<{ approval_status: string | null }>).some(
+      (t) => t.approval_status !== 'approved'
+    )
+  ) {
     throw error(400, 'Both teams must be approved')
   }
 

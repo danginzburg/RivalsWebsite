@@ -2,7 +2,9 @@
   import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
-  import { BarChart3, Users, Swords, User } from 'lucide-svelte'
+  import { User } from 'lucide-svelte'
+  import { SvelteMap } from 'svelte/reactivity'
+  import { resolve } from '$app/paths'
   import miksIcon from '$lib/assets/agents/Miks_icon.webp'
   import goldMedal from '$lib/assets/accolades/gold_medal.svg'
   import silverMedal from '$lib/assets/accolades/silver_medal.svg'
@@ -50,7 +52,7 @@
   }) as Record<string, string>
 
   const agentIconMap = $derived.by(() => {
-    const map = new Map<string, string>()
+    const map = new SvelteMap<string, string>()
     const normalize = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, '')
     for (const [path, url] of Object.entries(agentAssetModules)) {
       const filename = path.split('/').pop() ?? ''
@@ -84,12 +86,6 @@
 
   function navToBatch(batchId: string) {
     window.location.href = `/players/${player.profile_id}?batchId=${encodeURIComponent(batchId)}`
-  }
-
-  function formatLocal(value: string | null | undefined) {
-    if (!value) return 'Date TBD'
-    const date = new Date(value)
-    return date.toLocaleString(undefined, { timeZoneName: 'short' })
   }
 
   function teamName(value: unknown) {
@@ -148,7 +144,7 @@
             </div>
             {#if activeTeam}
               <a
-                href={`/teams/${activeTeam.id}`}
+                href={resolve(`/teams/${activeTeam.id}`)}
                 class="mt-2 inline-flex items-center gap-2 rounded-md px-1 py-1 transition-colors hover:bg-white/5"
                 style="color: var(--text);"
               >
@@ -350,7 +346,7 @@
               <div class="text-sm" style="color: rgba(255,255,255,0.72);">—</div>
             {:else}
               <div class="agents-icons">
-                {#each parseAgents(selected.agents) as agent}
+                {#each parseAgents(selected.agents) as agent (agent)}
                   {@const url = agentIconUrl(agent)}
                   {#if url}
                     <img
@@ -408,14 +404,14 @@
                 </tr>
               </thead>
               <tbody>
-                {#each matchHistory as entry}
+                {#each matchHistory as entry (entry.match.id)}
                   {@const match = entry.match}
                   {@const opp = entry.opponent}
                   {@const score = entry.score}
                   <tr class="border-t" style="border-color: rgba(255,255,255,0.10);">
                     <td class="px-3 py-2" style="color: var(--text);">
                       <a
-                        href={`/matches/${match.id}`}
+                        href={resolve(`/matches/${match.id}`)}
                         class="underline"
                         style="color: var(--text);"
                       >
@@ -427,7 +423,7 @@
                         —
                       {:else}
                         <div class="agents-icons">
-                          {#each parseAgents(entry.agents) as agent}
+                          {#each parseAgents(entry.agents) as agent (agent)}
                             {@const url = agentIconUrl(agent)}
                             {#if url}
                               <img

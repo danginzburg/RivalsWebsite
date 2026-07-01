@@ -1,4 +1,4 @@
-import { error, json, type RequestHandler } from '@sveltejs/kit'
+import { json, type RequestHandler } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { safeInt } from '$lib/server/parse'
 import {

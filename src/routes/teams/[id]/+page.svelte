@@ -2,6 +2,7 @@
   import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import { Trophy, Users, CalendarDays, BarChart3 } from 'lucide-svelte'
+  import { resolve } from '$app/paths'
 
   let { data }: PageProps = $props()
 
@@ -185,7 +186,7 @@
           </div>
 
           <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-            {#each roster as player}
+            {#each roster as player, pi (pi)}
               <svelte:element
                 this={player.profile_id ? 'a' : 'div'}
                 href={player.profile_id ? `/players/${player.profile_id}` : undefined}
@@ -276,10 +277,10 @@
               </div>
             {:else}
               <div class="space-y-2">
-                {#each upcomingMatches as match}
+                {#each upcomingMatches as match (match.id)}
                   {@const opp = opponentFor(match, team.id)}
                   <a
-                    href={`/matches/${match.id}`}
+                    href={resolve(`/matches/${match.id}`)}
                     class="block rounded-md border p-3 transition-colors hover:bg-white/5"
                     style="border-color: rgba(255,255,255,0.10);"
                   >
@@ -324,13 +325,15 @@
                 </tr>
               </thead>
               <tbody>
-                {#each matchHistory as match}
+                {#each matchHistory as match (match.id)}
                   {@const opp = opponentFor(match, team.id)}
                   {@const score = scoreFor(match, team.id)}
                   <tr class="border-t" style="border-color: rgba(255,255,255,0.10);">
                     <td class="px-3 py-2 font-semibold" style="color: var(--text);">
-                      <a href={`/matches/${match.id}`} class="underline" style="color: var(--text);"
-                        >{teamName(opp)}</a
+                      <a
+                        href={resolve(`/matches/${match.id}`)}
+                        class="underline"
+                        style="color: var(--text);">{teamName(opp)}</a
                       >
                     </td>
                     <td class="px-3 py-2" style="color: rgba(255,255,255,0.9);">

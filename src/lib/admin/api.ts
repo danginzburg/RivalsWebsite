@@ -1,9 +1,9 @@
-type DashboardUsersResult = { users: unknown[] }
-type DashboardSeasonsResult = { seasons: unknown[]; leaderboardBatches: unknown[] }
-import type { TeamQueueEntry } from './types'
+import type { AdminMatch, AdminSeason, AdminUser, TeamQueueEntry } from './types'
 
+type DashboardUsersResult = { users: AdminUser[] }
+type DashboardSeasonsResult = { seasons: AdminSeason[] }
 type DashboardTeamsResult = { queue: TeamQueueEntry[]; approved: TeamQueueEntry[] }
-type DashboardMatchesResult = { matches: unknown[] }
+type DashboardMatchesResult = { matches: AdminMatch[] }
 
 type JsonRequestOptions = {
   method?: string
@@ -95,12 +95,11 @@ export async function adminFormRequest<T>(
 }
 
 export async function fetchAdminDashboardData(): Promise<{
-  users: unknown[]
-  seasons: unknown[]
-  leaderboardBatches: unknown[]
+  users: AdminUser[]
+  seasons: AdminSeason[]
   queue: TeamQueueEntry[]
   approved: TeamQueueEntry[]
-  matches: unknown[]
+  matches: AdminMatch[]
 }> {
   const [usersResult, seasonsResult, teamsResult, matchesResult] = await Promise.all([
     adminJsonRequest<DashboardUsersResult>('/api/admin/users', {
@@ -120,9 +119,14 @@ export async function fetchAdminDashboardData(): Promise<{
   return {
     users: usersResult.users,
     seasons: seasonsResult.seasons,
-    leaderboardBatches: seasonsResult.leaderboardBatches,
     queue: teamsResult.queue,
     approved: teamsResult.approved,
     matches: matchesResult.matches,
   }
+}
+
+export const adminDashboardFetchAdapter = {
+  json: adminJsonRequest,
+  form: adminFormRequest,
+  fetchDashboardData: fetchAdminDashboardData,
 }

@@ -2,6 +2,7 @@
   import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import { CalendarDays } from 'lucide-svelte'
+  import { resolve } from '$app/paths'
 
   let { data }: PageProps = $props()
   const matches = $derived(data.matches ?? [])
@@ -105,12 +106,12 @@
       {:else}
         <section class="info-card info-card-surface">
           <div class="flex flex-col gap-2">
-            {#each filteredMatches as match}
+            {#each filteredMatches as match (match.id)}
               <article
                 class="relative rounded-lg border border-white/12 bg-[rgba(0,0,0,0.2)] p-4 transition-colors duration-150 hover:border-[rgba(147,197,253,0.4)] hover:bg-[rgba(255,255,255,0.04)]"
               >
                 <a
-                  href={`/matches/${match.id}`}
+                  href={resolve(`/matches/${match.id}`)}
                   class="absolute inset-0 rounded-lg"
                   aria-label={`Open match ${teamName(match.team_a)} versus ${teamName(match.team_b)}`}
                 ></a>
@@ -161,7 +162,9 @@
                   class="pointer-events-none relative z-10 mt-2 inline-flex flex-wrap items-center gap-2"
                 >
                   {#if (match.streams ?? []).length > 0}
-                    {#each match.streams as stream}
+                    {#each match.streams as stream (stream.stream_url)}
+                      <!-- eslint-disable svelte/no-navigation-without-resolve -->
+                      <!-- stream_url is an external URL; resolve() only accepts internal paths -->
                       <a
                         href={stream.stream_url}
                         target="_blank"
@@ -174,6 +177,7 @@
                           ? ' (Primary)'
                           : ''}
                       </a>
+                      <!-- eslint-enable svelte/no-navigation-without-resolve -->
                     {/each}
                   {/if}
                   {#if match.status === 'completed'}

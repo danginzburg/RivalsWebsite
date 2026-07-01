@@ -4,7 +4,10 @@
   import PageContainer from '$lib/components/PageContainer.svelte'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
   import { BarChart3 } from 'lucide-svelte'
+  import { SvelteMap, SvelteURLSearchParams } from 'svelte/reactivity'
+  import { resolve } from '$app/paths'
   import miksIcon from '$lib/assets/agents/Miks_icon.webp'
+  import { statsRowKey } from '$lib/stats/ui'
 
   let { data }: PageProps = $props()
 
@@ -89,7 +92,7 @@
   })
 
   function qp(next: { batchId?: string | null }) {
-    const params = new URLSearchParams()
+    const params = new SvelteURLSearchParams()
     const nextBatch = next.batchId === undefined ? batchId : next.batchId
     if (nextBatch) params.set('batchId', nextBatch)
     const q = search.trim()
@@ -104,11 +107,11 @@
   }
 
   function unclaimedHref(playerName: string) {
-    const params = new URLSearchParams()
+    const params = new SvelteURLSearchParams()
     params.set('name', playerName)
     if (selectedBatchId) params.set('batchId', selectedBatchId)
     const qs = params.toString()
-    return `/players/unclaimed?${qs}`
+    return `${resolve('/players/unclaimed')}?${qs}`
   }
 
   function fmt(n: unknown, digits = 1) {
@@ -123,7 +126,7 @@
   }) as Record<string, string>
 
   const agentIconMap = $derived.by(() => {
-    const map = new Map<string, string>()
+    const map = new SvelteMap<string, string>()
     const normalize = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, '')
 
     for (const [path, url] of Object.entries(agentAssetModules)) {
@@ -445,7 +448,7 @@
             </div>
           </div>
           <div class="flex flex-wrap gap-2">
-            {#each allColumns as col}
+            {#each allColumns as col (col.key)}
               <button
                 type="button"
                 class="rounded-full px-3 py-1 text-xs"
@@ -488,7 +491,7 @@
           </div>
         </div>
         <div class="flex flex-wrap gap-2">
-          {#each allColumns as col}
+          {#each allColumns as col (col.key)}
             <button
               type="button"
               class="rounded-full px-3 py-1 text-xs"
@@ -535,7 +538,7 @@
                     {/if}
                   </button>
                 </th>
-                {#each allColumns as col}
+                {#each allColumns as col (col.key)}
                   {#if visibleColumns.includes(col.key)}
                     <th class="px-3 py-2">
                       <button
@@ -558,7 +561,7 @@
               </tr>
             </thead>
             <tbody>
-              {#each sortedRows as row, index}
+              {#each sortedRows as row, index (statsRowKey(row, index))}
                 <tr
                   class="border-t"
                   id={row.profile_id ? `profile-${row.profile_id}` : undefined}
@@ -573,11 +576,13 @@
                         <a
                           class="min-w-0 truncate"
                           style="color: var(--text);"
-                          href={`/players/${row.profile_id}`}
+                          href={resolve(`/players/${row.profile_id}`)}
                         >
                           {row.player_name}
                         </a>
                       {:else}
+                        <!-- eslint-disable svelte/no-navigation-without-resolve -->
+                        <!-- unclaimedHref() returns a resolve()-built URL with a query string -->
                         <a
                           class="min-w-0 truncate"
                           style="color: var(--text);"
@@ -585,10 +590,11 @@
                         >
                           {row.player_name}
                         </a>
+                        <!-- eslint-enable svelte/no-navigation-without-resolve -->
                       {/if}
                     </div>
                   </td>
-                  {#each allColumns as col}
+                  {#each allColumns as col (col.key)}
                     {#if visibleColumns.includes(col.key)}
                       <td class="px-3 py-2 align-middle" style="color: rgba(255,255,255,0.82);">
                         {#if col.key === 'agents'}
@@ -597,7 +603,7 @@
                             —
                           {:else}
                             <div class="agents-icons">
-                              {#each agents as agent}
+                              {#each agents as agent (agent)}
                                 {@const url = agentIconUrl(agent)}
                                 {#if url}
                                   <img
@@ -640,13 +646,15 @@
     padding: 0;
     justify-content: flex-start;
     align-items: stretch;
-    height: calc(100svh - 4rem);
-    overflow: hidden;
+    min-height: calc(100svh - 4rem);
+    height: auto;
+    overflow: visible;
   }
 
   .stats-viewport {
-    height: 100%;
-    overflow: hidden;
+    width: 100%;
+    min-height: inherit;
+    overflow: visible;
     display: flex;
     justify-content: center;
     padding: 24px 16px;
@@ -670,13 +678,13 @@
   .stats-shell {
     display: flex;
     flex-direction: column;
-    height: 100%;
+    height: auto;
     min-height: 0;
   }
 
   .stats-table-wrap {
-    flex: 1 1 auto;
-    overflow: auto;
+    overflow-x: auto;
+    overflow-y: visible;
     min-height: 0;
   }
 

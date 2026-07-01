@@ -3,6 +3,7 @@
   import PageContainer from '$lib/components/PageContainer.svelte'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
   import { Upload, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-svelte'
+  import { SvelteMap } from 'svelte/reactivity'
 
   let { data }: PageProps = $props()
   const seasons = $derived(data.seasons ?? [])
@@ -39,7 +40,7 @@
   }
 
   const teamMap = $derived.by(() => {
-    const map = new Map<string, string>()
+    const map = new SvelteMap<string, string>()
     for (const team of data.teams ?? []) {
       if (team.tag) map.set(normalizeKey(team.tag), team.id)
       for (const alias of Array.isArray(team.metadata?.leaderboard_import_tags)
@@ -377,7 +378,7 @@
                 </tr>
               </thead>
               <tbody>
-                {#each parsedRows as row, index}
+                {#each parsedRows as row, index (index)}
                   <tr class="border-t" style="border-color: rgba(255,255,255,0.10);">
                     <td class="px-3 py-2">{index + 1}</td>
                     <td class="px-3 py-2 font-semibold" style="color: var(--text);">{row.team}</td>

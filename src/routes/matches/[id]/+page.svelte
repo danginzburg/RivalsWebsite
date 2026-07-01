@@ -2,6 +2,8 @@
   import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import { BarChart3, CalendarDays, RadioTower, Video } from 'lucide-svelte'
+  import { SvelteMap } from 'svelte/reactivity'
+  import { resolve } from '$app/paths'
   import miksIcon from '$lib/assets/agents/Miks_icon.webp'
 
   let { data }: PageProps = $props()
@@ -40,8 +42,8 @@
   }
 
   function playerHref(row: { profile_id?: string | null; player_name?: string | null }) {
-    if (row.profile_id) return `/players/${row.profile_id}`
-    return `/players/unclaimed?name=${encodeURIComponent(row.player_name ?? '')}`
+    if (row.profile_id) return resolve(`/players/${row.profile_id}`)
+    return `${resolve('/players/unclaimed')}?name=${encodeURIComponent(row.player_name ?? '')}`
   }
 
   function fmt(value: unknown, digits = 0) {
@@ -81,7 +83,7 @@
   }) as Record<string, string>
 
   const agentIconMap = $derived.by(() => {
-    const map = new Map<string, string>()
+    const map = new SvelteMap<string, string>()
     const normalize = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, '')
 
     for (const [path, url] of Object.entries(agentAssetModules)) {
@@ -177,7 +179,7 @@
                     class="h-10 w-10 rounded object-contain"
                   />
                 {/if}
-                <a href={`/teams/${match.team_a?.id}`} class="hover:underline"
+                <a href={resolve(`/teams/${match.team_a?.id}`)} class="hover:underline"
                   >{teamName(match.team_a)}</a
                 >
               </span>
@@ -192,7 +194,7 @@
                     class="h-10 w-10 rounded object-contain"
                   />
                 {/if}
-                <a href={`/teams/${match.team_b?.id}`} class="hover:underline"
+                <a href={resolve(`/teams/${match.team_b?.id}`)} class="hover:underline"
                   >{teamName(match.team_b)}</a
                 >
               </span>
@@ -299,7 +301,7 @@
               <div>
                 <div style="color: rgba(255,255,255,0.55);">Map Veto:</div>
                 <div class="mt-2 space-y-2" style="color: var(--text);">
-                  {#each match.metadata.map_vetoes as veto, index}
+                  {#each match.metadata.map_vetoes as veto, index (index)}
                     <div class="flex items-start gap-2 leading-5">
                       <span class="w-5 shrink-0 text-right" style="color: rgba(255,255,255,0.55);">
                         {index + 1}.
@@ -331,7 +333,9 @@
             <p class="text-sm" style="color: rgba(255,255,255,0.72);">No streams listed yet.</p>
           {:else}
             <div class="flex flex-col gap-2">
-              {#each match.streams as stream}
+              {#each match.streams as stream (stream.stream_url)}
+                <!-- eslint-disable svelte/no-navigation-without-resolve -->
+                <!-- stream_url is an external URL; resolve() only accepts internal paths -->
                 <a
                   href={stream.stream_url}
                   target="_blank"
@@ -359,12 +363,15 @@
                     {stream.stream_url}
                   </div>
                 </a>
+                <!-- eslint-enable svelte/no-navigation-without-resolve -->
               {/each}
             </div>
           {/if}
 
           {#if match.vod_url}
             <div class="mt-4">
+              <!-- eslint-disable svelte/no-navigation-without-resolve -->
+              <!-- vod_url is an external URL; resolve() only accepts internal paths -->
               <a
                 href={match.vod_url}
                 target="_blank"
@@ -375,6 +382,7 @@
                 <Video size={16} />
                 Watch YouTube VOD
               </a>
+              <!-- eslint-enable svelte/no-navigation-without-resolve -->
             </div>
           {/if}
         </section>
@@ -409,7 +417,7 @@
         {:else}
           {#if statsTabs.length > 1}
             <div class="mb-4 flex flex-wrap gap-2">
-              {#each statsTabs as tab}
+              {#each statsTabs as tab (tab.key)}
                 <button
                   type="button"
                   class="rounded-md px-3 py-2 text-sm font-semibold transition-colors"
@@ -418,7 +426,7 @@
                     : tab.isVoided
                       ? 'background: rgba(248,113,113,0.08); color: rgba(255,255,255,0.45); border: 1px solid rgba(248,113,113,0.18); text-decoration: line-through;'
                       : 'background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.78); border: 1px solid rgba(255,255,255,0.10);'}
-                  onclick={() => (activeStatsTab = tab.key)}
+                  onclick={() => (activeStatsTab = String(tab.key))}
                 >
                   {tab.label}{#if tab.isVoided}
                     <span
@@ -462,7 +470,7 @@
               </div>
             {:else if (match.maps ?? []).length > 0}
               <div class="mb-3 flex flex-wrap gap-2 text-sm">
-                {#each match.maps as map}
+                {#each match.maps as map (map.id)}
                   <div
                     class="rounded-md border px-3 py-2"
                     style="border-color: {map.is_voided
@@ -531,12 +539,14 @@
                       </tr>
                     </thead>
                     <tbody>
-                      {#each teamAStats as row}
+                      {#each teamAStats as row (row.profile_id)}
                         <tr
                           class="border-t"
                           style="border-color: rgba(255,255,255,0.08); color: rgba(255,255,255,0.9);"
                         >
                           <td class="px-3 py-2 font-semibold" style="color: var(--text);">
+                            <!-- eslint-disable svelte/no-navigation-without-resolve -->
+                            <!-- playerHref() returns a resolve()-built URL (may include a query string) -->
                             <a
                               href={playerHref(row)}
                               class="transition-colors hover:text-[#93c5fd] hover:underline"
@@ -544,10 +554,11 @@
                             >
                               {playerLabel(row)}
                             </a>
+                            <!-- eslint-enable svelte/no-navigation-without-resolve -->
                           </td>
                           <td class="px-3 py-2">
                             <div class="flex flex-wrap gap-1">
-                              {#each parseAgents(row.agents) as agent}
+                              {#each parseAgents(row.agents) as agent (agent)}
                                 {#if agentIconUrl(agent)}
                                   <img
                                     src={agentIconUrl(agent)}
@@ -607,12 +618,14 @@
                       </tr>
                     </thead>
                     <tbody>
-                      {#each teamBStats as row}
+                      {#each teamBStats as row (row.profile_id)}
                         <tr
                           class="border-t"
                           style="border-color: rgba(255,255,255,0.08); color: rgba(255,255,255,0.9);"
                         >
                           <td class="px-3 py-2 font-semibold" style="color: var(--text);">
+                            <!-- eslint-disable svelte/no-navigation-without-resolve -->
+                            <!-- playerHref() returns a resolve()-built URL (may include a query string) -->
                             <a
                               href={playerHref(row)}
                               class="transition-colors hover:text-[#93c5fd] hover:underline"
@@ -620,10 +633,11 @@
                             >
                               {playerLabel(row)}
                             </a>
+                            <!-- eslint-enable svelte/no-navigation-without-resolve -->
                           </td>
                           <td class="px-3 py-2">
                             <div class="flex flex-wrap gap-1">
-                              {#each parseAgents(row.agents) as agent}
+                              {#each parseAgents(row.agents) as agent (agent)}
                                 {#if agentIconUrl(agent)}
                                   <img
                                     src={agentIconUrl(agent)}

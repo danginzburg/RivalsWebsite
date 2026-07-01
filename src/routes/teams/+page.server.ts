@@ -1,7 +1,32 @@
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
 
-export const load = async ({ locals }: { locals: any }) => {
+type LeaderboardEntryRow = {
+  team_id: string
+  rank: number | null
+  points: number | null
+  wins: number | null
+  losses: number | null
+}
+
+type TeamRel = {
+  id: string
+  name: string
+  tag?: string | null
+  logo_path?: string | null
+  approval_status?: string | null
+  metadata?: Record<string, unknown> | null
+}
+
+type MyTeam = {
+  id: string
+  name: string
+  tag: string | null
+  logo_url: string | null
+  role: string | null
+}
+
+export const load = async ({ locals }: { locals: App.Locals }) => {
   const isAdmin = locals.user?.role === 'admin'
   const { data: batch } = await supabaseAdmin
     .from('stat_import_batches')
@@ -28,7 +53,7 @@ export const load = async ({ locals }: { locals: any }) => {
           .in('team_id', teamIds)
       : { data: [] }
 
-  const entryByTeamId = new Map<string, any>()
+  const entryByTeamId = new Map<string, LeaderboardEntryRow>()
   for (const entry of entries ?? []) entryByTeamId.set(entry.team_id, entry)
 
   const rows = (teams ?? []).map((team) => ({
@@ -48,7 +73,7 @@ export const load = async ({ locals }: { locals: any }) => {
     return a.name.localeCompare(b.name)
   })
 
-  let myTeam = null as any
+  let myTeam: MyTeam | null = null
   if (locals.user?.sub) {
     const { data: profile } = await supabaseAdmin
       .from('profiles')
@@ -65,10 +90,11 @@ export const load = async ({ locals }: { locals: any }) => {
         .is('left_at', null)
         .maybeSingle()
 
+      const membershipTeams = (membership as { teams?: TeamRel | TeamRel[] | null } | null)?.teams
       const teamRel = membership
-        ? Array.isArray((membership as any).teams)
-          ? (membership as any).teams[0]
-          : (membership as any).teams
+        ? Array.isArray(membershipTeams)
+          ? membershipTeams[0]
+          : membershipTeams
         : null
 
       if (teamRel?.approval_status === 'approved') {

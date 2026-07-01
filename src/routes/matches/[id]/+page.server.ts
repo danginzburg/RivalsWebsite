@@ -182,7 +182,8 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
       : null,
   }))
 
-  const totalByPlayer = new Map<string, any[]>()
+  type MapStatRow = (typeof normalizedMapsWithForfeitNames)[number]['stats'][number]
+  const totalByPlayer = new Map<string, MapStatRow[]>()
   for (const map of normalizedMapsWithForfeitNames) {
     if (map.is_voided) continue
     for (const row of map.stats) {

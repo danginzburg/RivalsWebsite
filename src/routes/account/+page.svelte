@@ -10,11 +10,7 @@
   let { data, form }: PageProps = $props()
   const profile = $derived((data as unknown as AccountPageData).profile)
 
-  let value = $state('')
-
-  $effect(() => {
-    value = profile.riot_id_base ?? ''
-  })
+  let value = $derived(profile.riot_id_base ?? '')
 </script>
 
 <PageContainer>

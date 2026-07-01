@@ -1,5 +1,6 @@
 <script lang="ts">
   import CustomSelect from '$lib/components/CustomSelect.svelte'
+  import { resolve } from '$app/paths'
 
   import { membershipRoleOptions, teamStatusOptions } from '$lib/admin/options'
   import { profileLabel } from '$lib/admin/ui'
@@ -395,7 +396,7 @@
               Remove Team
             </button>
             <a
-              href={`/teams/${team.id}`}
+              href={resolve(`/teams/${team.id}`)}
               class="rounded-md px-3 py-2 text-xs font-semibold"
               style="background: rgba(59,130,246,0.2); color: #93c5fd;"
             >

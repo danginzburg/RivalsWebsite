@@ -152,7 +152,8 @@ export async function rebuildPlayerMatchStats(matchId: string) {
 
   if (mapStatsError) throw new Error('Failed to load imported map stats')
 
-  const grouped = new Map<string, any[]>()
+  type MapStatRow = NonNullable<typeof mapStats>[number]
+  const grouped = new Map<string, MapStatRow[]>()
   for (const row of mapStats ?? []) {
     if (!row.profile_id || !row.team_id) continue
     const current = grouped.get(row.profile_id) ?? []

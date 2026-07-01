@@ -3,6 +3,17 @@ import type { Actions, PageServerLoad } from './$types'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { buildProfileMatcher, getProfilesForImports } from '$lib/server/imports/matching'
+import { errorMessage } from '$lib/server/errors'
+
+type MatchMapRow = {
+  id: string
+  map_order: number
+  map_name: string | null
+  team_a_rounds: number | null
+  team_b_rounds: number | null
+  source_filename: string | null
+  created_at: string
+}
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -286,7 +297,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
     .select('id, display_name, riot_id_base')
     .order('display_name', { ascending: true })
 
-  let maps: any[] = []
+  let maps: MatchMapRow[] = []
   const { data: matchMaps, error: mapsError } = await supabaseAdmin
     .from('match_maps')
     .select('id, map_order, map_name, team_a_rounds, team_b_rounds, source_filename, created_at')
@@ -343,7 +354,7 @@ export const actions: Actions = {
       .eq('match_id', matchId)
       .eq('map_order', mapOrder)
       .maybeSingle()
-    if (existingError && String((existingError as any).message ?? '').includes('match_maps')) {
+    if (existingError && errorMessage(existingError).includes('match_maps')) {
       throw error(500, 'match_maps table missing; apply Supabase migrations first')
     }
     const profiles = await getProfilesForImports()
@@ -370,8 +381,6 @@ export const actions: Actions = {
         row.matched_profile_id = profileMatcher.resolve(row.player_name)
       }
     }
-
-    const unmatched = parsed.filter((r) => !r.matched_profile_id).map((r) => r.player_name)
 
     const profileIds = parsed.map((r) => r.matched_profile_id!).filter(Boolean)
     const { data: memberships } = await supabaseAdmin
@@ -432,7 +441,7 @@ export const actions: Actions = {
         .select('id')
         .single()
 
-      if (createMapError && String((createMapError as any).message ?? '').includes('match_maps')) {
+      if (createMapError && errorMessage(createMapError).includes('match_maps')) {
         throw error(500, 'match_maps table missing; apply Supabase migrations first')
       }
       if (createMapError || !createdMap) throw error(500, 'Failed to create match map row')
@@ -491,10 +500,7 @@ export const actions: Actions = {
     const { error: insertError } = await supabaseAdmin
       .from('player_match_map_stats')
       .insert(rowsToInsert)
-    if (
-      insertError &&
-      String((insertError as any).message ?? '').includes('player_match_map_stats')
-    ) {
+    if (insertError && errorMessage(insertError).includes('player_match_map_stats')) {
       throw error(500, 'player_match_map_stats table missing; apply Supabase migrations first')
     }
     if (insertError) throw error(500, 'Failed to insert player map stats')

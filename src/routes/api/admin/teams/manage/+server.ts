@@ -64,7 +64,10 @@ export const POST: RequestHandler = async ({ locals, request }) => {
         .eq('is_active', true)
         .is('left_at', null)
         .maybeSingle()
-    : Promise.resolve({ data: null, error: null } as any)
+    : Promise.resolve({
+        data: null as { id: string; team_id: string } | null,
+        error: null as { message?: string | null } | null,
+      })
 
   const playerNameQuery = playerName
     ? supabaseAdmin
@@ -74,7 +77,10 @@ export const POST: RequestHandler = async ({ locals, request }) => {
         .eq('is_active', true)
         .is('left_at', null)
         .maybeSingle()
-    : Promise.resolve({ data: null, error: null } as any)
+    : Promise.resolve({
+        data: null as { id: string; team_id: string } | null,
+        error: null as { message?: string | null } | null,
+      })
 
   const [
     { data: existing, error: existingError },

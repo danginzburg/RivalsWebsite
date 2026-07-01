@@ -2,6 +2,26 @@ import { supabaseAdmin } from '$lib/supabase/admin'
 import { safeNumber } from '$lib/server/parse'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
 
+type LeaderboardTeamRel = {
+  id: string
+  name: string
+  tag?: string | null
+  logo_path?: string | null
+}
+
+type LeaderboardEntryRow = {
+  id: string
+  rank: number | null
+  points: number | null
+  matches_played: number | null
+  wins: number | null
+  losses: number | null
+  map_wins: number | null
+  map_losses: number | null
+  round_diff: number | null
+  teams: LeaderboardTeamRel | LeaderboardTeamRel[] | null
+}
+
 export const load = async () => {
   const { data: batch } = await supabaseAdmin
     .from('stat_import_batches')
@@ -38,7 +58,7 @@ export const load = async () => {
 
   if (entriesError) return { rows: [], batch: null }
 
-  const rows = (entries ?? []).map((entry: any) => {
+  const rows = ((entries ?? []) as LeaderboardEntryRow[]).map((entry) => {
     const team = Array.isArray(entry.teams) ? entry.teams[0] : entry.teams
     return {
       id: entry.id,

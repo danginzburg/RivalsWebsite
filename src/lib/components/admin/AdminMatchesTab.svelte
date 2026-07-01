@@ -1,5 +1,6 @@
 <script lang="ts">
   import CustomSelect from '$lib/components/CustomSelect.svelte'
+  import { resolve } from '$app/paths'
 
   import {
     bestOfOptions,
@@ -8,6 +9,7 @@
     streamStatusOptions,
   } from '$lib/admin/options'
   import { teamName, toDatetimeLocal } from '$lib/admin/match-ui'
+  import type { AdminMatch, MatchEditState, MatchStreamFormState } from '$lib/admin/types'
 
   interface Props {
     approvedTeamOptions: Array<{ label: string; value: string }>
@@ -17,15 +19,15 @@
     createMatchBestOf: string
     createMatchScheduledAt: string
     isCreatingMatch: boolean
-    matches: any[]
+    matches: AdminMatch[]
     matchSearchQuery: string
     showCompletedAdminMatches: boolean
-    filteredAdminMatches: any[]
+    filteredAdminMatches: AdminMatch[]
     expandedAdminMatchId: string | null
     finalizeForm: Record<string, { teamAScore: string; teamBScore: string; winnerTeamId: string }>
-    matchEditForm: Record<string, any>
-    streamForm: Record<string, any>
-    existingStreamForm: Record<string, any>
+    matchEditForm: Record<string, MatchEditState>
+    streamForm: Record<string, MatchStreamFormState>
+    existingStreamForm: Record<string, MatchStreamFormState>
     vodForm: Record<string, string>
     matchMapsCache: Record<
       string,
@@ -44,15 +46,15 @@
       matchId: string,
       patch: Partial<{ teamAScore: string; teamBScore: string; winnerTeamId: string }>
     ) => void
-    onFinalizeMatch: (match: any) => void
-    onCancelMatch: (match: any) => void
-    onUpdateMatchEditForm: (matchId: string, patch: Record<string, string>) => void
-    onSaveMatchEdits: (matchId: string, match: any) => void
-    onDeleteMatch: (matchId: string, match: any) => void
-    onUpdateExistingStreamForm: (streamId: string, patch: Record<string, any>) => void
+    onFinalizeMatch: (match: AdminMatch) => void
+    onCancelMatch: (match: AdminMatch) => void
+    onUpdateMatchEditForm: (matchId: string, patch: Partial<MatchEditState>) => void
+    onSaveMatchEdits: (matchId: string, match: AdminMatch) => void
+    onDeleteMatch: (matchId: string, match: AdminMatch) => void
+    onUpdateExistingStreamForm: (streamId: string, patch: Partial<MatchStreamFormState>) => void
     onSaveExistingMatchStream: (matchId: string, streamId: string) => void
     onRemoveMatchStream: (matchId: string, streamId: string, label: string) => void
-    onUpdateStreamForm: (matchId: string, patch: Record<string, any>) => void
+    onUpdateStreamForm: (matchId: string, patch: Partial<MatchStreamFormState>) => void
     onAddMatchStream: (matchId: string) => void
     onVodChange: (matchId: string, value: string) => void
     onFetchMatchMaps: (matchId: string) => void
@@ -655,7 +657,11 @@ Decider: Pearl"
                               class="rounded px-2 py-1 text-[11px] font-semibold"
                               style="background: rgba(248,113,113,0.2); color: #fca5a5;"
                               onclick={() =>
-                                onRemoveMatchStream(match.id, stream.id, stream.platform)}
+                                onRemoveMatchStream(
+                                  match.id,
+                                  stream.id,
+                                  stream.platform ?? 'stream'
+                                )}
                             >
                               Remove
                             </button>
@@ -770,14 +776,14 @@ Decider: Pearl"
 
               <div class="mt-2 flex flex-wrap gap-2">
                 <a
-                  href={`/matches/${match.id}`}
+                  href={resolve(`/matches/${match.id}`)}
                   class="rounded px-2 py-1 text-xs font-semibold"
                   style="background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.85);"
                 >
                   Open Match Page
                 </a>
                 <a
-                  href={`/admin/matches/${match.id}/stats-import`}
+                  href={resolve(`/admin/matches/${match.id}/stats-import`)}
                   class="rounded px-2 py-1 text-xs font-semibold"
                   style="background: rgba(59,130,246,0.2); color: #93c5fd;"
                 >

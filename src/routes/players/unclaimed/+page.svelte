@@ -3,6 +3,8 @@
   import PageContainer from '$lib/components/PageContainer.svelte'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
   import { BarChart3, Users } from 'lucide-svelte'
+  import { SvelteMap, SvelteURLSearchParams } from 'svelte/reactivity'
+  import { resolve } from '$app/paths'
   import { enhance } from '$app/forms'
   import miksIcon from '$lib/assets/agents/Miks_icon.webp'
 
@@ -22,10 +24,7 @@
     } | null
   )
 
-  let riotIdBaseValue = $state('')
-  $effect(() => {
-    riotIdBaseValue = viewer?.riotIdBase ?? base ?? ''
-  })
+  let riotIdBaseValue = $derived(viewer?.riotIdBase ?? base ?? '')
 
   const agentAssetModules = import.meta.glob('$lib/assets/agents/*_icon.webp', {
     eager: true,
@@ -33,7 +32,7 @@
   }) as Record<string, string>
 
   const agentIconMap = $derived.by(() => {
-    const map = new Map<string, string>()
+    const map = new SvelteMap<string, string>()
     const normalize = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, '')
     for (const [path, url] of Object.entries(agentAssetModules)) {
       const filename = path.split('/').pop() ?? ''
@@ -66,7 +65,7 @@
   }
 
   function navToBatch(nextBatchId: string) {
-    const params = new URLSearchParams()
+    const params = new SvelteURLSearchParams()
     params.set('name', clickedName)
     if (nextBatchId) params.set('batchId', nextBatchId)
     window.location.href = `/players/unclaimed?${params.toString()}`
@@ -228,7 +227,7 @@
               <div class="text-sm" style="color: rgba(255,255,255,0.72);">—</div>
             {:else}
               <div class="agents-icons">
-                {#each parseAgents(selected.agents) as agent}
+                {#each parseAgents(selected.agents) as agent (agent)}
                   {@const url = agentIconUrl(agent)}
                   {#if url}
                     <img
@@ -288,11 +287,11 @@
                     </tr>
                   </thead>
                   <tbody>
-                    {#each matchHistory as entry}
+                    {#each matchHistory as entry (entry.match.id)}
                       <tr class="border-t" style="border-color: rgba(255,255,255,0.10);">
                         <td class="px-3 py-2" style="color: var(--text);">
                           <a
-                            href={`/matches/${entry.match.id}`}
+                            href={resolve(`/matches/${entry.match.id}`)}
                             class="underline"
                             style="color: var(--text);">vs {entry.opponent?.name ?? 'Team'}</a
                           >
@@ -302,7 +301,7 @@
                             —
                           {:else}
                             <div class="agents-icons">
-                              {#each parseAgents(entry.agents) as agent}
+                              {#each parseAgents(entry.agents) as agent (agent)}
                                 {@const url = agentIconUrl(agent)}
                                 {#if url}
                                   <img

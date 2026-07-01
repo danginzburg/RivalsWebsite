@@ -1,7 +1,17 @@
 <script lang="ts">
   import { CalendarDays } from 'lucide-svelte'
+  import { resolve } from '$app/paths'
 
-  let { matches }: { matches: any[] } = $props()
+  type MatchSummary = {
+    id: string
+    team_a: unknown
+    team_b: unknown
+    scheduled_at?: string | null
+    ended_at?: string | null
+    status?: string | null
+  }
+
+  let { matches }: { matches: MatchSummary[] } = $props()
 
   function formatLocal(value: string | null | undefined) {
     if (!value) return 'TBD'
@@ -29,7 +39,7 @@
         </div>
       </div>
       <a
-        href="/matches"
+        href={resolve('/matches')}
         class="rounded-md px-3 py-2 text-xs font-semibold"
         style="background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.85);"
       >
@@ -61,10 +71,14 @@
             </tr>
           </thead>
           <tbody>
-            {#each matches.slice(0, 8) as match}
+            {#each matches.slice(0, 8) as match (match.id)}
               <tr class="border-b" style="border-color: rgba(255,255,255,0.08);">
                 <td class="px-3 py-2 font-semibold" style="color: var(--text);">
-                  <a href={`/matches/${match.id}`} class="underline" style="color: var(--text);">
+                  <a
+                    href={resolve(`/matches/${match.id}`)}
+                    class="underline"
+                    style="color: var(--text);"
+                  >
                     {teamName(match.team_a)} vs {teamName(match.team_b)}
                   </a>
                 </td>
