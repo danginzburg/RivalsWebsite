@@ -6,6 +6,7 @@
   let { data }: PageProps = $props()
 
   const team = $derived(data.team)
+  const isAdmin = $derived(data.viewer?.isAdmin ?? false)
   const roster = $derived(data.roster ?? [])
   const upcomingMatches = $derived(data.upcomingMatches ?? [])
   const matchHistory = $derived(data.matchHistory ?? [])
@@ -79,8 +80,19 @@
               <Users size={34} style="color: var(--text);" />
             </div>
           {/if}
-          <div>
-            <h1 class="responsive-title">{team.name}{team.tag ? ` [${team.tag}]` : ''}</h1>
+          <div class="flex-1">
+            <div class="flex items-center justify-between gap-3">
+              <h1 class="responsive-title">{team.name}{team.tag ? ` [${team.tag}]` : ''}</h1>
+              {#if isAdmin}
+                <a
+                  href="/admin?tab=teams"
+                  class="shrink-0 rounded-md px-3 py-1.5 text-xs font-semibold"
+                  style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+                >
+                  Edit Team
+                </a>
+              {/if}
+            </div>
             {#if team.org || team.created_at}
               <p class="text-sm" style="color: rgba(255,255,255,0.72);">
                 {#if team.org}{team.org}{/if}

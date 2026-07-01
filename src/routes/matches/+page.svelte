@@ -5,12 +5,13 @@
 
   let { data }: PageProps = $props()
   const matches = $derived(data.matches ?? [])
+  const isAdmin = $derived(data.viewer?.isAdmin ?? false)
   let searchQuery = $state('')
   let showCompleted = $state(false)
 
   const filteredMatches = $derived.by(() => {
     const query = searchQuery.trim().toLowerCase()
-    return matches.filter((match: { status?: string; team_a?: unknown; team_b?: unknown }) => {
+    const filtered = matches.filter((match: any) => {
       if (!showCompleted && match.status === 'completed') return false
 
       if (!query) return true
@@ -20,6 +21,11 @@
         .toLowerCase()
 
       return haystack.includes(query)
+    })
+    return filtered.sort((a: any, b: any) => {
+      const da = a.scheduled_at ? new Date(a.scheduled_at).getTime() : Infinity
+      const db = b.scheduled_at ? new Date(b.scheduled_at).getTime() : Infinity
+      return da - db
     })
   })
 
@@ -51,14 +57,25 @@
 <PageContainer>
   <div class="flex justify-center px-4 py-8">
     <div class="w-full max-w-6xl">
-      <div class="mb-6 flex items-center gap-3">
-        <CalendarDays size={36} style="color: var(--text);" />
-        <div>
-          <h1 class="responsive-title">Matches</h1>
-          <p class="text-sm" style="color: rgba(255,255,255,0.72);">
-            Upcoming, live, and completed matches.
-          </p>
+      <div class="mb-6 flex items-center justify-between gap-3">
+        <div class="flex items-center gap-3">
+          <CalendarDays size={36} style="color: var(--text);" />
+          <div>
+            <h1 class="responsive-title">Matches</h1>
+            <p class="text-sm" style="color: rgba(255,255,255,0.72);">
+              Upcoming, live, and completed matches.
+            </p>
+          </div>
         </div>
+        {#if isAdmin}
+          <a
+            href="/admin?tab=matches"
+            class="rounded-md px-3 py-2 text-xs font-semibold"
+            style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+          >
+            Manage Matches
+          </a>
+        {/if}
       </div>
 
       <div class="mb-4 space-y-3">

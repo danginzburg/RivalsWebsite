@@ -1,4 +1,4 @@
-export type AdminTabId = 'users' | 'teams' | 'matches' | 'seasons'
+export type AdminTabId = 'users' | 'teams' | 'matches' | 'seasons' | 'accolades'
 
 export type BestOfValue = '3' | '5'
 

@@ -6,17 +6,31 @@
   let { data }: PageProps = $props()
   const teams = $derived(data.teams ?? [])
   const myTeam = $derived(data.myTeam ?? null)
+  const isAdmin = $derived(data.viewer?.isAdmin ?? false)
 </script>
 
 <PageContainer>
   <div class="flex justify-center px-4 py-8">
     <div class="w-full max-w-6xl space-y-6">
-      <div class="flex items-center gap-3">
-        <Users size={36} style="color: var(--text);" />
-        <div>
-          <h1 class="responsive-title">Teams</h1>
-          <p class="text-sm" style="color: rgba(255,255,255,0.72);">All the teams in one place!</p>
+      <div class="flex items-center justify-between gap-3">
+        <div class="flex items-center gap-3">
+          <Users size={36} style="color: var(--text);" />
+          <div>
+            <h1 class="responsive-title">Teams</h1>
+            <p class="text-sm" style="color: rgba(255,255,255,0.72);">
+              All the teams in one place!
+            </p>
+          </div>
         </div>
+        {#if isAdmin}
+          <a
+            href="/admin?tab=teams"
+            class="rounded-md px-3 py-2 text-xs font-semibold"
+            style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+          >
+            Manage Teams
+          </a>
+        {/if}
       </div>
 
       {#if myTeam}

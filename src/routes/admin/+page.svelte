@@ -13,6 +13,7 @@
   import AdminSeasonsTab from '$lib/components/admin/AdminSeasonsTab.svelte'
   import AdminTeamsTab from '$lib/components/admin/AdminTeamsTab.svelte'
   import AdminUsersTab from '$lib/components/admin/AdminUsersTab.svelte'
+  import AdminAccoladesTab from '$lib/components/admin/AdminAccoladesTab.svelte'
   import AdminActionConfirmationModal from '$lib/components/admin/AdminActionConfirmationModal.svelte'
   import type {
     ApprovedTeamEntry,
@@ -65,10 +66,217 @@
   let createMatchScheduledAt = $state('')
   let isCreatingMatch = $state(false)
   let expandedAdminMatchId = $state<string | null>(null)
+  let matchMapsCache = $state<
+    Record<
+      string,
+      Array<{ id: string; map_order: number; map_name: string | null; is_voided: boolean }>
+    >
+  >({})
+  let matchMapsLoading = $state<Record<string, boolean>>({})
+
+  type Accolade = {
+    id: string
+    name: string
+    logo_path: string | null
+    logo_url: string | null
+    icon_key: string | null
+    assignments: Array<{
+      id: string
+      profile_id: string
+      display_name: string
+      context?: string | null
+    }>
+  }
+  let accolades = $state<Accolade[]>([])
+  let accoladesLoaded = $state(false)
+  let createAccoladeName = $state('')
+  let createAccoladeLogoFile = $state<File | null>(null)
+  let isCreatingAccolade = $state(false)
+  let accoladeAssignProfileId = $state<Record<string, string>>({})
+  let accoladeAssignContext = $state<Record<string, string>>({})
+  let editingAccoladeId = $state<string | null>(null)
+  let editAccoladeName = $state('')
+  let accoladeLogoStatus = $state<Record<string, 'uploading' | 'done' | null>>({})
 
   const filteredAdminMatches = $derived(
     filterAdminMatches(matches ?? [], matchSearchQuery, showCompletedAdminMatches)
   )
+
+  async function fetchMatchMaps(matchId: string) {
+    if (matchMapsCache[matchId] || matchMapsLoading[matchId]) return
+    matchMapsLoading = { ...matchMapsLoading, [matchId]: true }
+    try {
+      const result = await adminJsonRequest<{ maps?: (typeof matchMapsCache)[string] }>(
+        `/api/admin/matches/${matchId}/maps`,
+        { fallbackMessage: 'Failed to load match maps' }
+      )
+      matchMapsCache = { ...matchMapsCache, [matchId]: result.maps ?? [] }
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to load match maps'
+    } finally {
+      matchMapsLoading = { ...matchMapsLoading, [matchId]: false }
+    }
+  }
+
+  async function toggleMapVoided(matchId: string, mapId: string, currentVoided: boolean) {
+    try {
+      await adminJsonRequest(`/api/admin/matches/${matchId}`, {
+        method: 'PATCH',
+        body: { action: 'toggle_map_voided', mapId, isVoided: !currentVoided },
+        fallbackMessage: 'Failed to update map',
+      })
+      const maps = matchMapsCache[matchId] ?? []
+      matchMapsCache = {
+        ...matchMapsCache,
+        [matchId]: maps.map((map) =>
+          map.id === mapId ? { ...map, is_voided: !currentVoided } : map
+        ),
+      }
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to update map'
+    }
+  }
+
+  async function loadAccolades() {
+    try {
+      const result = await adminJsonRequest<{ accolades?: Accolade[] }>('/api/admin/accolades', {
+        fallbackMessage: 'Failed to load accolades',
+      })
+      accolades = result.accolades ?? []
+      accoladesLoaded = true
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to load accolades'
+    }
+  }
+
+  async function createAccolade() {
+    if (!createAccoladeName.trim() || isCreatingAccolade) return
+    isCreatingAccolade = true
+    errorMessage = null
+    try {
+      const form = new FormData()
+      form.set('name', createAccoladeName.trim())
+      if (createAccoladeLogoFile) form.set('logo', createAccoladeLogoFile)
+      const result = await adminFormRequest<{ accolade?: Accolade }>('/api/admin/accolades', {
+        method: 'POST',
+        body: form,
+        fallbackMessage: 'Failed to create accolade',
+      })
+      if (result.accolade) accolades = [result.accolade, ...accolades]
+      createAccoladeName = ''
+      createAccoladeLogoFile = null
+      successMessage = 'Accolade created.'
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to create accolade'
+    } finally {
+      isCreatingAccolade = false
+    }
+  }
+
+  async function renameAccolade(accoladeId: string) {
+    if (!editAccoladeName.trim()) return
+    try {
+      await adminJsonRequest('/api/admin/accolades', {
+        method: 'PATCH',
+        body: { accoladeId, action: 'rename', name: editAccoladeName.trim() },
+        fallbackMessage: 'Failed to rename accolade',
+      })
+      accolades = accolades.map((a) =>
+        a.id === accoladeId ? { ...a, name: editAccoladeName.trim() } : a
+      )
+      editingAccoladeId = null
+      editAccoladeName = ''
+      successMessage = 'Accolade renamed.'
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to rename accolade'
+    }
+  }
+
+  async function deleteAccolade(accoladeId: string) {
+    if (!window.confirm('Delete this accolade? This removes it from all players.')) return
+    try {
+      await adminJsonRequest('/api/admin/accolades', {
+        method: 'DELETE',
+        body: { accoladeId },
+        fallbackMessage: 'Failed to delete accolade',
+      })
+      accolades = accolades.filter((a) => a.id !== accoladeId)
+      successMessage = 'Accolade deleted.'
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to delete accolade'
+    }
+  }
+
+  async function updateAccoladeLogo(accoladeId: string, file: File) {
+    accoladeLogoStatus = { ...accoladeLogoStatus, [accoladeId]: 'uploading' }
+    try {
+      const form = new FormData()
+      form.set('accoladeId', accoladeId)
+      form.set('logo', file)
+      const result = await adminFormRequest<{ logo_url?: string }>('/api/admin/accolades', {
+        method: 'PUT',
+        body: form,
+        fallbackMessage: 'Failed to upload logo',
+      })
+      accolades = accolades.map((a) =>
+        a.id === accoladeId ? { ...a, logo_url: result.logo_url ?? a.logo_url } : a
+      )
+      accoladeLogoStatus = { ...accoladeLogoStatus, [accoladeId]: 'done' }
+      window.setTimeout(() => {
+        accoladeLogoStatus = { ...accoladeLogoStatus, [accoladeId]: null }
+      }, 2000)
+    } catch (err) {
+      accoladeLogoStatus = { ...accoladeLogoStatus, [accoladeId]: null }
+      errorMessage = err instanceof Error ? err.message : 'Failed to upload logo'
+    }
+  }
+
+  async function assignAccolade(accoladeId: string) {
+    const playerName = (accoladeAssignProfileId[accoladeId] ?? '').trim()
+    const context = (accoladeAssignContext[accoladeId] ?? '').trim() || null
+    if (!playerName) return
+    try {
+      const result = await adminJsonRequest<{
+        assignment?: Omit<Accolade['assignments'][number], 'id'>
+      }>('/api/admin/accolades', {
+        method: 'PATCH',
+        body: { accoladeId, action: 'assign', playerName, context },
+        fallbackMessage: 'Failed to assign accolade',
+      })
+      const assignment = result.assignment
+      if (assignment) {
+        accoladeAssignProfileId = { ...accoladeAssignProfileId, [accoladeId]: '' }
+        accoladeAssignContext = { ...accoladeAssignContext, [accoladeId]: '' }
+        accolades = accolades.map((a) =>
+          a.id === accoladeId
+            ? {
+                ...a,
+                assignments: [...a.assignments, { ...assignment, id: crypto.randomUUID() }],
+              }
+            : a
+        )
+      }
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to assign accolade'
+    }
+  }
+
+  async function unassignAccolade(accoladeId: string, assignmentId: string) {
+    try {
+      await adminJsonRequest('/api/admin/accolades', {
+        method: 'PATCH',
+        body: { accoladeId, action: 'unassign', assignmentId },
+        fallbackMessage: 'Failed to unassign accolade',
+      })
+      accolades = accolades.map((a) =>
+        a.id === accoladeId
+          ? { ...a, assignments: a.assignments.filter((x) => x.id !== assignmentId) }
+          : a
+      )
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to unassign accolade'
+    }
+  }
 
   let createTeamName = $state('')
   let createTeamTag = $state('')
@@ -1173,11 +1381,15 @@
       teams: approvedTeams.length,
       matches: matches.length,
       seasons: seasons.length,
+      accolades: accolades.length,
     }}
     {isLoading}
     {errorMessage}
     {successMessage}
-    onTabChange={(tab) => (activeTab = tab)}
+    onTabChange={(tab) => {
+      activeTab = tab
+      if (tab === 'accolades' && !accoladesLoaded) loadAccolades()
+    }}
     onRefresh={refreshData}
   >
     {#if activeTab === 'users'}
@@ -1248,6 +1460,8 @@
         {streamForm}
         {existingStreamForm}
         {vodForm}
+        {matchMapsCache}
+        {matchMapsLoading}
         onCreateMatchTeamAIdChange={(value) => (createMatchTeamAId = value)}
         onCreateMatchTeamBIdChange={(value) => (createMatchTeamBId = value)}
         onCreateMatchBestOfChange={(value) => (createMatchBestOf = value as BestOfValue)}
@@ -1287,6 +1501,8 @@
             ...vodForm,
             [matchId]: value,
           })}
+        onFetchMatchMaps={fetchMatchMaps}
+        onToggleMapVoided={toggleMapVoided}
       />
     {/if}
 
@@ -1315,6 +1531,47 @@
         onSaveSeason={saveSeason}
         {scoringPickemSeasonId}
         onScorePickem={scorePickemSubmissions}
+      />
+    {/if}
+
+    {#if activeTab === 'accolades'}
+      <AdminAccoladesTab
+        {accolades}
+        {accoladesLoaded}
+        {createAccoladeName}
+        {isCreatingAccolade}
+        {accoladeAssignProfileId}
+        {accoladeAssignContext}
+        {editingAccoladeId}
+        {editAccoladeName}
+        {accoladeLogoStatus}
+        onCreateAccoladeNameChange={(value) => (createAccoladeName = value)}
+        onCreateAccoladeLogoInput={(file) => (createAccoladeLogoFile = file)}
+        onCreateAccolade={createAccolade}
+        onEditAccolade={(accolade) => {
+          editingAccoladeId = accolade.id
+          editAccoladeName = accolade.name
+        }}
+        onCancelEditAccolade={() => {
+          editingAccoladeId = null
+          editAccoladeName = ''
+        }}
+        onEditAccoladeNameChange={(value) => (editAccoladeName = value)}
+        onRenameAccolade={renameAccolade}
+        onDeleteAccolade={deleteAccolade}
+        onUpdateAccoladeLogo={updateAccoladeLogo}
+        onAssignProfileChange={(accoladeId, value) =>
+          (accoladeAssignProfileId = {
+            ...accoladeAssignProfileId,
+            [accoladeId]: value,
+          })}
+        onAssignContextChange={(accoladeId, value) =>
+          (accoladeAssignContext = {
+            ...accoladeAssignContext,
+            [accoladeId]: value,
+          })}
+        onAssignAccolade={assignAccolade}
+        onUnassignAccolade={unassignAccolade}
       />
     {/if}
   </AdminDashboardShell>

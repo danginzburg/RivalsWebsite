@@ -1,6 +1,7 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { logAdminAction } from '$lib/server/audit/admin-actions'
 
 function normalizeOptional(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -146,6 +147,44 @@ export const PATCH: RequestHandler = async ({ locals, request, params }) => {
       .single()
 
     return json({ success: true, match: updated })
+  }
+
+  if (action === 'toggle_map_voided') {
+    const mapId = normalizeOptional(body.mapId)
+    const isVoided = Boolean(body.isVoided)
+
+    if (!mapId) throw error(400, 'Missing mapId')
+
+    const { data: map, error: mapError } = await supabaseAdmin
+      .from('match_maps')
+      .select('id, map_order, map_name')
+      .eq('id', mapId)
+      .eq('match_id', matchId)
+      .maybeSingle()
+
+    if (mapError || !map) throw error(404, 'Map not found for this match')
+
+    const { error: updateError } = await supabaseAdmin
+      .from('match_maps')
+      .update({ is_voided: isVoided })
+      .eq('id', mapId)
+
+    if (updateError) throw error(500, 'Failed to update map voided status')
+
+    await logAdminAction({
+      adminProfileId: admin.id,
+      actionType: 'match_map_voided_toggled',
+      targetTable: 'match_maps',
+      targetId: mapId,
+      details: {
+        matchId,
+        mapOrder: map.map_order,
+        mapName: map.map_name,
+        isVoided,
+      },
+    })
+
+    return json({ success: true })
   }
 
   throw error(400, 'Unsupported action')

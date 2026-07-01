@@ -4,6 +4,15 @@
   import CustomSelect from '$lib/components/CustomSelect.svelte'
   import { BarChart3, Users, Swords, User } from 'lucide-svelte'
   import miksIcon from '$lib/assets/agents/Miks_icon.webp'
+  import goldMedal from '$lib/assets/accolades/gold_medal.svg'
+  import silverMedal from '$lib/assets/accolades/silver_medal.svg'
+  import bronzeMedal from '$lib/assets/accolades/bronze_medal.svg'
+
+  const builtInIcons: Record<string, string> = {
+    gold_medal: goldMedal,
+    silver_medal: silverMedal,
+    bronze_medal: bronzeMedal,
+  }
 
   import { enhance } from '$app/forms'
 
@@ -12,10 +21,21 @@
   const player = $derived(data.player)
   const activeTeam = $derived(data.activeTeam)
   const viewer = $derived(data.viewer ?? { canEditRiotIdBase: false })
-  const selected = $derived(data.stats?.selected ?? null)
-  const selectedBatchId = $derived(data.stats?.selectedBatchId ?? null)
-  const batchOptions = $derived(data.stats?.batchOptions ?? [])
-  const matchHistory = $derived(data.matchHistory ?? [])
+  const selected = $derived((data.stats?.selected ?? null) as any | null)
+  const selectedBatchId = $derived((data.stats?.selectedBatchId ?? null) as string | null)
+  const batchOptions = $derived(
+    (data.stats?.batchOptions ?? []) as Array<{ label: string; value: string }>
+  )
+  const matchHistory = $derived((data.matchHistory ?? []) as any[])
+  const accolades = $derived(
+    (data.accolades ?? []) as Array<{
+      id: string
+      name: string
+      icon_key: string | null
+      context: string | null
+      logo_url: string | null
+    }>
+  )
 
   let riotIdBaseValue = $state('')
   let statsPlayerNameValue = $state('')
@@ -99,7 +119,33 @@
             </div>
           {/if}
           <div>
-            <h1 class="responsive-title">{player.riot_id}</h1>
+            <div class="flex flex-wrap items-center gap-2 leading-none">
+              <h1 class="responsive-title leading-none">{player.riot_id}</h1>
+              {#each accolades as accolade}
+                {@const iconSrc = accolade.icon_key
+                  ? (builtInIcons[accolade.icon_key] ?? null)
+                  : null}
+                {@const tooltip = accolade.context
+                  ? `${accolade.name} — ${accolade.context}`
+                  : accolade.name}
+                {#if iconSrc || accolade.logo_url}
+                  <img
+                    src={iconSrc ?? accolade.logo_url}
+                    alt={accolade.name}
+                    title={tooltip}
+                    class="h-5 w-5 rounded object-contain sm:h-7 sm:w-7 md:h-9 md:w-9"
+                  />
+                {:else}
+                  <span
+                    class="inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-bold sm:text-xs"
+                    style="border-color: rgba(255,255,255,0.15); background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.8);"
+                    title={tooltip}
+                  >
+                    {accolade.name}
+                  </span>
+                {/if}
+              {/each}
+            </div>
             {#if activeTeam}
               <a
                 href={`/teams/${activeTeam.id}`}

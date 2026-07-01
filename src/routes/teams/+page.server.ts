@@ -1,7 +1,8 @@
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
 
-export const load = async ({ locals }: { locals: App.Locals }) => {
+export const load = async ({ locals }: { locals: any }) => {
+  const isAdmin = locals.user?.role === 'admin'
   const { data: batch } = await supabaseAdmin
     .from('stat_import_batches')
     .select('id')
@@ -82,5 +83,5 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     }
   }
 
-  return { teams: rows, myTeam }
+  return { teams: rows, myTeam, viewer: { isAdmin } }
 }

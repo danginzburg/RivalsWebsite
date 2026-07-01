@@ -1,7 +1,8 @@
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
 
-export const load = async () => {
+export const load = async ({ locals }: { locals: App.Locals }) => {
+  const isAdmin = locals.user?.role === 'admin'
   const { data: matches, error: matchesError } = await supabaseAdmin
     .from('matches')
     .select(
@@ -63,5 +64,5 @@ export const load = async () => {
       : null,
   }))
 
-  return { matches: normalized }
+  return { matches: normalized, viewer: { isAdmin } }
 }

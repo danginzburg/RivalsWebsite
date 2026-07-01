@@ -233,6 +233,24 @@ export const load = async ({
     selected = aggregates[0] ?? weeklies[0] ?? normalizedStats[0] ?? null
   }
 
+  const { data: accoladeAssignments } = await supabaseAdmin
+    .from('accolade_assignments')
+    .select('accolade_id, context, accolades (id, name, logo_path, icon_key)')
+    .eq('profile_id', profileId)
+
+  const playerAccolades = (accoladeAssignments ?? []).map((a: any) => {
+    const acc = Array.isArray(a.accolades) ? a.accolades[0] : a.accolades
+    return {
+      id: acc?.id ?? a.accolade_id,
+      name: acc?.name ?? 'Accolade',
+      icon_key: acc?.icon_key ?? null,
+      context: a.context ?? null,
+      logo_url: acc?.logo_path
+        ? supabaseAdmin.storage.from('team-logos').getPublicUrl(acc.logo_path).data.publicUrl
+        : null,
+    }
+  })
+
   const { data: participated } = await supabaseAdmin
     .from('player_match_stats')
     .select(
@@ -327,6 +345,7 @@ export const load = async ({
       created_at: profileRel?.created_at ?? null,
     },
     activeTeam,
+    accolades: playerAccolades,
     viewer: {
       canEditRiotIdBase,
     },

@@ -7,6 +7,8 @@
   let { data }: PageProps = $props()
 
   const match = $derived(data.match)
+  const isAdmin = $derived(data.viewer?.isAdmin ?? false)
+  const hasRealStats = $derived(data.match?.has_real_stats ?? false)
   let activeStatsTab = $state<'total' | string>('total')
 
   function teamName(value: unknown) {
@@ -43,8 +45,9 @@
   }
 
   function fmt(value: unknown, digits = 0) {
+    if (value === null || value === undefined) return 'N/A'
     const num = Number(value)
-    return Number.isFinite(num) ? num.toFixed(digits) : '0'
+    return Number.isFinite(num) ? num.toFixed(digits) : 'N/A'
   }
 
   function sortByKillsDesc<
@@ -127,6 +130,7 @@
               forfeiting_team_name?: string | null
             })
           : null,
+      isVoided: map.is_voided ?? false,
     })),
     {
       key: 'total',
@@ -136,6 +140,7 @@
       rows: match.total_stats ?? [],
       isTotal: true,
       forfeit: null,
+      isVoided: false,
     },
   ])
 
@@ -212,6 +217,15 @@
             >
               Final {match.team_a_score}-{match.team_b_score}
             </span>
+          {/if}
+          {#if isAdmin}
+            <a
+              href="/admin?tab=matches"
+              class="rounded-md px-3 py-1.5 text-xs font-semibold"
+              style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+            >
+              Edit Match
+            </a>
           {/if}
         </div>
       </div>
@@ -376,27 +390,45 @@
             class="text-sm font-semibold tracking-wide uppercase"
             style="color: rgba(255,255,255,0.8);"
           >
-            Match Stats
+            {hasRealStats ? 'Match Stats' : 'Expected Lineup'}
           </h2>
+          {#if !hasRealStats && (match.total_stats?.length ?? 0) > 0}
+            <span
+              class="rounded-full px-2 py-0.5 text-[10px] font-bold"
+              style="background: rgba(250,204,21,0.18); color: #fcd34d;"
+            >
+              Pre-match
+            </span>
+          {/if}
         </div>
 
         {#if statsTabs.length <= 1 && (match.total_stats?.length ?? 0) === 0}
-          <p class="text-sm" style="color: rgba(255,255,255,0.72);">No map stats imported yet.</p>
+          <p class="text-sm" style="color: rgba(255,255,255,0.72);">
+            No starters designated yet. Set starters in the admin panel to show the expected lineup.
+          </p>
         {:else}
-          <div class="mb-4 flex flex-wrap gap-2">
-            {#each statsTabs as tab}
-              <button
-                type="button"
-                class="rounded-md px-3 py-2 text-sm font-semibold transition-colors"
-                style={activeStatsTab === tab.key
-                  ? 'background: rgba(59,130,246,0.2); color: #93c5fd; border: 1px solid rgba(59,130,246,0.28);'
-                  : 'background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.78); border: 1px solid rgba(255,255,255,0.10);'}
-                onclick={() => (activeStatsTab = String(tab.key))}
-              >
-                {tab.label}
-              </button>
-            {/each}
-          </div>
+          {#if statsTabs.length > 1}
+            <div class="mb-4 flex flex-wrap gap-2">
+              {#each statsTabs as tab}
+                <button
+                  type="button"
+                  class="rounded-md px-3 py-2 text-sm font-semibold transition-colors"
+                  style={activeStatsTab === tab.key
+                    ? 'background: rgba(59,130,246,0.2); color: #93c5fd; border: 1px solid rgba(59,130,246,0.28);'
+                    : tab.isVoided
+                      ? 'background: rgba(248,113,113,0.08); color: rgba(255,255,255,0.45); border: 1px solid rgba(248,113,113,0.18); text-decoration: line-through;'
+                      : 'background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.78); border: 1px solid rgba(255,255,255,0.10);'}
+                  onclick={() => (activeStatsTab = tab.key)}
+                >
+                  {tab.label}{#if tab.isVoided}
+                    <span
+                      style="color: #fca5a5; text-decoration: none; display: inline-block; margin-left: 4px; font-size: 0.7rem;"
+                      >FF</span
+                    >{/if}
+                </button>
+              {/each}
+            </div>
+          {/if}
 
           {#if activeStats}
             {#if !activeStats.isTotal}
@@ -418,6 +450,12 @@
                 </div>
               {/if}
               <div class="mb-3 text-sm" style="color: rgba(255,255,255,0.74);">
+                {#if activeStats.isVoided}
+                  <span
+                    class="mr-2 rounded-sm px-1.5 py-0.5 text-xs font-bold"
+                    style="background: rgba(248,113,113,0.2); color: #fca5a5;">VOIDED / FF</span
+                  >
+                {/if}
                 {teamName(match.team_a)}
                 {activeStats.team_a_rounds}-{activeStats.team_b_rounds}
                 {teamName(match.team_b)}
@@ -427,13 +465,35 @@
                 {#each match.maps as map}
                   <div
                     class="rounded-md border px-3 py-2"
-                    style="border-color: rgba(255,255,255,0.10); background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.82);"
+                    style="border-color: {map.is_voided
+                      ? 'rgba(248,113,113,0.2)'
+                      : 'rgba(255,255,255,0.10)'}; background: {map.is_voided
+                      ? 'rgba(248,113,113,0.06)'
+                      : 'rgba(255,255,255,0.04)'}; color: rgba(255,255,255,0.82); {map.is_voided
+                      ? 'opacity: 0.6;'
+                      : ''}"
                   >
-                    <div class="font-semibold">{map.map_label}</div>
-                    <div class="mt-1" style="color: rgba(255,255,255,0.62);">
+                    <div class="font-semibold">
+                      {map.map_label}
+                      {#if map.is_voided}<span
+                          class="ml-1 text-xs font-bold"
+                          style="color: #fca5a5;">FF</span
+                        >{/if}
+                    </div>
+                    <div
+                      class="mt-1"
+                      style="color: rgba(255,255,255,0.62); {map.is_voided
+                        ? 'text-decoration: line-through;'
+                        : ''}"
+                    >
                       {#if map.map_name}{map.map_name}{:else}Map{/if}
                     </div>
-                    <div class="mt-1" style="color: var(--text);">
+                    <div
+                      class="mt-1"
+                      style="color: var(--text); {map.is_voided
+                        ? 'text-decoration: line-through;'
+                        : ''}"
+                    >
                       {teamName(match.team_a)}
                       {map.team_a_rounds}-{map.team_b_rounds}
                       {teamName(match.team_b)}
@@ -507,8 +567,12 @@
                           <td class="px-3 py-2">{fmt(row.assists, 0)}</td>
                           <td class="px-3 py-2">{fmt(row.kd, 2)}</td>
                           <td class="px-3 py-2">{fmt(row.adr, 0)}</td>
-                          <td class="px-3 py-2">{fmt(row.kast_pct, 0)}%</td>
-                          <td class="px-3 py-2">{fmt(row.hs_pct, 0)}%</td>
+                          <td class="px-3 py-2"
+                            >{row.kast_pct != null ? `${fmt(row.kast_pct, 0)}%` : 'N/A'}</td
+                          >
+                          <td class="px-3 py-2"
+                            >{row.hs_pct != null ? `${fmt(row.hs_pct, 0)}%` : 'N/A'}</td
+                          >
                         </tr>
                       {/each}
                     </tbody>
@@ -579,8 +643,12 @@
                           <td class="px-3 py-2">{fmt(row.assists, 0)}</td>
                           <td class="px-3 py-2">{fmt(row.kd, 2)}</td>
                           <td class="px-3 py-2">{fmt(row.adr, 0)}</td>
-                          <td class="px-3 py-2">{fmt(row.kast_pct, 0)}%</td>
-                          <td class="px-3 py-2">{fmt(row.hs_pct, 0)}%</td>
+                          <td class="px-3 py-2"
+                            >{row.kast_pct != null ? `${fmt(row.kast_pct, 0)}%` : 'N/A'}</td
+                          >
+                          <td class="px-3 py-2"
+                            >{row.hs_pct != null ? `${fmt(row.hs_pct, 0)}%` : 'N/A'}</td
+                          >
                         </tr>
                       {/each}
                     </tbody>

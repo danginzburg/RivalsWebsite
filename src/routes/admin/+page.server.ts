@@ -87,7 +87,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
   if (approvedTeamIds.length > 0) {
     const { data: rosterRows, error: rosterError } = await supabaseAdmin
       .from('team_memberships')
-      .select('id, team_id, profile_id, player_name, role')
+      .select('id, team_id, profile_id, player_name, role, is_starter')
       .in('team_id', approvedTeamIds)
       .eq('is_active', true)
       .is('left_at', null)
@@ -122,6 +122,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
           profile_id: row.profile_id,
           player_name: (row as any).player_name ?? null,
           role: row.role,
+          is_starter: (row as any).is_starter ?? false,
           riot_id_base: p?.riot_id_base ?? null,
           display_name: p?.display_name ?? null,
           email: p?.email ?? null,
@@ -149,6 +150,37 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
       roster: approvedRosterMap.get(team.id) ?? [],
     }))
 
+  const { data: disbandedTeams, error: disbandedTeamsError } = await supabaseAdmin
+    .from('teams')
+    .select(
+      `
+      id,
+      name,
+      tag,
+      logo_path,
+      metadata,
+      status,
+      approval_status,
+      created_at
+    `
+    )
+    .eq('status', 'disbanded')
+    .order('created_at', { ascending: false })
+
+  if (disbandedTeamsError) {
+    console.error('Error fetching disbanded teams:', disbandedTeamsError)
+  }
+
+  const disbandedWithLogos = (disbandedTeams ?? []).map((team) => ({
+    ...team,
+    logo_url: team.logo_path
+      ? supabaseAdmin.storage.from('team-logos').getPublicUrl(team.logo_path).data.publicUrl
+      : null,
+    captain_profile: null,
+    roster_count: 0,
+    roster: [],
+  }))
+
   const { data: matches, error: matchesError } = await supabaseAdmin
     .from('matches')
     .select(
@@ -169,7 +201,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
       team_b:teams!matches_team_b_id_fkey (id, name, tag)
     `
     )
-    .order('created_at', { ascending: false })
+    .order('scheduled_at', { ascending: true, nullsFirst: false })
 
   if (matchesError) {
     console.error('Error fetching matches:', matchesError)
@@ -247,6 +279,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     seasons: normalizedSeasons,
     leaderboardBatches,
     approvedTeams: withLogoUrl(approvedTeams || []),
+    disbandedTeams: disbandedWithLogos,
     matches: (matches ?? []).map((match) => ({
       ...match,
       streams: streamsByMatch[match.id] ?? [],

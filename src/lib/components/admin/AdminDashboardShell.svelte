@@ -1,5 +1,13 @@
 <script lang="ts">
-  import { RefreshCw, UserCog, ShieldCheck, CalendarDays, Upload, Layers3 } from 'lucide-svelte'
+  import {
+    RefreshCw,
+    UserCog,
+    ShieldCheck,
+    CalendarDays,
+    Upload,
+    Layers3,
+    Shield,
+  } from 'lucide-svelte'
 
   import type { AdminTabId } from '$lib/admin/types'
   import type { Snippet } from 'svelte'
@@ -11,6 +19,7 @@
       teams: number
       matches: number
       seasons: number
+      accolades: number
     }
     isLoading: boolean
     errorMessage: string | null
@@ -112,6 +121,17 @@
         >
           <Layers3 size={18} />
           <span>Seasons ({counts.seasons})</span>
+        </button>
+        <button
+          type="button"
+          class="flex items-center gap-2 border-b-2 px-3 py-3 text-sm sm:px-5 sm:text-base"
+          style={activeTab === 'accolades'
+            ? 'border-color: var(--accent); color: var(--text); background: rgba(255, 255, 255, 0.05);'
+            : 'border-color: transparent; color: rgba(255,255,255,0.7);'}
+          onclick={() => onTabChange('accolades')}
+        >
+          <Shield size={18} />
+          <span>Accolades ({counts.accolades})</span>
         </button>
         <button
           type="button"

@@ -175,6 +175,53 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
   const adminProfile = await requireAdmin(locals.user)
   const body = await request.json()
 
+  const action = normalizeOptional(body.action)
+
+  if (action === 'toggle_starter') {
+    const membershipId = Number(body.membershipId)
+    const isStarter = Boolean(body.isStarter)
+
+    if (!Number.isFinite(membershipId)) {
+      throw error(400, 'Missing membershipId')
+    }
+
+    const { data: membership, error: membershipError } = await supabaseAdmin
+      .from('team_memberships')
+      .select('id, team_id, player_name, profile_id')
+      .eq('id', membershipId)
+      .eq('is_active', true)
+      .is('left_at', null)
+      .maybeSingle()
+
+    if (membershipError || !membership) {
+      throw error(404, 'Active team member not found')
+    }
+
+    const { error: updateError } = await supabaseAdmin
+      .from('team_memberships')
+      .update({ is_starter: isStarter })
+      .eq('id', membership.id)
+
+    if (updateError) {
+      throw error(500, 'Failed to update starter status')
+    }
+
+    await logAdminAction({
+      adminProfileId: adminProfile.id,
+      actionType: 'team_player_starter_toggled',
+      targetTable: 'team_memberships',
+      targetId: String(membership.id),
+      details: {
+        teamId: membership.team_id,
+        profileId: membership.profile_id,
+        playerName: membership.player_name ?? null,
+        isStarter,
+      },
+    })
+
+    return json({ success: true })
+  }
+
   const teamId = normalizeOptional(body.teamId)
   const profileId = normalizeOptional(body.profileId)
   const membershipId = Number(body.membershipId)

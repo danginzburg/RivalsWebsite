@@ -27,6 +27,11 @@
     streamForm: Record<string, any>
     existingStreamForm: Record<string, any>
     vodForm: Record<string, string>
+    matchMapsCache: Record<
+      string,
+      Array<{ id: string; map_order: number; map_name: string | null; is_voided: boolean }>
+    >
+    matchMapsLoading: Record<string, boolean>
     onCreateMatchTeamAIdChange: (value: string) => void
     onCreateMatchTeamBIdChange: (value: string) => void
     onCreateMatchBestOfChange: (value: string) => void
@@ -50,6 +55,8 @@
     onUpdateStreamForm: (matchId: string, patch: Record<string, any>) => void
     onAddMatchStream: (matchId: string) => void
     onVodChange: (matchId: string, value: string) => void
+    onFetchMatchMaps: (matchId: string) => void
+    onToggleMapVoided: (matchId: string, mapId: string, currentVoided: boolean) => void
   }
 
   let {
@@ -70,6 +77,8 @@
     streamForm,
     existingStreamForm,
     vodForm,
+    matchMapsCache,
+    matchMapsLoading,
     onCreateMatchTeamAIdChange,
     onCreateMatchTeamBIdChange,
     onCreateMatchBestOfChange,
@@ -90,6 +99,8 @@
     onUpdateStreamForm,
     onAddMatchStream,
     onVodChange,
+    onFetchMatchMaps,
+    onToggleMapVoided,
   }: Props = $props()
 </script>
 
@@ -230,6 +241,7 @@
             status: match.status === 'live' ? 'live' : 'scheduled',
             isPrimary: !(match.streams?.length > 0),
           }}
+          {@const maps = matchMapsCache[match.id] ?? []}
           <article
             class="rounded-md border p-3"
             style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
@@ -237,7 +249,10 @@
             <button
               type="button"
               class="flex w-full flex-wrap items-center justify-between gap-2 text-left"
-              onclick={() => onToggleExpandedMatch(match.id)}
+              onclick={() => {
+                onToggleExpandedMatch(match.id)
+                onFetchMatchMaps(match.id)
+              }}
             >
               <div>
                 <div class="text-sm" style="color: var(--text);">
@@ -453,6 +468,50 @@
                     Delete Match
                   </button>
                 </div>
+              </div>
+
+              <div class="mt-3 rounded-md border p-3" style="border-color: rgba(255,255,255,0.10);">
+                <div
+                  class="mb-2 text-[11px] font-semibold tracking-wide uppercase"
+                  style="color: rgba(255,255,255,0.7);"
+                >
+                  Maps - Void / FF
+                </div>
+                {#if maps.length > 0}
+                  <div class="space-y-2">
+                    {#each maps as map (map.id)}
+                      <div
+                        class="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-xs"
+                        style="border-color: {map.is_voided
+                          ? 'rgba(248,113,113,0.28)'
+                          : 'rgba(255,255,255,0.10)'}; background: {map.is_voided
+                          ? 'rgba(248,113,113,0.08)'
+                          : 'rgba(255,255,255,0.04)'};"
+                      >
+                        <div style="color: var(--text);">
+                          Map {map.map_order}{map.map_name ? ` - ${map.map_name}` : ''}
+                          {#if map.is_voided}
+                            <span class="ml-2 font-bold" style="color: #fca5a5;">VOIDED / FF</span>
+                          {/if}
+                        </div>
+                        <button
+                          type="button"
+                          class="rounded px-2 py-1 text-[11px] font-semibold"
+                          style={map.is_voided
+                            ? 'background: rgba(74,222,128,0.16); color: #86efac;'
+                            : 'background: rgba(248,113,113,0.16); color: #fca5a5;'}
+                          onclick={() => onToggleMapVoided(match.id, map.id, map.is_voided)}
+                        >
+                          {map.is_voided ? 'Restore' : 'Mark Voided/FF'}
+                        </button>
+                      </div>
+                    {/each}
+                  </div>
+                {:else if matchMapsLoading[match.id]}
+                  <p class="text-xs" style="color: rgba(255,255,255,0.62);">Loading maps...</p>
+                {:else}
+                  <p class="text-xs" style="color: rgba(255,255,255,0.62);">No maps recorded.</p>
+                {/if}
               </div>
 
               <div class="mt-3 rounded-md border p-3" style="border-color: rgba(255,255,255,0.10);">

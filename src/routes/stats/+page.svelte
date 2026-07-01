@@ -213,6 +213,9 @@
     if (key === 'player_name') {
       return String(av ?? '').localeCompare(String(bv ?? ''), undefined, { sensitivity: 'base' })
     }
+    if (key === 'agents') {
+      return parseAgents(av).length - parseAgents(bv).length
+    }
     const an = Number(av)
     const bn = Number(bv)
     const aNumOk = Number.isFinite(an)
