@@ -4,6 +4,7 @@ import { claimRelinkAfterProfileUpdate } from '$lib/server/players/claim-relink'
 import { normalizeRiotBase, isValidRiotBase } from '$lib/server/riot-id'
 import { supabaseErrorMessageIncludes } from '$lib/server/supabase/errors'
 import { toBatchLabel } from '$lib/server/stats/batch-label'
+import { average, sum } from '$lib/server/math'
 import {
   extractNumericLabel,
   isLatestLabel,
@@ -57,7 +58,6 @@ type MatchRel = {
 
 type ParticipatedRow = {
   team_id?: string | null
-  status?: string | null
   agents?: string | null
   acs?: number | null
   kills?: number | null
@@ -68,6 +68,22 @@ type ParticipatedRow = {
   kast_pct?: number | null
   hs_pct?: number | null
   matches?: MatchRel | MatchRel[] | null
+}
+
+type MatchHistoryEntry = {
+  match: MatchRel | null
+  team_id: string | null
+  opponent: TeamLite | null
+  score: { us: number; them: number }
+  agents: string | null
+  acs: number | null
+  kills: number | null
+  deaths: number | null
+  assists: number | null
+  kd: number | null
+  adr: number | null
+  kast_pct: number | null
+  hs_pct: number | null
 }
 
 function kindOrder(kind: unknown): number {
@@ -313,12 +329,11 @@ export const load = async ({
   })
 
   const { data: participated } = await supabaseAdmin
-    .from('player_match_stats')
+    .from('player_match_map_stats')
     .select(
       `
       match_id,
       team_id,
-      status,
       agents,
       acs,
       kills,
@@ -345,12 +360,21 @@ export const load = async ({
     `
     )
     .eq('profile_id', profileId)
-    .in('status', ['submitted', 'approved'])
     .order('created_at', { ascending: false })
-    .limit(50)
+    .limit(500)
 
-  const matchHistory = ((participated ?? []) as ParticipatedRow[])
-    .map((r) => {
+  const groupedParticipation = new Map<string, ParticipatedRow[]>()
+  for (const row of (participated ?? []) as ParticipatedRow[]) {
+    const matchRel = Array.isArray(row.matches) ? row.matches[0] : row.matches
+    if (!matchRel?.id) continue
+    const current = groupedParticipation.get(matchRel.id) ?? []
+    current.push(row)
+    groupedParticipation.set(matchRel.id, current)
+  }
+
+  const matchHistory = Array.from(groupedParticipation.values())
+    .map((rows): MatchHistoryEntry => {
+      const r = rows[0]
       const matchRel = Array.isArray(r.matches) ? r.matches[0] : r.matches
       const perspectiveTeamId =
         activeTeam &&
@@ -372,27 +396,40 @@ export const load = async ({
           : matchRel?.team_b_id === perspectiveTeamId
             ? { us: Number(matchRel?.team_b_score ?? 0), them: Number(matchRel?.team_a_score ?? 0) }
             : { us: Number(matchRel?.team_a_score ?? 0), them: Number(matchRel?.team_b_score ?? 0) }
+      const agents = Array.from(
+        new Set(
+          rows
+            .flatMap((entry) => String(entry.agents ?? '').split(/\s+/))
+            .map((value) => value.trim())
+            .filter(Boolean)
+        )
+      ).join(' ')
       return {
         match: matchRel ?? null,
-        team_id: perspectiveTeamId,
-        status: r.status,
+        team_id: perspectiveTeamId ?? null,
         opponent,
         score,
-        agents: r.agents ?? null,
-        acs: r.acs ?? null,
-        kills: r.kills ?? null,
-        deaths: r.deaths ?? null,
-        assists: r.assists ?? null,
-        kd: r.kd ?? null,
-        adr: r.adr ?? null,
-        kast_pct: r.kast_pct ?? null,
-        hs_pct: r.hs_pct ?? null,
+        agents: agents || null,
+        acs: average(rows.map((entry) => entry.acs)),
+        kills: sum(rows.map((entry) => entry.kills)),
+        deaths: sum(rows.map((entry) => entry.deaths)),
+        assists: sum(rows.map((entry) => entry.assists)),
+        kd: average(rows.map((entry) => entry.kd)),
+        adr: average(rows.map((entry) => entry.adr)),
+        kast_pct: average(rows.map((entry) => entry.kast_pct)),
+        hs_pct: average(rows.map((entry) => entry.hs_pct)),
       }
     })
     .filter(
-      (x): x is typeof x & { match: MatchRel } =>
+      (x): x is MatchHistoryEntry & { match: MatchRel } =>
         Boolean(x.match) && x.match?.approval_status === 'approved'
     )
+    .sort((a, b) => {
+      const at = a.match.ended_at ?? a.match.scheduled_at ?? ''
+      const bt = b.match.ended_at ?? b.match.scheduled_at ?? ''
+      return new Date(bt).getTime() - new Date(at).getTime()
+    })
+    .slice(0, 50)
 
   return {
     player: {
