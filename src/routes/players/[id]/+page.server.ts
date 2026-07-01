@@ -57,6 +57,10 @@ type MatchRel = {
 }
 
 type ParticipatedRow = {
+  id?: string | number | null
+  match_id?: string | null
+  profile_id?: string | null
+  player_name?: string | null
   team_id?: string | null
   agents?: string | null
   acs?: number | null
@@ -88,6 +92,16 @@ type MatchHistoryEntry = {
 
 function kindOrder(kind: unknown): number {
   return kind === 'aggregate' ? 0 : kind === 'weekly' ? 1 : 2
+}
+
+function normalizeNameBase(value: unknown): string {
+  const raw = String(value ?? '').trim()
+  if (!raw) return ''
+  return raw.split('#')[0].trim()
+}
+
+function quoteOrValue(value: string): string {
+  return `"${value.replaceAll('"', '""')}"`
 }
 
 export const load = async ({
@@ -328,11 +342,11 @@ export const load = async ({
     }
   })
 
-  const { data: participated } = await supabaseAdmin
-    .from('player_match_map_stats')
-    .select(
-      `
+  const matchMapStatsSelect = `
+      id,
       match_id,
+      profile_id,
+      player_name,
       team_id,
       agents,
       acs,
@@ -358,13 +372,61 @@ export const load = async ({
         team_b:teams!matches_team_b_id_fkey (id, name, tag)
       )
     `
-    )
+
+  const { data: claimedParticipation } = await supabaseAdmin
+    .from('player_match_map_stats')
+    .select(matchMapStatsSelect)
     .eq('profile_id', profileId)
     .order('created_at', { ascending: false })
     .limit(500)
 
+  const importNameFilters = Array.from(
+    new Set(
+      [
+        profileRel.display_name,
+        profileRel.riot_id_base,
+        (profileRel as ProfileRow).stats_player_name,
+      ]
+        .flatMap((name) => {
+          const raw = String(name ?? '').trim()
+          const base = normalizeNameBase(raw)
+          return raw && base ? [raw, base, `${base}#%`] : []
+        })
+        .filter(Boolean)
+    )
+  )
+
+  const { data: unmatchedParticipation } =
+    importNameFilters.length > 0
+      ? await supabaseAdmin
+          .from('player_match_map_stats')
+          .select(matchMapStatsSelect)
+          .is('profile_id', null)
+          .or(
+            importNameFilters
+              .map((name) =>
+                name.endsWith('#%')
+                  ? `player_name.ilike.${quoteOrValue(name)}`
+                  : `player_name.eq.${quoteOrValue(name)}`
+              )
+              .join(',')
+          )
+          .order('created_at', { ascending: false })
+          .limit(500)
+      : { data: [] }
+
+  const participatedById = new Map<string, ParticipatedRow>()
+  for (const row of [
+    ...((claimedParticipation ?? []) as ParticipatedRow[]),
+    ...((unmatchedParticipation ?? []) as ParticipatedRow[]),
+  ]) {
+    const id = String(row.id ?? '')
+    if (!id) continue
+    participatedById.set(id, row)
+  }
+
   const groupedParticipation = new Map<string, ParticipatedRow[]>()
-  for (const row of (participated ?? []) as ParticipatedRow[]) {
+  for (const row of participatedById.values()) {
     const matchRel = Array.isArray(row.matches) ? row.matches[0] : row.matches
     if (!matchRel?.id) continue
     const current = groupedParticipation.get(matchRel.id) ?? []
