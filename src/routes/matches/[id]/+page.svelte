@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
+  import AdminEditLink from '$lib/components/AdminEditLink.svelte'
   import { BarChart3, CalendarDays, RadioTower, Video } from 'lucide-svelte'
   import { SvelteMap } from 'svelte/reactivity'
   import { resolve } from '$app/paths'
@@ -221,13 +222,11 @@
             </span>
           {/if}
           {#if isAdmin}
-            <a
+            <AdminEditLink
               href="/admin?tab=matches"
+              label="Edit Match"
               class="rounded-md px-3 py-1.5 text-xs font-semibold"
-              style="background: rgba(59,130,246,0.2); color: #93c5fd;"
-            >
-              Edit Match
-            </a>
+            />
           {/if}
         </div>
       </div>

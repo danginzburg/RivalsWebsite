@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
+  import AdminEditLink from '$lib/components/AdminEditLink.svelte'
   import { Trophy, Users, CalendarDays, BarChart3 } from 'lucide-svelte'
   import { resolve } from '$app/paths'
 
@@ -85,13 +86,11 @@
             <div class="flex items-center justify-between gap-3">
               <h1 class="responsive-title">{team.name}{team.tag ? ` [${team.tag}]` : ''}</h1>
               {#if isAdmin}
-                <a
+                <AdminEditLink
                   href="/admin?tab=teams"
+                  label="Edit Team"
                   class="shrink-0 rounded-md px-3 py-1.5 text-xs font-semibold"
-                  style="background: rgba(59,130,246,0.2); color: #93c5fd;"
-                >
-                  Edit Team
-                </a>
+                />
               {/if}
             </div>
             {#if team.org || team.created_at}

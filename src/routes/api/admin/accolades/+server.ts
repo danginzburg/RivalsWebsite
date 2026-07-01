@@ -2,41 +2,21 @@ import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { logAdminAction } from '$lib/server/audit/admin-actions'
-
-function normalizeOptional(value: unknown): string | null {
-  if (typeof value !== 'string') return null
-  const trimmed = value.trim()
-  return trimmed.length > 0 ? trimmed : null
-}
-
-function sanitizeFilename(name: string): string {
-  const ascii = name.replace(/[-￿]/g, '')
-  return ascii
-    .replace(/[^A-Za-z0-9._-]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-+/, '')
-    .replace(/-+$/, '')
-    .slice(0, 80)
-}
-
-function isImageFile(file: File) {
-  return typeof file.type === 'string' && file.type.startsWith('image/')
-}
+import { normalizeOptional, sanitizeFilename, isImageFile } from '$lib/server/upload'
 
 export const GET: RequestHandler = async ({ locals }) => {
   await requireAdmin(locals.user)
 
-  const { data: accolades, error: fetchError } = await supabaseAdmin
-    .from('accolades')
-    .select('id, name, logo_path, icon_key, created_at')
-    .order('created_at', { ascending: false })
+  const [{ data: accolades, error: fetchError }, { data: assignments, error: assignError }] =
+    await Promise.all([
+      supabaseAdmin
+        .from('accolades')
+        .select('id, name, logo_path, icon_key, created_at')
+        .order('created_at', { ascending: false }),
+      supabaseAdmin.from('accolade_assignments').select('id, accolade_id, profile_id, context'),
+    ])
 
   if (fetchError) throw error(500, 'Failed to load accolades')
-
-  const { data: assignments, error: assignError } = await supabaseAdmin
-    .from('accolade_assignments')
-    .select('id, accolade_id, profile_id, context')
-
   if (assignError) throw error(500, 'Failed to load assignments')
 
   const profileIds = Array.from(
@@ -189,11 +169,13 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
 
     if (!profile) throw error(404, `No player found matching "${playerName}"`)
 
-    const { error: insertError } = await supabaseAdmin
+    const { data: assignment, error: insertError } = await supabaseAdmin
       .from('accolade_assignments')
       .insert({ accolade_id: accoladeId, profile_id: profile.id, context })
+      .select('id')
+      .single()
 
-    if (insertError) throw error(500, 'Failed to assign accolade')
+    if (insertError || !assignment) throw error(500, 'Failed to assign accolade')
 
     await logAdminAction({
       adminProfileId: admin.id,
@@ -206,7 +188,7 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
     const displayName = profile.riot_id_base ?? profile.display_name ?? 'Player'
     return json({
       success: true,
-      assignment: { profile_id: profile.id, display_name: displayName, context },
+      assignment: { id: assignment.id, profile_id: profile.id, display_name: displayName, context },
     })
   }
 

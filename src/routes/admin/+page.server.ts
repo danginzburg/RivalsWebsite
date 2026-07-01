@@ -145,10 +145,14 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
       roster: approvedRosterMap.get(team.id) ?? [],
     }))
 
-  const { data: disbandedTeams, error: disbandedTeamsError } = await supabaseAdmin
-    .from('teams')
-    .select(
-      `
+  const [
+    { data: disbandedTeams, error: disbandedTeamsError },
+    { data: matches, error: matchesError },
+  ] = await Promise.all([
+    supabaseAdmin
+      .from('teams')
+      .select(
+        `
       id,
       name,
       tag,
@@ -158,28 +162,13 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
       approval_status,
       created_at
     `
-    )
-    .eq('status', 'disbanded')
-    .order('created_at', { ascending: false })
-
-  if (disbandedTeamsError) {
-    console.error('Error fetching disbanded teams:', disbandedTeamsError)
-  }
-
-  const disbandedWithLogos = (disbandedTeams ?? []).map((team) => ({
-    ...team,
-    logo_url: team.logo_path
-      ? supabaseAdmin.storage.from('team-logos').getPublicUrl(team.logo_path).data.publicUrl
-      : null,
-    captain_profile: null,
-    roster_count: 0,
-    roster: [],
-  }))
-
-  const { data: matches, error: matchesError } = await supabaseAdmin
-    .from('matches')
-    .select(
-      `
+      )
+      .eq('status', 'disbanded')
+      .order('created_at', { ascending: false }),
+    supabaseAdmin
+      .from('matches')
+      .select(
+        `
       id,
        status,
         approval_status,
@@ -195,8 +184,23 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
       team_a:teams!matches_team_a_id_fkey (id, name, tag),
       team_b:teams!matches_team_b_id_fkey (id, name, tag)
     `
-    )
-    .order('scheduled_at', { ascending: true, nullsFirst: false })
+      )
+      .order('scheduled_at', { ascending: true, nullsFirst: false }),
+  ])
+
+  if (disbandedTeamsError) {
+    console.error('Error fetching disbanded teams:', disbandedTeamsError)
+  }
+
+  const disbandedWithLogos = (disbandedTeams ?? []).map((team) => ({
+    ...team,
+    logo_url: team.logo_path
+      ? supabaseAdmin.storage.from('team-logos').getPublicUrl(team.logo_path).data.publicUrl
+      : null,
+    captain_profile: null,
+    roster_count: 0,
+    roster: [],
+  }))
 
   if (matchesError) {
     console.error('Error fetching matches:', matchesError)

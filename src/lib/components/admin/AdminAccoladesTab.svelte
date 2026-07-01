@@ -1,7 +1,5 @@
 <script lang="ts">
-  import goldMedal from '$lib/assets/accolades/gold_medal.svg'
-  import silverMedal from '$lib/assets/accolades/silver_medal.svg'
-  import bronzeMedal from '$lib/assets/accolades/bronze_medal.svg'
+  import { builtInAccoladeIcons } from '$lib/accolades/icons'
 
   type Accolade = {
     id: string
@@ -40,12 +38,6 @@
     onAssignContextChange: (accoladeId: string, value: string) => void
     onAssignAccolade: (accoladeId: string) => void
     onUnassignAccolade: (accoladeId: string, assignmentId: string) => void
-  }
-
-  const builtInIcons: Record<string, string> = {
-    gold_medal: goldMedal,
-    silver_medal: silverMedal,
-    bronze_medal: bronzeMedal,
   }
 
   let {
@@ -124,7 +116,7 @@
     {:else}
       <div class="space-y-3">
         {#each accolades as accolade (accolade.id)}
-          {@const iconSrc = accolade.icon_key ? builtInIcons[accolade.icon_key] : null}
+          {@const iconSrc = accolade.icon_key ? builtInAccoladeIcons[accolade.icon_key] : null}
           <article
             class="rounded-md border p-3"
             style="border-color: rgba(255,255,255,0.10); background: rgba(0,0,0,0.18);"
@@ -220,8 +212,11 @@
             </div>
             <div class="mt-2 flex items-center justify-between gap-2">
               <div class="text-xs" style="color: rgba(255,255,255,0.62);">
-                {accoladeLogoStatus[accolade.id] === 'uploading' ? 'Uploading logo...' : ''}
-                {accoladeLogoStatus[accolade.id] === 'done' ? 'Logo updated.' : ''}
+                {#if accoladeLogoStatus[accolade.id] === 'uploading'}
+                  Uploading logo...
+                {:else if accoladeLogoStatus[accolade.id] === 'done'}
+                  Logo updated.
+                {/if}
               </div>
               <button
                 type="button"

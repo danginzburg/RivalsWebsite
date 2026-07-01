@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
+  import AdminEditLink from '$lib/components/AdminEditLink.svelte'
   import { Users } from 'lucide-svelte'
   import { resolve } from '$app/paths'
 
@@ -24,13 +25,7 @@
           </div>
         </div>
         {#if isAdmin}
-          <a
-            href="/admin?tab=teams"
-            class="rounded-md px-3 py-2 text-xs font-semibold"
-            style="background: rgba(59,130,246,0.2); color: #93c5fd;"
-          >
-            Manage Teams
-          </a>
+          <AdminEditLink href="/admin?tab=teams" label="Manage Teams" />
         {/if}
       </div>
 

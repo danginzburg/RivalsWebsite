@@ -18,8 +18,16 @@ create table if not exists public.accolade_assignments (
 create index if not exists accolade_assignments_profile_idx on public.accolade_assignments(profile_id);
 create index if not exists accolade_assignments_accolade_idx on public.accolade_assignments(accolade_id);
 
-insert into public.accolades (name, icon_key) values
+insert into public.accolades (name, icon_key)
+select seed.name, seed.icon_key
+from (values
   ('1st Place', 'gold_medal'),
   ('2nd Place', 'silver_medal'),
   ('3rd Place', 'bronze_medal')
-on conflict do nothing;
+) as seed(name, icon_key)
+where not exists (
+  select 1
+  from public.accolades existing
+  where existing.name = seed.name
+    and existing.icon_key = seed.icon_key
+);

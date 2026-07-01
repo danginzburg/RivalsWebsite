@@ -6,16 +6,7 @@
   import { SvelteMap } from 'svelte/reactivity'
   import { resolve } from '$app/paths'
   import miksIcon from '$lib/assets/agents/Miks_icon.webp'
-  import goldMedal from '$lib/assets/accolades/gold_medal.svg'
-  import silverMedal from '$lib/assets/accolades/silver_medal.svg'
-  import bronzeMedal from '$lib/assets/accolades/bronze_medal.svg'
-
-  const builtInIcons: Record<string, string> = {
-    gold_medal: goldMedal,
-    silver_medal: silverMedal,
-    bronze_medal: bronzeMedal,
-  }
-
+  import { builtInAccoladeIcons } from '$lib/accolades/icons'
   import { enhance } from '$app/forms'
 
   let { data, form }: PageProps = $props()
@@ -117,9 +108,9 @@
           <div>
             <div class="flex flex-wrap items-center gap-2 leading-none">
               <h1 class="responsive-title leading-none">{player.riot_id}</h1>
-              {#each accolades as accolade}
+              {#each accolades as accolade (accolade.id)}
                 {@const iconSrc = accolade.icon_key
-                  ? (builtInIcons[accolade.icon_key] ?? null)
+                  ? (builtInAccoladeIcons[accolade.icon_key] ?? null)
                   : null}
                 {@const tooltip = accolade.context
                   ? `${accolade.name} — ${accolade.context}`
