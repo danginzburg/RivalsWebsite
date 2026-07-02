@@ -70,15 +70,47 @@ function parseInteger(value: unknown, fieldName: string) {
   return n
 }
 
-function dayRange(isoString: string) {
-  const date = new Date(isoString)
-  const start = new Date(
-    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 0, 0, 0)
-  )
-  const end = new Date(
-    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 23, 59, 59, 999)
-  )
-  return { start: start.toISOString(), end: end.toISOString() }
+// Timezone tolerance for matching a sheet series against an existing match.
+// Sheet series timestamps and DB scheduled_at values can land on different UTC
+// calendar days for the same real-world match (e.g. an evening series recorded
+// in a US timezone rolls past midnight UTC), so we widen the search window and
+// pick the nearest candidate rather than requiring an exact UTC-day overlap.
+export const MATCH_RESOLUTION_WINDOW_MS = 48 * 60 * 60 * 1000
+
+function resolutionWindow(isoString: string) {
+  const anchor = new Date(isoString).getTime()
+  return {
+    start: new Date(anchor - MATCH_RESOLUTION_WINDOW_MS).toISOString(),
+    end: new Date(anchor + MATCH_RESOLUTION_WINDOW_MS).toISOString(),
+  }
+}
+
+// Given the candidate matches returned for a team pair inside the resolution
+// window, pick the one that best represents this series. We prefer a match on
+// the same UTC calendar day (the historical exact-match behaviour), and
+// otherwise fall back to the nearest match by scheduled_at. Choosing the
+// nearest candidate keeps genuine rematches (e.g. double round-robin,
+// playoffs) that fall outside the window as separate matches, while still
+// collapsing a single series whose timestamp drifted across midnight.
+export function pickNearestMatch<T extends { scheduled_at: string | null }>(
+  candidates: T[],
+  scheduledAt: string
+): T | null {
+  if (candidates.length === 0) return null
+
+  const anchor = new Date(scheduledAt).getTime()
+  const anchorDay = scheduledAt.slice(0, 10)
+
+  const sameDay = candidates.filter((row) => (row.scheduled_at ?? '').slice(0, 10) === anchorDay)
+  const pool = sameDay.length > 0 ? sameDay : candidates
+
+  return pool.reduce((nearest, row) => {
+    if (!row.scheduled_at) return nearest
+    if (!nearest.scheduled_at) return row
+    const rowDelta = Math.abs(new Date(row.scheduled_at).getTime() - anchor)
+    const nearestDelta = Math.abs(new Date(nearest.scheduled_at).getTime() - anchor)
+    return rowDelta < nearestDelta ? row : nearest
+  }, pool[0])
 }
 
 function inferBestOf(mapCount: number) {
@@ -196,7 +228,7 @@ export async function importCompletedSeries({
   if (importedTeamA.id === importedTeamB.id)
     throw error(400, 'Teams must resolve to different teams')
 
-  const { start, end } = dayRange(scheduledAt)
+  const { start, end } = resolutionWindow(scheduledAt)
   const { data: existingMatches, error: existingMatchesError } = await supabaseAdmin
     .from('matches')
     .select('id, team_a_id, team_b_id, metadata, status, scheduled_at')
@@ -208,7 +240,7 @@ export async function importCompletedSeries({
 
   if (existingMatchesError) throw error(500, 'Failed to check existing matches')
 
-  let match = (existingMatches ?? [])[0] as MatchRow
+  let match = pickNearestMatch(existingMatches ?? [], scheduledAt) as MatchRow
   if (!match) {
     const { data: createdMatch, error: createMatchError } = await supabaseAdmin
       .from('matches')
@@ -667,7 +699,7 @@ export async function importNoShowForfeit({
     throw error(400, 'Scores must favor the winning team')
   }
 
-  const { start, end } = dayRange(scheduledAt)
+  const { start, end } = resolutionWindow(scheduledAt)
   const { data: existingMatches, error: existingMatchesError } = await supabaseAdmin
     .from('matches')
     .select('id, team_a_id, team_b_id, metadata, status, scheduled_at')
@@ -679,7 +711,7 @@ export async function importNoShowForfeit({
 
   if (existingMatchesError) throw error(500, 'Failed to check existing matches')
 
-  let match = (existingMatches ?? [])[0] as MatchRow
+  let match = pickNearestMatch(existingMatches ?? [], scheduledAt) as MatchRow
   if (!match) {
     const { data: createdMatch, error: createMatchError } = await supabaseAdmin
       .from('matches')

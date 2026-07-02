@@ -29,6 +29,25 @@ function numberFromRow(row: Record<string, unknown>, candidates: string[]): numb
   return 0
 }
 
+function percentFromRow(row: Record<string, unknown>, candidates: string[]): number {
+  for (const key of Object.keys(row)) {
+    if (candidates.includes(key.toLowerCase().trim())) {
+      const raw = String(row[key] ?? '').trim()
+      if (!raw) return 0
+      if (/^n\/?a$/i.test(raw)) return 0
+
+      const hasPercent = raw.includes('%')
+      const cleaned = raw.replace('%', '').trim()
+      const n = Number(cleaned)
+      if (!Number.isFinite(n)) return 0
+      // Some exports provide KAST/HS as 0-1 instead of 0-100.
+      if (!hasPercent && n > 0 && n <= 1) return n * 100
+      return n
+    }
+  }
+  return 0
+}
+
 function stringFromRow(row: Record<string, unknown>, candidates: string[]): string | null {
   for (const key of Object.keys(row)) {
     if (candidates.includes(key.toLowerCase().trim())) {
@@ -131,10 +150,10 @@ async function main() {
           assists: numberFromRow(row, ['assists', 'a']),
           kd: numberFromRow(row, ['kd', 'k/d']),
           adr: numberFromRow(row, ['adr']),
-          kast_pct: numberFromRow(row, ['kast_pct', 'kast', 'kast%']),
+          kast_pct: percentFromRow(row, ['kast_pct', 'kast', 'kast%']),
           fk: numberFromRow(row, ['fk', 'first kills']),
           fd: numberFromRow(row, ['fd', 'first deaths']),
-          hs_pct: numberFromRow(row, ['hs_pct', 'hs%', 'headshot%']),
+          hs_pct: percentFromRow(row, ['hs_pct', 'hs%', 'headshot%']),
           plants: numberFromRow(row, ['plants']),
           defuses: numberFromRow(row, ['defuses']),
           econ_rating: numberFromRow(row, ['econ_rating', 'econ']),

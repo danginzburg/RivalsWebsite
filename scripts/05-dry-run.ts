@@ -4,20 +4,21 @@ import { supabaseAdmin } from './lib/db'
 import { renderDryRunMarkdown, type DryRunSeriesResult } from './lib/report'
 import { OUT_DIR, DATA_DIR, readJson, readTeamAliases } from './lib/cli'
 import type { ImportSeriesPayload } from './04-join-map-stats'
+import {
+  MATCH_RESOLUTION_WINDOW_MS,
+  pickNearestMatch,
+} from '../src/lib/server/matches/import-lifecycle'
 
 function normalizeTeamKey(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, ' ')
 }
 
-function dayRange(isoString: string) {
-  const date = new Date(isoString)
-  const start = new Date(
-    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 0, 0, 0)
-  )
-  const end = new Date(
-    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 23, 59, 59, 999)
-  )
-  return { start: start.toISOString(), end: end.toISOString() }
+function resolutionWindow(isoString: string) {
+  const anchor = new Date(isoString).getTime()
+  return {
+    start: new Date(anchor - MATCH_RESOLUTION_WINDOW_MS).toISOString(),
+    end: new Date(anchor + MATCH_RESOLUTION_WINDOW_MS).toISOString(),
+  }
 }
 
 async function main() {
@@ -89,7 +90,7 @@ async function main() {
       'teamId' in teamBAlias &&
       firstMap.scheduledAt
     ) {
-      const { start, end } = dayRange(firstMap.scheduledAt)
+      const { start, end } = resolutionWindow(firstMap.scheduledAt)
       const { data } = await supabaseAdmin
         .from('matches')
         .select('id, team_a_id, team_b_id, scheduled_at')
@@ -99,7 +100,7 @@ async function main() {
         .gte('scheduled_at', start)
         .lte('scheduled_at', end)
 
-      existingMatchId = (data ?? [])[0]?.id ?? null
+      existingMatchId = pickNearestMatch(data ?? [], firstMap.scheduledAt)?.id ?? null
     } else {
       softIssues.push(
         `${payload.seriesKey}: team not yet created in DB, cannot check for existing match`

@@ -13,6 +13,20 @@ function toNumber(value: unknown): number | null {
   return Number.isFinite(n) ? n : null
 }
 
+function toPercent(value: unknown): number | null {
+  const raw = String(value ?? '').trim()
+  if (!raw) return null
+  if (/^n\/?a$/i.test(raw)) return null
+
+  const hasPercent = raw.includes('%')
+  const cleaned = raw.replace('%', '').trim()
+  const n = Number(cleaned)
+  if (!Number.isFinite(n)) return null
+  // Some exports provide KAST/HS as 0-1 instead of 0-100.
+  if (!hasPercent && n > 0 && n <= 1) return n * 100
+  return n
+}
+
 function pick(row: Record<string, unknown>, candidates: string[]): unknown {
   for (const key of Object.keys(row)) {
     if (candidates.includes(key.toLowerCase().trim())) return row[key]
@@ -70,7 +84,7 @@ async function importStats(authSub: string, wb2: Wb2Parsed, replaceBatch: boolea
     rounds_lost: toNumber(pick(row, ['rounds_lost', 'rounds lost'])),
     acs: toNumber(pick(row, ['acs'])),
     kd: toNumber(pick(row, ['kd', 'k/d'])),
-    kast_pct: toNumber(pick(row, ['kast_pct', 'kast', 'kast%'])),
+    kast_pct: toPercent(pick(row, ['kast_pct', 'kast', 'kast%'])),
     adr: toNumber(pick(row, ['adr'])),
     kills: toNumber(pick(row, ['kills', 'k'])),
     kpg: toNumber(pick(row, ['kpg'])),
@@ -85,7 +99,7 @@ async function importStats(authSub: string, wb2: Wb2Parsed, replaceBatch: boolea
     fkpg: toNumber(pick(row, ['fkpg'])),
     fd: toNumber(pick(row, ['fd'])),
     fdpg: toNumber(pick(row, ['fdpg'])),
-    hs_pct: toNumber(pick(row, ['hs_pct', 'hs%'])),
+    hs_pct: toPercent(pick(row, ['hs_pct', 'hs%'])),
     plants: toNumber(pick(row, ['plants'])),
     plants_per_game: toNumber(pick(row, ['plants_per_game', 'plants per game', 'plants / game'])),
     defuses: toNumber(pick(row, ['defuses'])),
