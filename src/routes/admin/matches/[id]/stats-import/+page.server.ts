@@ -2,7 +2,11 @@ import { error } from '@sveltejs/kit'
 import type { Actions, PageServerLoad } from './$types'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
-import { buildProfileMatcher, getProfilesForImports } from '$lib/server/imports/matching'
+import {
+  buildProfileMatcher,
+  getProfilesForImports,
+  rebuildPlayerMatchStats,
+} from '$lib/server/imports/matching'
 import { errorMessage } from '$lib/server/errors'
 
 type MatchMapRow = {
@@ -265,6 +269,31 @@ function parseMapCsv(text: string, profileMap: Map<string, string>): ParsedRow[]
   return out
 }
 
+function applyMapRoundContext(rows: ParsedRow[], teamARounds: number, teamBRounds: number) {
+  const totalRounds = teamARounds + teamBRounds
+
+  return rows.map((row) => {
+    if (row.rounds > 0) return row
+
+    const roundsWon =
+      row.side === 'a' ? teamARounds : row.side === 'b' ? teamBRounds : row.rounds_won
+    const roundsLost =
+      row.side === 'a' ? teamBRounds : row.side === 'b' ? teamARounds : row.rounds_lost
+
+    return {
+      ...row,
+      rounds: totalRounds,
+      rounds_won: roundsWon,
+      rounds_lost: roundsLost,
+      games_won: roundsWon > roundsLost ? 1 : 0,
+      games_lost: roundsWon < roundsLost ? 1 : 0,
+      kpr: totalRounds > 0 ? row.kills / totalRounds : 0,
+      dpr: totalRounds > 0 ? row.deaths / totalRounds : 0,
+      apr: totalRounds > 0 ? row.assists / totalRounds : 0,
+    }
+  })
+}
+
 export const load: PageServerLoad = async ({ locals, params }) => {
   await requireAdmin(locals.user)
 
@@ -337,7 +366,12 @@ export const actions: Actions = {
     const teamBRoundsRaw = String(form.get('teamBRounds') ?? '').trim()
     const teamARounds = teamARoundsRaw.length ? Number(teamARoundsRaw) : null
     const teamBRounds = teamBRoundsRaw.length ? Number(teamBRoundsRaw) : null
-    if (!Number.isFinite(teamARounds ?? NaN) || !Number.isFinite(teamBRounds ?? NaN)) {
+    if (
+      teamARounds === null ||
+      teamBRounds === null ||
+      !Number.isFinite(teamARounds) ||
+      !Number.isFinite(teamBRounds)
+    ) {
       throw error(400, 'Team rounds are required')
     }
 
@@ -374,7 +408,7 @@ export const actions: Actions = {
     }
 
     const text = await file.text()
-    const parsed = parseMapCsv(text, profileMap)
+    const parsed = applyMapRoundContext(parseMapCsv(text, profileMap), teamARounds, teamBRounds)
 
     for (const row of parsed) {
       if (!row.matched_profile_id) {
@@ -504,6 +538,12 @@ export const actions: Actions = {
       throw error(500, 'player_match_map_stats table missing; apply Supabase migrations first')
     }
     if (insertError) throw error(500, 'Failed to insert player map stats')
+
+    try {
+      await rebuildPlayerMatchStats(matchId)
+    } catch {
+      throw error(500, 'Failed to rebuild player match stats')
+    }
 
     return { success: true }
   },
