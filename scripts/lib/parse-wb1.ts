@@ -1,5 +1,5 @@
 import type * as XLSX from 'xlsx'
-import { listSheetNames, sheetRowsRaw } from './sheets'
+import { listSheetNames, sheetRowsRaw, toText } from './sheets'
 
 export type Wb1MapScore = {
   mapName: string
@@ -35,12 +35,6 @@ const NON_TEAM_TABS = new Set(['map rotation', 'leaderboard', 'groups'])
 // Per-map score cells look like "Bind 13-7"; some sheets write "13-7 Bind" so we accept both orders.
 const MAP_SCORE_RE =
   /^\s*(?:([A-Za-z' ]+?)\s+(\d+)\s*-\s*(\d+)|(\d+)\s*-\s*(\d+)\s+([A-Za-z' ]+))\s*$/
-
-function toText(value: unknown): string {
-  if (value === null || value === undefined) return ''
-  if (value instanceof Date) return value.toISOString()
-  return String(value).trim()
-}
 
 function parseSeriesScore(raw: string): Wb1SeriesScore | null {
   const trimmed = raw.trim().toUpperCase()

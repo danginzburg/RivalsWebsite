@@ -5,58 +5,9 @@ import { joinMapsToSeries, type TabOverrides } from './lib/join-maps'
 import type { Series } from './lib/series'
 import type { Wb2Parsed } from './lib/parse-wb2'
 import { normalizeImportKey } from '../src/lib/server/imports/matching'
+import { numberFromRow, percentFromRow, playerNameFromRow, stringFromRow } from './lib/row-fields'
 
 type PlayerAlias = { profileId: string; statsPlayerName?: string } | null
-
-function playerNameFromRow(row: Record<string, unknown>): string | null {
-  for (const key of Object.keys(row)) {
-    const k = key.toLowerCase().trim()
-    if (k === 'player' || k === 'player_name' || k === 'player name' || k === 'name') {
-      const value = row[key]
-      return typeof value === 'string' ? value.trim() : value != null ? String(value).trim() : null
-    }
-  }
-  return null
-}
-
-function numberFromRow(row: Record<string, unknown>, candidates: string[]): number {
-  for (const key of Object.keys(row)) {
-    if (candidates.includes(key.toLowerCase().trim())) {
-      const n = Number(row[key])
-      if (Number.isFinite(n)) return n
-    }
-  }
-  return 0
-}
-
-function percentFromRow(row: Record<string, unknown>, candidates: string[]): number {
-  for (const key of Object.keys(row)) {
-    if (candidates.includes(key.toLowerCase().trim())) {
-      const raw = String(row[key] ?? '').trim()
-      if (!raw) return 0
-      if (/^n\/?a$/i.test(raw)) return 0
-
-      const hasPercent = raw.includes('%')
-      const cleaned = raw.replace('%', '').trim()
-      const n = Number(cleaned)
-      if (!Number.isFinite(n)) return 0
-      // Some exports provide KAST/HS as 0-1 instead of 0-100.
-      if (!hasPercent && n > 0 && n <= 1) return n * 100
-      return n
-    }
-  }
-  return 0
-}
-
-function stringFromRow(row: Record<string, unknown>, candidates: string[]): string | null {
-  for (const key of Object.keys(row)) {
-    if (candidates.includes(key.toLowerCase().trim())) {
-      const value = row[key]
-      return typeof value === 'string' ? value.trim() : value != null ? String(value) : null
-    }
-  }
-  return null
-}
 
 function sideFromRow(row: Record<string, unknown>): 'a' | 'b' {
   const side = stringFromRow(row, ['side', 'team side'])

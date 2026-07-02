@@ -1,7 +1,8 @@
 import type { Series } from './series'
 import type { Wb2MapTab, Wb2RosterRow } from './parse-wb2'
-
-export type TeamAlias = { teamId: string } | { create: { name: string; tag: string } }
+import type { TeamAlias } from './cli'
+import { normalizeImportKey as normKey } from '../../src/lib/server/imports/matching'
+import { playerNameFromRow } from './row-fields'
 
 export type JoinedMapRow = {
   mapIndex: number
@@ -19,10 +20,6 @@ export type JoinedSeries = Series & {
 }
 
 export type TabOverrides = Record<string, string>
-
-function normKey(value: string): string {
-  return value.trim().toLowerCase().replace(/\s+/g, ' ')
-}
 
 function dateKey(value: string | null | undefined): string {
   const raw = String(value ?? '').trim()
@@ -47,17 +44,6 @@ function tabOrder(value: string | null): number {
   const match = String(value ?? '').match(/^(\d+)\s+m(\d+)$/i)
   if (!match) return Number.MAX_SAFE_INTEGER
   return Number(match[1]) * 10 + Number(match[2])
-}
-
-function playerNameColumn(row: Record<string, unknown>): string | null {
-  for (const key of Object.keys(row)) {
-    const k = key.toLowerCase().trim()
-    if (k === 'player' || k === 'player_name' || k === 'player name' || k === 'name') {
-      const value = row[key]
-      return typeof value === 'string' ? value : value != null ? String(value) : null
-    }
-  }
-  return null
 }
 
 function flipRowSide(row: Record<string, unknown>): Record<string, unknown> {
@@ -129,7 +115,7 @@ function scoreRosterOverlap(
   if (!roster) return 0
   let overlap = 0
   for (const row of tab.playerRows) {
-    const name = playerNameColumn(row)
+    const name = playerNameFromRow(row)
     if (name && roster.has(normKey(name))) overlap++
   }
   return overlap

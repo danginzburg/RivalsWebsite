@@ -1,5 +1,5 @@
 import type * as XLSX from 'xlsx'
-import { listSheetNames, sheetRows, sheetRowsRaw, sheetRowsRawFormatted } from './sheets'
+import { listSheetNames, sheetRows, sheetRowsRaw, sheetRowsRawFormatted, toText } from './sheets'
 
 export type Wb2StatRow = Record<string, unknown> & {
   player_name?: unknown
@@ -36,12 +36,6 @@ export type Wb2Parsed = {
 const STATS_TAB_CANDIDATES = ['stats']
 const ROSTER_TAB_CANDIDATES = ['teams', 'roster', 'team roster', 'rosters']
 const MAP_TAB_RE = /^(?:m\d+|\d+\s+m\d+)$/i
-
-function toText(value: unknown): string {
-  if (value === null || value === undefined) return ''
-  if (value instanceof Date) return value.toISOString()
-  return String(value).trim()
-}
 
 function findTabName(sheetNames: string[], candidates: string[]): string | null {
   const lower = sheetNames.map((n) => n.toLowerCase())

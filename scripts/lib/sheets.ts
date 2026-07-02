@@ -64,3 +64,9 @@ export function sheetRowsRawFormatted(workbook: XLSX.WorkBook, sheetName: string
 export function listSheetNames(workbook: XLSX.WorkBook): string[] {
   return workbook.SheetNames
 }
+
+export function toText(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  if (value instanceof Date) return value.toISOString()
+  return String(value).trim()
+}

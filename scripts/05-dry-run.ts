@@ -4,22 +4,8 @@ import { supabaseAdmin } from './lib/db'
 import { renderDryRunMarkdown, type DryRunSeriesResult } from './lib/report'
 import { OUT_DIR, DATA_DIR, readJson, readTeamAliases } from './lib/cli'
 import type { ImportSeriesPayload } from './04-join-map-stats'
-import {
-  MATCH_RESOLUTION_WINDOW_MS,
-  pickNearestMatch,
-} from '../src/lib/server/matches/import-lifecycle'
-
-function normalizeTeamKey(value: string): string {
-  return value.trim().toLowerCase().replace(/\s+/g, ' ')
-}
-
-function resolutionWindow(isoString: string) {
-  const anchor = new Date(isoString).getTime()
-  return {
-    start: new Date(anchor - MATCH_RESOLUTION_WINDOW_MS).toISOString(),
-    end: new Date(anchor + MATCH_RESOLUTION_WINDOW_MS).toISOString(),
-  }
-}
+import { pickNearestMatch, resolutionWindow } from '../src/lib/server/matches/import-lifecycle'
+import { normalizeImportKey } from '../src/lib/server/imports/matching'
 
 async function main() {
   const joinedFile = path.join(OUT_DIR, 'joined.json')
@@ -73,7 +59,7 @@ async function main() {
       continue
     }
 
-    const pairKey = [normalizeTeamKey(firstMap.teamAName), normalizeTeamKey(firstMap.teamBName)]
+    const pairKey = [normalizeImportKey(firstMap.teamAName), normalizeImportKey(firstMap.teamBName)]
       .sort()
       .join('__')
     const dateKey = firstMap.scheduledAt ?? 'unknown'

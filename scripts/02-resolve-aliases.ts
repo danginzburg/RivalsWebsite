@@ -1,6 +1,6 @@
 import { existsSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { OUT_DIR, DATA_DIR, readJson } from './lib/cli'
+import { OUT_DIR, DATA_DIR, readJson, type TeamAlias } from './lib/cli'
 import {
   buildProfileMatcher,
   buildTeamMatcher,
@@ -11,7 +11,6 @@ import {
 import type { Wb1Parsed } from './lib/parse-wb1'
 import type { Wb2Parsed } from './lib/parse-wb2'
 
-type TeamAlias = { teamId: string } | { create: { name: string; tag: string } }
 type PlayerAlias = { profileId: string; statsPlayerName?: string } | null
 
 function collectTeamCodes(wb1: Wb1Parsed): string[] {
@@ -76,14 +75,13 @@ async function main() {
   const unresolvedTeams: string[] = []
 
   for (const code of teamCodes) {
-    const key = code
     const hasHumanEntry =
-      Object.prototype.hasOwnProperty.call(existingTeamAliases, key) && key !== '_meta'
+      Object.prototype.hasOwnProperty.call(existingTeamAliases, code) && code !== '_meta'
     if (hasHumanEntry && !force) continue
 
     const match = teamMatcher.byMatchName(code) ?? teamMatcher.byLeaderboardTag(code)
     if (match) {
-      nextTeamAliases[key] = { teamId: match.id }
+      nextTeamAliases[code] = { teamId: match.id }
     } else if (!hasHumanEntry) {
       unresolvedTeams.push(code)
     }

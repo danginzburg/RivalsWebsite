@@ -9,6 +9,7 @@
     normalizeSearchValue,
     profileLabel,
   } from '$lib/admin/ui'
+  import type { normalizePlayoffPickemConfig } from '$lib/playoffPickems'
   import AdminDashboardShell from '$lib/components/admin/AdminDashboardShell.svelte'
   import AdminMatchesTab from '$lib/components/admin/AdminMatchesTab.svelte'
   import AdminSeasonsTab from '$lib/components/admin/AdminSeasonsTab.svelte'
@@ -945,6 +946,42 @@
     }
   }
 
+  async function savePlayoffPickem(
+    seasonId: string,
+    config: ReturnType<typeof normalizePlayoffPickemConfig>
+  ) {
+    errorMessage = null
+    successMessage = null
+    try {
+      await adminJsonRequest(`/api/admin/playoff-pickems/${seasonId}`, {
+        method: 'PATCH',
+        body: { config },
+        fallbackMessage: "Failed to save playoff pick'em",
+      })
+      successMessage = "Playoff pick'em saved."
+      await refreshData()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : "Failed to save playoff pick'em"
+    }
+  }
+
+  async function scorePlayoffPickem(seasonId: string) {
+    errorMessage = null
+    successMessage = null
+    try {
+      const result = await adminJsonRequest<{
+        summary?: { submissionsScored?: number; completedMatches?: number }
+      }>(`/api/admin/playoff-pickems/${seasonId}`, {
+        method: 'POST',
+        fallbackMessage: "Failed to score playoff pick'em",
+      })
+      successMessage = `Scored ${result.summary?.submissionsScored ?? 0} brackets from ${result.summary?.completedMatches ?? 0} completed matches.`
+      await refreshData()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : "Failed to score playoff pick'em"
+    }
+  }
+
   function requestUserRiotIdSave(userId: string, userName: string) {
     const riotIdBase = (userRiotIdForm[userId] ?? '').trim()
     pendingActionConfirmation = {
@@ -1368,6 +1405,8 @@
     {#if activeTab === 'seasons'}
       <AdminSeasonsTab
         {seasons}
+        {approvedTeams}
+        {matches}
         {createSeasonCode}
         {createSeasonName}
         {createSeasonStartsOn}
@@ -1387,6 +1426,8 @@
           })}
         onCreateSeason={createSeason}
         onSaveSeason={saveSeason}
+        onSavePlayoffPickem={savePlayoffPickem}
+        onScorePlayoffPickem={scorePlayoffPickem}
       />
     {/if}
 

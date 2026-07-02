@@ -77,7 +77,7 @@ function parseInteger(value: unknown, fieldName: string) {
 // pick the nearest candidate rather than requiring an exact UTC-day overlap.
 export const MATCH_RESOLUTION_WINDOW_MS = 48 * 60 * 60 * 1000
 
-function resolutionWindow(isoString: string) {
+export function resolutionWindow(isoString: string) {
   const anchor = new Date(isoString).getTime()
   return {
     start: new Date(anchor - MATCH_RESOLUTION_WINDOW_MS).toISOString(),

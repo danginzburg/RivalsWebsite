@@ -1,5 +1,6 @@
 import type { Wb1Row } from './parse-wb1'
 import type { TeamAlias } from './cli'
+import { normalizeImportKey as normKey } from '../../src/lib/server/imports/matching'
 
 export type SeriesMap = {
   mapName: string
@@ -28,19 +29,11 @@ export type SeriesBuildResult = {
   skippedNonRegularSeason: Wb1Row[]
 }
 
-function normKey(value: string): string {
-  return value.trim().toLowerCase().replace(/\s+/g, ' ')
-}
-
 function aliasKey(team: string, teamAliases: Record<string, TeamAlias>): string {
   const alias = teamAliases[team]
   if (!alias) return normKey(team)
   if ('teamId' in alias) return `id:${alias.teamId}`
   return `create:${normKey(alias.create.name)}`
-}
-
-function displayKeyPart(value: string): string {
-  return normKey(value)
 }
 
 function pairKey(
@@ -101,7 +94,7 @@ export function buildSeries(
     const key = (() => {
       const first = rows[0]
       if (!first) return groupKey
-      const [a, b] = [displayKeyPart(first.tabTeam), displayKeyPart(first.opponent)].sort()
+      const [a, b] = [normKey(first.tabTeam), normKey(first.opponent)].sort()
       return `${a}__${b}__${first.date ?? 'no-date'}`
     })()
 

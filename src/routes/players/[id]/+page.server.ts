@@ -324,24 +324,6 @@ export const load = async ({
     selected = aggregates[0] ?? weeklies[0] ?? normalizedStats[0] ?? null
   }
 
-  const { data: accoladeAssignments } = await supabaseAdmin
-    .from('accolade_assignments')
-    .select('accolade_id, context, accolades (id, name, logo_path, icon_key)')
-    .eq('profile_id', profileId)
-
-  const playerAccolades = (accoladeAssignments ?? []).map((a: any) => {
-    const acc = Array.isArray(a.accolades) ? a.accolades[0] : a.accolades
-    return {
-      id: acc?.id ?? a.accolade_id,
-      name: acc?.name ?? 'Accolade',
-      icon_key: acc?.icon_key ?? null,
-      context: a.context ?? null,
-      logo_url: acc?.logo_path
-        ? supabaseAdmin.storage.from('team-logos').getPublicUrl(acc.logo_path).data.publicUrl
-        : null,
-    }
-  })
-
   const matchMapStatsSelect = `
       id,
       match_id,
@@ -373,13 +355,6 @@ export const load = async ({
       )
     `
 
-  const { data: claimedParticipation } = await supabaseAdmin
-    .from('player_match_map_stats')
-    .select(matchMapStatsSelect)
-    .eq('profile_id', profileId)
-    .order('created_at', { ascending: false })
-    .limit(500)
-
   const importNameFilters = Array.from(
     new Set(
       [
@@ -396,9 +371,23 @@ export const load = async ({
     )
   )
 
-  const { data: unmatchedParticipation } =
+  const [
+    { data: accoladeAssignments },
+    { data: claimedParticipation },
+    { data: unmatchedParticipation },
+  ] = await Promise.all([
+    supabaseAdmin
+      .from('accolade_assignments')
+      .select('accolade_id, context, accolades (id, name, logo_path, icon_key)')
+      .eq('profile_id', profileId),
+    supabaseAdmin
+      .from('player_match_map_stats')
+      .select(matchMapStatsSelect)
+      .eq('profile_id', profileId)
+      .order('created_at', { ascending: false })
+      .limit(500),
     importNameFilters.length > 0
-      ? await supabaseAdmin
+      ? supabaseAdmin
           .from('player_match_map_stats')
           .select(matchMapStatsSelect)
           .is('profile_id', null)
@@ -413,20 +402,32 @@ export const load = async ({
           )
           .order('created_at', { ascending: false })
           .limit(500)
-      : { data: [] }
+      : Promise.resolve({ data: [] }),
+  ])
 
-  const participatedById = new Map<string, ParticipatedRow>()
+  const playerAccolades = (accoladeAssignments ?? []).map((a: any) => {
+    const acc = Array.isArray(a.accolades) ? a.accolades[0] : a.accolades
+    return {
+      id: acc?.id ?? a.accolade_id,
+      name: acc?.name ?? 'Accolade',
+      icon_key: acc?.icon_key ?? null,
+      context: a.context ?? null,
+      logo_url: acc?.logo_path
+        ? supabaseAdmin.storage.from('team-logos').getPublicUrl(acc.logo_path).data.publicUrl
+        : null,
+    }
+  })
+
+  const seenParticipationIds = new Set<string>()
+  const groupedParticipation = new Map<string, ParticipatedRow[]>()
   for (const row of [
     ...((claimedParticipation ?? []) as ParticipatedRow[]),
     ...((unmatchedParticipation ?? []) as ParticipatedRow[]),
   ]) {
     const id = String(row.id ?? '')
-    if (!id) continue
-    participatedById.set(id, row)
-  }
+    if (!id || seenParticipationIds.has(id)) continue
+    seenParticipationIds.add(id)
 
-  const groupedParticipation = new Map<string, ParticipatedRow[]>()
-  for (const row of participatedById.values()) {
     const matchRel = Array.isArray(row.matches) ? row.matches[0] : row.matches
     if (!matchRel?.id) continue
     const current = groupedParticipation.get(matchRel.id) ?? []

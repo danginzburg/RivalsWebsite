@@ -6,33 +6,7 @@ import { POST as leaderboardImportPOST } from '../src/routes/api/admin/leaderboa
 import { POST as statsImportPOST } from '../src/routes/api/admin/stats/+server'
 import type { Wb1Parsed } from './lib/parse-wb1'
 import type { Wb2Parsed } from './lib/parse-wb2'
-
-function toNumber(value: unknown): number | null {
-  if (value === null || value === undefined || value === '') return null
-  const n = Number(value)
-  return Number.isFinite(n) ? n : null
-}
-
-function toPercent(value: unknown): number | null {
-  const raw = String(value ?? '').trim()
-  if (!raw) return null
-  if (/^n\/?a$/i.test(raw)) return null
-
-  const hasPercent = raw.includes('%')
-  const cleaned = raw.replace('%', '').trim()
-  const n = Number(cleaned)
-  if (!Number.isFinite(n)) return null
-  // Some exports provide KAST/HS as 0-1 instead of 0-100.
-  if (!hasPercent && n > 0 && n <= 1) return n * 100
-  return n
-}
-
-function pick(row: Record<string, unknown>, candidates: string[]): unknown {
-  for (const key of Object.keys(row)) {
-    if (candidates.includes(key.toLowerCase().trim())) return row[key]
-  }
-  return null
-}
+import { pickField as pick, toNumber, toPercent } from './lib/row-fields'
 
 async function importLeaderboard(authSub: string, wb1: Wb1Parsed) {
   const rows = wb1.leaderboard.map((row) => ({

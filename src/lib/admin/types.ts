@@ -75,6 +75,7 @@ export type AdminSeason = {
   starts_on: string | null
   ends_on: string | null
   is_active: boolean | null
+  metadata?: Record<string, unknown> | null
 }
 
 export type AdminTeamLite = {
