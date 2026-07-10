@@ -1,6 +1,7 @@
 import { error, redirect, type Actions } from '@sveltejs/kit'
 import type { PageServerLoad } from './$types'
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { rematchPlayerMatchMapStatsForBase } from '$lib/server/imports/matching'
 import { average, sum } from '$lib/server/math'
 import { normalizeRiotBase, isValidRiotBase } from '$lib/server/riot-id'
 import { toBatchLabel } from '$lib/server/stats/batch-label'
@@ -300,6 +301,12 @@ export const actions: Actions = {
       batch_id: null,
     })
     if (rpcError) console.warn('rematch_rivals_group_stats failed:', rpcError)
+
+    try {
+      await rematchPlayerMatchMapStatsForBase(profile.id, riotIdBase)
+    } catch (err) {
+      console.warn('Failed to rematch match map stats after claim:', err)
+    }
 
     throw redirect(303, `/players/${profile.id}`)
   },
