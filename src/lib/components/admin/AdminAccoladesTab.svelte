@@ -1,5 +1,6 @@
 <script lang="ts">
   import { builtInAccoladeIcons } from '$lib/accolades/icons'
+  import CustomSelect from '$lib/components/CustomSelect.svelte'
 
   type Accolade = {
     id: string
@@ -19,6 +20,7 @@
     accolades: Accolade[]
     accoladesLoaded: boolean
     createAccoladeName: string
+    createAccoladeIconKey: string
     isCreatingAccolade: boolean
     accoladeAssignProfileId: Record<string, string>
     accoladeAssignContext: Record<string, string>
@@ -26,6 +28,7 @@
     editAccoladeName: string
     accoladeLogoStatus: Record<string, 'uploading' | 'done' | null>
     onCreateAccoladeNameChange: (value: string) => void
+    onCreateAccoladeIconKeyChange: (value: string) => void
     onCreateAccoladeLogoInput: (file: File | null) => void
     onCreateAccolade: () => void
     onEditAccolade: (accolade: Accolade) => void
@@ -37,6 +40,7 @@
     onAssignProfileChange: (accoladeId: string, value: string) => void
     onAssignContextChange: (accoladeId: string, value: string) => void
     onAssignAccolade: (accoladeId: string) => void
+    onSetAccoladeIconKey: (accoladeId: string, iconKey: string) => void
     onUnassignAccolade: (accoladeId: string, assignmentId: string) => void
   }
 
@@ -44,6 +48,7 @@
     accolades,
     accoladesLoaded,
     createAccoladeName,
+    createAccoladeIconKey,
     isCreatingAccolade,
     accoladeAssignProfileId,
     accoladeAssignContext,
@@ -51,6 +56,7 @@
     editAccoladeName,
     accoladeLogoStatus,
     onCreateAccoladeNameChange,
+    onCreateAccoladeIconKeyChange,
     onCreateAccoladeLogoInput,
     onCreateAccolade,
     onEditAccolade,
@@ -62,8 +68,22 @@
     onAssignProfileChange,
     onAssignContextChange,
     onAssignAccolade,
+    onSetAccoladeIconKey,
     onUnassignAccolade,
   }: Props = $props()
+
+  const iconKeyLabels: Record<string, string> = {
+    gold_medal: 'Gold Medal',
+    silver_medal: 'Silver Medal',
+    bronze_medal: 'Bronze Medal',
+    trophy: 'Trophy',
+    mvp_trophy: 'MVP Trophy',
+  }
+
+  const iconKeyOptions = Object.keys(builtInAccoladeIcons).map((key) => ({
+    value: key,
+    label: iconKeyLabels[key] ?? key,
+  }))
 </script>
 
 <div class="grid grid-cols-1 gap-4">
@@ -74,13 +94,20 @@
     >
       Create Accolade
     </h3>
-    <div class="grid grid-cols-1 gap-2 md:grid-cols-3">
+    <div class="grid grid-cols-1 gap-2 md:grid-cols-4">
       <input
         value={createAccoladeName}
         class="rounded-md border px-3 py-2 text-sm"
         style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
         placeholder="Accolade name"
         oninput={(e) => onCreateAccoladeNameChange((e.currentTarget as HTMLInputElement).value)}
+      />
+      <CustomSelect
+        options={iconKeyOptions}
+        value={createAccoladeIconKey}
+        compact={true}
+        placeholder="No preset icon"
+        onSelect={(value) => onCreateAccoladeIconKeyChange(value)}
       />
       <input
         type="file"
@@ -182,7 +209,14 @@
               </div>
             </div>
 
-            <div class="mt-3 grid grid-cols-1 gap-2 md:grid-cols-3">
+            <div class="mt-3 grid grid-cols-1 gap-2 md:grid-cols-4">
+              <CustomSelect
+                options={iconKeyOptions}
+                value={accolade.icon_key ?? ''}
+                compact={true}
+                placeholder="No preset icon"
+                onSelect={(value) => onSetAccoladeIconKey(accolade.id, value)}
+              />
               <input
                 type="file"
                 accept="image/*"

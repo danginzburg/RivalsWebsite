@@ -17,7 +17,14 @@ const config: PlayoffPickemConfig = {
     seed: index + 1,
     teamId: `team-${index + 1}`,
   })),
+  matchups: [
+    { matchId: 'ub_qf_1', seedA: 1, seedB: 8 },
+    { matchId: 'ub_qf_2', seedA: 4, seedB: 5 },
+    { matchId: 'ub_qf_3', seedA: 2, seedB: 7 },
+    { matchId: 'ub_qf_4', seedA: 3, seedB: 6 },
+  ],
   match_links: [],
+  resolved_matches: [],
 }
 
 const upperRunPayload: PlayoffPickemPayload = {

@@ -172,7 +172,15 @@ export async function rematchPlayerMatchMapStatsForBase(profileId: string, baseN
     )
     .select('match_id')
 
-  if (updateError) throw new Error('Failed to rematch imported match map stats')
+  if (updateError) {
+    console.warn(
+      'rematchPlayerMatchMapStatsForBase update failed:',
+      updateError.message,
+      updateError.details,
+      updateError.hint
+    )
+    return { updated: 0, rebuiltMatches: 0 }
+  }
 
   const matchIds = Array.from(
     new Set((updatedRows ?? []).map((r: any) => String(r.match_id ?? '')).filter(Boolean))

@@ -112,9 +112,9 @@
             </div>
           {/if}
           <div>
-            <div class="flex flex-wrap items-center gap-2 leading-none">
+            <div class="flex flex-wrap items-end gap-2">
               <h1 class="responsive-title leading-none">{player.riot_id}</h1>
-              {#each accolades as accolade (accolade.id)}
+              {#each accolades as accolade, i (accolade.id + '-' + i)}
                 {@const iconSrc = accolade.icon_key
                   ? (builtInAccoladeIcons[accolade.icon_key] ?? null)
                   : null}
@@ -126,11 +126,11 @@
                     src={iconSrc ?? accolade.logo_url}
                     alt={accolade.name}
                     title={tooltip}
-                    class="h-5 w-5 rounded object-contain sm:h-7 sm:w-7 md:h-9 md:w-9"
+                    class="accolade-icon h-5 w-5 rounded object-contain sm:h-7 sm:w-7 md:h-9 md:w-9"
                   />
                 {:else}
                   <span
-                    class="inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-bold sm:text-xs"
+                    class="accolade-icon inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-bold sm:text-xs"
                     style="border-color: rgba(255,255,255,0.15); background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.8);"
                     title={tooltip}
                   >

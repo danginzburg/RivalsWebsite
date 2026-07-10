@@ -42,5 +42,20 @@
         {description}
       </p>
     {/if}
+    <a
+      href="https://discord.gg/JpTYg2662C"
+      target="_blank"
+      rel="noopener noreferrer"
+      class="relative mt-4 -mb-6 inline-flex items-center gap-2 rounded-lg border px-5 py-2.5 text-sm font-bold shadow-lg transition-colors sm:mt-6"
+      style="background: var(--accent); color: var(--text); border-color: rgba(255,255,255,0.2); box-shadow: 0 4px 20px rgba(94,52,114,0.5); translate: 0 -10%;"
+      onmouseenter={(e) => {
+        ;(e.currentTarget as HTMLElement).style.background = 'var(--hover)'
+      }}
+      onmouseleave={(e) => {
+        ;(e.currentTarget as HTMLElement).style.background = 'var(--accent)'
+      }}
+    >
+      Join the Discord
+    </a>
   </div>
 </div>

@@ -332,6 +332,7 @@ export async function scorePlayoffPickemSubmissionsForSeason(
   }
 
   const actualWinners = await getActualPlayoffWinnersFromLinkedMatches(context.config)
+  const resolvedMatchIds = new Set(context.config.resolved_matches.map((r) => r.matchId))
   const scoredAt = new Date().toISOString()
   const { data: submissions, error: listError } = await supabaseAdmin
     .from('pickem_submissions')
@@ -345,7 +346,8 @@ export async function scorePlayoffPickemSubmissionsForSeason(
   for (const submission of submissions ?? []) {
     const result = scorePlayoffPickemPayload(
       normalizePlayoffPickemPayload(submission.payload),
-      actualWinners
+      actualWinners,
+      resolvedMatchIds
     )
     const { error: updateError } = await supabaseAdmin
       .from('pickem_submissions')

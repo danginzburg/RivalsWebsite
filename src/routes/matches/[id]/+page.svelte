@@ -538,7 +538,7 @@
                       </tr>
                     </thead>
                     <tbody>
-                      {#each teamAStats as row (row.profile_id)}
+                      {#each teamAStats as row, i (row.profile_id ?? `anon-a-${i}`)}
                         <tr
                           class="border-t"
                           style="border-color: rgba(255,255,255,0.08); color: rgba(255,255,255,0.9);"
@@ -617,7 +617,7 @@
                       </tr>
                     </thead>
                     <tbody>
-                      {#each teamBStats as row (row.profile_id)}
+                      {#each teamBStats as row, i (row.profile_id ?? `anon-b-${i}`)}
                         <tr
                           class="border-t"
                           style="border-color: rgba(255,255,255,0.08); color: rgba(255,255,255,0.9);"

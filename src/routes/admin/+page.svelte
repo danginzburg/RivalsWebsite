@@ -98,6 +98,7 @@
   let accolades = $state<Accolade[]>([])
   let accoladesLoaded = $state(false)
   let createAccoladeName = $state('')
+  let createAccoladeIconKey = $state('')
   let createAccoladeLogoFile = $state<File | null>(null)
   let isCreatingAccolade = $state(false)
   let accoladeAssignProfileId = $state<Record<string, string>>({})
@@ -164,6 +165,7 @@
     try {
       const form = new FormData()
       form.set('name', createAccoladeName.trim())
+      if (createAccoladeIconKey) form.set('icon_key', createAccoladeIconKey)
       if (createAccoladeLogoFile) form.set('logo', createAccoladeLogoFile)
       const result = await adminFormRequest<{ accolade?: Accolade }>('/api/admin/accolades', {
         method: 'POST',
@@ -172,6 +174,7 @@
       })
       if (result.accolade) accolades = [result.accolade, ...accolades]
       createAccoladeName = ''
+      createAccoladeIconKey = ''
       createAccoladeLogoFile = null
       successMessage = 'Accolade created.'
     } catch (err) {
@@ -236,6 +239,22 @@
     } catch (err) {
       accoladeLogoStatus = { ...accoladeLogoStatus, [accoladeId]: null }
       errorMessage = err instanceof Error ? err.message : 'Failed to upload logo'
+    }
+  }
+
+  async function setAccoladeIconKey(accoladeId: string, iconKey: string) {
+    try {
+      await adminJsonRequest('/api/admin/accolades', {
+        method: 'PATCH',
+        body: { accoladeId, action: 'set_icon_key', icon_key: iconKey },
+        fallbackMessage: 'Failed to update accolade icon',
+      })
+      accolades = accolades.map((a) =>
+        a.id === accoladeId ? { ...a, icon_key: iconKey || null } : a
+      )
+      successMessage = 'Accolade icon updated.'
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to update accolade icon'
     }
   }
 
@@ -1436,6 +1455,7 @@
         {accolades}
         {accoladesLoaded}
         {createAccoladeName}
+        {createAccoladeIconKey}
         {isCreatingAccolade}
         {accoladeAssignProfileId}
         {accoladeAssignContext}
@@ -1443,6 +1463,7 @@
         {editAccoladeName}
         {accoladeLogoStatus}
         onCreateAccoladeNameChange={(value) => (createAccoladeName = value)}
+        onCreateAccoladeIconKeyChange={(value) => (createAccoladeIconKey = value)}
         onCreateAccoladeLogoInput={(file) => (createAccoladeLogoFile = file)}
         onCreateAccolade={createAccolade}
         onEditAccolade={(accolade) => {
@@ -1468,6 +1489,7 @@
             [accoladeId]: value,
           })}
         onAssignAccolade={assignAccolade}
+        onSetAccoladeIconKey={setAccoladeIconKey}
         onUnassignAccolade={unassignAccolade}
       />
     {/if}

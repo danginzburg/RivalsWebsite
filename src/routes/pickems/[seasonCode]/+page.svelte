@@ -3,6 +3,7 @@
 
   import { resolve } from '$app/paths'
   import PageContainer from '$lib/components/PageContainer.svelte'
+  import CustomSelect from '$lib/components/CustomSelect.svelte'
   import {
     buildPlayoffBracketSlots,
     normalizePlayoffPickemPayload,
@@ -10,6 +11,7 @@
     type PlayoffMatchId,
     type PlayoffPickemPayload,
     type PlayoffPickemTeam,
+    type PlayoffPickemSlot,
   } from '$lib/playoffPickems'
   import type { PageProps } from './$types'
 
@@ -35,18 +37,46 @@
       : { picks }
   )
   const slots = $derived(buildPlayoffBracketSlots(data.config, displayPayload))
-  const upperSlots = $derived(slots.filter((slot) => slot.bracket === 'upper'))
-  const lowerSlots = $derived(slots.filter((slot) => slot.bracket === 'lower'))
-  const finalSlots = $derived(slots.filter((slot) => slot.bracket === 'final'))
   const isViewingOwn = $derived(
     !selectedSubmission || selectedSubmission.id === data.mySubmission?.id
   )
+
+  const resolvedIds = $derived(new Set(data.config.resolved_matches?.map((r) => r.matchId) ?? []))
+  const slotById = $derived(new Map(slots.map((s) => [s.id, s])))
+
+  function getSlots(ids: string[]): PlayoffPickemSlot[] {
+    return ids.map((id) => slotById.get(id as PlayoffMatchId)!).filter(Boolean)
+  }
+
+  const ubQF = $derived(getSlots(['ub_qf_1', 'ub_qf_2', 'ub_qf_3', 'ub_qf_4']))
+  const ubSF = $derived(getSlots(['ub_sf_1', 'ub_sf_2']))
+  const ubFinal = $derived(getSlots(['ub_final']))
+  const lbR1 = $derived(getSlots(['lb_r1_1', 'lb_r1_2']))
+  const lbR2 = $derived(getSlots(['lb_r2_1', 'lb_r2_2']))
+  const lbR3 = $derived(getSlots(['lb_r3']))
+  const lbFinal = $derived(getSlots(['lb_final']))
+  const grandFinal = $derived(getSlots(['grand_final']))
+
+  const submissionOptions = $derived.by(() => {
+    const opts: Array<{ value: string; label: string }> = []
+    if (data.mySubmission) {
+      opts.push({ value: data.mySubmission.id, label: 'My bracket' })
+    } else {
+      opts.push({ value: '', label: 'Current picks' })
+    }
+    for (const s of data.submissions) {
+      if (s.id !== data.mySubmission?.id) {
+        opts.push({ value: s.id, label: s.user.name })
+      }
+    }
+    return opts
+  })
 
   function teamLabel(teamId: string | null) {
     if (!teamId) return 'TBD'
     const team = teamById.get(teamId)
     if (!team) return 'Unknown team'
-    return team.tag ? `${team.name} (${team.tag})` : team.name
+    return team.tag ?? team.name
   }
 
   function teamLogo(teamId: string | null) {
@@ -54,8 +84,18 @@
   }
 
   function chooseWinner(matchId: PlayoffMatchId, teamId: string | null) {
-    if (!data.viewer.canEdit || !isViewingOwn || !teamId) return
+    if (!data.viewer.canEdit || !isViewingOwn || !teamId || resolvedIds.has(matchId)) return
     picks = { ...picks, [matchId]: teamId }
+    saveMessage = null
+    errorMessage = null
+  }
+
+  function clearBracket() {
+    const kept: Partial<Record<PlayoffMatchId, string>> = {}
+    for (const r of data.config.resolved_matches ?? []) {
+      kept[r.matchId] = r.winnerId
+    }
+    picks = kept
     saveMessage = null
     errorMessage = null
   }
@@ -80,449 +120,524 @@
       }
       saveMessage = 'Bracket saved.'
     } catch (err) {
-      errorMessage = err instanceof Error ? err.message : 'Failed to save bracket'
+      const msg = err instanceof Error ? err.message : String(err)
+      errorMessage = msg || 'Failed to save bracket'
     } finally {
       isSaving = false
     }
   }
-
-  function roundTitle(slotIds: PlayoffMatchId[]) {
-    const first = slotIds[0]
-    if (!first) return ''
-    if (first.startsWith('ub_qf')) return 'Upper Round 1'
-    if (first.startsWith('ub_sf')) return 'Upper Round 2'
-    if (first === 'ub_final') return 'Upper Final'
-    if (first.startsWith('lb_r1')) return 'Lower Round 1'
-    if (first.startsWith('lb_r2')) return 'Lower Round 2'
-    if (first === 'lb_r3') return 'Lower Round 3'
-    if (first === 'lb_final') return 'Lower Final'
-    return 'Grand Final'
-  }
 </script>
 
-<PageContainer>
-  <section class="pickem-header">
-    <div>
-      <p class="eyebrow">{data.season.name}</p>
-      <h1>Playoff Pick'em</h1>
-      <p class="status-line">
-        {data.config.status.toUpperCase()}
-        {#if data.config.lock_at}
-          <span>Locks {new Date(data.config.lock_at).toLocaleString()}</span>
-        {/if}
-      </p>
-    </div>
-    <div class="actions">
-      {#if !data.viewer.isLoggedIn}
-        <a class="login-link" href={resolve('/auth/login')}>Log in to submit</a>
-      {:else if data.viewer.canEdit}
-        <button type="button" onclick={saveBracket} disabled={isSaving}>
-          {isSaving ? 'Saving...' : 'Save bracket'}
-        </button>
-      {:else}
-        <span class="locked-label">Submissions locked</span>
-      {/if}
-    </div>
-  </section>
-
-  {#if saveMessage}
-    <div class="notice success">{saveMessage}</div>
-  {/if}
-  {#if errorMessage}
-    <div class="notice error">{errorMessage}</div>
-  {/if}
-
-  {#if data.submissions.length > 0}
-    <section class="viewer-bar">
-      <label for="submission-view">Viewing bracket</label>
-      <select id="submission-view" bind:value={selectedSubmissionId}>
-        {#if data.mySubmission}
-          <option value={data.mySubmission.id}>My bracket</option>
-        {:else}
-          <option value="">Current picks</option>
-        {/if}
-        {#each data.submissions as submission (submission.id)}
-          {#if submission.id !== data.mySubmission?.id}
-            <option value={submission.id}>{submission.user.name}</option>
+<PageContainer class="pickem-page">
+  <div class="flex min-h-[calc(100vh-4rem)] justify-center px-2 py-4">
+    <div class="my-auto w-full">
+      <!-- Header -->
+      <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p class="text-xs font-bold tracking-wide uppercase" style="color: var(--hover);">
+            {data.season.name}
+          </p>
+          <h1 class="responsive-title mt-1">Playoff Pick'em</h1>
+          <p
+            class="mt-1 flex flex-wrap items-center gap-3 text-sm"
+            style="color: rgba(255,255,255,0.66);"
+          >
+            <span
+              class="inline-block rounded-full px-2 py-0.5 text-xs font-bold uppercase"
+              style="background: var(--accent); color: var(--text);"
+            >
+              {data.config.status}
+            </span>
+            {#if data.config.lock_at}
+              <span>Locks {new Date(data.config.lock_at).toLocaleString()}</span>
+            {/if}
+          </p>
+        </div>
+        <div class="flex items-center gap-3">
+          {#if data.submissions.length > 0}
+            <div class="min-w-[180px]">
+              <CustomSelect
+                options={submissionOptions}
+                value={selectedSubmissionId}
+                compact={true}
+                onSelect={(value) => (selectedSubmissionId = value)}
+              />
+            </div>
           {/if}
-        {/each}
-      </select>
-    </section>
-  {/if}
-
-  <section class="bracket-grid">
-    <div class="bracket-section">
-      <h2>Upper Bracket</h2>
-      {#each [1, 2, 3, 4] as round (round)}
-        {@const roundSlots = upperSlots.filter((slot) => slot.round === round)}
-        <div class="round">
-          <h3>{roundTitle(roundSlots.map((slot) => slot.id))}</h3>
-          {#each roundSlots as slot (slot.id)}
-            <article class="match-card">
-              <div class="match-meta">
-                <span>{slot.label}</span>
-                <strong>{slot.points} pts</strong>
-              </div>
-              {#each [slot.teamAId, slot.teamBId] as teamId, index (`${slot.id}-${index}`)}
-                <button
-                  type="button"
-                  class:active={slot.winnerId === teamId}
-                  disabled={!data.viewer.canEdit || !isViewingOwn || !teamId}
-                  onclick={() => chooseWinner(slot.id, teamId)}
-                >
-                  {#if teamLogo(teamId)}
-                    <img src={teamLogo(teamId) ?? ''} alt="" />
-                  {/if}
-                  <span>{teamLabel(teamId)}</span>
-                </button>
-              {/each}
-            </article>
-          {/each}
-        </div>
-      {/each}
-    </div>
-
-    <div class="bracket-section">
-      <h2>Lower Bracket</h2>
-      {#each [1, 2, 3] as round (round)}
-        {@const roundSlots = lowerSlots.filter((slot) => slot.round === round)}
-        <div class="round">
-          <h3>{roundTitle(roundSlots.map((slot) => slot.id))}</h3>
-          {#each roundSlots as slot (slot.id)}
-            <article class="match-card">
-              <div class="match-meta">
-                <span>{slot.label}</span>
-                <strong>{slot.points} pts</strong>
-              </div>
-              {#each [slot.teamAId, slot.teamBId] as teamId, index (`${slot.id}-${index}`)}
-                <button
-                  type="button"
-                  class:active={slot.winnerId === teamId}
-                  disabled={!data.viewer.canEdit || !isViewingOwn || !teamId}
-                  onclick={() => chooseWinner(slot.id, teamId)}
-                >
-                  {#if teamLogo(teamId)}
-                    <img src={teamLogo(teamId) ?? ''} alt="" />
-                  {/if}
-                  <span>{teamLabel(teamId)}</span>
-                </button>
-              {/each}
-            </article>
-          {/each}
-        </div>
-      {/each}
-    </div>
-
-    <div class="bracket-section final-section">
-      <h2>Final</h2>
-      {#each finalSlots as slot (slot.id)}
-        <article class="match-card">
-          <div class="match-meta">
-            <span>{slot.label}</span>
-            <strong>{slot.points} pts</strong>
-          </div>
-          {#each [slot.teamAId, slot.teamBId] as teamId, index (`${slot.id}-${index}`)}
+          {#if !data.viewer.isLoggedIn}
+            <a
+              class="inline-flex items-center rounded-md px-4 py-2 text-sm font-bold"
+              style="background: var(--accent); color: var(--text);"
+              href={resolve('/auth/login')}
+            >
+              Log in to submit
+            </a>
+          {:else if data.viewer.canEdit}
             <button
               type="button"
-              class:active={slot.winnerId === teamId}
-              disabled={!data.viewer.canEdit || !isViewingOwn || !teamId}
-              onclick={() => chooseWinner(slot.id, teamId)}
+              class="rounded-md px-4 py-2 text-sm font-bold transition-colors"
+              style="background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.7);"
+              onclick={clearBracket}
             >
-              {#if teamLogo(teamId)}
-                <img src={teamLogo(teamId) ?? ''} alt="" />
-              {/if}
-              <span>{teamLabel(teamId)}</span>
+              Clear
             </button>
-          {/each}
-        </article>
-      {/each}
-    </div>
-  </section>
-
-  <section class="leaderboard">
-    <div>
-      <h2>Leaderboard</h2>
-      <p>{data.submissions.length} submitted brackets</p>
-    </div>
-    {#if data.leaderboard.length === 0}
-      <div class="empty">No submissions yet.</div>
-    {:else}
-      <div class="leaderboard-list">
-        {#each data.leaderboard as entry (entry.id)}
-          <button type="button" onclick={() => (selectedSubmissionId = entry.id)}>
-            <span>#{entry.rank}</span>
-            <strong>{entry.user.name}</strong>
-            <em>{entry.score} pts</em>
-          </button>
-        {/each}
+            <button
+              type="button"
+              class="rounded-md px-4 py-2 text-sm font-bold transition-colors"
+              style="background: var(--hover); color: var(--text);"
+              onclick={saveBracket}
+              disabled={isSaving}
+            >
+              {isSaving ? 'Saving...' : 'Save bracket'}
+            </button>
+          {:else}
+            <span class="text-sm" style="color: rgba(255,255,255,0.6);">Submissions locked</span>
+          {/if}
+        </div>
       </div>
-    {/if}
-  </section>
+
+      {#if saveMessage}
+        <div
+          class="mb-3 rounded-md px-3 py-2 text-sm font-semibold"
+          style="background: rgba(74,222,128,0.15); color: #86efac;"
+        >
+          {saveMessage}
+        </div>
+      {/if}
+      {#if errorMessage}
+        <div
+          class="mb-3 rounded-md px-3 py-2 text-sm font-semibold"
+          style="background: rgba(244,63,94,0.15); color: #fda4af;"
+        >
+          {errorMessage}
+        </div>
+      {/if}
+
+      <!-- Main area: bracket + leaderboard -->
+      <div class="page-grid">
+        <div class="bracket-grid">
+          <!-- Col 1: UB QF + LB R1 -->
+          <div class="round-col">
+            <div class="bracket-section">
+              <div class="section-label ub">Upper Bracket</div>
+              {#each ubQF as slot (slot.id)}
+                {@render matchCard(slot)}
+              {/each}
+            </div>
+            <div class="bracket-section">
+              <div class="section-label lb">Lower Bracket</div>
+              {#each lbR1 as slot (slot.id)}
+                {@render matchCard(slot)}
+              {/each}
+            </div>
+          </div>
+
+          <!-- Col 2: UB SF + LB R2 -->
+          <div class="round-col">
+            <div class="bracket-section">
+              <div class="section-label ub">Upper</div>
+              {#each ubSF as slot (slot.id)}
+                {@render matchCard(slot)}
+              {/each}
+            </div>
+            <div class="bracket-section">
+              <div class="section-label lb">Lower</div>
+              {#each lbR2 as slot (slot.id)}
+                {@render matchCard(slot)}
+              {/each}
+            </div>
+          </div>
+
+          <!-- Col 3: UB Final + LB R3 -->
+          <div class="round-col">
+            <div class="bracket-section">
+              <div class="section-label ub">Upper</div>
+              {#each ubFinal as slot (slot.id)}
+                {@render matchCard(slot)}
+              {/each}
+            </div>
+            <div class="bracket-section">
+              <div class="section-label lb">Lower</div>
+              {#each lbR3 as slot (slot.id)}
+                {@render matchCard(slot)}
+              {/each}
+            </div>
+          </div>
+
+          <!-- Col 4: GF on top, LB Final below -->
+          <div class="round-col">
+            <div class="bracket-section gf-section">
+              <div class="section-label gf">Grand Final</div>
+              {#each grandFinal as slot (slot.id)}
+                {@render matchCard(slot)}
+              {/each}
+            </div>
+            <div class="bracket-section">
+              <div class="section-label lb">Lower</div>
+              {#each lbFinal as slot (slot.id)}
+                {@render matchCard(slot)}
+              {/each}
+            </div>
+          </div>
+        </div>
+
+        <!-- Leaderboard sidebar -->
+        <aside class="leaderboard">
+          <div class="lb-heading">Leaderboard</div>
+          <p class="text-xs" style="color: rgba(255,255,255,0.5);">
+            {data.submissions.length} bracket{data.submissions.length !== 1 ? 's' : ''}
+          </p>
+          {#if data.leaderboard.length === 0}
+            <div class="mt-2 text-sm" style="color: rgba(255,255,255,0.45);">
+              No submissions yet.
+            </div>
+          {:else}
+            <div class="lb-list">
+              {#each data.leaderboard as entry (entry.id)}
+                <button
+                  type="button"
+                  class="lb-row"
+                  class:lb-active={selectedSubmissionId === entry.id}
+                  onclick={() => (selectedSubmissionId = entry.id)}
+                >
+                  <span class="lb-rank">#{entry.rank}</span>
+                  <span class="lb-name">{entry.user.name}</span>
+                  <span class="lb-score">{entry.score}</span>
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </aside>
+      </div>
+    </div>
+  </div>
 </PageContainer>
 
+{#snippet matchCard(slot: PlayoffPickemSlot)}
+  {@const isResolved = resolvedIds.has(slot.id)}
+  <article class="match-card" class:gf={slot.id === 'grand_final'} class:resolved={isResolved}>
+    <div class="match-header">
+      <span class="match-label">{slot.label}</span>
+      {#if isResolved}
+        <span class="resolved-tag">Decided</span>
+      {:else}
+        <span class="pts">{slot.points}pt{slot.points !== 1 ? 's' : ''}</span>
+      {/if}
+    </div>
+    {#each [slot.teamAId, slot.teamBId] as teamId, index (`${slot.id}-${index}`)}
+      <button
+        type="button"
+        class="team-btn"
+        class:picked={slot.winnerId === teamId}
+        class:tbd={!teamId}
+        disabled={isResolved || !data.viewer.canEdit || !isViewingOwn || !teamId}
+        onclick={() => chooseWinner(slot.id, teamId)}
+      >
+        {#if teamLogo(teamId)}
+          <img src={teamLogo(teamId) ?? ''} alt="" class="team-logo" />
+        {/if}
+        <span class="team-name">{teamLabel(teamId)}</span>
+      </button>
+    {/each}
+  </article>
+{/snippet}
+
 <style>
-  .pickem-header,
-  .viewer-bar,
-  .leaderboard {
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 8px;
-    background: rgba(5, 8, 14, 0.72);
-  }
-
-  .pickem-header {
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    gap: 1rem;
-    padding: 1.25rem;
-  }
-
-  .eyebrow {
-    color: #93c5fd;
-    font-size: 0.75rem;
-    font-weight: 700;
-    letter-spacing: 0;
-    text-transform: uppercase;
-  }
-
   h1,
   h2,
-  h3,
   p {
     margin: 0;
   }
 
-  h1 {
-    margin-top: 0.25rem;
-    color: var(--text);
-    font-size: clamp(2rem, 6vw, 3.75rem);
-    line-height: 1;
-  }
-
-  .status-line {
-    margin-top: 0.5rem;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.75rem;
-    color: rgba(255, 255, 255, 0.72);
-    font-size: 0.875rem;
-  }
-
-  .actions button,
-  .login-link {
-    display: inline-flex;
-    min-height: 2.5rem;
-    align-items: center;
-    justify-content: center;
-    border-radius: 6px;
-    background: #dc2626;
-    padding: 0.65rem 1rem;
-    color: #fff;
-    font-weight: 800;
-    text-decoration: none;
-  }
-
-  .actions button:disabled {
-    opacity: 0.65;
-  }
-
-  .locked-label {
-    color: rgba(255, 255, 255, 0.72);
-    font-size: 0.875rem;
-  }
-
-  .notice {
-    margin-top: 1rem;
-    border-radius: 6px;
-    padding: 0.75rem 1rem;
-    font-size: 0.875rem;
-    font-weight: 700;
-  }
-
-  .success {
-    background: rgba(34, 197, 94, 0.16);
-    color: #86efac;
-  }
-
-  .error {
-    background: rgba(239, 68, 68, 0.16);
-    color: #fca5a5;
-  }
-
-  .viewer-bar {
-    margin-top: 1rem;
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.75rem 1rem;
-  }
-
-  .viewer-bar label {
-    color: rgba(255, 255, 255, 0.72);
-    font-size: 0.875rem;
-    font-weight: 700;
-  }
-
-  .viewer-bar select {
-    border-radius: 6px;
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    background: rgba(0, 0, 0, 0.35);
-    color: var(--text);
-    padding: 0.5rem 0.75rem;
-  }
-
-  .bracket-grid {
-    margin-top: 1rem;
+  /* Page grid: bracket + leaderboard sidebar */
+  .page-grid {
     display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    gap: 1rem;
+    grid-template-columns: 1fr;
+    gap: 1.25rem;
+  }
+
+  @media (min-width: 1200px) {
+    .page-grid {
+      grid-template-columns: 1fr 250px;
+    }
+  }
+
+  /* Bracket: 4-column grid */
+  .bracket-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.5rem;
+    align-items: start;
   }
 
   .bracket-section {
-    display: grid;
-    gap: 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 0.375rem;
+    padding: 0.3rem;
+    background: rgba(0, 0, 0, 0.08);
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
   }
 
-  .bracket-section h2 {
-    color: var(--text);
-    font-size: 1.15rem;
+  .gf-section {
+    border-color: var(--accent);
+    background: rgba(94, 52, 114, 0.08);
   }
 
-  .round {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 0.75rem;
-  }
-
-  .round h3 {
-    grid-column: 1 / -1;
-    color: rgba(255, 255, 255, 0.72);
-    font-size: 0.75rem;
+  .section-label {
+    font-size: 0.5rem;
     font-weight: 800;
-    letter-spacing: 0;
     text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding-bottom: 0.15rem;
+    border-bottom: 1px solid;
   }
 
-  .match-card {
+  .section-label.ub {
+    color: rgba(147, 197, 253, 0.7);
+    border-color: rgba(59, 130, 246, 0.25);
+  }
+
+  .section-label.lb {
+    color: rgba(252, 165, 165, 0.7);
+    border-color: rgba(239, 68, 68, 0.25);
+  }
+
+  .section-label.gf {
+    color: rgba(216, 180, 254, 0.9);
+    border-color: var(--accent);
+  }
+
+  /* Round columns */
+  .round-col {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
     min-width: 0;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 8px;
-    background: rgba(10, 15, 24, 0.84);
-    padding: 0.75rem;
   }
 
-  .match-meta {
-    display: flex;
-    justify-content: space-between;
-    gap: 0.5rem;
-    color: rgba(255, 255, 255, 0.62);
-    font-size: 0.75rem;
+  /* Match cards */
+  .match-card {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 0.375rem;
+    background: rgba(0, 0, 0, 0.2);
+    padding: 0.3rem 0.4rem;
+  }
+
+  .match-card.gf {
+    border-color: var(--accent);
+    background: rgba(94, 52, 114, 0.1);
+  }
+
+  .match-card.resolved {
+    opacity: 0.55;
+  }
+
+  .resolved-tag {
+    font-size: 0.5625rem;
     font-weight: 800;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.4);
+    flex-shrink: 0;
   }
 
-  .match-card button {
-    margin-top: 0.5rem;
+  .match-header {
     display: flex;
-    min-height: 3rem;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.625rem;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.4);
+    margin-bottom: 0.2rem;
+  }
+
+  .match-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .pts {
+    color: var(--hover);
+    font-weight: 800;
+    flex-shrink: 0;
+  }
+
+  .team-btn {
+    display: flex;
     width: 100%;
     align-items: center;
-    gap: 0.65rem;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 6px;
-    background: rgba(255, 255, 255, 0.05);
-    padding: 0.55rem 0.65rem;
+    gap: 0.35rem;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 0.25rem;
+    background: rgba(255, 255, 255, 0.03);
+    padding: 0.25rem 0.4rem;
     color: var(--text);
     text-align: left;
+    cursor: pointer;
+    transition:
+      border-color 0.15s,
+      background-color 0.15s;
   }
 
-  .match-card button.active {
-    border-color: rgba(34, 197, 94, 0.7);
-    background: rgba(34, 197, 94, 0.16);
+  .team-btn + .team-btn {
+    margin-top: 0.15rem;
   }
 
-  .match-card button:disabled {
+  .team-btn:not(:disabled):hover {
+    border-color: var(--hover);
+    background: rgba(120, 67, 145, 0.18);
+  }
+
+  .team-btn.picked {
+    border-color: var(--hover);
+    background: rgba(120, 67, 145, 0.3);
+    box-shadow: 0 0 0 1px var(--hover);
+  }
+
+  .match-card.gf .team-btn:not(:disabled):hover {
+    border-color: #c084fc;
+    background: rgba(168, 85, 247, 0.25);
+  }
+
+  .match-card.gf .team-btn.picked {
+    border-color: #c084fc;
+    background: rgba(168, 85, 247, 0.35);
+    box-shadow: 0 0 0 1px #c084fc;
+  }
+
+  .team-btn.tbd {
+    opacity: 0.35;
     cursor: default;
-    opacity: 0.82;
   }
 
-  .match-card img {
-    width: 1.85rem;
-    height: 1.85rem;
+  .team-btn:disabled:not(.tbd) {
+    cursor: default;
+  }
+
+  .team-logo {
+    width: 1.25rem;
+    height: 1.25rem;
     flex: 0 0 auto;
-    border-radius: 4px;
+    border-radius: 3px;
     object-fit: contain;
   }
 
-  .match-card span {
+  .team-name {
+    font-size: 0.75rem;
+    font-weight: 700;
     min-width: 0;
-    overflow-wrap: anywhere;
-    font-size: 0.875rem;
-    font-weight: 750;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
+  /* Leaderboard sidebar */
   .leaderboard {
-    margin-top: 1rem;
-    padding: 1rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 0.375rem;
+    background: rgba(0, 0, 0, 0.15);
+    padding: 0.75rem;
   }
 
-  .leaderboard h2 {
+  @media (min-width: 1200px) {
+    .leaderboard {
+      position: sticky;
+      top: 5rem;
+    }
+  }
+
+  .lb-heading {
+    font-size: 0.8125rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
     color: var(--text);
-    font-size: 1.15rem;
+    padding-bottom: 0.3rem;
+    border-bottom: 1px solid var(--accent);
+    margin-bottom: 0.3rem;
   }
 
-  .leaderboard p,
-  .empty {
-    color: rgba(255, 255, 255, 0.66);
-    font-size: 0.875rem;
+  .lb-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin-top: 0.5rem;
+    max-height: 60vh;
+    overflow-y: auto;
   }
 
-  .leaderboard-list {
-    margin-top: 0.75rem;
+  .lb-row {
     display: grid;
-    gap: 0.5rem;
-  }
-
-  .leaderboard-list button {
-    display: grid;
-    grid-template-columns: 3rem minmax(0, 1fr) auto;
+    grid-template-columns: 2rem 1fr auto;
     align-items: center;
-    gap: 0.75rem;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 6px;
-    background: rgba(255, 255, 255, 0.05);
-    padding: 0.65rem 0.75rem;
+    gap: 0.4rem;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 0.25rem;
+    background: rgba(0, 0, 0, 0.1);
+    padding: 0.4rem 0.5rem;
     color: var(--text);
     text-align: left;
+    cursor: pointer;
+    transition: border-color 0.15s;
   }
 
-  .leaderboard-list span,
-  .leaderboard-list em {
-    color: rgba(255, 255, 255, 0.66);
-    font-style: normal;
+  .lb-row:hover {
+    border-color: var(--hover);
+  }
+
+  .lb-row.lb-active {
+    border-color: var(--hover);
+    background: rgba(120, 67, 145, 0.15);
+  }
+
+  .lb-rank {
+    font-size: 0.75rem;
     font-weight: 800;
+    color: rgba(255, 255, 255, 0.45);
   }
 
-  @media (min-width: 1100px) {
+  .lb-name {
+    font-size: 0.8125rem;
+    font-weight: 700;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .lb-score {
+    font-size: 0.75rem;
+    font-weight: 800;
+    color: var(--hover);
+  }
+
+  /* Override PageContainer padding for wider bracket */
+  :global(.page-container.pickem-page) {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  @media (min-width: 768px) {
+    :global(.page-container.pickem-page) {
+      padding-left: 2rem;
+      padding-right: 2rem;
+    }
+  }
+
+  /* Responsive */
+  @media (max-width: 900px) {
     .bracket-grid {
-      grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(240px, 0.55fr);
-      align-items: start;
-    }
-
-    .final-section {
-      position: sticky;
-      top: 1rem;
+      grid-template-columns: repeat(2, 1fr);
     }
   }
 
-  @media (max-width: 720px) {
-    .pickem-header,
-    .viewer-bar {
-      align-items: stretch;
-      flex-direction: column;
-    }
-
-    h1 {
-      font-size: 2.25rem;
+  @media (max-width: 500px) {
+    .bracket-grid {
+      grid-template-columns: 1fr;
     }
   }
 </style>

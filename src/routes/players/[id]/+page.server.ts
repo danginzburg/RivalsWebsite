@@ -135,16 +135,6 @@ export const load = async ({
 
   if (!profileRel) throw error(404, 'Player not found')
 
-  // If match stats were imported before this player claimed their Riot base name,
-  // their match history can appear only under the "unclaimed" view.
-  // Rematch + rebuild opportunistically so the claimed player page stays accurate.
-  try {
-    const base = (profileRel.riot_id_base ?? (profileRel as any).stats_player_name ?? '').trim()
-    if (base) await rematchPlayerMatchMapStatsForBase(profileId, base)
-  } catch (err) {
-    console.warn('Failed to rematch match map stats on player load:', err)
-  }
-
   // Viewer permissions for inline Riot ID setup.
   let canEditRiotIdBase = false
   if (locals.user) {

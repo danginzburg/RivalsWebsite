@@ -67,6 +67,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
     const name = normalizeOptional(form.get('name'))
     const logo = form.get('logo')
+    const iconKey = normalizeOptional(form.get('icon_key'))
 
     if (!name) throw error(400, 'Accolade name is required')
     if (name.length < 1 || name.length > 64) throw error(400, 'Name must be 1-64 characters')
@@ -90,7 +91,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
     const { data: created, error: createError } = await supabaseAdmin
       .from('accolades')
-      .insert({ name, logo_path: uploadedLogoPath })
+      .insert({ name, logo_path: uploadedLogoPath, icon_key: iconKey })
       .select('id, name, logo_path, icon_key, created_at')
       .single()
 
@@ -133,6 +134,27 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
 
   if (!accoladeId) throw error(400, 'Missing accoladeId')
 
+  if (action === 'set_icon_key') {
+    const iconKey = typeof body.icon_key === 'string' ? body.icon_key.trim() || null : null
+
+    const { error: updateError } = await supabaseAdmin
+      .from('accolades')
+      .update({ icon_key: iconKey, updated_at: new Date().toISOString() })
+      .eq('id', accoladeId)
+
+    if (updateError) throw error(500, 'Failed to update accolade icon')
+
+    await logAdminAction({
+      adminProfileId: admin.id,
+      actionType: 'accolade_icon_updated',
+      targetTable: 'accolades',
+      targetId: accoladeId,
+      details: { icon_key: iconKey },
+    })
+
+    return json({ success: true, icon_key: iconKey })
+  }
+
   if (action === 'rename') {
     const name = normalizeOptional(body.name)
     if (!name) throw error(400, 'Name is required')
@@ -162,12 +184,18 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
 
     const { data: profile } = await supabaseAdmin
       .from('profiles')
-      .select('id, display_name, riot_id_base')
-      .or(`riot_id_base.ilike.${playerName},display_name.ilike.${playerName}`)
+      .select('id, display_name, riot_id_base, stats_player_name, email')
+      .or(
+        `riot_id_base.ilike.${playerName},display_name.ilike.${playerName},stats_player_name.ilike.${playerName},email.ilike.${playerName}`
+      )
       .limit(1)
       .maybeSingle()
 
-    if (!profile) throw error(404, `No player found matching "${playerName}"`)
+    if (!profile)
+      throw error(
+        404,
+        `No player found matching "${playerName}". The player must have a profile page (check /players).`
+      )
 
     const { data: assignment, error: insertError } = await supabaseAdmin
       .from('accolade_assignments')

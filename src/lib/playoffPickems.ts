@@ -37,12 +37,25 @@ export type PlayoffPickemMatchLink = {
   actualMatchId: string | null
 }
 
+export type PlayoffPickemMatchup = {
+  matchId: 'ub_qf_1' | 'ub_qf_2' | 'ub_qf_3' | 'ub_qf_4'
+  seedA: number
+  seedB: number
+}
+
+export type PlayoffPickemResolvedMatch = {
+  matchId: PlayoffMatchId
+  winnerId: string
+}
+
 export type PlayoffPickemConfig = {
   enabled: boolean
   status: PlayoffPickemStatus
   lock_at: string | null
   seeds: PlayoffPickemSeed[]
+  matchups: PlayoffPickemMatchup[]
   match_links: PlayoffPickemMatchLink[]
+  resolved_matches: PlayoffPickemResolvedMatch[]
 }
 
 export type PlayoffPickemPayload = {
@@ -83,7 +96,7 @@ const MATCH_POINTS: Record<PlayoffMatchId, number> = {
   grand_final: 5,
 }
 
-const MATCH_LABELS: Record<PlayoffMatchId, string> = {
+export const MATCH_LABELS: Record<PlayoffMatchId, string> = {
   ub_qf_1: 'Upper QF 1',
   ub_qf_2: 'Upper QF 2',
   ub_qf_3: 'Upper QF 3',
@@ -125,6 +138,36 @@ export function normalizePlayoffPickemConfig(value: unknown): PlayoffPickemConfi
     .filter((seed): seed is PlayoffPickemSeed => seed !== null)
     .sort((a, b) => a.seed - b.seed)
 
+  const qfIds: PlayoffPickemMatchup['matchId'][] = ['ub_qf_1', 'ub_qf_2', 'ub_qf_3', 'ub_qf_4']
+  const rawMatchups = Array.isArray(raw.matchups) ? raw.matchups : []
+  const matchups: PlayoffPickemMatchup[] = qfIds.map((matchId, i) => {
+    const found = rawMatchups.find(
+      (m: unknown) =>
+        m && typeof m === 'object' && (m as Record<string, unknown>).matchId === matchId
+    ) as Record<string, unknown> | undefined
+    if (found) {
+      const seedA = Number(found.seedA)
+      const seedB = Number(found.seedB)
+      if (
+        Number.isInteger(seedA) &&
+        seedA >= 1 &&
+        seedA <= 8 &&
+        Number.isInteger(seedB) &&
+        seedB >= 1 &&
+        seedB <= 8
+      ) {
+        return { matchId, seedA, seedB }
+      }
+    }
+    const defaults: [number, number][] = [
+      [1, 8],
+      [4, 5],
+      [2, 7],
+      [3, 6],
+    ]
+    return { matchId, seedA: defaults[i][0], seedB: defaults[i][1] }
+  })
+
   const rawLinks = Array.isArray(raw.match_links) ? raw.match_links : []
   const linkByMatch = new Map<string, string | null>()
   for (const link of rawLinks) {
@@ -135,15 +178,30 @@ export function normalizePlayoffPickemConfig(value: unknown): PlayoffPickemConfi
     linkByMatch.set(matchId, stringOrNull(entry.actualMatchId))
   }
 
+  const rawResolved = Array.isArray(raw.resolved_matches) ? raw.resolved_matches : []
+  const resolved_matches: PlayoffPickemResolvedMatch[] = rawResolved
+    .map((entry: unknown): PlayoffPickemResolvedMatch | null => {
+      if (!entry || typeof entry !== 'object') return null
+      const e = entry as Record<string, unknown>
+      const matchId = stringOrNull(e.matchId)
+      const winnerId = stringOrNull(e.winnerId)
+      if (!matchId || !winnerId || !PLAYOFF_MATCH_IDS.includes(matchId as PlayoffMatchId))
+        return null
+      return { matchId: matchId as PlayoffMatchId, winnerId }
+    })
+    .filter((e): e is PlayoffPickemResolvedMatch => e !== null)
+
   return {
     enabled: Boolean(raw.enabled),
     status: normalizeStatus(raw.status),
     lock_at: stringOrNull(raw.lock_at),
     seeds,
+    matchups,
     match_links: PLAYOFF_MATCH_IDS.map((matchId) => ({
       matchId,
       actualMatchId: linkByMatch.get(matchId) ?? null,
     })),
+    resolved_matches,
   }
 }
 
@@ -230,18 +288,57 @@ export function buildPlayoffBracketSlots(
   config: PlayoffPickemConfig,
   payload: PlayoffPickemPayload = { picks: {} }
 ): PlayoffPickemSlot[] {
-  const picks = payload.picks
-  const qf1 = makeSlot('ub_qf_1', 'upper', 1, getSeed(config, 1), getSeed(config, 8), picks)
-  const qf2 = makeSlot('ub_qf_2', 'upper', 1, getSeed(config, 4), getSeed(config, 5), picks)
-  const qf3 = makeSlot('ub_qf_3', 'upper', 1, getSeed(config, 2), getSeed(config, 7), picks)
-  const qf4 = makeSlot('ub_qf_4', 'upper', 1, getSeed(config, 3), getSeed(config, 6), picks)
+  const resolvedMap = new Map(config.resolved_matches?.map((r) => [r.matchId, r.winnerId]) ?? [])
+  const picks: Partial<Record<PlayoffMatchId, string>> = { ...payload.picks }
+  for (const [matchId, winnerId] of resolvedMap) {
+    picks[matchId] = winnerId
+  }
+  const defaults: PlayoffPickemMatchup[] = [
+    { matchId: 'ub_qf_1', seedA: 1, seedB: 8 },
+    { matchId: 'ub_qf_2', seedA: 4, seedB: 5 },
+    { matchId: 'ub_qf_3', seedA: 2, seedB: 7 },
+    { matchId: 'ub_qf_4', seedA: 3, seedB: 6 },
+  ]
+  const mu = config.matchups?.length === 4 ? config.matchups : defaults
+  const qf1 = makeSlot(
+    'ub_qf_1',
+    'upper',
+    1,
+    getSeed(config, mu[0].seedA),
+    getSeed(config, mu[0].seedB),
+    picks
+  )
+  const qf2 = makeSlot(
+    'ub_qf_2',
+    'upper',
+    1,
+    getSeed(config, mu[1].seedA),
+    getSeed(config, mu[1].seedB),
+    picks
+  )
+  const qf3 = makeSlot(
+    'ub_qf_3',
+    'upper',
+    1,
+    getSeed(config, mu[2].seedA),
+    getSeed(config, mu[2].seedB),
+    picks
+  )
+  const qf4 = makeSlot(
+    'ub_qf_4',
+    'upper',
+    1,
+    getSeed(config, mu[3].seedA),
+    getSeed(config, mu[3].seedB),
+    picks
+  )
   const sf1 = makeSlot('ub_sf_1', 'upper', 2, qf1.winnerId, qf2.winnerId, picks)
   const sf2 = makeSlot('ub_sf_2', 'upper', 2, qf3.winnerId, qf4.winnerId, picks)
   const uf = makeSlot('ub_final', 'upper', 3, sf1.winnerId, sf2.winnerId, picks)
   const lb1 = makeSlot('lb_r1_1', 'lower', 1, loser(qf1), loser(qf2), picks)
   const lb2 = makeSlot('lb_r1_2', 'lower', 1, loser(qf3), loser(qf4), picks)
-  const lb3 = makeSlot('lb_r2_1', 'lower', 2, loser(sf1), lb1.winnerId, picks)
-  const lb4 = makeSlot('lb_r2_2', 'lower', 2, loser(sf2), lb2.winnerId, picks)
+  const lb3 = makeSlot('lb_r2_1', 'lower', 2, loser(sf2), lb1.winnerId, picks)
+  const lb4 = makeSlot('lb_r2_2', 'lower', 2, loser(sf1), lb2.winnerId, picks)
   const lb5 = makeSlot('lb_r3', 'lower', 3, lb3.winnerId, lb4.winnerId, picks)
   const lf = makeSlot('lb_final', 'lower', 4, loser(uf), lb5.winnerId, picks)
   const gf = makeSlot('grand_final', 'final', 4, uf.winnerId, lf.winnerId, picks)
@@ -253,8 +350,10 @@ export function validatePlayoffPickemPayload(
   payload: PlayoffPickemPayload
 ) {
   validatePlayoffPickemConfig(config)
+  const resolvedIds = new Set(config.resolved_matches.map((r) => r.matchId))
   const slots = buildPlayoffBracketSlots(config, payload)
   for (const slot of slots) {
+    if (resolvedIds.has(slot.id)) continue
     if (!slot.teamAId || !slot.teamBId) {
       throw new Error(`${slot.label} is missing teams`)
     }
@@ -265,21 +364,24 @@ export function validatePlayoffPickemPayload(
     }
   }
   return {
-    picks: Object.fromEntries(slots.map((slot) => [slot.id, payload.picks[slot.id]!])) as Record<
-      PlayoffMatchId,
-      string
-    >,
+    picks: Object.fromEntries(
+      slots
+        .filter((slot) => !resolvedIds.has(slot.id))
+        .map((slot) => [slot.id, payload.picks[slot.id]!])
+    ) as Record<PlayoffMatchId, string>,
   }
 }
 
 export function scorePlayoffPickemPayload(
   payload: PlayoffPickemPayload,
-  actualWinners: Partial<Record<PlayoffMatchId, string>>
+  actualWinners: Partial<Record<PlayoffMatchId, string>>,
+  resolvedMatchIds: Set<PlayoffMatchId> = new Set()
 ): PlayoffPickemScoreResult {
   let score = 0
   let maxScore = 0
   const correct: PlayoffMatchId[] = []
   for (const matchId of PLAYOFF_MATCH_IDS) {
+    if (resolvedMatchIds.has(matchId)) continue
     const actual = actualWinners[matchId]
     if (!actual) continue
     maxScore += MATCH_POINTS[matchId]

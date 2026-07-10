@@ -29,16 +29,20 @@ function normalizeBase(value: string): string {
   return value.split('#')[0]?.trim().toLowerCase()
 }
 
-function parseNumber(value: string): number {
+function parseNumber(value: string, decimals?: number): number {
   const n = Number(String(value ?? '').trim())
-  return Number.isFinite(n) ? n : 0
+  if (!Number.isFinite(n)) return 0
+  return decimals !== undefined ? Math.round(n * 10 ** decimals) / 10 ** decimals : n
 }
 
 function parsePercent(value: string): number {
   const cleaned = String(value ?? '')
     .replace('%', '')
     .trim()
-  return parseNumber(cleaned)
+  const n = Number(cleaned)
+  if (!Number.isFinite(n)) return 0
+  if (n > 0 && n < 1) return Math.round(n * 10000) / 100
+  return Math.round(n * 100) / 100
 }
 
 const DETAILED_EXPECTED_HEADERS = [
@@ -183,29 +187,29 @@ function parseMapCsv(text: string, profileMap: Map<string, string>): ParsedRow[]
         rounds: 0,
         rounds_won: 0,
         rounds_lost: 0,
-        acs: parseNumber(parts[2]),
-        kd: parseNumber(parts[6]),
+        acs: parseNumber(parts[2], 1),
+        kd: parseNumber(parts[6], 2),
         kast_pct: parsePercent(parts[8]),
-        adr: parseNumber(parts[7]),
+        adr: parseNumber(parts[7], 1),
         kills: parseNumber(parts[3]),
-        kpg: parseNumber(parts[3]),
+        kpg: parseNumber(parts[3], 2),
         kpr: 0,
         deaths: parseNumber(parts[4]),
-        dpg: parseNumber(parts[4]),
+        dpg: parseNumber(parts[4], 2),
         dpr: 0,
         assists: parseNumber(parts[5]),
-        apg: parseNumber(parts[5]),
+        apg: parseNumber(parts[5], 2),
         apr: 0,
         fk: parseNumber(parts[9]),
-        fkpg: parseNumber(parts[9]),
+        fkpg: parseNumber(parts[9], 2),
         fd: parseNumber(parts[10]),
-        fdpg: parseNumber(parts[10]),
+        fdpg: parseNumber(parts[10], 2),
         hs_pct: parsePercent(parts[12]),
         plants: parseNumber(parts[13]),
-        plants_per_game: parseNumber(parts[13]),
+        plants_per_game: parseNumber(parts[13], 2),
         defuses: parseNumber(parts[14]),
-        defuses_per_game: parseNumber(parts[14]),
-        econ_rating: parseNumber(parts[15]),
+        defuses_per_game: parseNumber(parts[14], 2),
+        econ_rating: parseNumber(parts[15], 2),
         matched_profile_id,
         side,
       })
@@ -238,29 +242,29 @@ function parseMapCsv(text: string, profileMap: Map<string, string>): ParsedRow[]
       rounds: parseNumber(parts[5]),
       rounds_won: parseNumber(parts[6]),
       rounds_lost: parseNumber(parts[7]),
-      acs: parseNumber(parts[8]),
-      kd: parseNumber(parts[9]),
+      acs: parseNumber(parts[8], 1),
+      kd: parseNumber(parts[9], 2),
       kast_pct: parsePercent(parts[10]),
-      adr: parseNumber(parts[11]),
+      adr: parseNumber(parts[11], 1),
       kills: parseNumber(parts[12]),
-      kpg: parseNumber(parts[13]),
-      kpr: parseNumber(parts[14]),
+      kpg: parseNumber(parts[13], 2),
+      kpr: parseNumber(parts[14], 2),
       deaths: parseNumber(parts[15]),
-      dpg: parseNumber(parts[16]),
-      dpr: parseNumber(parts[17]),
+      dpg: parseNumber(parts[16], 2),
+      dpr: parseNumber(parts[17], 2),
       assists: parseNumber(parts[18]),
-      apg: parseNumber(parts[19]),
-      apr: parseNumber(parts[20]),
+      apg: parseNumber(parts[19], 2),
+      apr: parseNumber(parts[20], 2),
       fk: parseNumber(parts[21]),
-      fkpg: parseNumber(parts[22]),
+      fkpg: parseNumber(parts[22], 2),
       fd: parseNumber(parts[23]),
-      fdpg: parseNumber(parts[24]),
+      fdpg: parseNumber(parts[24], 2),
       hs_pct: parsePercent(parts[25]),
       plants: parseNumber(parts[26]),
-      plants_per_game: parseNumber(parts[27]),
+      plants_per_game: parseNumber(parts[27], 2),
       defuses: parseNumber(parts[28]),
-      defuses_per_game: parseNumber(parts[29]),
-      econ_rating: parseNumber(parts[30]),
+      defuses_per_game: parseNumber(parts[29], 2),
+      econ_rating: parseNumber(parts[30], 2),
       matched_profile_id,
     })
   }
