@@ -1,94 +1,305 @@
 <script lang="ts">
   import PageContainer from '$lib/components/PageContainer.svelte'
-  import CustomSelect from '$lib/components/CustomSelect.svelte'
+  import { teamName, toDatetimeLocal } from '$lib/admin/match-ui'
+  import { adminDashboardFetchAdapter, adminFormRequest, adminJsonRequest } from '$lib/admin/api'
+  import { createAdminDashboardState } from '$lib/admin/dashboard/state'
   import {
-    Shield,
-    RefreshCw,
-    UserCog,
-    ShieldCheck,
-    Check,
-    X,
-    CalendarDays,
-    CalendarCheck2,
-    Upload,
-  } from 'lucide-svelte'
-  import { TEAM_BALANCE_RANKS } from '$lib/team-balance'
+    buildApprovedTeamOptions,
+    filterAdminMatches,
+    normalizeSearchValue,
+    profileLabel,
+  } from '$lib/admin/ui'
+  import type { normalizePlayoffPickemConfig } from '$lib/playoffPickems'
+  import AdminDashboardShell from '$lib/components/admin/AdminDashboardShell.svelte'
+  import AdminMatchesTab from '$lib/components/admin/AdminMatchesTab.svelte'
+  import AdminSeasonsTab from '$lib/components/admin/AdminSeasonsTab.svelte'
+  import AdminTeamsTab from '$lib/components/admin/AdminTeamsTab.svelte'
+  import AdminUsersTab from '$lib/components/admin/AdminUsersTab.svelte'
+  import AdminAccoladesTab from '$lib/components/admin/AdminAccoladesTab.svelte'
+  import AdminActionConfirmationModal from '$lib/components/admin/AdminActionConfirmationModal.svelte'
+  import type {
+    ApprovedTeamEntry,
+    AdminMatch,
+    AdminPageDataExtras,
+    AdminSeason,
+    AdminTabId,
+    AdminUser,
+    BestOfValue,
+    MatchEditState,
+    MatchStreamFormState,
+    PendingActionConfirmation,
+    PendingRoleChange,
+    SeasonEditState,
+    TeamEditState,
+  } from '$lib/admin/types'
+  import type { PageData, PageProps } from './$types'
 
-  // Get data from server load
-  let { data } = $props() as { data: any }
+  let { data: pageData }: PageProps = $props()
 
-  type TeamQueueEntry = {
-    id: string
-    name: string
-    tag: string | null
-    logo_path: string | null
-    logo_url?: string | null
-    metadata?: {
-      initial_roster?: Array<{ riot_id?: string; rank_label?: string }>
-    } | null
-    approval_status: string
-    approval_notes?: string | null
-    roster_count?: number
-    roster?: Array<{
-      profile_id: string
-      role: string
-      riot_id_base: string | null
-      display_name: string | null
-      email: string | null
-    }>
-    profiles?: { id?: string; display_name?: string | null; email?: string | null }[] | null
-    captain_profile?: { display_name?: string | null; email?: string | null } | null
-  }
+  /** Server load plus optional fields referenced before client fetch populates them. */
+  type AdminPageData = PageData & AdminPageDataExtras
 
-  let activeTab = $state<'users' | 'teams' | 'matches'>('matches')
+  const data = $derived(pageData as AdminPageData)
+  const dashboardState = createAdminDashboardState({ fetchAdapter: adminDashboardFetchAdapter })
+
+  let activeTab = $state<AdminTabId>('matches')
   let isLoading = $state(false)
   let errorMessage = $state<string | null>(null)
   let successMessage = $state<string | null>(null)
 
-  const getInitialPlayers = () => data.players || []
-  const getInitialObservers = () => data.observers || []
   const getInitialUsers = () => data.users || []
-  const getInitialTeamQueue = () => data.teamQueue || []
+  const getInitialSeasons = () => data.seasons || []
   const getInitialApprovedTeams = () => data.approvedTeams || []
   const getInitialMatches = () => data.matches || []
 
-  let players = $state<any[]>(getInitialPlayers())
-  let observers = $state<any[]>(getInitialObservers())
-  let users = $state<any[]>(getInitialUsers())
-  let teamQueue = $state<TeamQueueEntry[]>(getInitialTeamQueue())
-  let approvedTeams = $state<TeamQueueEntry[]>(getInitialApprovedTeams())
-  let matches = $state<any[]>(getInitialMatches())
+  let users = $state<AdminUser[]>(getInitialUsers())
+  let seasons = $state<AdminSeason[]>(getInitialSeasons())
+  let approvedTeams = $state<ApprovedTeamEntry[]>(getInitialApprovedTeams() as ApprovedTeamEntry[])
+  let matches = $state<AdminMatch[]>(getInitialMatches())
+  let matchSearchQuery = $state('')
+  let showCompletedAdminMatches = $state(false)
+  let createSeasonCode = $state('')
+  let createSeasonName = $state('')
+  let createSeasonStartsOn = $state('')
+  let createSeasonEndsOn = $state('')
+  let createSeasonIsActive = $state(false)
+  let isCreatingSeason = $state(false)
+  let seasonEditForm = $state<Record<string, SeasonEditState>>({})
 
-  const approvedTeamOptions = $derived(
-    (approvedTeams ?? []).map((t) => ({
-      label: `${t.name}${t.tag ? ` [${String(t.tag).toUpperCase()}]` : ''}`,
-      value: t.id,
-    }))
-  )
-
-  const bestOfOptions = [
-    { value: '3', label: 'BO3' },
-    { value: '5', label: 'BO5' },
-  ]
+  const approvedTeamOptions = $derived(buildApprovedTeamOptions(approvedTeams ?? []))
 
   let createMatchTeamAId = $state('')
   let createMatchTeamBId = $state('')
-  let createMatchBestOf = $state<'3' | '5'>('3')
+  let createMatchBestOf = $state<BestOfValue>('3')
   let createMatchScheduledAt = $state('')
   let isCreatingMatch = $state(false)
+  let expandedAdminMatchId = $state<string | null>(null)
+  let matchMapsCache = $state<
+    Record<
+      string,
+      Array<{ id: string; map_order: number; map_name: string | null; is_voided: boolean }>
+    >
+  >({})
+  let matchMapsLoading = $state<Record<string, boolean>>({})
+
+  type Accolade = {
+    id: string
+    name: string
+    logo_path: string | null
+    logo_url: string | null
+    icon_key: string | null
+    assignments: Array<{
+      id: string
+      profile_id: string
+      display_name: string
+      context?: string | null
+    }>
+  }
+  let accolades = $state<Accolade[]>([])
+  let accoladesLoaded = $state(false)
+  let createAccoladeName = $state('')
+  let createAccoladeLogoFile = $state<File | null>(null)
+  let isCreatingAccolade = $state(false)
+  let accoladeAssignProfileId = $state<Record<string, string>>({})
+  let accoladeAssignContext = $state<Record<string, string>>({})
+  let editingAccoladeId = $state<string | null>(null)
+  let editAccoladeName = $state('')
+  let accoladeLogoStatus = $state<Record<string, 'uploading' | 'done' | null>>({})
+
+  const filteredAdminMatches = $derived(
+    filterAdminMatches(matches ?? [], matchSearchQuery, showCompletedAdminMatches)
+  )
+
+  async function fetchMatchMaps(matchId: string) {
+    if (matchMapsCache[matchId] || matchMapsLoading[matchId]) return
+    matchMapsLoading = { ...matchMapsLoading, [matchId]: true }
+    try {
+      const result = await adminJsonRequest<{ maps?: (typeof matchMapsCache)[string] }>(
+        `/api/admin/matches/${matchId}/maps`,
+        { fallbackMessage: 'Failed to load match maps' }
+      )
+      matchMapsCache = { ...matchMapsCache, [matchId]: result.maps ?? [] }
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to load match maps'
+    } finally {
+      matchMapsLoading = { ...matchMapsLoading, [matchId]: false }
+    }
+  }
+
+  async function toggleMapVoided(matchId: string, mapId: string, currentVoided: boolean) {
+    try {
+      await adminJsonRequest(`/api/admin/matches/${matchId}`, {
+        method: 'PATCH',
+        body: { action: 'toggle_map_voided', mapId, isVoided: !currentVoided },
+        fallbackMessage: 'Failed to update map',
+      })
+      const maps = matchMapsCache[matchId] ?? []
+      matchMapsCache = {
+        ...matchMapsCache,
+        [matchId]: maps.map((map) =>
+          map.id === mapId ? { ...map, is_voided: !currentVoided } : map
+        ),
+      }
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to update map'
+    }
+  }
+
+  async function loadAccolades() {
+    try {
+      const result = await adminJsonRequest<{ accolades?: Accolade[] }>('/api/admin/accolades', {
+        fallbackMessage: 'Failed to load accolades',
+      })
+      accolades = result.accolades ?? []
+      accoladesLoaded = true
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to load accolades'
+    }
+  }
+
+  async function createAccolade() {
+    if (!createAccoladeName.trim() || isCreatingAccolade) return
+    isCreatingAccolade = true
+    errorMessage = null
+    try {
+      const form = new FormData()
+      form.set('name', createAccoladeName.trim())
+      if (createAccoladeLogoFile) form.set('logo', createAccoladeLogoFile)
+      const result = await adminFormRequest<{ accolade?: Accolade }>('/api/admin/accolades', {
+        method: 'POST',
+        body: form,
+        fallbackMessage: 'Failed to create accolade',
+      })
+      if (result.accolade) accolades = [result.accolade, ...accolades]
+      createAccoladeName = ''
+      createAccoladeLogoFile = null
+      successMessage = 'Accolade created.'
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to create accolade'
+    } finally {
+      isCreatingAccolade = false
+    }
+  }
+
+  async function renameAccolade(accoladeId: string) {
+    if (!editAccoladeName.trim()) return
+    try {
+      await adminJsonRequest('/api/admin/accolades', {
+        method: 'PATCH',
+        body: { accoladeId, action: 'rename', name: editAccoladeName.trim() },
+        fallbackMessage: 'Failed to rename accolade',
+      })
+      accolades = accolades.map((a) =>
+        a.id === accoladeId ? { ...a, name: editAccoladeName.trim() } : a
+      )
+      editingAccoladeId = null
+      editAccoladeName = ''
+      successMessage = 'Accolade renamed.'
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to rename accolade'
+    }
+  }
+
+  async function deleteAccolade(accoladeId: string) {
+    if (!window.confirm('Delete this accolade? This removes it from all players.')) return
+    try {
+      await adminJsonRequest('/api/admin/accolades', {
+        method: 'DELETE',
+        body: { accoladeId },
+        fallbackMessage: 'Failed to delete accolade',
+      })
+      accolades = accolades.filter((a) => a.id !== accoladeId)
+      successMessage = 'Accolade deleted.'
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to delete accolade'
+    }
+  }
+
+  async function updateAccoladeLogo(accoladeId: string, file: File) {
+    accoladeLogoStatus = { ...accoladeLogoStatus, [accoladeId]: 'uploading' }
+    try {
+      const form = new FormData()
+      form.set('accoladeId', accoladeId)
+      form.set('logo', file)
+      const result = await adminFormRequest<{ logo_url?: string }>('/api/admin/accolades', {
+        method: 'PUT',
+        body: form,
+        fallbackMessage: 'Failed to upload logo',
+      })
+      accolades = accolades.map((a) =>
+        a.id === accoladeId ? { ...a, logo_url: result.logo_url ?? a.logo_url } : a
+      )
+      accoladeLogoStatus = { ...accoladeLogoStatus, [accoladeId]: 'done' }
+      window.setTimeout(() => {
+        accoladeLogoStatus = { ...accoladeLogoStatus, [accoladeId]: null }
+      }, 2000)
+    } catch (err) {
+      accoladeLogoStatus = { ...accoladeLogoStatus, [accoladeId]: null }
+      errorMessage = err instanceof Error ? err.message : 'Failed to upload logo'
+    }
+  }
+
+  async function assignAccolade(accoladeId: string) {
+    const playerName = (accoladeAssignProfileId[accoladeId] ?? '').trim()
+    const context = (accoladeAssignContext[accoladeId] ?? '').trim() || null
+    if (!playerName) return
+    try {
+      const result = await adminJsonRequest<{
+        assignment?: Omit<Accolade['assignments'][number], 'id'>
+      }>('/api/admin/accolades', {
+        method: 'PATCH',
+        body: { accoladeId, action: 'assign', playerName, context },
+        fallbackMessage: 'Failed to assign accolade',
+      })
+      const assignment = result.assignment
+      if (assignment) {
+        accoladeAssignProfileId = { ...accoladeAssignProfileId, [accoladeId]: '' }
+        accoladeAssignContext = { ...accoladeAssignContext, [accoladeId]: '' }
+        accolades = accolades.map((a) =>
+          a.id === accoladeId
+            ? {
+                ...a,
+                assignments: [...a.assignments, { ...assignment, id: crypto.randomUUID() }],
+              }
+            : a
+        )
+      }
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to assign accolade'
+    }
+  }
+
+  async function unassignAccolade(accoladeId: string, assignmentId: string) {
+    try {
+      await adminJsonRequest('/api/admin/accolades', {
+        method: 'PATCH',
+        body: { accoladeId, action: 'unassign', assignmentId },
+        fallbackMessage: 'Failed to unassign accolade',
+      })
+      accolades = accolades.map((a) =>
+        a.id === accoladeId
+          ? { ...a, assignments: a.assignments.filter((x) => x.id !== assignmentId) }
+          : a
+      )
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to unassign accolade'
+    }
+  }
 
   let createTeamName = $state('')
   let createTeamTag = $state('')
   let createTeamLogoFile = $state<File | null>(null)
   let isCreatingTeam = $state(false)
 
-  let addPlayerForm = $state<Record<string, { profileId: string; role: string }>>({})
+  let addPlayerForm = $state<Record<string, { playerName: string; role: string }>>({})
+  let teamEditForm = $state<Record<string, TeamEditState>>({})
+  let teamLogoFileById = $state<Record<string, File | null>>({})
 
   function updateAddPlayerForm(
     teamId: string,
-    patch: Partial<{ profileId: string; role: string }>
+    patch: Partial<{ playerName: string; role: string }>
   ) {
-    const current = addPlayerForm[teamId] ?? { profileId: '', role: 'player' }
+    const current = addPlayerForm[teamId] ?? { playerName: '', role: 'player' }
     addPlayerForm = {
       ...addPlayerForm,
       [teamId]: {
@@ -101,9 +312,9 @@
   $effect(() => {
     // Ensure per-team form state exists without mutating during render.
     const ids = new Set((approvedTeams ?? []).map((t) => t.id))
-    const next: Record<string, { profileId: string; role: string }> = {}
+    const next: Record<string, { playerName: string; role: string }> = {}
     for (const id of ids) {
-      next[id] = addPlayerForm[id] ?? { profileId: '', role: 'player' }
+      next[id] = addPlayerForm[id] ?? { playerName: '', role: 'player' }
     }
     // Preserve object identity when no changes.
     const prevKeys = Object.keys(addPlayerForm)
@@ -113,34 +324,66 @@
       nextKeys.some(
         (k) =>
           !addPlayerForm[k] ||
-          addPlayerForm[k].profileId !== next[k].profileId ||
+          addPlayerForm[k].playerName !== next[k].playerName ||
           addPlayerForm[k].role !== next[k].role
       )
     if (changed) addPlayerForm = next
   })
 
-  const membershipRoleOptions = [
-    { value: 'player', label: 'Player' },
-    { value: 'captain', label: 'Captain' },
-    { value: 'substitute', label: 'Sub' },
-    { value: 'coach', label: 'Coach' },
-  ]
+  function updateTeamEditForm(teamId: string, patch: Partial<TeamEditState>) {
+    const current =
+      teamEditForm[teamId] ??
+      ({
+        name: '',
+        tag: '',
+        status: 'active',
+      } as const)
+    teamEditForm = {
+      ...teamEditForm,
+      [teamId]: {
+        ...current,
+        ...patch,
+      },
+    }
+  }
 
-  const playerOptions = $derived.by(() => {
-    return (users ?? [])
-      .filter((u) => u.role !== 'banned' && u.role !== 'restricted')
-      .map((u) => {
-        const labelParts = [u.riot_id_base || u.display_name || u.email || u.id]
-        if (u.riot_id_base && u.display_name && u.display_name !== u.riot_id_base) {
-          labelParts.push(u.display_name)
-        }
-        return { value: u.id, label: labelParts.filter(Boolean).join(' - ') }
-      })
+  $effect(() => {
+    const next: Record<string, TeamEditState> = {}
+    const nextLogos: Record<string, File | null> = {}
+    for (const team of approvedTeams ?? []) {
+      next[team.id] = teamEditForm[team.id] ?? {
+        name: team.name ?? '',
+        tag: team.tag ?? '',
+        status: team.status ?? 'active',
+      }
+      nextLogos[team.id] = teamLogoFileById[team.id] ?? null
+    }
+    const teamKeys = Object.keys(next)
+    const currentKeys = Object.keys(teamEditForm)
+    const teamChanged =
+      teamKeys.length !== currentKeys.length ||
+      teamKeys.some(
+        (key) => JSON.stringify(teamEditForm[key] ?? {}) !== JSON.stringify(next[key] ?? {})
+      )
+    if (teamChanged) teamEditForm = next
+
+    const logoKeys = Object.keys(nextLogos)
+    const currentLogoKeys = Object.keys(teamLogoFileById)
+    const logoChanged =
+      logoKeys.length !== currentLogoKeys.length ||
+      logoKeys.some((key) => teamLogoFileById[key] !== nextLogos[key])
+    if (logoChanged) teamLogoFileById = nextLogos
   })
+
+  let createTeamLogoInput = $state<HTMLInputElement | null>(null)
 
   let finalizeForm = $state<
     Record<string, { teamAScore: string; teamBScore: string; winnerTeamId: string }>
   >({})
+  let matchEditForm = $state<Record<string, MatchEditState>>({})
+  let streamForm = $state<Record<string, MatchStreamFormState>>({})
+  let existingStreamForm = $state<Record<string, MatchStreamFormState>>({})
+  let vodForm = $state<Record<string, string>>({})
 
   function updateFinalizeForm(
     matchId: string,
@@ -185,128 +428,143 @@
     if (changed) finalizeForm = next
   })
 
-  function teamName(value: unknown) {
-    if (!value) return 'Team'
-    if (Array.isArray(value)) {
-      const first = value[0] as { name?: string } | undefined
-      return first?.name ?? 'Team'
+  function updateMatchEditForm(matchId: string, patch: Partial<MatchEditState>) {
+    const current =
+      matchEditForm[matchId] ??
+      ({
+        teamAId: '',
+        teamBId: '',
+        bestOf: '3',
+        status: 'scheduled',
+        scheduledAt: '',
+        teamAScore: '0',
+        teamBScore: '0',
+        winnerTeamId: '',
+        mapVetoes: '',
+      } as const)
+    matchEditForm = {
+      ...matchEditForm,
+      [matchId]: {
+        ...current,
+        ...patch,
+      },
     }
-    const team = value as { name?: string }
-    return team.name ?? 'Team'
   }
 
-  function formatLocal(value: string | null | undefined) {
-    if (!value) return 'No date'
-    const date = new Date(value)
-    return date.toLocaleString(undefined, { timeZoneName: 'short' })
-  }
+  $effect(() => {
+    const next: Record<string, MatchEditState> = {}
+    for (const match of matches ?? []) {
+      next[match.id] = matchEditForm[match.id] ?? {
+        teamAId: match.team_a_id,
+        teamBId: match.team_b_id,
+        bestOf: String(match.best_of ?? 3),
+        status: match.status ?? 'scheduled',
+        scheduledAt: toDatetimeLocal(match.scheduled_at),
+        teamAScore: String(match.team_a_score ?? 0),
+        teamBScore: String(match.team_b_score ?? 0),
+        winnerTeamId: match.winner_team_id ?? '',
+        mapVetoes: Array.isArray(match.metadata?.map_vetoes)
+          ? match.metadata.map_vetoes.join('\n')
+          : '',
+      }
+    }
+    const keys = Object.keys(next)
+    const currentKeys = Object.keys(matchEditForm)
+    const changed =
+      keys.length !== currentKeys.length ||
+      keys.some(
+        (key) => JSON.stringify(matchEditForm[key] ?? {}) !== JSON.stringify(next[key] ?? {})
+      )
+    if (changed) matchEditForm = next
+  })
+
+  $effect(() => {
+    const next: Record<string, MatchStreamFormState> = {}
+    for (const match of matches ?? []) {
+      next[match.id] = streamForm[match.id] ?? {
+        platform: 'twitch',
+        streamUrl: '',
+        displayName: '',
+        status: match.status === 'live' ? 'live' : 'scheduled',
+        isPrimary: !(match.streams?.length > 0),
+      }
+    }
+    const keys = Object.keys(next)
+    const currentKeys = Object.keys(streamForm)
+    const changed =
+      keys.length !== currentKeys.length ||
+      keys.some((key) => JSON.stringify(streamForm[key] ?? {}) !== JSON.stringify(next[key] ?? {}))
+    if (changed) streamForm = next
+  })
+
+  $effect(() => {
+    const next: Record<string, MatchStreamFormState> = {}
+    for (const match of matches ?? []) {
+      for (const stream of match.streams ?? []) {
+        next[stream.id] = existingStreamForm[stream.id] ?? {
+          platform: stream.platform ?? 'twitch',
+          streamUrl: stream.stream_url ?? '',
+          displayName:
+            typeof stream.metadata?.display_name === 'string' ? stream.metadata.display_name : '',
+          status: stream.status ?? 'scheduled',
+          isPrimary: Boolean(stream.is_primary),
+        }
+      }
+    }
+    const keys = Object.keys(next)
+    const currentKeys = Object.keys(existingStreamForm)
+    const changed =
+      keys.length !== currentKeys.length ||
+      keys.some(
+        (key) => JSON.stringify(existingStreamForm[key] ?? {}) !== JSON.stringify(next[key] ?? {})
+      )
+    if (changed) existingStreamForm = next
+  })
+
+  $effect(() => {
+    const next: Record<string, string> = {}
+    for (const match of matches ?? []) {
+      next[match.id] = vodForm[match.id] ?? match.vod_url ?? ''
+    }
+    const keys = Object.keys(next)
+    const currentKeys = Object.keys(vodForm)
+    const changed =
+      keys.length !== currentKeys.length ||
+      keys.some((key) => (vodForm[key] ?? '') !== (next[key] ?? ''))
+    if (changed) vodForm = next
+  })
+
+  $effect(() => {
+    const next: Record<string, SeasonEditState> = {}
+    for (const season of seasons ?? []) {
+      next[season.id] = seasonEditForm[season.id] ?? {
+        code: season.code ?? '',
+        name: season.name ?? '',
+        startsOn: season.starts_on ?? '',
+        endsOn: season.ends_on ?? '',
+        isActive: Boolean(season.is_active),
+      }
+    }
+    const keys = Object.keys(next)
+    const currentKeys = Object.keys(seasonEditForm)
+    const changed =
+      keys.length !== currentKeys.length ||
+      keys.some(
+        (key) => JSON.stringify(seasonEditForm[key] ?? {}) !== JSON.stringify(next[key] ?? {})
+      )
+    if (changed) seasonEditForm = next
+  })
 
   // Role change confirmation
   let showRoleConfirmation = $state(false)
-  let pendingRoleChange = $state<{
-    userId: string
-    userName: string
-    currentRole: string
-    newRole: string
-  } | null>(null)
+  let pendingRoleChange = $state<PendingRoleChange | null>(null)
   let isUpdatingRole = $state(false)
-  let showRankConfirmation = $state(false)
-  let showUnrankedOnly = $state(false)
-  let playersSearch = $state('')
-  let observersSearch = $state('')
   let usersSearch = $state('')
+  let userRiotIdForm = $state<Record<string, string>>({})
   let teamsSearch = $state('')
-  let pendingRankChange = $state<{
-    registrationId: number
-    riotId: string
-    currentRank: string
-    newRank: string
-  } | null>(null)
   let processingTeamId = $state<string | null>(null)
-  let processingRankRegistrationId = $state<number | null>(null)
-  let showTeamModerationConfirmation = $state(false)
-  let pendingTeamModeration = $state<{
-    teamId: string
-    action: 'approve' | 'reject'
-    notes: string
-    name: string
-    tag: string
-    logoPath: string
-  } | null>(null)
   let showActionConfirmation = $state(false)
-  let pendingActionConfirmation = $state<
-    | {
-        kind: 'remove_logo'
-        teamId: string
-        path: string
-        title: string
-        message: string
-        confirmLabel: string
-      }
-    | {
-        kind: 'remove_team'
-        teamId: string
-        teamName: string
-        title: string
-        message: string
-        confirmLabel: string
-      }
-    | {
-        kind: 'remove_player'
-        teamId: string
-        profileId: string
-        riotId: string
-        role: string
-        title: string
-        message: string
-        confirmLabel: string
-      }
-    | {
-        kind: 'purge_user'
-        profileId: string
-        label: string
-        title: string
-        message: string
-        confirmLabel: string
-      }
-    | null
-  >(null)
-
-  const rankOptions = TEAM_BALANCE_RANKS.map((rank) => rank.name)
-  const rankSelectOptions = [
-    { value: '', label: 'Select rank' },
-    ...rankOptions.map((r) => ({ value: r, label: r })),
-  ]
-  const roleSelectOptions = [
-    { value: 'user', label: 'User' },
-    { value: 'restricted', label: 'Restricted' },
-    { value: 'banned', label: 'Banned' },
-    { value: 'admin', label: 'Admin' },
-  ]
-  function normalizeSearchValue(value: string): string {
-    return value.trim().toLowerCase()
-  }
-
-  const displayedPlayers = $derived.by(() => {
-    const search = normalizeSearchValue(playersSearch)
-    return players.filter((player) => {
-      if (showUnrankedOnly && player.rank_label) return false
-      if (!search) return true
-      const haystack =
-        `${player.riot_id ?? ''} ${profileLabel(player.profiles)} ${player.pronouns ?? ''}`.toLowerCase()
-      return haystack.includes(search)
-    })
-  })
-
-  const displayedObservers = $derived.by(() => {
-    const search = normalizeSearchValue(observersSearch)
-    return observers.filter((observer) => {
-      if (!search) return true
-      const haystack =
-        `${profileLabel(observer.profiles)} ${observer.additional_info ?? ''}`.toLowerCase()
-      return haystack.includes(search)
-    })
-  })
+  let pendingActionConfirmation = $state<PendingActionConfirmation | null>(null)
 
   const displayedUsers = $derived.by(() => {
     const search = normalizeSearchValue(usersSearch)
@@ -316,6 +574,19 @@
         `${user.display_name ?? ''} ${user.email ?? ''} ${user.role ?? ''}`.toLowerCase()
       return haystack.includes(search)
     })
+  })
+
+  $effect(() => {
+    const next: Record<string, string> = {}
+    for (const user of users ?? []) {
+      next[user.id] = userRiotIdForm[user.id] ?? user.riot_id_base ?? ''
+    }
+    const keys = Object.keys(next)
+    const currentKeys = Object.keys(userRiotIdForm)
+    const changed =
+      keys.length !== currentKeys.length ||
+      keys.some((key) => (userRiotIdForm[key] ?? '') !== (next[key] ?? ''))
+    if (changed) userRiotIdForm = next
   })
 
   const displayedApprovedTeams = $derived.by(() => {
@@ -328,112 +599,61 @@
     })
   })
 
-  function profileLabel(profileRel: unknown): string {
-    if (!profileRel) return '—'
-
-    if (Array.isArray(profileRel)) {
-      const first = profileRel[0] as
-        | { display_name?: string | null; email?: string | null }
-        | undefined
-      return first?.display_name || first?.email || '—'
-    }
-
-    const single = profileRel as { display_name?: string | null; email?: string | null }
-    return single.display_name || single.email || '—'
-  }
-
   async function refreshData() {
-    isLoading = true
-    errorMessage = null
-    successMessage = null
-
-    try {
-      const [usersResponse, teamsResponse, matchesResponse] = await Promise.all([
-        fetch('/api/admin/users'),
-        fetch('/api/admin/teams'),
-        fetch('/api/admin/matches'),
-      ])
-
-      if (!usersResponse.ok) {
-        const err = await usersResponse.json()
-        throw new Error(err.message || 'Failed to fetch users')
-      }
-      if (!teamsResponse.ok) {
-        const err = await teamsResponse.json()
-        throw new Error(err.message || 'Failed to fetch teams')
-      }
-      if (!matchesResponse.ok) {
-        const err = await matchesResponse.json()
-        throw new Error(err.message || 'Failed to fetch matches')
-      }
-
-      const usersResult = await usersResponse.json()
-      const teamsResult = await teamsResponse.json()
-      const matchesResult = await matchesResponse.json()
-
-      users = usersResult.users
-      teamQueue = teamsResult.queue
-      approvedTeams = teamsResult.approved
-      matches = matchesResult.matches
-    } catch (err) {
-      errorMessage = err instanceof Error ? err.message : 'Failed to refresh data'
-    } finally {
-      isLoading = false
-    }
+    await dashboardState.refresh({
+      setLoading: (value) => (isLoading = value),
+      setError: (message) => (errorMessage = message),
+      setSuccess: (message) => (successMessage = message),
+      replaceData: (dashboardData) => {
+        users = dashboardData.users as AdminUser[]
+        seasons = dashboardData.seasons as AdminSeason[]
+        approvedTeams = dashboardData.approved as ApprovedTeamEntry[]
+        matches = dashboardData.matches
+      },
+    })
   }
 
-  async function finalizeMatch(match: any) {
+  async function finalizeMatch(match: AdminMatch) {
     const state = finalizeForm[match.id] ?? {
       teamAScore: String(match.team_a_score ?? 0),
       teamBScore: String(match.team_b_score ?? 0),
       winnerTeamId: match.winner_team_id ?? match.team_a_id,
     }
-    const confirmed = window.confirm(
-      'Are you sure you want to finalize this match? This is official.'
-    )
-    if (!confirmed) return
 
+    pendingActionConfirmation = dashboardState.buildFinalizeConfirmation(match, state)
+    showActionConfirmation = true
+  }
+
+  async function executeFinalizeMatch(action: {
+    matchId: string
+    teamAScore: string
+    teamBScore: string
+    winnerTeamId: string
+  }) {
     errorMessage = null
     successMessage = null
 
     try {
-      const response = await fetch(`/api/admin/matches/${match.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'finalize',
-          winnerTeamId: state.winnerTeamId,
-          teamAScore: Number(state.teamAScore),
-          teamBScore: Number(state.teamBScore),
-        }),
-      })
-
-      const result = await response.json()
-      if (!response.ok) throw new Error(result.message || 'Failed to finalize match')
-      successMessage = 'Match finalized.'
+      const result = await dashboardState.finalizeMatch(action)
+      successMessage = result.success ?? 'Match finalized.'
       await refreshData()
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Failed to finalize match'
     }
   }
 
-  async function cancelMatch(match: any) {
-    const confirmed = window.confirm('Are you sure you want to cancel this match?')
-    if (!confirmed) return
+  async function cancelMatch(match: AdminMatch) {
+    pendingActionConfirmation = dashboardState.buildCancelConfirmation(match)
+    showActionConfirmation = true
+  }
 
+  async function executeCancelMatch(matchId: string) {
     errorMessage = null
     successMessage = null
 
     try {
-      const response = await fetch(`/api/admin/matches/${match.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'cancel' }),
-      })
-
-      const result = await response.json()
-      if (!response.ok) throw new Error(result.message || 'Failed to cancel match')
-      successMessage = 'Match cancelled.'
+      const result = await dashboardState.cancelMatch(matchId)
+      successMessage = result.success ?? 'Match cancelled.'
       await refreshData()
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Failed to cancel match'
@@ -455,21 +675,18 @@
 
     isCreatingMatch = true
     try {
-      const response = await fetch('/api/admin/matches', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          teamAId: createMatchTeamAId,
-          teamBId: createMatchTeamBId,
-          bestOf: Number(createMatchBestOf),
-          scheduledAt: createMatchScheduledAt || null,
-        }),
+      const result = await dashboardState.createMatch({
+        teamAId: createMatchTeamAId,
+        teamBId: createMatchTeamBId,
+        bestOf: createMatchBestOf,
+        scheduledAt: createMatchScheduledAt,
       })
+      if (result.error) {
+        errorMessage = result.error
+        return
+      }
 
-      const result = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(result.message || 'Failed to create match')
-
-      successMessage = 'Match created.'
+      successMessage = result.success ?? 'Match created.'
       createMatchScheduledAt = ''
       await refreshData()
     } catch (err) {
@@ -495,23 +712,18 @@
       form.set('tag', createTeamTag)
       if (createTeamLogoFile) form.set('logo', createTeamLogoFile)
 
-      const response = await fetch('/api/admin/teams', {
+      await adminFormRequest('/api/admin/teams', {
         method: 'POST',
         body: form,
+        fallbackMessage: 'Failed to create team',
+        includeHttpStatusInError: true,
       })
-
-      const result = await response.json().catch(async () => {
-        const text = await response.text().catch(() => '')
-        return { message: text }
-      })
-      if (!response.ok) {
-        throw new Error(result.message || `Failed to create team (HTTP ${response.status})`)
-      }
 
       successMessage = 'Team created.'
       createTeamName = ''
       createTeamTag = ''
       createTeamLogoFile = null
+      if (createTeamLogoInput) createTeamLogoInput.value = ''
       await refreshData()
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Failed to create team'
@@ -520,10 +732,320 @@
     }
   }
 
+  async function executeSaveTeamEdits(teamId: string) {
+    const state = teamEditForm[teamId]
+    if (!state) return
+
+    processingTeamId = teamId
+    errorMessage = null
+    successMessage = null
+
+    try {
+      const form = new FormData()
+      form.set('name', state.name ?? '')
+      form.set('tag', state.tag ?? '')
+      form.set('status', state.status ?? 'active')
+      if (teamLogoFileById[teamId]) form.set('logo', teamLogoFileById[teamId]!)
+
+      await adminFormRequest(`/api/admin/teams/${teamId}`, {
+        method: 'PATCH',
+        body: form,
+        fallbackMessage: 'Failed to update team',
+      })
+
+      successMessage = 'Team updated.'
+      teamLogoFileById = { ...teamLogoFileById, [teamId]: null }
+      await refreshData()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to update team'
+    } finally {
+      processingTeamId = null
+    }
+  }
+
+  async function executeSaveMatchEdits(matchId: string) {
+    const state = matchEditForm[matchId]
+    if (!state) return
+
+    errorMessage = null
+    successMessage = null
+
+    try {
+      const result = await dashboardState.saveMatch(matchId, state, vodForm[matchId] || null)
+      successMessage = result.success
+      await refreshData()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to update match'
+    }
+  }
+
+  function saveTeamEdits(teamId: string, teamName: string) {
+    pendingActionConfirmation = {
+      kind: 'save_team',
+      teamId,
+      title: 'Confirm Team Update',
+      message: `Save edits for ${teamName}? This updates public team details and import aliases.`,
+      confirmLabel: 'Save Team Changes',
+    }
+    showActionConfirmation = true
+  }
+
+  function saveMatchEdits(matchId: string, match: AdminMatch) {
+    pendingActionConfirmation = {
+      kind: 'save_match',
+      matchId,
+      title: 'Confirm Match Update',
+      message: `Save edits for ${teamName(match.team_a)} vs ${teamName(match.team_b)}?`,
+      confirmLabel: 'Save Match Changes',
+    }
+    showActionConfirmation = true
+  }
+
+  function deleteMatch(matchId: string, match: AdminMatch) {
+    pendingActionConfirmation = {
+      kind: 'delete_match',
+      matchId,
+      title: 'Confirm Match Deletion',
+      message: `Delete ${teamName(match.team_a)} vs ${teamName(match.team_b)} permanently? This is only for cleanup mistakes and cannot be undone.`,
+      confirmLabel: 'Delete Match',
+    }
+    showActionConfirmation = true
+  }
+
+  async function executeDeleteMatch(matchId: string) {
+    errorMessage = null
+    successMessage = null
+    try {
+      const result = await dashboardState.deleteMatch(matchId)
+      successMessage = result.success
+      await refreshData()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to delete match'
+    }
+  }
+
+  async function addMatchStream(matchId: string) {
+    const state = streamForm[matchId]
+    if (!state?.streamUrl?.trim()) {
+      errorMessage = 'Stream URL is required'
+      return
+    }
+
+    errorMessage = null
+    successMessage = null
+    try {
+      const result = await dashboardState.addMatchStream(matchId, state)
+      if (result.error) {
+        errorMessage = result.error
+        return
+      }
+      successMessage = result.success ?? 'Stream added.'
+      streamForm = {
+        ...streamForm,
+        [matchId]: {
+          platform: state.platform,
+          streamUrl: '',
+          displayName: '',
+          status: state.status,
+          isPrimary: false,
+        },
+      }
+      await refreshData()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to add stream'
+    }
+  }
+
+  async function saveExistingMatchStream(matchId: string, streamId: string) {
+    const state = existingStreamForm[streamId]
+    if (!state?.streamUrl?.trim()) {
+      errorMessage = 'Stream URL is required'
+      return
+    }
+
+    errorMessage = null
+    successMessage = null
+    try {
+      await adminJsonRequest(`/api/admin/matches/${matchId}/streams`, {
+        method: 'PATCH',
+        body: {
+          streamId,
+          platform: state.platform,
+          streamUrl: state.streamUrl,
+          displayName: state.displayName,
+          status: state.status,
+          isPrimary: state.isPrimary,
+        },
+        fallbackMessage: 'Failed to update stream',
+      })
+      successMessage = 'Stream updated.'
+      await refreshData()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to update stream'
+    }
+  }
+
+  async function createSeason() {
+    if (!createSeasonCode.trim() || !createSeasonName.trim()) {
+      errorMessage = 'Season code and name are required'
+      return
+    }
+
+    isCreatingSeason = true
+    errorMessage = null
+    successMessage = null
+    try {
+      await adminJsonRequest('/api/admin/seasons', {
+        method: 'POST',
+        body: {
+          code: createSeasonCode,
+          name: createSeasonName,
+          startsOn: createSeasonStartsOn || null,
+          endsOn: createSeasonEndsOn || null,
+          isActive: createSeasonIsActive,
+        },
+        fallbackMessage: 'Failed to create season',
+      })
+      successMessage = 'Season created.'
+      createSeasonCode = ''
+      createSeasonName = ''
+      createSeasonStartsOn = ''
+      createSeasonEndsOn = ''
+      createSeasonIsActive = false
+      await refreshData()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to create season'
+    } finally {
+      isCreatingSeason = false
+    }
+  }
+
+  async function saveSeason(seasonId: string) {
+    const state = seasonEditForm[seasonId]
+    if (!state) return
+
+    errorMessage = null
+    successMessage = null
+    try {
+      await adminJsonRequest('/api/admin/seasons', {
+        method: 'PATCH',
+        body: {
+          id: seasonId,
+          code: state.code,
+          name: state.name,
+          startsOn: state.startsOn || null,
+          endsOn: state.endsOn || null,
+          isActive: Boolean(state.isActive),
+        },
+        fallbackMessage: 'Failed to update season',
+      })
+      successMessage = 'Season updated.'
+      await refreshData()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to update season'
+    }
+  }
+
+  async function savePlayoffPickem(
+    seasonId: string,
+    config: ReturnType<typeof normalizePlayoffPickemConfig>
+  ) {
+    errorMessage = null
+    successMessage = null
+    try {
+      await adminJsonRequest(`/api/admin/playoff-pickems/${seasonId}`, {
+        method: 'PATCH',
+        body: { config },
+        fallbackMessage: "Failed to save playoff pick'em",
+      })
+      successMessage = "Playoff pick'em saved."
+      await refreshData()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : "Failed to save playoff pick'em"
+    }
+  }
+
+  async function scorePlayoffPickem(seasonId: string) {
+    errorMessage = null
+    successMessage = null
+    try {
+      const result = await adminJsonRequest<{
+        summary?: { submissionsScored?: number; completedMatches?: number }
+      }>(`/api/admin/playoff-pickems/${seasonId}`, {
+        method: 'POST',
+        fallbackMessage: "Failed to score playoff pick'em",
+      })
+      successMessage = `Scored ${result.summary?.submissionsScored ?? 0} brackets from ${result.summary?.completedMatches ?? 0} completed matches.`
+      await refreshData()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : "Failed to score playoff pick'em"
+    }
+  }
+
+  function requestUserRiotIdSave(userId: string, userName: string) {
+    const riotIdBase = (userRiotIdForm[userId] ?? '').trim()
+    pendingActionConfirmation = {
+      kind: 'save_user_riot',
+      userId,
+      userName,
+      riotIdBase,
+      title: 'Confirm Riot ID Update',
+      message: riotIdBase
+        ? `Set ${userName}'s Riot ID to ${riotIdBase}?`
+        : `Clear ${userName}'s Riot ID?`,
+      confirmLabel: 'Save Riot ID',
+    }
+    showActionConfirmation = true
+  }
+
+  async function executeSaveUserRiotId(userId: string, riotIdBase: string) {
+    errorMessage = null
+    successMessage = null
+    try {
+      await adminJsonRequest('/api/admin/users', {
+        method: 'PATCH',
+        body: { userId, riotIdBase },
+        fallbackMessage: 'Failed to update Riot ID',
+      })
+      successMessage = 'Riot ID updated.'
+      await refreshData()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to update Riot ID'
+    }
+  }
+
+  function removeMatchStream(matchId: string, streamId: string, label: string) {
+    pendingActionConfirmation = {
+      kind: 'delete_stream',
+      matchId,
+      streamId,
+      title: 'Confirm Stream Removal',
+      message: `Remove stream ${label}? This will remove it from the public match page.`,
+      confirmLabel: 'Remove Stream',
+    }
+    showActionConfirmation = true
+  }
+
+  async function executeRemoveMatchStream(matchId: string, streamId: string) {
+    errorMessage = null
+    successMessage = null
+    try {
+      await adminJsonRequest(`/api/admin/matches/${matchId}/streams`, {
+        method: 'DELETE',
+        body: { streamId },
+        fallbackMessage: 'Failed to remove stream',
+      })
+      successMessage = 'Stream removed.'
+      await refreshData()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to remove stream'
+    }
+  }
+
   async function addPlayerToTeam(teamId: string) {
-    const state = addPlayerForm[teamId] ?? { profileId: '', role: 'player' }
-    if (!state.profileId) {
-      errorMessage = 'Select a player to add'
+    const state = addPlayerForm[teamId] ?? { playerName: '', role: 'player' }
+    if (!state.playerName.trim()) {
+      errorMessage = 'Enter a player name to add'
       return
     }
 
@@ -531,27 +1053,18 @@
     successMessage = null
 
     try {
-      const res = await fetch('/api/admin/teams/manage', {
+      await adminJsonRequest('/api/admin/teams/manage', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ teamId, profileId: state.profileId, role: state.role }),
+        body: { teamId, playerName: state.playerName.trim(), role: state.role },
+        fallbackMessage: 'Failed to add player',
       })
-      const body = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(body?.message ?? 'Failed to add player')
 
       successMessage = 'Player added to team.'
-      updateAddPlayerForm(teamId, { profileId: '', role: 'player' })
+      updateAddPlayerForm(teamId, { playerName: '', role: 'player' })
       await refreshData()
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Failed to add player'
     }
-  }
-
-  function rankSelectStyle(rank: string | null | undefined): string {
-    if (rank) {
-      return 'border-color: rgba(74,222,128,0.45); background: rgba(22,163,74,0.12); color: var(--text);'
-    }
-    return 'border-color: rgba(250,204,21,0.45); background: rgba(234,179,8,0.12); color: var(--text);'
   }
 
   function requestRoleChange(
@@ -577,19 +1090,14 @@
     errorMessage = null
 
     try {
-      const response = await fetch('/api/admin/users', {
+      await adminJsonRequest('/api/admin/users', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        body: {
           userId: pendingRoleChange.userId,
           newRole: pendingRoleChange.newRole,
-        }),
+        },
+        fallbackMessage: 'Failed to update role',
       })
-
-      if (!response.ok) {
-        const err = await response.json()
-        throw new Error(err.message || 'Failed to update role')
-      }
 
       // Update local state
       users = users.map((u) =>
@@ -604,155 +1112,6 @@
       errorMessage = err instanceof Error ? err.message : 'Failed to update role'
     } finally {
       isUpdatingRole = false
-    }
-  }
-
-  function requestPurgeUserFromLists(profileId: string, label: string) {
-    pendingActionConfirmation = {
-      kind: 'purge_user',
-      profileId,
-      label,
-      title: 'Confirm Removal From Lists',
-      message:
-        `Remove ${label} from all participation lists? ` +
-        `This deletes their player registration, observer application, team memberships (removes them from teams), and any team invites. ` +
-        `This does not delete the account profile.`,
-      confirmLabel: 'Remove From Lists',
-    }
-    showActionConfirmation = true
-  }
-
-  async function executePurgeUserFromLists(profileId: string) {
-    errorMessage = null
-    successMessage = null
-    isLoading = true
-
-    try {
-      const response = await fetch('/api/admin/users/purge', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: profileId }),
-      })
-      const result = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(result.message || 'Failed to purge user')
-
-      successMessage = 'User removed from participation lists.'
-      await refreshData()
-    } catch (err) {
-      errorMessage = err instanceof Error ? err.message : 'Failed to purge user'
-    } finally {
-      isLoading = false
-    }
-  }
-
-  async function moderateTeam(
-    teamId: string,
-    action: 'approve' | 'reject',
-    notes: string,
-    name: string,
-    tag: string,
-    logoPath: string
-  ) {
-    processingTeamId = teamId
-    errorMessage = null
-
-    try {
-      const response = await fetch('/api/admin/teams', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          teamId,
-          action,
-          notes,
-          name,
-          tag,
-          logoPath,
-        }),
-      })
-
-      const result = await response.json()
-      if (!response.ok) {
-        throw new Error(result.message || 'Failed to moderate team')
-      }
-
-      teamQueue = teamQueue.filter((entry) => entry.id !== teamId)
-      await refreshData()
-      successMessage = action === 'approve' ? `Approved team ${name}.` : `Rejected team ${name}.`
-    } catch (err) {
-      errorMessage = err instanceof Error ? err.message : 'Failed to moderate team'
-    } finally {
-      processingTeamId = null
-    }
-  }
-
-  function requestTeamModeration(
-    teamId: string,
-    action: 'approve' | 'reject',
-    notes: string,
-    name: string,
-    tag: string,
-    logoPath: string
-  ) {
-    pendingTeamModeration = { teamId, action, notes, name, tag, logoPath }
-    showTeamModerationConfirmation = true
-  }
-
-  function cancelTeamModeration() {
-    showTeamModerationConfirmation = false
-    pendingTeamModeration = null
-  }
-
-  async function confirmTeamModeration() {
-    if (!pendingTeamModeration) return
-    await moderateTeam(
-      pendingTeamModeration.teamId,
-      pendingTeamModeration.action,
-      pendingTeamModeration.notes,
-      pendingTeamModeration.name,
-      pendingTeamModeration.tag,
-      pendingTeamModeration.logoPath
-    )
-    showTeamModerationConfirmation = false
-    pendingTeamModeration = null
-  }
-
-  function removeTeamLogo(teamId: string, path: string) {
-    pendingActionConfirmation = {
-      kind: 'remove_logo',
-      teamId,
-      path,
-      title: 'Confirm Logo Removal',
-      message: 'Are you sure you want to remove this team logo?',
-      confirmLabel: 'Remove Logo',
-    }
-    showActionConfirmation = true
-  }
-
-  async function executeRemoveTeamLogo(teamId: string, path: string) {
-    processingTeamId = teamId
-    errorMessage = null
-    successMessage = null
-
-    try {
-      const response = await fetch('/api/admin/teams/logo', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path }),
-      })
-
-      const result = await response.json()
-      if (!response.ok) {
-        throw new Error(result.message || 'Failed to remove logo')
-      }
-
-      teamQueue = teamQueue.map((entry) =>
-        entry.id === teamId ? { ...entry, logo_path: null } : entry
-      )
-      successMessage = 'Team logo removed.'
-    } catch (err) {
-      errorMessage = err instanceof Error ? err.message : 'Failed to remove logo'
-    } finally {
-      processingTeamId = null
     }
   }
 
@@ -774,16 +1133,11 @@
     successMessage = null
 
     try {
-      const response = await fetch('/api/admin/teams/manage', {
+      await adminJsonRequest('/api/admin/teams/manage', {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ teamId }),
+        body: { teamId },
+        fallbackMessage: 'Failed to remove team',
       })
-
-      const result = await response.json()
-      if (!response.ok) {
-        throw new Error(result.message || 'Failed to remove team')
-      }
 
       approvedTeams = approvedTeams.filter((team) => team.id !== teamId)
       successMessage = `Removed team ${teamName}.`
@@ -796,6 +1150,7 @@
 
   function removeApprovedTeamPlayer(
     teamId: string,
+    membershipId: number | null,
     profileId: string,
     riotId: string,
     role: string
@@ -804,6 +1159,7 @@
     pendingActionConfirmation = {
       kind: 'remove_player',
       teamId,
+      membershipId,
       profileId,
       riotId,
       role,
@@ -816,6 +1172,7 @@
 
   async function executeRemoveApprovedTeamPlayer(
     teamId: string,
+    membershipId: number | null,
     profileId: string,
     riotId: string
   ) {
@@ -824,20 +1181,17 @@
     successMessage = null
 
     try {
-      const response = await fetch('/api/admin/teams/manage', {
+      await adminJsonRequest('/api/admin/teams/manage', {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ teamId, profileId }),
+        body: { teamId, profileId: profileId || null, membershipId },
+        fallbackMessage: 'Failed to remove player',
       })
-
-      const result = await response.json()
-      if (!response.ok) {
-        throw new Error(result.message || 'Failed to remove player')
-      }
 
       approvedTeams = approvedTeams.map((team) => {
         if (team.id !== teamId) return team
-        const nextRoster = (team.roster ?? []).filter((player) => player.profile_id !== profileId)
+        const nextRoster = (team.roster ?? []).filter(
+          (player) => player.membership_id !== membershipId
+        )
         return {
           ...team,
           roster: nextRoster,
@@ -864,740 +1218,260 @@
     showActionConfirmation = false
     pendingActionConfirmation = null
 
-    if (action.kind === 'remove_logo') {
-      await executeRemoveTeamLogo(action.teamId, action.path)
-      return
-    }
-
     if (action.kind === 'remove_team') {
       await executeRemoveApprovedTeam(action.teamId, action.teamName)
       return
     }
 
-    if (action.kind === 'purge_user') {
-      await executePurgeUserFromLists(action.profileId)
+    if (action.kind === 'finalize_match') {
+      await executeFinalizeMatch(action)
       return
     }
 
-    await executeRemoveApprovedTeamPlayer(action.teamId, action.profileId, action.riotId)
-  }
+    if (action.kind === 'cancel_match') {
+      await executeCancelMatch(action.matchId)
+      return
+    }
 
-  async function updatePlayerRank(registrationId: number, rankLabel: string) {
-    processingRankRegistrationId = registrationId
-    errorMessage = null
-    try {
-      const response = await fetch('/api/admin/player-ranks', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ registrationId, rankLabel }),
-      })
+    if (action.kind === 'save_team') {
+      await executeSaveTeamEdits(action.teamId)
+      return
+    }
 
-      const result = await response.json()
-      if (!response.ok) {
-        throw new Error(result.message || 'Failed to update player rank')
-      }
+    if (action.kind === 'save_match') {
+      await executeSaveMatchEdits(action.matchId)
+      return
+    }
 
-      players = players.map((player) =>
-        player.id === registrationId
-          ? {
-              ...player,
-              rank_label: result.player.rank_label,
-              rank_value: result.player.rank_value,
-            }
-          : player
+    if (action.kind === 'delete_match') {
+      await executeDeleteMatch(action.matchId)
+      return
+    }
+
+    if (action.kind === 'delete_stream') {
+      await executeRemoveMatchStream(action.matchId, action.streamId)
+      return
+    }
+
+    if (action.kind === 'save_user_riot') {
+      await executeSaveUserRiotId(action.userId, action.riotIdBase)
+      return
+    }
+
+    if (action.kind === 'remove_player') {
+      await executeRemoveApprovedTeamPlayer(
+        action.teamId,
+        action.membershipId,
+        action.profileId,
+        action.riotId
       )
-      successMessage = `Updated rank to ${result.player.rank_label}.`
-    } catch (err) {
-      errorMessage = err instanceof Error ? err.message : 'Failed to update player rank'
-    } finally {
-      processingRankRegistrationId = null
     }
-  }
-
-  function requestRankChange(
-    registrationId: number,
-    riotId: string,
-    currentRank: string,
-    newRank: string
-  ) {
-    if (!newRank || currentRank === newRank) return
-    pendingRankChange = {
-      registrationId,
-      riotId,
-      currentRank: currentRank || 'Unassigned',
-      newRank,
-    }
-    showRankConfirmation = true
-  }
-
-  function cancelRankChange() {
-    showRankConfirmation = false
-    pendingRankChange = null
-  }
-
-  async function confirmRankChange() {
-    if (!pendingRankChange) return
-    await updatePlayerRank(pendingRankChange.registrationId, pendingRankChange.newRank)
-    showRankConfirmation = false
-    pendingRankChange = null
   }
 </script>
 
 <PageContainer>
-  <div class="flex justify-center px-4 py-8">
-    <div class="w-full max-w-6xl">
-      <div class="mb-4 flex flex-wrap justify-end gap-2">
-        <a
-          href="/admin/stats-import"
-          class="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold"
-          style="background: rgba(59,130,246,0.2); color: #93c5fd;"
-        >
-          <Upload size={16} />
-          Stats Import
-        </a>
-        <button
-          type="button"
-          class="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold"
-          style="background: rgba(59,130,246,0.12); color: #93c5fd; border: 1px solid rgba(59,130,246,0.25);"
-          onclick={async () => {
-            errorMessage = null
-            successMessage = null
-            try {
-              const res = await fetch('/api/admin/stats/rematch', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ batchId: null }),
-              })
-              const body = await res.json().catch(() => ({}))
-              if (!res.ok) throw new Error(body?.message ?? 'Failed to rematch')
-              successMessage = `Rematched: ${body.updated} updated, ${body.remaining_unmatched} still unmatched.`
-              await refreshData()
-            } catch (err) {
-              errorMessage = err instanceof Error ? err.message : 'Failed to rematch'
-            }
-          }}
-        >
-          Rematch Links
-        </button>
-      </div>
-      <div class="mb-8 flex flex-col items-center">
-        <Shield size={48} style="color: var(--text);" class="mb-4" />
-        <h1 class="responsive-title mb-2 text-center">Admin Dashboard</h1>
-        <p class="responsive-text text-center" style="color: var(--text);">
-          Manage everything from one place
-        </p>
-      </div>
+  <AdminDashboardShell
+    {activeTab}
+    counts={{
+      users: users.length,
+      teams: approvedTeams.length,
+      matches: matches.length,
+      seasons: seasons.length,
+      accolades: accolades.length,
+    }}
+    {isLoading}
+    {errorMessage}
+    {successMessage}
+    onTabChange={(tab) => {
+      activeTab = tab
+      if (tab === 'accolades' && !accoladesLoaded) loadAccolades()
+    }}
+    onRefresh={refreshData}
+  >
+    {#if activeTab === 'users'}
+      <AdminUsersTab
+        {users}
+        {displayedUsers}
+        {usersSearch}
+        {userRiotIdForm}
+        onUsersSearchChange={(value) => (usersSearch = value)}
+        onUserRiotIdInput={(userId, value) =>
+          (userRiotIdForm = {
+            ...userRiotIdForm,
+            [userId]: value,
+          })}
+        onRequestRoleChange={requestRoleChange}
+        onRequestUserRiotIdSave={requestUserRiotIdSave}
+      />
+    {/if}
 
-      <div class="info-card info-card-surface p-0">
-        <div class="flex border-b" style="border-color: rgba(255, 255, 255, 0.12);">
-          <button
-            type="button"
-            class="flex items-center gap-2 border-b-2 px-3 py-3 text-sm sm:px-5 sm:text-base"
-            style={activeTab === 'users'
-              ? 'border-color: var(--accent); color: var(--text); background: rgba(255, 255, 255, 0.05);'
-              : 'border-color: transparent; color: rgba(255,255,255,0.7);'}
-            onclick={() => (activeTab = 'users')}
-          >
-            <UserCog size={18} />
-            <span>Users ({users.length})</span>
-          </button>
-          <button
-            type="button"
-            class="flex items-center gap-2 border-b-2 px-3 py-3 text-sm sm:px-5 sm:text-base"
-            style={activeTab === 'teams'
-              ? 'border-color: var(--accent); color: var(--text); background: rgba(255, 255, 255, 0.05);'
-              : 'border-color: transparent; color: rgba(255,255,255,0.7);'}
-            onclick={() => (activeTab = 'teams')}
-          >
-            <ShieldCheck size={18} />
-            <span>Teams ({approvedTeams.length})</span>
-          </button>
-          <button
-            type="button"
-            class="flex items-center gap-2 border-b-2 px-3 py-3 text-sm sm:px-5 sm:text-base"
-            style={activeTab === 'matches'
-              ? 'border-color: var(--accent); color: var(--text); background: rgba(255, 255, 255, 0.05);'
-              : 'border-color: transparent; color: rgba(255,255,255,0.7);'}
-            onclick={() => (activeTab = 'matches')}
-          >
-            <CalendarDays size={18} />
-            <span>Matches ({matches.length})</span>
-          </button>
-          <button
-            type="button"
-            class="ml-auto px-3 py-3 text-sm sm:px-4"
-            style="color: var(--text);"
-            onclick={refreshData}
-            disabled={isLoading}
-            title="Refresh data"
-          >
-            <RefreshCw size={18} class={isLoading ? 'animate-spin' : ''} />
-          </button>
-        </div>
+    {#if activeTab === 'teams'}
+      <AdminTeamsTab
+        {teamsSearch}
+        {createTeamName}
+        {createTeamTag}
+        {isCreatingTeam}
+        {displayedApprovedTeams}
+        {addPlayerForm}
+        {teamEditForm}
+        {processingTeamId}
+        onTeamsSearchChange={(value) => (teamsSearch = value)}
+        onCreateTeamNameChange={(value) => (createTeamName = value)}
+        onCreateTeamTagChange={(value) => (createTeamTag = value)}
+        onCreateTeamLogoInput={(file, input) => {
+          createTeamLogoFile = file
+          createTeamLogoInput = input
+        }}
+        onCreateTeam={createTeam}
+        onTeamEditChange={updateTeamEditForm}
+        onTeamLogoChange={(teamId, file) =>
+          (teamLogoFileById = {
+            ...teamLogoFileById,
+            [teamId]: file,
+          })}
+        onSaveTeam={saveTeamEdits}
+        onAddPlayerChange={updateAddPlayerForm}
+        onAddPlayer={addPlayerToTeam}
+        onRemovePlayer={removeApprovedTeamPlayer}
+        onRemoveTeam={removeApprovedTeam}
+      />
+    {/if}
 
-        {#if errorMessage}
-          <div
-            class="px-4 py-3 text-sm"
-            style="color: #f87171; background: rgba(248, 113, 113, 0.15);"
-          >
-            {errorMessage}
-          </div>
-        {/if}
-        {#if successMessage}
-          <div
-            class="px-4 py-3 text-sm"
-            style="color: #4ade80; background: rgba(74, 222, 128, 0.15);"
-          >
-            {successMessage}
-          </div>
-        {/if}
+    {#if activeTab === 'matches'}
+      <AdminMatchesTab
+        {approvedTeamOptions}
+        {approvedTeams}
+        {createMatchTeamAId}
+        {createMatchTeamBId}
+        {createMatchBestOf}
+        {createMatchScheduledAt}
+        {isCreatingMatch}
+        {matches}
+        {matchSearchQuery}
+        {showCompletedAdminMatches}
+        {filteredAdminMatches}
+        {expandedAdminMatchId}
+        {finalizeForm}
+        {matchEditForm}
+        {streamForm}
+        {existingStreamForm}
+        {vodForm}
+        {matchMapsCache}
+        {matchMapsLoading}
+        onCreateMatchTeamAIdChange={(value) => (createMatchTeamAId = value)}
+        onCreateMatchTeamBIdChange={(value) => (createMatchTeamBId = value)}
+        onCreateMatchBestOfChange={(value) => (createMatchBestOf = value as BestOfValue)}
+        onCreateMatchScheduledAtChange={(value) => (createMatchScheduledAt = value)}
+        onCreateMatch={createMatch}
+        onMatchSearchChange={(value) => (matchSearchQuery = value)}
+        onShowCompletedChange={(value) => (showCompletedAdminMatches = value)}
+        onToggleExpandedMatch={(matchId) =>
+          (expandedAdminMatchId = expandedAdminMatchId === matchId ? null : matchId)}
+        onUpdateFinalizeForm={updateFinalizeForm}
+        onFinalizeMatch={finalizeMatch}
+        onCancelMatch={cancelMatch}
+        onUpdateMatchEditForm={updateMatchEditForm}
+        onSaveMatchEdits={saveMatchEdits}
+        onDeleteMatch={deleteMatch}
+        onUpdateExistingStreamForm={(streamId, patch) =>
+          (existingStreamForm = {
+            ...existingStreamForm,
+            [streamId]: {
+              ...(existingStreamForm[streamId] ?? {}),
+              ...patch,
+            },
+          })}
+        onSaveExistingMatchStream={saveExistingMatchStream}
+        onRemoveMatchStream={removeMatchStream}
+        onUpdateStreamForm={(matchId, patch) =>
+          (streamForm = {
+            ...streamForm,
+            [matchId]: {
+              ...(streamForm[matchId] ?? {}),
+              ...patch,
+            },
+          })}
+        onAddMatchStream={addMatchStream}
+        onVodChange={(matchId, value) =>
+          (vodForm = {
+            ...vodForm,
+            [matchId]: value,
+          })}
+        onFetchMatchMaps={fetchMatchMaps}
+        onToggleMapVoided={toggleMapVoided}
+      />
+    {/if}
 
-        <div class="p-3 sm:p-4">
-          {#if activeTab === 'users'}
-            {#if users.length === 0}
-              <div class="py-10 text-center" style="color: rgba(255,255,255,0.72);">
-                No users found.
-              </div>
-            {:else}
-              <input
-                bind:value={usersSearch}
-                placeholder="Search users by Discord, email, role"
-                class="mb-3 w-full rounded-md border px-3 py-2 text-sm"
-                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-              />
-              <div class="space-y-3 md:hidden">
-                {#each displayedUsers as user}
-                  <article
-                    class="rounded-lg border p-3"
-                    style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
-                  >
-                    <div class="mb-2 font-semibold" style="color: var(--title);">
-                      {user.display_name || '—'}
-                    </div>
-                    <div class="w-40">
-                      <CustomSelect
-                        options={roleSelectOptions}
-                        value={user.role}
-                        placeholder="Select role"
-                        onSelect={(value) =>
-                          requestRoleChange(user.id, user.display_name || '—', user.role, value)}
-                      />
-                    </div>
+    {#if activeTab === 'seasons'}
+      <AdminSeasonsTab
+        {seasons}
+        {approvedTeams}
+        {matches}
+        {createSeasonCode}
+        {createSeasonName}
+        {createSeasonStartsOn}
+        {createSeasonEndsOn}
+        {createSeasonIsActive}
+        {isCreatingSeason}
+        {seasonEditForm}
+        onCreateSeasonCodeChange={(value) => (createSeasonCode = value)}
+        onCreateSeasonNameChange={(value) => (createSeasonName = value)}
+        onCreateSeasonStartsOnChange={(value) => (createSeasonStartsOn = value)}
+        onCreateSeasonEndsOnChange={(value) => (createSeasonEndsOn = value)}
+        onCreateSeasonIsActiveChange={(value) => (createSeasonIsActive = value)}
+        onSeasonEditChange={(seasonId, nextState) =>
+          (seasonEditForm = {
+            ...seasonEditForm,
+            [seasonId]: nextState,
+          })}
+        onCreateSeason={createSeason}
+        onSaveSeason={saveSeason}
+        onSavePlayoffPickem={savePlayoffPickem}
+        onScorePlayoffPickem={scorePlayoffPickem}
+      />
+    {/if}
 
-                    <div class="mt-3 flex gap-2">
-                      <button
-                        type="button"
-                        class="rounded px-2 py-1 text-xs"
-                        style="background: rgba(248,113,113,0.2); color: #f87171;"
-                        onclick={() =>
-                          requestPurgeUserFromLists(
-                            user.id,
-                            user.display_name || user.email || 'user'
-                          )}
-                      >
-                        Remove From Lists
-                      </button>
-                    </div>
-                  </article>
-                {/each}
-              </div>
-
-              <div class="hidden overflow-x-auto md:block">
-                <table class="w-full text-left text-sm">
-                  <thead>
-                    <tr class="text-xs tracking-wide uppercase opacity-70">
-                      <th class="px-3 py-2">Discord</th>
-                      <th class="px-3 py-2">Role</th>
-                      <th class="px-3 py-2">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {#each displayedUsers as user}
-                      <tr class="border-t" style="border-color: rgba(255,255,255,0.1);">
-                        <td class="px-3 py-2 font-semibold">{user.display_name || '—'}</td>
-                        <td class="px-3 py-2">
-                          <div class="w-40">
-                            <CustomSelect
-                              options={roleSelectOptions}
-                              value={user.role}
-                              placeholder="Select role"
-                              onSelect={(value) =>
-                                requestRoleChange(
-                                  user.id,
-                                  user.display_name || '—',
-                                  user.role,
-                                  value
-                                )}
-                            />
-                          </div>
-                        </td>
-                        <td class="px-3 py-2">
-                          <button
-                            type="button"
-                            class="rounded px-2 py-1 text-xs"
-                            style="background: rgba(248,113,113,0.2); color: #f87171;"
-                            onclick={() =>
-                              requestPurgeUserFromLists(
-                                user.id,
-                                user.display_name || user.email || 'user'
-                              )}
-                          >
-                            Remove From Lists
-                          </button>
-                        </td>
-                      </tr>
-                    {/each}
-                  </tbody>
-                </table>
-              </div>
-            {/if}
-          {/if}
-
-          {#if activeTab === 'teams'}
-            <input
-              bind:value={teamsSearch}
-              placeholder="Search teams by name, tag, captain"
-              class="mb-3 w-full rounded-md border px-3 py-2 text-sm"
-              style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-            />
-
-            <div class="mb-6 rounded-md border p-3" style="border-color: rgba(255,255,255,0.12);">
-              <h3
-                class="mb-3 text-sm font-semibold tracking-wide uppercase"
-                style="color: rgba(255,255,255,0.8);"
-              >
-                Create Team
-              </h3>
-
-              <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <label class="flex flex-col gap-1 text-sm" style="color: var(--text);">
-                  Team Name
-                  <input
-                    bind:value={createTeamName}
-                    required
-                    minlength="2"
-                    maxlength="48"
-                    class="rounded-md border px-3 py-2"
-                    style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-                    placeholder="Team name"
-                  />
-                </label>
-                <label class="flex flex-col gap-1 text-sm" style="color: var(--text);">
-                  Tag (optional)
-                  <input
-                    bind:value={createTeamTag}
-                    maxlength="4"
-                    minlength="2"
-                    class="rounded-md border px-3 py-2"
-                    style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-                    placeholder="TCR"
-                  />
-                </label>
-                <label class="flex flex-col gap-1 text-sm" style="color: var(--text);">
-                  Logo (optional)
-                  <input
-                    type="file"
-                    accept="image/*"
-                    class="rounded-md border px-3 py-2 text-sm"
-                    style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-                    oninput={(e) => {
-                      const f = (e.currentTarget as HTMLInputElement).files?.[0] ?? null
-                      createTeamLogoFile = f
-                    }}
-                  />
-                </label>
-              </div>
-
-              <div class="mt-3 flex justify-end">
-                <button
-                  type="button"
-                  class="rounded-md px-3 py-2 text-xs font-semibold"
-                  style="background: rgba(74,222,128,0.2); color: #4ade80;"
-                  onclick={createTeam}
-                  disabled={isCreatingTeam}
-                >
-                  {isCreatingTeam ? 'Creating...' : 'Create Team'}
-                </button>
-              </div>
-            </div>
-
-            <div class="rounded-md border p-3" style="border-color: rgba(255,255,255,0.12);">
-              <h3
-                class="mb-3 text-sm font-semibold tracking-wide uppercase"
-                style="color: rgba(255,255,255,0.8);"
-              >
-                Approved Teams ({displayedApprovedTeams.length})
-              </h3>
-              {#if displayedApprovedTeams.length === 0}
-                <div class="py-6 text-center text-sm" style="color: rgba(255,255,255,0.72);">
-                  No approved teams yet.
-                </div>
-              {:else}
-                <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  {#each displayedApprovedTeams as team}
-                    {@const addState = addPlayerForm[team.id] ?? { profileId: '', role: 'player' }}
-                    <article
-                      class="rounded-lg border p-3"
-                      style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
-                    >
-                      <div class="mb-2 flex items-center gap-3">
-                        {#if team.logo_url}
-                          <img
-                            src={team.logo_url}
-                            alt="Team logo"
-                            class="h-10 w-10 rounded object-contain"
-                          />
-                        {:else}
-                          <div
-                            class="flex h-10 w-10 items-center justify-center rounded bg-white/10 text-xs"
-                          >
-                            N/A
-                          </div>
-                        {/if}
-                        <div class="min-w-0">
-                          <div class="truncate text-sm font-semibold" style="color: var(--text);">
-                            {team.name}
-                            {#if team.tag}
-                              <span class="opacity-80"> [{team.tag}]</span>
-                            {/if}
-                          </div>
-                          <div class="text-xs" style="color: rgba(255,255,255,0.72);">
-                            Roster: {team.roster_count ?? 0}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div class="space-y-1 text-xs" style="color: rgba(255,255,255,0.8);">
-                        <div>Captain: {profileLabel(team.captain_profile)}</div>
-                      </div>
-
-                      {#if (team.roster ?? []).length > 0}
-                        <div
-                          class="mt-3 rounded-md border p-2"
-                          style="border-color: rgba(255,255,255,0.12);"
-                        >
-                          <div
-                            class="mb-2 text-[11px] font-semibold tracking-wide uppercase"
-                            style="color: rgba(255,255,255,0.7);"
-                          >
-                            Team Players
-                          </div>
-                          <div class="flex flex-col gap-1">
-                            {#each team.roster ?? [] as player}
-                              <div
-                                class="flex items-center justify-between gap-2 rounded px-2 py-1"
-                                style="background: rgba(255,255,255,0.05);"
-                              >
-                                <div class="min-w-0 text-xs" style="color: var(--text);">
-                                  <span class="font-semibold"
-                                    >{player.riot_id_base ??
-                                      player.display_name ??
-                                      player.email ??
-                                      'User'}</span
-                                  >
-                                  <span class="opacity-75"> - {profileLabel(player)}</span>
-                                  {#if player.role === 'captain'}
-                                    <span
-                                      class="ml-2 rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase"
-                                      style="background: rgba(250,204,21,0.2); color: #fde68a;"
-                                    >
-                                      Captain
-                                    </span>
-                                  {/if}
-                                </div>
-                                <button
-                                  type="button"
-                                  class="rounded px-2 py-1 text-[11px] font-semibold"
-                                  style="background: rgba(248,113,113,0.2); color: #f87171;"
-                                  disabled={processingTeamId === team.id}
-                                  onclick={() =>
-                                    removeApprovedTeamPlayer(
-                                      team.id,
-                                      player.profile_id,
-                                      player.riot_id_base ??
-                                        player.display_name ??
-                                        player.email ??
-                                        'User',
-                                      player.role
-                                    )}
-                                >
-                                  Remove
-                                </button>
-                              </div>
-                            {/each}
-                          </div>
-                        </div>
-                      {/if}
-
-                      <div
-                        class="mt-3 rounded-md border p-2"
-                        style="border-color: rgba(255,255,255,0.12);"
-                      >
-                        <div
-                          class="mb-2 text-[11px] font-semibold tracking-wide uppercase"
-                          style="color: rgba(255,255,255,0.7);"
-                        >
-                          Add Player
-                        </div>
-
-                        <div class="grid grid-cols-1 gap-2 md:grid-cols-3">
-                          <div class="md:col-span-2">
-                            <CustomSelect
-                              options={playerOptions}
-                              value={addState.profileId}
-                              placeholder={'Select player'}
-                              compact={true}
-                              disabled={false}
-                              onSelect={(value) =>
-                                updateAddPlayerForm(team.id, { profileId: value })}
-                            />
-                          </div>
-                          <div>
-                            <CustomSelect
-                              options={membershipRoleOptions}
-                              value={addState.role}
-                              placeholder="Role"
-                              compact={true}
-                              onSelect={(value) => updateAddPlayerForm(team.id, { role: value })}
-                            />
-                          </div>
-                        </div>
-
-                        <div class="mt-2 flex justify-end">
-                          <button
-                            type="button"
-                            class="rounded px-2 py-1 text-xs font-semibold"
-                            style="background: rgba(74,222,128,0.2); color: #4ade80;"
-                            onclick={() => addPlayerToTeam(team.id)}
-                            disabled={false}
-                          >
-                            Add
-                          </button>
-                        </div>
-                      </div>
-
-                      <div class="mt-3 flex justify-end gap-2">
-                        <button
-                          type="button"
-                          class="rounded-md px-3 py-2 text-xs font-semibold"
-                          style="background: rgba(248,113,113,0.2); color: #f87171;"
-                          disabled={processingTeamId === team.id}
-                          onclick={() => removeApprovedTeam(team.id, team.name)}
-                        >
-                          Remove Team
-                        </button>
-                        <a
-                          href={`/teams/${team.id}`}
-                          class="rounded-md px-3 py-2 text-xs font-semibold"
-                          style="background: rgba(59,130,246,0.2); color: #93c5fd;"
-                        >
-                          Open Team Page
-                        </a>
-                      </div>
-                    </article>
-                  {/each}
-                </div>
-              {/if}
-            </div>
-          {/if}
-
-          {#if activeTab === 'matches'}
-            <div class="grid grid-cols-1 gap-4">
-              <section class="rounded-md border p-3" style="border-color: rgba(255,255,255,0.12);">
-                <div class="mb-3 flex items-center gap-2">
-                  <CalendarCheck2 size={18} />
-                  <h3
-                    class="text-sm font-semibold tracking-wide uppercase"
-                    style="color: rgba(255,255,255,0.8);"
-                  >
-                    Create Match
-                  </h3>
-                </div>
-
-                <div class="grid grid-cols-1 gap-2 md:grid-cols-5">
-                  <div class="md:col-span-2">
-                    <CustomSelect
-                      options={approvedTeamOptions}
-                      value={createMatchTeamAId}
-                      placeholder="Team A"
-                      compact={true}
-                      disabled={isCreatingMatch}
-                      onSelect={(value) => (createMatchTeamAId = value)}
-                    />
-                  </div>
-                  <div class="md:col-span-2">
-                    <CustomSelect
-                      options={approvedTeamOptions}
-                      value={createMatchTeamBId}
-                      placeholder="Team B"
-                      compact={true}
-                      disabled={isCreatingMatch}
-                      onSelect={(value) => (createMatchTeamBId = value)}
-                    />
-                  </div>
-                  <div>
-                    <CustomSelect
-                      options={bestOfOptions}
-                      value={createMatchBestOf}
-                      placeholder="BO3"
-                      compact={true}
-                      disabled={isCreatingMatch}
-                      onSelect={(value) => (createMatchBestOf = value as any)}
-                    />
-                  </div>
-                </div>
-
-                <div class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-5">
-                  <div class="md:col-span-4">
-                    <input
-                      type="datetime-local"
-                      bind:value={createMatchScheduledAt}
-                      class="w-full rounded-md border px-3 py-2 text-sm"
-                      style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-                      placeholder="Scheduled (local time)"
-                      disabled={isCreatingMatch}
-                      aria-label="Scheduled at (local time)"
-                    />
-                    <div class="mt-1 text-xs" style="color: rgba(255,255,255,0.65);">
-                      Optional. Interpreted as your local time and stored in UTC.
-                    </div>
-                  </div>
-                  <div class="md:col-span-1">
-                    <button
-                      type="button"
-                      class="w-full rounded-md px-3 py-2 text-sm font-semibold"
-                      style="background: rgba(74,222,128,0.2); color: #4ade80;"
-                      onclick={createMatch}
-                      disabled={isCreatingMatch}
-                    >
-                      {isCreatingMatch ? 'Creating...' : 'Create'}
-                    </button>
-                  </div>
-                </div>
-              </section>
-
-              <section class="rounded-md border p-3" style="border-color: rgba(255,255,255,0.12);">
-                <div class="mb-3 flex items-center gap-2">
-                  <CalendarCheck2 size={18} />
-                  <h3
-                    class="text-sm font-semibold tracking-wide uppercase"
-                    style="color: rgba(255,255,255,0.8);"
-                  >
-                    Matches ({matches.length})
-                  </h3>
-                </div>
-
-                {#if matches.length === 0}
-                  <p class="text-sm" style="color: rgba(255,255,255,0.72);">No matches found.</p>
-                {:else}
-                  <div class="flex flex-col gap-2">
-                    {#each matches as match}
-                      {@const state = finalizeForm[match.id] ?? {
-                        teamAScore: String(match.team_a_score ?? 0),
-                        teamBScore: String(match.team_b_score ?? 0),
-                        winnerTeamId: match.winner_team_id ?? match.team_a_id,
-                      }}
-                      <article
-                        class="rounded-md border p-3"
-                        style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
-                      >
-                        <div class="flex flex-wrap items-center justify-between gap-2">
-                          <div class="text-sm" style="color: var(--text);">
-                            <strong>{teamName(match.team_a)}</strong> vs
-                            <strong>{teamName(match.team_b)}</strong>
-                          </div>
-                          <span
-                            class="rounded-full px-2 py-1 text-xs font-bold"
-                            style="background: rgba(255,255,255,0.12); color: var(--text);"
-                          >
-                            {match.status}
-                          </span>
-                        </div>
-
-                        <div class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-4">
-                          <input
-                            type="number"
-                            min="0"
-                            value={state.teamAScore}
-                            class="rounded-md border px-2 py-1"
-                            style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-                            placeholder="Team A score"
-                            oninput={(e) =>
-                              updateFinalizeForm(match.id, {
-                                teamAScore: (e.currentTarget as HTMLInputElement).value,
-                              })}
-                          />
-                          <input
-                            type="number"
-                            min="0"
-                            value={state.teamBScore}
-                            class="rounded-md border px-2 py-1"
-                            style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-                            placeholder="Team B score"
-                            oninput={(e) =>
-                              updateFinalizeForm(match.id, {
-                                teamBScore: (e.currentTarget as HTMLInputElement).value,
-                              })}
-                          />
-                          <select
-                            value={state.winnerTeamId}
-                            class="rounded-md border px-2 py-1"
-                            style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-                            onchange={(e) =>
-                              updateFinalizeForm(match.id, {
-                                winnerTeamId: (e.currentTarget as HTMLSelectElement).value,
-                              })}
-                          >
-                            <option value={match.team_a_id}>{teamName(match.team_a)}</option>
-                            <option value={match.team_b_id}>{teamName(match.team_b)}</option>
-                          </select>
-                          <div class="flex gap-2">
-                            <button
-                              type="button"
-                              class="rounded px-2 py-1 text-xs"
-                              style="background: rgba(74,222,128,0.2); color: #4ade80;"
-                              onclick={() => finalizeMatch(match)}
-                            >
-                              Finalize
-                            </button>
-                            <button
-                              type="button"
-                              class="rounded px-2 py-1 text-xs"
-                              style="background: rgba(248,113,113,0.2); color: #f87171;"
-                              onclick={() => cancelMatch(match)}
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        </div>
-
-                        <div class="mt-2 flex flex-wrap gap-2">
-                          <a
-                            href={`/matches/${match.id}`}
-                            class="rounded px-2 py-1 text-xs font-semibold"
-                            style="background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.85);"
-                          >
-                            Open Match Page
-                          </a>
-                          <a
-                            href={`/admin/matches/${match.id}/stats-import`}
-                            class="rounded px-2 py-1 text-xs font-semibold"
-                            style="background: rgba(59,130,246,0.2); color: #93c5fd;"
-                          >
-                            Import Map Stats
-                          </a>
-                        </div>
-                      </article>
-                    {/each}
-                  </div>
-                {/if}
-              </section>
-            </div>
-          {/if}
-        </div>
-      </div>
-    </div>
-  </div>
+    {#if activeTab === 'accolades'}
+      <AdminAccoladesTab
+        {accolades}
+        {accoladesLoaded}
+        {createAccoladeName}
+        {isCreatingAccolade}
+        {accoladeAssignProfileId}
+        {accoladeAssignContext}
+        {editingAccoladeId}
+        {editAccoladeName}
+        {accoladeLogoStatus}
+        onCreateAccoladeNameChange={(value) => (createAccoladeName = value)}
+        onCreateAccoladeLogoInput={(file) => (createAccoladeLogoFile = file)}
+        onCreateAccolade={createAccolade}
+        onEditAccolade={(accolade) => {
+          editingAccoladeId = accolade.id
+          editAccoladeName = accolade.name
+        }}
+        onCancelEditAccolade={() => {
+          editingAccoladeId = null
+          editAccoladeName = ''
+        }}
+        onEditAccoladeNameChange={(value) => (editAccoladeName = value)}
+        onRenameAccolade={renameAccolade}
+        onDeleteAccolade={deleteAccolade}
+        onUpdateAccoladeLogo={updateAccoladeLogo}
+        onAssignProfileChange={(accoladeId, value) =>
+          (accoladeAssignProfileId = {
+            ...accoladeAssignProfileId,
+            [accoladeId]: value,
+          })}
+        onAssignContextChange={(accoladeId, value) =>
+          (accoladeAssignContext = {
+            ...accoladeAssignContext,
+            [accoladeId]: value,
+          })}
+        onAssignAccolade={assignAccolade}
+        onUnassignAccolade={unassignAccolade}
+      />
+    {/if}
+  </AdminDashboardShell>
 
   <!-- Role Change Confirmation Modal -->
   {#if showRoleConfirmation && pendingRoleChange}
@@ -1641,116 +1515,12 @@
     </div>
   {/if}
 
-  {#if showRankConfirmation && pendingRankChange}
-    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
-      <div
-        class="w-full max-w-md rounded-lg border p-6 text-center"
-        style="border-color: rgba(255, 255, 255, 0.2); background: var(--secondary-background);"
-      >
-        <h3 class="mb-3 text-xl font-bold" style="color: var(--title);">Confirm Rank Change</h3>
-        <p class="mb-5 text-sm" style="color: var(--text);">
-          Change <strong>{pendingRankChange.riotId}</strong> from
-          <span class="rounded bg-white/10 px-2 py-1 text-xs font-semibold"
-            >{pendingRankChange.currentRank}</span
-          >
-          to
-          <span class="rounded bg-white/10 px-2 py-1 text-xs font-semibold"
-            >{pendingRankChange.newRank}</span
-          >?
-        </p>
-        <div class="flex justify-center gap-3">
-          <button
-            type="button"
-            class="rounded-md border px-4 py-2"
-            style="border-color: rgba(255,255,255,0.2); color: var(--text);"
-            onclick={cancelRankChange}
-            disabled={processingRankRegistrationId === pendingRankChange.registrationId}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            class="rounded-md px-4 py-2 font-semibold"
-            style="background: var(--accent); color: var(--text);"
-            onclick={confirmRankChange}
-            disabled={processingRankRegistrationId === pendingRankChange.registrationId}
-          >
-            {processingRankRegistrationId === pendingRankChange.registrationId
-              ? 'Updating...'
-              : 'Confirm'}
-          </button>
-        </div>
-      </div>
-    </div>
-  {/if}
-
-  {#if showTeamModerationConfirmation && pendingTeamModeration}
-    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
-      <div
-        class="w-full max-w-md rounded-lg border p-6 text-center"
-        style="border-color: rgba(255, 255, 255, 0.2); background: var(--secondary-background);"
-      >
-        <h3 class="mb-3 text-xl font-bold" style="color: var(--title);">Confirm Team Moderation</h3>
-        <p class="mb-5 text-sm" style="color: var(--text);">
-          Are you sure you want to
-          <strong>{pendingTeamModeration.action === 'approve' ? 'approve' : 'reject'}</strong>
-          <strong>{pendingTeamModeration.name}</strong>?
-        </p>
-        <div class="flex justify-center gap-3">
-          <button
-            type="button"
-            class="rounded-md border px-4 py-2"
-            style="border-color: rgba(255,255,255,0.2); color: var(--text);"
-            onclick={cancelTeamModeration}
-            disabled={processingTeamId === pendingTeamModeration.teamId}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            class="rounded-md px-4 py-2 font-semibold"
-            style="background: var(--accent); color: var(--text);"
-            onclick={confirmTeamModeration}
-            disabled={processingTeamId === pendingTeamModeration.teamId}
-          >
-            {processingTeamId === pendingTeamModeration.teamId ? 'Applying...' : 'Confirm'}
-          </button>
-        </div>
-      </div>
-    </div>
-  {/if}
-
-  {#if showActionConfirmation && pendingActionConfirmation}
-    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
-      <div
-        class="w-full max-w-md rounded-lg border p-6 text-center"
-        style="border-color: rgba(255, 255, 255, 0.2); background: var(--secondary-background);"
-      >
-        <h3 class="mb-3 text-xl font-bold" style="color: var(--title);">
-          {pendingActionConfirmation.title}
-        </h3>
-        <p class="mb-5 text-sm" style="color: var(--text);">
-          {pendingActionConfirmation.message}
-        </p>
-        <div class="flex justify-center gap-3">
-          <button
-            type="button"
-            class="rounded-md border px-4 py-2"
-            style="border-color: rgba(255,255,255,0.2); color: var(--text);"
-            onclick={cancelActionConfirmation}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            class="rounded-md px-4 py-2 font-semibold"
-            style="background: var(--accent); color: var(--text);"
-            onclick={confirmActionConfirmation}
-          >
-            {pendingActionConfirmation.confirmLabel}
-          </button>
-        </div>
-      </div>
-    </div>
-  {/if}
+  <AdminActionConfirmationModal
+    open={showActionConfirmation && Boolean(pendingActionConfirmation)}
+    title={pendingActionConfirmation?.title ?? ''}
+    message={pendingActionConfirmation?.message ?? ''}
+    confirmLabel={pendingActionConfirmation?.confirmLabel ?? 'Confirm'}
+    onCancel={cancelActionConfirmation}
+    onConfirm={confirmActionConfirmation}
+  />
 </PageContainer>

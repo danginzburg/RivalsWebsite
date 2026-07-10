@@ -1,4 +1,4 @@
-import { SignJWT, jwtVerify } from 'jose'
+import { SignJWT, jwtVerify, type JWTPayload } from 'jose'
 import type { Cookies } from '@sveltejs/kit'
 import { env } from '$env/dynamic/private'
 
@@ -21,7 +21,7 @@ function secretKey() {
 }
 
 export async function setSessionCookie(cookies: Cookies, payload: SessionPayload) {
-  const jwt = await new SignJWT(payload as any)
+  const jwt = await new SignJWT(payload as unknown as JWTPayload)
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime(payload.exp) // use token exp

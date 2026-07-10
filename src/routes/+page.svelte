@@ -1,5 +1,5 @@
 <script lang="ts">
-  import herobackground from '$lib/assets/img/mvp.png'
+  import herobackground from '$lib/assets/img/mvp.webp'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import HeroSection from '$lib/components/HeroSection.svelte'
 </script>

@@ -1,11 +1,13 @@
 <script lang="ts">
+  import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import { Upload, Swords } from 'lucide-svelte'
+  import { resolve } from '$app/paths'
 
-  let { data } = $props() as { data: any }
+  let { data }: PageProps = $props()
 
   const match = $derived(data.match)
-  const existingMaps = $derived((data.existingMaps ?? []) as any[])
+  const existingMaps = $derived(data.existingMaps ?? [])
 
   let mapOrder = $state('1')
   let mapName = $state('')
@@ -47,7 +49,7 @@
           </div>
         </div>
         <a
-          href="/admin"
+          href={resolve('/admin')}
           class="rounded-md px-3 py-2 text-xs font-semibold"
           style="background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.85);"
         >
@@ -199,7 +201,7 @@
           <p class="text-sm" style="color: rgba(255,255,255,0.72);">No map stats imported yet.</p>
         {:else}
           <div class="flex flex-col gap-2">
-            {#each existingMaps as m}
+            {#each existingMaps as m (m.id)}
               <div
                 class="rounded-md border p-3 text-sm"
                 style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.18); color: var(--text);"

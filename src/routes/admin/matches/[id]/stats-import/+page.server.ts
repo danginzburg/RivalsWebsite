@@ -2,6 +2,22 @@ import { error } from '@sveltejs/kit'
 import type { Actions, PageServerLoad } from './$types'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
+import {
+  buildProfileMatcher,
+  getProfilesForImports,
+  rebuildPlayerMatchStats,
+} from '$lib/server/imports/matching'
+import { errorMessage } from '$lib/server/errors'
+
+type MatchMapRow = {
+  id: string
+  map_order: number
+  map_name: string | null
+  team_a_rounds: number | null
+  team_b_rounds: number | null
+  source_filename: string | null
+  created_at: string
+}
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -25,42 +41,65 @@ function parsePercent(value: string): number {
   return parseNumber(cleaned)
 }
 
-function validateHeaders(headers: string[]): boolean {
-  const expected = [
-    'PLAYER',
-    'AGENTS',
-    'GAMES',
-    'W',
-    'L',
-    'ROUNDS',
-    'RW',
-    'RL',
-    'ACS',
-    'KD',
-    'KAST',
-    'ADR',
-    'K',
-    'KPG',
-    'KPR',
-    'D',
-    'DPG',
-    'DPR',
-    'A',
-    'APG',
-    'APR',
-    'FK',
-    'FKPG',
-    'FD',
-    'FDPG',
-    'HS%',
-    'PLANTS',
-    'PLANTS/G',
-    'DEFUSES',
-    'DEFUSES/G',
-    'ECON',
-  ]
+const DETAILED_EXPECTED_HEADERS = [
+  'PLAYER',
+  'AGENTS',
+  'GAMES',
+  'W',
+  'L',
+  'ROUNDS',
+  'RW',
+  'RL',
+  'ACS',
+  'KD',
+  'KAST',
+  'ADR',
+  'K',
+  'KPG',
+  'KPR',
+  'D',
+  'DPG',
+  'DPR',
+  'A',
+  'APG',
+  'APR',
+  'FK',
+  'FKPG',
+  'FD',
+  'FDPG',
+  'HS%',
+  'PLANTS',
+  'PLANTS/G',
+  'DEFUSES',
+  'DEFUSES/G',
+  'ECON',
+]
 
-  return expected.every((col, i) => headers[i]?.trim().toUpperCase() === col)
+const COMPACT_EXPECTED_HEADERS = [
+  'AGENT',
+  'PLAYER',
+  'AVG COMBAT SCORE',
+  'K',
+  'D',
+  'A',
+  'K/D',
+  'ADR',
+  'KAST',
+  'FK',
+  'FD',
+  'FDD',
+  'HS%',
+  'PLANTS',
+  'DEFUSES',
+  'ECON RATING',
+]
+
+function isDetailedHeaders(headers: string[]): boolean {
+  return DETAILED_EXPECTED_HEADERS.every((col, i) => headers[i]?.trim().toUpperCase() === col)
+}
+
+function isCompactHeaders(headers: string[]): boolean {
+  return COMPACT_EXPECTED_HEADERS.every((col, i) => headers[i]?.trim().toUpperCase() === col)
 }
 
 type ParsedRow = {
@@ -96,6 +135,7 @@ type ParsedRow = {
   defuses_per_game: number
   econ_rating: number
   matched_profile_id: string | null
+  side?: 'a' | 'b'
 }
 
 function parseMapCsv(text: string, profileMap: Map<string, string>): ParsedRow[] {
@@ -103,11 +143,78 @@ function parseMapCsv(text: string, profileMap: Map<string, string>): ParsedRow[]
   if (lines.length < 2) throw error(400, 'CSV must include a header and at least one data row')
 
   const headers = lines[0].split(',').map((h) => h.trim())
-  if (!validateHeaders(headers)) {
+  const detailedFormat = isDetailedHeaders(headers)
+  const compactFormat = isCompactHeaders(headers)
+
+  if (!detailedFormat && !compactFormat) {
     throw error(400, 'CSV headers do not match the expected format')
   }
 
   const out: ParsedRow[] = []
+
+  if (compactFormat) {
+    const playerLines: string[] = []
+    for (let i = 1; i < lines.length; i++) {
+      const parts = lines[i].split(',').map((part) => part.trim())
+      const hasAnyValue = parts.some((part) => part.length > 0)
+      if (!hasAnyValue) continue
+      if (parts[2] && !Number.isFinite(Number(parts[2]))) break
+      playerLines.push(lines[i])
+    }
+
+    const half = Math.ceil(playerLines.length / 2)
+    for (let i = 0; i < playerLines.length; i++) {
+      const parts = playerLines[i].split(',').map((part) => part.trim())
+      const playerName = parts[1] ?? ''
+      if (!playerName) continue
+
+      const matched_profile_id =
+        profileMap.get(normalizeKey(playerName)) ??
+        profileMap.get(normalizeBase(playerName)) ??
+        null
+
+      const side = i < half ? 'a' : 'b'
+      out.push({
+        player_name: playerName,
+        agents: parts[0] ?? '',
+        games: 1,
+        games_won: 0,
+        games_lost: 0,
+        rounds: 0,
+        rounds_won: 0,
+        rounds_lost: 0,
+        acs: parseNumber(parts[2]),
+        kd: parseNumber(parts[6]),
+        kast_pct: parsePercent(parts[8]),
+        adr: parseNumber(parts[7]),
+        kills: parseNumber(parts[3]),
+        kpg: parseNumber(parts[3]),
+        kpr: 0,
+        deaths: parseNumber(parts[4]),
+        dpg: parseNumber(parts[4]),
+        dpr: 0,
+        assists: parseNumber(parts[5]),
+        apg: parseNumber(parts[5]),
+        apr: 0,
+        fk: parseNumber(parts[9]),
+        fkpg: parseNumber(parts[9]),
+        fd: parseNumber(parts[10]),
+        fdpg: parseNumber(parts[10]),
+        hs_pct: parsePercent(parts[12]),
+        plants: parseNumber(parts[13]),
+        plants_per_game: parseNumber(parts[13]),
+        defuses: parseNumber(parts[14]),
+        defuses_per_game: parseNumber(parts[14]),
+        econ_rating: parseNumber(parts[15]),
+        matched_profile_id,
+        side,
+      })
+    }
+
+    if (out.length === 0) throw error(400, 'No player rows found in CSV')
+    return out
+  }
+
   for (let i = 1; i < lines.length; i++) {
     // Ignore the round differential line that sometimes appears.
     if (lines[i].startsWith(',,,,2,-2')) continue
@@ -162,6 +269,31 @@ function parseMapCsv(text: string, profileMap: Map<string, string>): ParsedRow[]
   return out
 }
 
+function applyMapRoundContext(rows: ParsedRow[], teamARounds: number, teamBRounds: number) {
+  const totalRounds = teamARounds + teamBRounds
+
+  return rows.map((row) => {
+    if (row.rounds > 0) return row
+
+    const roundsWon =
+      row.side === 'a' ? teamARounds : row.side === 'b' ? teamBRounds : row.rounds_won
+    const roundsLost =
+      row.side === 'a' ? teamBRounds : row.side === 'b' ? teamARounds : row.rounds_lost
+
+    return {
+      ...row,
+      rounds: totalRounds,
+      rounds_won: roundsWon,
+      rounds_lost: roundsLost,
+      games_won: roundsWon > roundsLost ? 1 : 0,
+      games_lost: roundsWon < roundsLost ? 1 : 0,
+      kpr: totalRounds > 0 ? row.kills / totalRounds : 0,
+      dpr: totalRounds > 0 ? row.deaths / totalRounds : 0,
+      apr: totalRounds > 0 ? row.assists / totalRounds : 0,
+    }
+  })
+}
+
 export const load: PageServerLoad = async ({ locals, params }) => {
   await requireAdmin(locals.user)
 
@@ -194,7 +326,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
     .select('id, display_name, riot_id_base')
     .order('display_name', { ascending: true })
 
-  let maps: any[] = []
+  let maps: MatchMapRow[] = []
   const { data: matchMaps, error: mapsError } = await supabaseAdmin
     .from('match_maps')
     .select('id, map_order, map_name, team_a_rounds, team_b_rounds, source_filename, created_at')
@@ -234,7 +366,12 @@ export const actions: Actions = {
     const teamBRoundsRaw = String(form.get('teamBRounds') ?? '').trim()
     const teamARounds = teamARoundsRaw.length ? Number(teamARoundsRaw) : null
     const teamBRounds = teamBRoundsRaw.length ? Number(teamBRoundsRaw) : null
-    if (!Number.isFinite(teamARounds ?? NaN) || !Number.isFinite(teamBRounds ?? NaN)) {
+    if (
+      teamARounds === null ||
+      teamBRounds === null ||
+      !Number.isFinite(teamARounds) ||
+      !Number.isFinite(teamBRounds)
+    ) {
       throw error(400, 'Team rounds are required')
     }
 
@@ -251,37 +388,32 @@ export const actions: Actions = {
       .eq('match_id', matchId)
       .eq('map_order', mapOrder)
       .maybeSingle()
-    if (existingError && String((existingError as any).message ?? '').includes('match_maps')) {
+    if (existingError && errorMessage(existingError).includes('match_maps')) {
       throw error(500, 'match_maps table missing; apply Supabase migrations first')
     }
-    if (!existingError && existing) {
-      throw error(400, `Map ${mapOrder} already imported for this match`)
-    }
-
-    const { data: profiles } = await supabaseAdmin
-      .from('profiles')
-      .select('id, display_name, riot_id_base')
-
+    const profiles = await getProfilesForImports()
+    const profileMatcher = buildProfileMatcher(profiles)
     const profileMap = new Map<string, string>()
-    for (const p of profiles ?? []) {
-      if (p.riot_id_base) {
-        profileMap.set(normalizeKey(p.riot_id_base), p.id)
-      }
-      if (p.display_name) {
-        profileMap.set(normalizeBase(p.display_name), p.id)
-        profileMap.set(normalizeKey(p.display_name), p.id)
+    for (const profile of profiles) {
+      const id = profile.id
+      for (const candidate of [
+        profile.riot_id_base,
+        profile.display_name,
+        profile.stats_player_name,
+      ]) {
+        if (!candidate) continue
+        profileMap.set(normalizeKey(candidate), id)
+        profileMap.set(normalizeBase(candidate), id)
       }
     }
 
     const text = await file.text()
-    const parsed = parseMapCsv(text, profileMap)
+    const parsed = applyMapRoundContext(parseMapCsv(text, profileMap), teamARounds, teamBRounds)
 
-    const unmatched = parsed.filter((r) => !r.matched_profile_id).map((r) => r.player_name)
-    if (unmatched.length) {
-      throw error(
-        400,
-        `Unmatched players: ${unmatched.slice(0, 10).join(', ')}${unmatched.length > 10 ? '…' : ''}`
-      )
+    for (const row of parsed) {
+      if (!row.matched_profile_id) {
+        row.matched_profile_id = profileMatcher.resolve(row.player_name)
+      }
     }
 
     const profileIds = parsed.map((r) => r.matched_profile_id!).filter(Boolean)
@@ -298,33 +430,70 @@ export const actions: Actions = {
       teamByProfileId.set(m.profile_id, m.team_id)
     }
 
-    const { data: createdMap, error: createMapError } = await supabaseAdmin
-      .from('match_maps')
-      .insert({
-        match_id: matchId,
-        map_order: mapOrder,
-        map_name: mapName,
-        team_a_rounds: teamARounds,
-        team_b_rounds: teamBRounds,
-        imported_by_profile_id: admin.id,
-        source_filename: file.name,
-        metadata: {
-          imported_at: new Date().toISOString(),
-        },
-      })
-      .select('id')
-      .single()
+    let matchMapId: string
+    if (existing?.id) {
+      const { error: clearMapStatsError } = await supabaseAdmin
+        .from('player_match_map_stats')
+        .delete()
+        .eq('match_map_id', existing.id)
 
-    if (createMapError && String((createMapError as any).message ?? '').includes('match_maps')) {
-      throw error(500, 'match_maps table missing; apply Supabase migrations first')
+      if (clearMapStatsError) throw error(500, 'Failed to clear existing map stats')
+
+      const { data: updatedMap, error: updateMapError } = await supabaseAdmin
+        .from('match_maps')
+        .update({
+          map_name: mapName,
+          team_a_rounds: teamARounds,
+          team_b_rounds: teamBRounds,
+          imported_by_profile_id: admin.id,
+          source_filename: file.name,
+          metadata: {
+            imported_at: new Date().toISOString(),
+          },
+        })
+        .eq('id', existing.id)
+        .select('id')
+        .single()
+
+      if (updateMapError) throw error(500, 'Failed to update existing match map row')
+      matchMapId = updatedMap.id
+    } else {
+      const { data: createdMap, error: createMapError } = await supabaseAdmin
+        .from('match_maps')
+        .insert({
+          match_id: matchId,
+          map_order: mapOrder,
+          map_name: mapName,
+          team_a_rounds: teamARounds,
+          team_b_rounds: teamBRounds,
+          imported_by_profile_id: admin.id,
+          source_filename: file.name,
+          metadata: {
+            imported_at: new Date().toISOString(),
+          },
+        })
+        .select('id')
+        .single()
+
+      if (createMapError && errorMessage(createMapError).includes('match_maps')) {
+        throw error(500, 'match_maps table missing; apply Supabase migrations first')
+      }
+      if (createMapError || !createdMap) throw error(500, 'Failed to create match map row')
+      matchMapId = createdMap.id
     }
-    if (createMapError || !createdMap) throw error(500, 'Failed to create match map row')
 
     const rowsToInsert = parsed.map((r) => {
       const profileId = r.matched_profile_id
-      const teamId = profileId ? (teamByProfileId.get(profileId) ?? null) : null
+      const teamId =
+        r.side === 'a'
+          ? match.team_a_id
+          : r.side === 'b'
+            ? match.team_b_id
+            : profileId
+              ? (teamByProfileId.get(profileId) ?? null)
+              : null
       return {
-        match_map_id: createdMap.id,
+        match_map_id: matchMapId,
         match_id: matchId,
         profile_id: profileId,
         team_id: teamId,
@@ -365,13 +534,16 @@ export const actions: Actions = {
     const { error: insertError } = await supabaseAdmin
       .from('player_match_map_stats')
       .insert(rowsToInsert)
-    if (
-      insertError &&
-      String((insertError as any).message ?? '').includes('player_match_map_stats')
-    ) {
+    if (insertError && errorMessage(insertError).includes('player_match_map_stats')) {
       throw error(500, 'player_match_map_stats table missing; apply Supabase migrations first')
     }
     if (insertError) throw error(500, 'Failed to insert player map stats')
+
+    try {
+      await rebuildPlayerMatchStats(matchId)
+    } catch {
+      throw error(500, 'Failed to rebuild player match stats')
+    }
 
     return { success: true }
   },

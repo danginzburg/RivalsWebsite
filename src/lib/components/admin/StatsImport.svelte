@@ -2,23 +2,13 @@
   // Extracted from /add-stats to live under /admin.
   import PageContainer from '$lib/components/PageContainer.svelte'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
-  import {
-    Upload,
-    FileSpreadsheet,
-    CheckCircle,
-    AlertTriangle,
-    Loader2,
-    Trash2,
-    Users,
-    Swords,
-    Target,
-    TrendingUp,
-    Crosshair,
-    Shield,
-  } from 'lucide-svelte'
+  import { Upload, FileSpreadsheet, Loader2, Trash2 } from 'lucide-svelte'
+  import { SvelteMap } from 'svelte/reactivity'
+
+  import type { PageData } from '../../../routes/admin/stats-import/$types'
 
   interface Props {
-    data: any
+    data: PageData
   }
 
   let { data }: Props = $props()
@@ -77,7 +67,7 @@
   }
 
   const profileMap = $derived.by(() => {
-    const map = new Map<string, string>()
+    const map = new SvelteMap<string, string>()
     for (const p of data.profiles ?? []) {
       if (p.riot_id_base) {
         const full = normalizeKey(p.riot_id_base)
@@ -215,7 +205,7 @@
   }
 
   function buildHeaderIndex(headers: string[]): Record<HeaderKey, number> {
-    const indexByCanonical = new Map<string, number>()
+    const indexByCanonical = new SvelteMap<string, number>()
     headers.forEach((h, idx) => indexByCanonical.set(normalizeHeader(h), idx))
 
     const synonyms: Record<HeaderKey, string[]> = {
@@ -380,7 +370,7 @@
     submitResult = null
 
     try {
-      const response = await fetch('/api/admin/stats', {
+      const response = await window.fetch('/api/admin/stats', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -528,7 +518,7 @@
             />
             {#if weekLabelSuggestions.length > 0}
               <datalist id="week-label-suggestions">
-                {#each weekLabelSuggestions as w}
+                {#each weekLabelSuggestions as w (w)}
                   <option value={w}></option>
                 {/each}
               </datalist>
@@ -583,7 +573,7 @@
               </tr>
             </thead>
             <tbody>
-              {#each parsedRows as row}
+              {#each parsedRows as row (row.player_name)}
                 <tr class="border-t" style="border-color: rgba(255,255,255,0.10);">
                   <td class="px-3 py-2 font-semibold" style="color: var(--text);"
                     >{row.player_name}</td

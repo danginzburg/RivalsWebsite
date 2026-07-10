@@ -1,9 +1,18 @@
 import { redirect } from '@sveltejs/kit'
-import type { PageServerLoad } from './$types'
+
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { requireAdmin } from '$lib/server/auth/profile'
+import { getTeamLogoUrl } from '$lib/server/teams/logo'
+import type { MatchStreamRow } from '$lib/server/db-rows'
 
-export const load: PageServerLoad = async ({ locals }) => {
+type RosterProfileRow = {
+  id: string
+  display_name: string | null
+  email: string | null
+  riot_id_base: string | null
+}
+
+export const load = async ({ locals }: { locals: App.Locals }) => {
   if (!locals.user) {
     throw redirect(303, '/auth/login?returnTo=/admin')
   }
@@ -13,11 +22,22 @@ export const load: PageServerLoad = async ({ locals }) => {
   // Fetch all users
   const { data: users, error: usersError } = await supabaseAdmin
     .from('profiles')
-    .select('id, email, display_name, role, created_at')
+    .select('id, email, display_name, role, riot_id_base, created_at')
     .order('created_at', { ascending: false })
 
   if (usersError) {
     console.error('Error fetching users:', usersError)
+  }
+
+  const { data: seasons, error: seasonsError } = await supabaseAdmin
+    .from('seasons')
+    .select('id, code, name, starts_on, ends_on, is_active, metadata, created_at')
+    .order('is_active', { ascending: false })
+    .order('starts_on', { ascending: false, nullsFirst: false })
+    .order('created_at', { ascending: false })
+
+  if (seasonsError) {
+    console.error('Error fetching seasons:', seasonsError)
   }
 
   // Teams are admin-managed; load approved teams.
@@ -29,6 +49,8 @@ export const load: PageServerLoad = async ({ locals }) => {
       name,
       tag,
       logo_path,
+      metadata,
+      status,
       approval_status,
       created_at
     `
@@ -60,7 +82,7 @@ export const load: PageServerLoad = async ({ locals }) => {
   if (approvedTeamIds.length > 0) {
     const { data: rosterRows, error: rosterError } = await supabaseAdmin
       .from('team_memberships')
-      .select('team_id, profile_id, role')
+      .select('id, team_id, profile_id, player_name, role, is_starter')
       .in('team_id', approvedTeamIds)
       .eq('is_active', true)
       .is('left_at', null)
@@ -68,8 +90,12 @@ export const load: PageServerLoad = async ({ locals }) => {
     if (rosterError) {
       console.error('Error fetching team roster:', rosterError)
     } else {
-      const profileIds = Array.from(new Set((rosterRows ?? []).map((r) => r.profile_id)))
-      const profileById = new Map<string, any>()
+      const profileIds = Array.from(
+        new Set(
+          (rosterRows ?? []).map((r) => r.profile_id).filter((id): id is string => Boolean(id))
+        )
+      )
+      const profileById = new Map<string, RosterProfileRow>()
       if (profileIds.length > 0) {
         const { data: profileRows, error: profilesError } = await supabaseAdmin
           .from('profiles')
@@ -87,8 +113,11 @@ export const load: PageServerLoad = async ({ locals }) => {
         approvedRosterCountMap.set(row.team_id, (approvedRosterCountMap.get(row.team_id) ?? 0) + 1)
         const p = profileById.get(row.profile_id)
         const rosterEntry = {
+          membership_id: row.id,
           profile_id: row.profile_id,
+          player_name: (row as { player_name?: string | null }).player_name ?? null,
           role: row.role,
+          is_starter: (row as any).is_starter ?? false,
           riot_id_base: p?.riot_id_base ?? null,
           display_name: p?.display_name ?? null,
           email: p?.email ?? null,
@@ -107,44 +136,109 @@ export const load: PageServerLoad = async ({ locals }) => {
     }
   }
 
-  const withLogoUrl = (teams: any[]) =>
+  const withLogoUrl = (teams: { id: string; logo_path?: string | null }[]) =>
     teams.map((team) => ({
       ...team,
-      logo_url: team.logo_path
-        ? supabaseAdmin.storage.from('team-logos').getPublicUrl(team.logo_path).data.publicUrl
-        : null,
+      logo_url: getTeamLogoUrl(team),
       captain_profile: approvedCaptainMap.get(team.id) ?? null,
       roster_count: approvedRosterCountMap.get(team.id) ?? 0,
       roster: approvedRosterMap.get(team.id) ?? [],
     }))
 
-  const { data: matches, error: matchesError } = await supabaseAdmin
-    .from('matches')
-    .select(
-      `
+  const [
+    { data: disbandedTeams, error: disbandedTeamsError },
+    { data: matches, error: matchesError },
+  ] = await Promise.all([
+    supabaseAdmin
+      .from('teams')
+      .select(
+        `
       id,
+      name,
+      tag,
+      logo_path,
+      metadata,
       status,
       approval_status,
-      best_of,
-      scheduled_at,
-      team_a_id,
-      team_b_id,
-      winner_team_id,
+      created_at
+    `
+      )
+      .eq('status', 'disbanded')
+      .order('created_at', { ascending: false }),
+    supabaseAdmin
+      .from('matches')
+      .select(
+        `
+      id,
+       status,
+        approval_status,
+        best_of,
+        scheduled_at,
+        ended_at,
+        metadata,
+        team_a_id,
+        team_b_id,
+        winner_team_id,
       team_a_score,
       team_b_score,
       team_a:teams!matches_team_a_id_fkey (id, name, tag),
       team_b:teams!matches_team_b_id_fkey (id, name, tag)
     `
-    )
-    .order('created_at', { ascending: false })
+      )
+      .order('scheduled_at', { ascending: true, nullsFirst: false }),
+  ])
+
+  if (disbandedTeamsError) {
+    console.error('Error fetching disbanded teams:', disbandedTeamsError)
+  }
+
+  const disbandedWithLogos = (disbandedTeams ?? []).map((team) => ({
+    ...team,
+    logo_url: team.logo_path
+      ? supabaseAdmin.storage.from('team-logos').getPublicUrl(team.logo_path).data.publicUrl
+      : null,
+    captain_profile: null,
+    roster_count: 0,
+    roster: [],
+  }))
 
   if (matchesError) {
     console.error('Error fetching matches:', matchesError)
   }
 
+  const matchIds = (matches ?? []).map((match) => match.id)
+  let streamsByMatch: Record<string, MatchStreamRow[]> = {}
+  if (matchIds.length > 0) {
+    const { data: streams, error: streamsError } = await supabaseAdmin
+      .from('match_streams')
+      .select('id, match_id, platform, stream_url, is_primary, status, metadata')
+      .in('match_id', matchIds)
+      .order('is_primary', { ascending: false })
+      .order('created_at', { ascending: true })
+
+    if (streamsError) {
+      console.error('Error fetching match streams:', streamsError)
+    } else {
+      streamsByMatch = ((streams ?? []) as MatchStreamRow[]).reduce(
+        (acc, stream) => {
+          if (!acc[stream.match_id]) acc[stream.match_id] = []
+          acc[stream.match_id].push(stream)
+          return acc
+        },
+        {} as Record<string, MatchStreamRow[]>
+      )
+    }
+  }
+
   return {
     users: users || [],
+    seasons: seasons || [],
     approvedTeams: withLogoUrl(approvedTeams || []),
-    matches: matches ?? [],
+    disbandedTeams: disbandedWithLogos,
+    matches: (matches ?? []).map((match) => ({
+      ...match,
+      streams: streamsByMatch[match.id] ?? [],
+      vod_url: match.metadata?.youtube_vod_url ?? null,
+    })),
   }
 }

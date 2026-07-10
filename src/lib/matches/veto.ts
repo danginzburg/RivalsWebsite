@@ -25,7 +25,7 @@ export function bo3VetoSteps(): Bo3VetoStep[] {
   return []
 }
 
-export function normalizeMapPool(value: unknown): string[] {
+export function normalizeMapPool(_value: unknown): string[] {
   return DEFAULT_MAP_POOL
 }
 

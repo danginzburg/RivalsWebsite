@@ -1,6 +1,13 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { requireAdmin } from '$lib/server/auth/profile'
+import {
+  MatchLifecycleError,
+  cancelMatch,
+  finalizeMatch,
+  updateMatchDetails,
+} from '$lib/server/matches/lifecycle'
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { logAdminAction } from '$lib/server/audit/admin-actions'
 
 function normalizeOptional(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -8,68 +15,119 @@ function normalizeOptional(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null
 }
 
+function parseScheduledAt(value: unknown): string | null {
+  const raw = normalizeOptional(value)
+  if (!raw) return null
+
+  // <input type="datetime-local"> is interpreted in the viewer's local timezone.
+  const d = new Date(raw)
+  if (!Number.isFinite(d.getTime())) throw error(400, 'Invalid scheduledAt')
+  return d.toISOString()
+}
+
+function parseMapVetoes(value: unknown): string[] {
+  if (typeof value !== 'string') return []
+  return value
+    .split(/\r?\n/)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+}
+
 export const PATCH: RequestHandler = async ({ locals, request, params }) => {
   const admin = await requireAdmin(locals.user)
   const matchId = params.id
+  if (!matchId) throw error(400, 'Missing match id')
   const body = await request.json()
 
   const action = normalizeOptional(body.action)
   if (!action) throw error(400, 'Missing action')
 
-  const { data: match, error: matchError } = await supabaseAdmin
-    .from('matches')
-    .select('id, team_a_id, team_b_id, status')
-    .eq('id', matchId)
-    .single()
+  try {
+    if (action === 'cancel') {
+      const updated = await cancelMatch({ matchId, adminProfileId: admin.id })
+      return json({ success: true, match: updated })
+    }
 
-  if (matchError || !match) throw error(404, 'Match not found')
-
-  if (action === 'cancel') {
-    const { data: updated } = await supabaseAdmin
-      .from('matches')
-      .update({
-        status: 'cancelled',
-        approval_status: 'approved',
-        approved_by_profile_id: admin.id,
-        approved_at: new Date().toISOString(),
+    if (action === 'update') {
+      const updated = await updateMatchDetails({
+        matchId,
+        adminProfileId: admin.id,
+        teamAId: normalizeOptional(body.teamAId),
+        teamBId: normalizeOptional(body.teamBId),
+        bestOf: Number(body.bestOf ?? 3),
+        status: normalizeOptional(body.status),
+        scheduledAt: parseScheduledAt(body.scheduledAt),
+        teamAScore: Number(body.teamAScore ?? 0),
+        teamBScore: Number(body.teamBScore ?? 0),
+        winnerTeamId: normalizeOptional(body.winnerTeamId),
+        youtubeVodUrl: normalizeOptional(body.youtubeVodUrl),
+        mapVetoes: parseMapVetoes(body.mapVetoes),
       })
-      .eq('id', matchId)
-      .select('id, status, approval_status')
-      .single()
-    return json({ success: true, match: updated })
+      return json({ success: true, match: updated })
+    }
+
+    if (action === 'finalize') {
+      const updated = await finalizeMatch({
+        matchId,
+        adminProfileId: admin.id,
+        teamAScore: Number(body.teamAScore),
+        teamBScore: Number(body.teamBScore),
+        winnerTeamId: normalizeOptional(body.winnerTeamId),
+      })
+      return json({ success: true, match: updated })
+    }
+  } catch (err) {
+    if (err instanceof MatchLifecycleError) throw error(err.status, err.message)
+    throw err
   }
 
-  if (action === 'finalize') {
-    const teamAScore = Number(body.teamAScore)
-    const teamBScore = Number(body.teamBScore)
-    const winnerTeamId = normalizeOptional(body.winnerTeamId)
+  if (action === 'toggle_map_voided') {
+    const mapId = normalizeOptional(body.mapId)
+    const isVoided = Boolean(body.isVoided)
 
-    if (!Number.isFinite(teamAScore) || !Number.isFinite(teamBScore)) {
-      throw error(400, 'Scores are required')
-    }
+    if (!mapId) throw error(400, 'Missing mapId')
 
-    if (!winnerTeamId || ![match.team_a_id, match.team_b_id].includes(winnerTeamId)) {
-      throw error(400, 'Winner team must be one of the match teams')
-    }
+    const { data: map, error: mapError } = await supabaseAdmin
+      .from('match_maps')
+      .select('id, map_order, map_name')
+      .eq('id', mapId)
+      .eq('match_id', matchId)
+      .maybeSingle()
 
-    const { data: updated } = await supabaseAdmin
-      .from('matches')
-      .update({
-        status: 'completed',
-        approval_status: 'approved',
-        winner_team_id: winnerTeamId,
-        team_a_score: teamAScore,
-        team_b_score: teamBScore,
-        ended_at: new Date().toISOString(),
-        approved_by_profile_id: admin.id,
-        approved_at: new Date().toISOString(),
-      })
-      .eq('id', matchId)
-      .select('id, status, winner_team_id, team_a_score, team_b_score')
-      .single()
+    if (mapError || !map) throw error(404, 'Map not found for this match')
 
-    return json({ success: true, match: updated })
+    const { error: updateError } = await supabaseAdmin
+      .from('match_maps')
+      .update({ is_voided: isVoided })
+      .eq('id', mapId)
+
+    if (updateError) throw error(500, 'Failed to update map voided status')
+
+    await logAdminAction({
+      adminProfileId: admin.id,
+      actionType: 'match_map_voided_toggled',
+      targetTable: 'match_maps',
+      targetId: mapId,
+      details: {
+        matchId,
+        mapOrder: map.map_order,
+        mapName: map.map_name,
+        isVoided,
+      },
+    })
+
+    return json({ success: true })
   }
 
   throw error(400, 'Unsupported action')
+}
+
+export const DELETE: RequestHandler = async ({ locals, params }) => {
+  await requireAdmin(locals.user)
+
+  const matchId = params.id
+  const { error: deleteError } = await supabaseAdmin.from('matches').delete().eq('id', matchId)
+  if (deleteError) throw error(500, 'Failed to delete match')
+
+  return json({ success: true })
 }

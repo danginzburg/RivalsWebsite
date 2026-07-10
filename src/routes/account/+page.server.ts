@@ -1,21 +1,9 @@
 import { error, redirect, type Actions } from '@sveltejs/kit'
 import type { PageServerLoad } from './$types'
 import { supabaseAdmin } from '$lib/supabase/admin'
-
-function normalizeRiotBase(value: unknown): string {
-  const raw = String(value ?? '').trim()
-  if (!raw) return ''
-  // Stats only use the name before the tag.
-  const base = raw.split('#')[0].trim()
-  return base
-}
-
-function isValidRiotBase(value: string) {
-  if (!value) return false
-  if (value.includes('#')) return false
-  if (value.length < 3 || value.length > 24) return false
-  return true
-}
+import { normalizeRiotBase, isValidRiotBase } from '$lib/server/riot-id'
+import { supabaseErrorMessageIncludes } from '$lib/server/supabase/errors'
+import { claimRelinkAfterProfileUpdate } from '$lib/server/players/claim-relink'
 
 export const load: PageServerLoad = async ({ locals }) => {
   if (!locals.user) throw redirect(303, '/auth/login?returnTo=/account')
@@ -27,8 +15,8 @@ export const load: PageServerLoad = async ({ locals }) => {
     .maybeSingle()
 
   if (profileError) {
-    const msg = String((profileError as any).message ?? '')
-    if (msg.toLowerCase().includes('riot_id_base')) {
+    const msg = String((profileError as { message?: string }).message ?? '')
+    if (supabaseErrorMessageIncludes(profileError, 'riot_id_base')) {
       throw error(500, 'Database missing profiles.riot_id_base; apply the Supabase migration')
     }
     throw error(500, msg || 'Failed to load profile')
@@ -75,12 +63,10 @@ export const actions: Actions = {
 
     if (updateError) return { success: false, message: updateError.message }
 
-    // Best-effort auto-relink of imported stats after claiming Riot ID.
-    const { error: rpcError } = await supabaseAdmin.rpc('rematch_rivals_group_stats', {
-      batch_id: null,
-    })
-    if (rpcError) {
-      console.warn('rematch_rivals_group_stats failed:', rpcError)
+    try {
+      await claimRelinkAfterProfileUpdate(profile.id)
+    } catch (err) {
+      console.warn('claimRelinkAfterProfileUpdate failed:', err)
     }
 
     throw redirect(303, `/players/${profile.id}`)

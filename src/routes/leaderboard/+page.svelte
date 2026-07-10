@@ -1,11 +1,14 @@
 <script lang="ts">
+  import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import { Trophy } from 'lucide-svelte'
+  import { resolve } from '$app/paths'
 
-  let { data } = $props() as { data: any }
+  let { data }: PageProps = $props()
 
-  const rows = $derived((data.rows ?? []) as any[])
-  function teamLabel(team: any) {
+  const rows = $derived(data.rows ?? [])
+  const batch = $derived(data.batch ?? null)
+  function teamLabel(team: { name?: string | null } | null | undefined) {
     return team?.name ?? 'Team'
   }
 </script>
@@ -19,8 +22,16 @@
           <div>
             <h1 class="responsive-title">Leaderboard</h1>
             <p class="text-sm" style="color: rgba(255,255,255,0.72);">
-              Calculated from match results.
+              Showing the most recently imported standings.
             </p>
+            {#if batch}
+              <p class="mt-1 text-xs" style="color: rgba(255,255,255,0.58);">
+                {batch.display_name}
+                {#if batch.as_of_date}
+                  <span> • As of {batch.as_of_date}</span>
+                {/if}
+              </p>
+            {/if}
           </div>
         </div>
       </div>
@@ -48,13 +59,15 @@
                 <th class="px-3 py-2"># Maps</th>
                 <th class="px-3 py-2">Map Wins</th>
                 <th class="px-3 py-2">Map Losses</th>
-                <th class="px-3 py-2">Map Diff.</th>
+                <th class="px-3 py-2">Round Diff.</th>
               </tr>
             </thead>
             <tbody>
-              {#each rows as row, i}
+              {#each rows as row, i (i)}
                 <tr class="border-t" style="border-color: rgba(255,255,255,0.10);">
-                  <td class="px-3 py-2" style="color: rgba(255,255,255,0.82);">{i + 1}</td>
+                  <td class="px-3 py-2" style="color: rgba(255,255,255,0.82);"
+                    >{row.rank || i + 1}</td
+                  >
                   <td class="px-3 py-2" style="color: var(--text);">
                     <div class="flex items-center gap-2">
                       {#if row.team?.logo_url}
@@ -69,14 +82,18 @@
                           style="border-color: rgba(255,255,255,0.15);"
                         ></div>
                       {/if}
-                      <span class="font-semibold" style="color: var(--text);">
-                        {teamLabel(row.team)}
-                      </span>
                       {#if row.team?.tag}
-                        <span class="text-xs" style="color: rgba(255,255,255,0.65);"
+                        <span style="color: rgba(255,255,255,0.72);"
                           >[{String(row.team.tag).toUpperCase()}]</span
                         >
                       {/if}
+                      <a
+                        href={resolve(row.team?.id ? `/teams/${row.team.id}` : '/teams')}
+                        class="font-semibold underline"
+                        style="color: var(--text);"
+                      >
+                        {teamLabel(row.team)}
+                      </a>
                     </div>
                   </td>
                   <td class="px-3 py-2" style="color: rgba(255,255,255,0.82);"
@@ -91,7 +108,7 @@
                   >
                   <td class="px-3 py-2" style="color: rgba(255,255,255,0.82);">{row.map_wins}</td>
                   <td class="px-3 py-2" style="color: rgba(255,255,255,0.82);">{row.map_losses}</td>
-                  <td class="px-3 py-2" style="color: rgba(255,255,255,0.82);">{row.map_diff}</td>
+                  <td class="px-3 py-2" style="color: rgba(255,255,255,0.82);">{row.round_diff}</td>
                 </tr>
               {/each}
             </tbody>

@@ -1,15 +1,20 @@
 <script lang="ts">
   import { tick } from 'svelte'
+  import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
   import { BarChart3 } from 'lucide-svelte'
+  import { SvelteMap, SvelteURLSearchParams } from 'svelte/reactivity'
+  import { resolve } from '$app/paths'
+  import miksIcon from '$lib/assets/agents/Miks_icon.webp'
+  import { statsRowKey } from '$lib/stats/ui'
 
-  let { data } = $props() as { data: any }
+  let { data }: PageProps = $props()
 
   const batchId = $derived(data.batchId as string | null)
-  const batch = $derived(data.batch as any | null)
-  const rows = $derived((data.rows ?? []) as any[])
-  const batches = $derived((data.batches ?? []) as any[])
+  const batch = $derived(data.batch)
+  const rows = $derived(data.rows ?? [])
+  const batches = $derived(data.batches ?? [])
   const viewer = $derived(
     (data.viewer ?? null) as { profileId: string; displayName: string | null } | null
   )
@@ -87,7 +92,7 @@
   })
 
   function qp(next: { batchId?: string | null }) {
-    const params = new URLSearchParams()
+    const params = new SvelteURLSearchParams()
     const nextBatch = next.batchId === undefined ? batchId : next.batchId
     if (nextBatch) params.set('batchId', nextBatch)
     const q = search.trim()
@@ -102,11 +107,11 @@
   }
 
   function unclaimedHref(playerName: string) {
-    const params = new URLSearchParams()
+    const params = new SvelteURLSearchParams()
     params.set('name', playerName)
     if (selectedBatchId) params.set('batchId', selectedBatchId)
     const qs = params.toString()
-    return `/players/unclaimed?${qs}`
+    return `${resolve('/players/unclaimed')}?${qs}`
   }
 
   function fmt(n: unknown, digits = 1) {
@@ -115,22 +120,23 @@
     return v.toFixed(digits)
   }
 
-  const agentAssetModules = import.meta.glob('$lib/assets/agents/*_icon.png', {
+  const agentAssetModules = import.meta.glob('$lib/assets/agents/*_icon.webp', {
     eager: true,
     import: 'default',
   }) as Record<string, string>
 
   const agentIconMap = $derived.by(() => {
-    const map = new Map<string, string>()
+    const map = new SvelteMap<string, string>()
     const normalize = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, '')
 
     for (const [path, url] of Object.entries(agentAssetModules)) {
       const filename = path.split('/').pop() ?? ''
-      const base = filename.replace(/_icon\.png$/i, '')
+      const base = filename.replace(/_icon\.webp$/i, '')
       map.set(normalize(base), url)
     }
     // Common aliases
     if (map.has('harbor')) map.set('harbour', map.get('harbor')!)
+    map.set('miks', miksIcon)
     return map
   })
 
@@ -204,11 +210,14 @@
     visibleColumns = Array.from(defaultVisible)
   }
 
-  function compareValues(a: any, b: any, key: string) {
+  function compareValues(a: Record<string, unknown>, b: Record<string, unknown>, key: string) {
     const av = a?.[key]
     const bv = b?.[key]
     if (key === 'player_name') {
       return String(av ?? '').localeCompare(String(bv ?? ''), undefined, { sensitivity: 'base' })
+    }
+    if (key === 'agents') {
+      return parseAgents(av).length - parseAgents(bv).length
     }
     const an = Number(av)
     const bn = Number(bv)
@@ -247,7 +256,7 @@
     const q = search.trim().toLowerCase()
     const mg = Math.max(0, Math.trunc(minGames))
 
-    return rows.filter((r) => {
+    return rows.filter((r: Record<string, unknown>) => {
       const nameOk = !q
         ? true
         : String(r.player_name ?? '')
@@ -439,7 +448,7 @@
             </div>
           </div>
           <div class="flex flex-wrap gap-2">
-            {#each allColumns as col}
+            {#each allColumns as col (col.key)}
               <button
                 type="button"
                 class="rounded-full px-3 py-1 text-xs"
@@ -482,7 +491,7 @@
           </div>
         </div>
         <div class="flex flex-wrap gap-2">
-          {#each allColumns as col}
+          {#each allColumns as col (col.key)}
             <button
               type="button"
               class="rounded-full px-3 py-1 text-xs"
@@ -512,6 +521,7 @@
           <table class="stats-table min-w-full text-left text-sm">
             <thead>
               <tr class="text-xs tracking-wide uppercase" style="color: rgba(255,255,255,0.75);">
+                <th class="px-3 py-2">#</th>
                 <th class="px-3 py-2">
                   <button
                     type="button"
@@ -528,7 +538,7 @@
                     {/if}
                   </button>
                 </th>
-                {#each allColumns as col}
+                {#each allColumns as col (col.key)}
                   {#if visibleColumns.includes(col.key)}
                     <th class="px-3 py-2">
                       <button
@@ -551,45 +561,40 @@
               </tr>
             </thead>
             <tbody>
-              {#each sortedRows as row}
+              {#each sortedRows as row, index (statsRowKey(row, index))}
                 <tr
                   class="border-t"
                   id={row.profile_id ? `profile-${row.profile_id}` : undefined}
                   style={`border-color: rgba(255,255,255,0.10); ${row.profile_id && row.profile_id === highlightedProfileId ? 'background: rgba(74,222,128,0.08);' : ''}`}
                 >
+                  <td class="px-3 py-2 font-semibold" style="color: rgba(255,255,255,0.82);">
+                    {index + 1}
+                  </td>
                   <td class="px-3 py-2 font-semibold" style="color: var(--text);">
                     <div class="flex items-center gap-2">
                       {#if row.profile_id}
                         <a
-                          class="min-w-0 truncate underline"
+                          class="min-w-0 truncate"
                           style="color: var(--text);"
-                          href={`/players/${row.profile_id}`}
+                          href={resolve(`/players/${row.profile_id}`)}
                         >
                           {row.player_name}
                         </a>
                       {:else}
+                        <!-- eslint-disable svelte/no-navigation-without-resolve -->
+                        <!-- unclaimedHref() returns a resolve()-built URL with a query string -->
                         <a
-                          class="min-w-0 truncate underline"
+                          class="min-w-0 truncate"
                           style="color: var(--text);"
                           href={unclaimedHref(String(row.player_name ?? 'Player'))}
                         >
                           {row.player_name}
                         </a>
+                        <!-- eslint-enable svelte/no-navigation-without-resolve -->
                       {/if}
-                      <!-- Match/unmatched badge temporarily disabled -->
-                      <!--
-                      {#if !row.profile_id}
-                        <span
-                          class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase"
-                          style="background: rgba(250,204,21,0.18); color: #fde68a;"
-                        >
-                          unmatched
-                        </span>
-                      {/if}
-                      -->
                     </div>
                   </td>
-                  {#each allColumns as col}
+                  {#each allColumns as col (col.key)}
                     {#if visibleColumns.includes(col.key)}
                       <td class="px-3 py-2 align-middle" style="color: rgba(255,255,255,0.82);">
                         {#if col.key === 'agents'}
@@ -598,7 +603,7 @@
                             —
                           {:else}
                             <div class="agents-icons">
-                              {#each agents as agent}
+                              {#each agents as agent (agent)}
                                 {@const url = agentIconUrl(agent)}
                                 {#if url}
                                   <img
@@ -641,13 +646,15 @@
     padding: 0;
     justify-content: flex-start;
     align-items: stretch;
-    height: calc(100svh - 4rem);
-    overflow: hidden;
+    min-height: calc(100svh - 4rem);
+    height: auto;
+    overflow: visible;
   }
 
   .stats-viewport {
-    height: 100%;
-    overflow: hidden;
+    width: 100%;
+    min-height: inherit;
+    overflow: visible;
     display: flex;
     justify-content: center;
     padding: 24px 16px;
@@ -671,13 +678,13 @@
   .stats-shell {
     display: flex;
     flex-direction: column;
-    height: 100%;
+    height: auto;
     min-height: 0;
   }
 
   .stats-table-wrap {
-    flex: 1 1 auto;
-    overflow: auto;
+    overflow-x: auto;
+    overflow-y: visible;
     min-height: 0;
   }
 

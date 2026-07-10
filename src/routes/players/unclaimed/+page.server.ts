@@ -1,6 +1,55 @@
 import { error, redirect, type Actions } from '@sveltejs/kit'
 import type { PageServerLoad } from './$types'
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { rematchPlayerMatchMapStatsForBase } from '$lib/server/imports/matching'
+import { average, sum } from '$lib/server/math'
+import { normalizeRiotBase, isValidRiotBase } from '$lib/server/riot-id'
+import { toBatchLabel } from '$lib/server/stats/batch-label'
+import {
+  normalizeRivalsGroupStatBatchFromDb,
+  type NormalizedRivalsGroupStatBatch,
+  type StatImportBatchRow,
+} from '$lib/server/stats/rivals-batch'
+import { claimRelinkAfterProfileUpdate } from '$lib/server/players/claim-relink'
+
+type StatBatchInfo = Partial<NormalizedRivalsGroupStatBatch> & { id: string; display_name: string }
+
+type CandidateRow = {
+  import_batch_id: string
+  player_name?: string | null
+  games?: number | null
+  imported_at?: string | null
+  [key: string]: unknown
+}
+
+type TeamLite = { id: string; name: string; tag?: string | null }
+
+type MatchRel = {
+  id: string
+  status?: string | null
+  approval_status?: string | null
+  scheduled_at?: string | null
+  ended_at?: string | null
+  team_a_id?: string | null
+  team_b_id?: string | null
+  team_a_score?: number | null
+  team_b_score?: number | null
+  team_a?: TeamLite | TeamLite[] | null
+  team_b?: TeamLite | TeamLite[] | null
+}
+
+type MatchMapRow = {
+  match_id?: string | null
+  team_id?: string | null
+  agents?: string | null
+  acs?: number | null
+  kills?: number | null
+  deaths?: number | null
+  assists?: number | null
+  kast_pct?: number | null
+  hs_pct?: number | null
+  matches?: MatchRel | MatchRel[] | null
+}
 
 function normalizeNameBase(value: unknown): string {
   const raw = String(value ?? '').trim()
@@ -8,29 +57,10 @@ function normalizeNameBase(value: unknown): string {
   return raw.split('#')[0].trim()
 }
 
-function normalizeRiotBase(value: unknown): string {
-  const raw = String(value ?? '').trim()
-  if (!raw) return ''
-  return raw.split('#')[0].trim()
-}
-
-function isValidRiotBase(value: string) {
-  if (!value) return false
-  if (value.includes('#')) return false
-  if (value.length < 3 || value.length > 24) return false
-  return true
-}
-
 function quoteOrValue(value: string): string {
   // PostgREST filter syntax supports quoted values.
   // Double quotes inside are escaped by doubling.
   return `"${value.replaceAll('"', '""')}"`
-}
-
-function toBatchLabel(b: any): string {
-  const base = (b?.display_name ?? b?.id ?? '').toString()
-  if (b?.import_kind === 'weekly' && b?.week_label) return `${base} (${b.week_label})`
-  return base
 }
 
 function kindOrder(kind: unknown): number {
@@ -79,10 +109,14 @@ export const load: PageServerLoad = async ({ url, locals }) => {
   }
 
   const batchIds = Array.from(
-    new Set((appearances ?? []).map((r: any) => String(r.import_batch_id)).filter(Boolean))
+    new Set(
+      ((appearances ?? []) as Array<{ import_batch_id: string | null }>)
+        .map((r) => String(r.import_batch_id))
+        .filter(Boolean)
+    )
   )
 
-  const batchById = new Map<string, any>()
+  const batchById = new Map<string, NormalizedRivalsGroupStatBatch>()
   if (batchIds.length > 0) {
     const { data: batchRows, error: batchError } = await supabaseAdmin
       .from('stat_import_batches')
@@ -97,14 +131,12 @@ export const load: PageServerLoad = async ({ url, locals }) => {
     }
 
     for (const b of batchRows ?? []) {
-      batchById.set(b.id, {
-        id: b.id,
-        display_name: b.display_name ?? b.source_filename,
-        import_kind: b.import_kind ?? b.metadata?.import_kind ?? null,
-        week_label: b.week_label ?? b.metadata?.week_label ?? null,
-        created_at: b.created_at,
-        sort_order: (b as any).sort_order ?? null,
-      })
+      batchById.set(
+        b.id,
+        normalizeRivalsGroupStatBatchFromDb(b as StatImportBatchRow, {
+          displayNameFallback: 'source_filename',
+        })
+      )
     }
   }
 
@@ -133,7 +165,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
     batchOptions[0]?.value ??
     null
 
-  let selected: any | null = null
+  let selected: (CandidateRow & { batch?: StatBatchInfo }) | null = null
   if (batchId) {
     const clickedQuoted = quoteOrValue(clickedName)
     const baseLikeQuoted = quoteOrValue(`${base}#%`)
@@ -152,10 +184,10 @@ export const load: PageServerLoad = async ({ url, locals }) => {
     if (rowError) {
       console.error('Failed to load unclaimed row:', rowError)
     } else {
-      const list = candidates ?? []
+      const list = (candidates ?? []) as CandidateRow[]
       selected =
-        list.find((r: any) => String(r.player_name ?? '').trim() === clickedName) ??
-        list.sort((a: any, b: any) => {
+        list.find((r) => String(r.player_name ?? '').trim() === clickedName) ??
+        list.sort((a, b) => {
           const ga = Number(a?.games ?? 0)
           const gb = Number(b?.games ?? 0)
           if (ga !== gb) return gb - ga
@@ -179,6 +211,91 @@ export const load: PageServerLoad = async ({ url, locals }) => {
     }
   }
 
+  const { data: matchRows } = await supabaseAdmin
+    .from('player_match_map_stats')
+    .select(
+      `
+      match_id,
+      team_id,
+      profile_id,
+      player_name,
+      agents,
+      acs,
+      kills,
+      deaths,
+      assists,
+      kast_pct,
+      hs_pct,
+      matches (
+        id,
+        status,
+        approval_status,
+        scheduled_at,
+        ended_at,
+        team_a_id,
+        team_b_id,
+        team_a_score,
+        team_b_score,
+        team_a:teams!matches_team_a_id_fkey (id, name, tag),
+        team_b:teams!matches_team_b_id_fkey (id, name, tag)
+      )
+    `
+    )
+    .is('profile_id', null)
+    .or(`player_name.eq.${baseQuoted},player_name.ilike.${baseTagLikeQuoted}`)
+    .limit(500)
+
+  const byMatch = new Map<string, MatchMapRow[]>()
+  for (const row of (matchRows ?? []) as MatchMapRow[]) {
+    const matchId = String(row.match_id ?? '')
+    if (!matchId) continue
+    const current = byMatch.get(matchId) ?? []
+    current.push(row)
+    byMatch.set(matchId, current)
+  }
+
+  const matchHistory = Array.from(byMatch.values())
+    .map((rows) => {
+      const first = rows[0]
+      const matchRel = Array.isArray(first.matches) ? first.matches[0] : first.matches
+      const perspectiveTeamId = first.team_id
+      const rawOpponent =
+        matchRel?.team_a_id === perspectiveTeamId
+          ? matchRel?.team_b
+          : matchRel?.team_b_id === perspectiveTeamId
+            ? matchRel?.team_a
+            : null
+      const opponent = Array.isArray(rawOpponent) ? (rawOpponent[0] ?? null) : (rawOpponent ?? null)
+      const score =
+        matchRel?.team_a_id === perspectiveTeamId
+          ? { us: Number(matchRel?.team_a_score ?? 0), them: Number(matchRel?.team_b_score ?? 0) }
+          : { us: Number(matchRel?.team_b_score ?? 0), them: Number(matchRel?.team_a_score ?? 0) }
+
+      return {
+        match: matchRel ?? null,
+        opponent,
+        score,
+        agents: Array.from(
+          new Set(
+            rows
+              .flatMap((row) => String(row.agents ?? '').split(/\s+/))
+              .map((value) => value.trim())
+              .filter(Boolean)
+          )
+        ).join(' '),
+        acs: average(rows.map((row) => row.acs)),
+        kills: sum(rows.map((row) => row.kills)),
+        deaths: sum(rows.map((row) => row.deaths)),
+        assists: sum(rows.map((row) => row.assists)),
+        kast_pct: average(rows.map((row) => row.kast_pct)),
+        hs_pct: average(rows.map((row) => row.hs_pct)),
+      }
+    })
+    .filter(
+      (entry): entry is typeof entry & { match: MatchRel } =>
+        Boolean(entry.match) && entry.match?.approval_status === 'approved'
+    )
+
   return {
     clickedName,
     base,
@@ -186,6 +303,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
     batchOptions,
     selected,
     viewer,
+    matchHistory,
   }
 }
 
@@ -226,11 +344,17 @@ export const actions: Actions = {
 
     if (updateError) return { success: false, message: updateError.message }
 
-    // Best-effort auto-relink.
-    const { error: rpcError } = await supabaseAdmin.rpc('rematch_rivals_group_stats', {
-      batch_id: null,
-    })
-    if (rpcError) console.warn('rematch_rivals_group_stats failed:', rpcError)
+    try {
+      await claimRelinkAfterProfileUpdate(profile.id)
+    } catch (err) {
+      console.warn('claimRelinkAfterProfileUpdate failed:', err)
+    }
+
+    try {
+      await rematchPlayerMatchMapStatsForBase(profile.id, riotIdBase)
+    } catch (err) {
+      console.warn('Failed to rematch match map stats after claim:', err)
+    }
 
     throw redirect(303, `/players/${profile.id}`)
   },

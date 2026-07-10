@@ -1,7 +1,4 @@
 <script>
-  import PageContainer from '$lib/components/PageContainer.svelte'
-  import ContentSection from '$lib/components/ContentSection.svelte'
-
   const rulebookUrl =
     'https://docs.google.com/document/d/1Vm1S6gobLY6IU6tK1oU0WP4hRdya_5Lh0b_RAEbPIxo/edit?tab=t.0#heading=h.b6aqs3g5z6lz'
 </script>

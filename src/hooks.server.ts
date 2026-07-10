@@ -44,21 +44,3 @@ export const handle: Handle = async ({ event, resolve }) => {
 
   return resolve(event)
 }
-
-declare global {
-  namespace App {
-    interface Locals {
-      session: null | {
-        sub: string
-        email?: string
-        name?: string
-        picture?: string
-        access_token?: string
-        id_token: string
-        refresh_token?: string
-        exp: number
-      }
-      user: null | { sub: string; email?: string; name?: string; picture?: string; role?: string }
-    }
-  }
-}

@@ -3,7 +3,7 @@
 @plugin '@tailwindcss/typography';
 
 :root {
-  --background: #1A1B25;
+  --background: #1a1b25;
   --secondary-background: #392061;
   --tertiary-background: #512f8a;
   --border: #090609;

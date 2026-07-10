@@ -1,9 +1,15 @@
 import { json, error } from '@sveltejs/kit'
-import type { RequestHandler } from './$types'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { requireAdmin } from '$lib/server/auth/profile'
+import { errorMessage } from '$lib/server/errors'
 
-export const POST: RequestHandler = async ({ locals, request }) => {
+type RawStatRow = {
+  player_name?: string | null
+  agents?: string | null
+  [key: string]: unknown
+}
+
+export const POST = async ({ locals, request }: { locals: App.Locals; request: Request }) => {
   const admin = await requireAdmin(locals.user)
 
   const body = await request.json().catch(() => ({}))
@@ -31,7 +37,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   }
   const { data: profiles, error: profilesError } = await supabaseAdmin
     .from('profiles')
-    .select('id, display_name, riot_id_base')
+    .select('id, display_name, riot_id_base, stats_player_name')
 
   if (profilesError) {
     console.error('Error fetching profiles:', profilesError)
@@ -55,6 +61,13 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       profileMap.set(full, p.id)
       if (base && base !== full) profileMap.set(base, p.id)
     }
+    const statsPlayerName = (p as { stats_player_name?: string | null }).stats_player_name
+    if (statsPlayerName) {
+      const full = normalizeKey(statsPlayerName)
+      const base = normalizeBase(statsPlayerName)
+      profileMap.set(full, p.id)
+      if (base && base !== full) profileMap.set(base, p.id)
+    }
   }
 
   // Build insert rows with server-side profile matching
@@ -64,7 +77,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   const batchId = crypto.randomUUID()
   const importedAt = new Date().toISOString()
 
-  const insertRows = rows.map((row: any) => {
+  const insertRows = (rows as RawStatRow[]).map((row) => {
     const profileId = row.player_name
       ? (profileMap.get(normalizeKey(row.player_name)) ??
         profileMap.get(normalizeBase(row.player_name)) ??
@@ -117,7 +130,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
   // Track unmatched rows in stat_import_errors (best-effort; table may not exist yet)
   const errorRows = insertRows
-    .map((r: any, idx: number) => ({ row: r, idx }))
+    .map((r, idx) => ({ row: r, idx }))
     .filter((x) => !x.row.profile_id)
     .map((x) => ({
       batch_id: batchId,
@@ -128,7 +141,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       row_payload: x.row,
     }))
 
-  const batchPayload: any = {
+  const batchPayload: Record<string, unknown> = {
     id: batchId,
     uploaded_by_profile_id: admin.id,
     source_filename: sourceFilename || 'add-stats.csv',
@@ -147,14 +160,14 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     },
   }
 
-  let batchInsertError: any = null
+  let batchInsertError: { message?: string | null } | null = null
   {
     const { error: err } = await supabaseAdmin.from('stat_import_batches').insert(batchPayload)
     batchInsertError = err
   }
 
   // Backwards compatibility if display fields aren't migrated yet.
-  if (batchInsertError && String(batchInsertError.message || '').includes('display_name')) {
+  if (batchInsertError && errorMessage(batchInsertError).includes('display_name')) {
     const fallbackPayload = { ...batchPayload }
     delete fallbackPayload.display_name
     delete fallbackPayload.import_kind

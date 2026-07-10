@@ -1,10 +1,11 @@
 <script lang="ts">
+  import type { PageProps } from './$types'
   import StatsImport from '$lib/components/admin/StatsImport.svelte'
   import { Save } from 'lucide-svelte'
 
-  let { data } = $props() as { data: any }
+  let { data }: PageProps = $props()
 
-  const batches = $derived((data.batches ?? []) as any[])
+  const batches = $derived(data.batches ?? [])
 
   let orderById = $state<Record<string, string>>({})
   let savingId = $state<string | null>(null)
@@ -23,7 +24,7 @@
     message = null
     try {
       const sortOrder = orderById[batchId] ?? ''
-      const res = await fetch(`/api/admin/stats/batches/${batchId}`, {
+      const res = await window.fetch(`/api/admin/stats/batches/${batchId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sortOrder }),
@@ -78,7 +79,7 @@
             </tr>
           </thead>
           <tbody>
-            {#each batches as b}
+            {#each batches as b (b.id)}
               <tr class="border-t" style="border-color: rgba(255,255,255,0.10);">
                 <td class="px-3 py-2">
                   <input

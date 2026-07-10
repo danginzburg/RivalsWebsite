@@ -1,42 +1,41 @@
-# sv
+# Rivals Website
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+SvelteKit app for Throw City Rivals standings, match pages, pickems, player stats, and admin imports.
 
-## Creating a project
-
-If you're seeing this, you've probably already done this step. Congrats!
+## Getting Started
 
 ```sh
-# create a new project
-npx sv create my-app
-```
-
-To recreate this project with the same configuration:
-
-```sh
-# recreate this project
-npx sv create --template minimal --types ts --add prettier eslint tailwindcss="plugins:typography,forms" sveltekit-adapter="adapter:auto" devtools-json drizzle="database:postgresql+postgresql:postgres.js+docker:no" mdsvex playwright vitest="usages:unit,component" --install npm ./
-```
-
-## Developing
-
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
-
-```sh
+npm install
 npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
 ```
 
-## Building
-
-To create a production version of your app:
+Useful checks:
 
 ```sh
-npm run build
+npm run check
+npm run lint
+npm run test:unit -- --run
+npm run test:e2e
 ```
 
-You can preview the production build with `npm run preview`.
+## Key Areas
 
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+- `src/routes/`: SvelteKit pages and API routes. Public pages live directly under `src/routes`; admin pages live under `src/routes/admin`; API handlers live under `src/routes/api`.
+- `src/lib/components/`: shared UI, including the main `Header`, page wrapper components, pickem UI, and admin dashboard tabs.
+- `src/lib/server/`: server-only domain helpers for auth/session handling, Supabase profile queries, imports, stats, teams, and pickems.
+- `src/lib/admin/`: client-side admin API helpers, option lists, and small UI state helpers.
+- `src/lib/supabase/`: browser and service-role Supabase clients.
+- `supabase/migrations/`: historical schema changes. Treat as append-only once applied.
+- `supabase/queries/`: one-off/manual SQL utilities for stats aggregation and repair work.
+
+## Auth And Data
+
+Auth is handled by server routes in `src/routes/auth`. `/auth/login` starts the Auth0 PKCE flow, `/auth/callback` exchanges the code and syncs a Supabase profile, and `/auth/logout` clears the session cookie.
+
+`src/hooks.server.ts` reads the session cookie for every request and exposes `locals.user`. Page server loads and API routes use `locals.user` plus helpers such as `requireAdmin`.
+
+## Imports
+
+Stats imports are centered on `src/lib/components/admin/StatsImport.svelte` and `src/routes/api/admin/stats/+server.ts`. Match imports are centered on `src/routes/admin/matches-import` and `src/routes/api/admin/matches/import/+server.ts`.
+
+Legacy `/add-stats` routes intentionally redirect to `/admin/stats-import` for old bookmarks.

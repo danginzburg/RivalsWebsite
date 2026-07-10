@@ -1,0 +1,23 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "noEmit": true,
+    "types": ["node"],
+    "paths": {
+      "$env/dynamic/private": ["./shims/env-dynamic-private.ts"],
+      "$env/dynamic/public": ["./shims/env-dynamic-public.ts"],
+      "$lib": ["../src/lib"],
+      "$lib/*": ["../src/lib/*"]
+    }
+  },
+  "include": [
+    "**/*.ts",
+    "../src/app.d.ts",
+    "../src/lib/supabase/admin.ts",
+    "../src/lib/server/**/*.ts",
+    "../src/routes/api/admin/leaderboard/import/+server.ts",
+    "../src/routes/api/admin/stats/+server.ts"
+  ],
+  "exclude": ["out", ".cache"]
+}

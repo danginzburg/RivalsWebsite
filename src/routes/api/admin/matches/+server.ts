@@ -1,6 +1,7 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
+import type { MatchStreamRow } from '$lib/server/db-rows'
 
 function normalizeOptional(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -12,11 +13,8 @@ function parseScheduledAt(value: unknown): string | null {
   const raw = normalizeOptional(value)
   if (!raw) return null
 
-  // Support <input type="datetime-local"> value (YYYY-MM-DDTHH:mm)
-  const looksLikeLocal = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(raw)
-  // datetime-local is a local wall-clock time with no timezone.
-  // Interpret it as the browser's local time and convert to UTC for storage.
-  const d = new Date(looksLikeLocal ? raw : raw)
+  // <input type="datetime-local"> is interpreted in the viewer's local timezone.
+  const d = new Date(raw)
   if (!Number.isFinite(d.getTime())) {
     throw error(400, 'Invalid scheduledAt')
   }
@@ -35,6 +33,8 @@ export const GET: RequestHandler = async ({ locals }) => {
       approval_status,
       best_of,
       scheduled_at,
+      ended_at,
+      metadata,
       team_a_id,
       team_b_id,
       winner_team_id,
@@ -48,7 +48,35 @@ export const GET: RequestHandler = async ({ locals }) => {
 
   if (matchesError) throw error(500, 'Failed to load matches')
 
-  return json({ matches: matches ?? [] })
+  const matchIds = (matches ?? []).map((match) => match.id)
+  let streamsByMatch: Record<string, MatchStreamRow[]> = {}
+  if (matchIds.length > 0) {
+    const { data: streams, error: streamsError } = await supabaseAdmin
+      .from('match_streams')
+      .select('id, match_id, platform, stream_url, is_primary, status, metadata')
+      .in('match_id', matchIds)
+      .order('is_primary', { ascending: false })
+      .order('created_at', { ascending: true })
+
+    if (streamsError) throw error(500, 'Failed to load match streams')
+
+    streamsByMatch = ((streams ?? []) as MatchStreamRow[]).reduce(
+      (acc, stream) => {
+        if (!acc[stream.match_id]) acc[stream.match_id] = []
+        acc[stream.match_id].push(stream)
+        return acc
+      },
+      {} as Record<string, MatchStreamRow[]>
+    )
+  }
+
+  return json({
+    matches: (matches ?? []).map((match) => ({
+      ...match,
+      streams: streamsByMatch[match.id] ?? [],
+      vod_url: match.metadata?.youtube_vod_url ?? null,
+    })),
+  })
 }
 
 export const POST: RequestHandler = async ({ locals, request }) => {
@@ -62,7 +90,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
   if (!teamAId || !teamBId) throw error(400, 'teamAId and teamBId are required')
   if (teamAId === teamBId) throw error(400, 'Teams must be different')
-  if (![1, 3, 5, 7].includes(bestOf)) throw error(400, 'bestOf must be one of 1, 3, 5, 7')
+  if (![3, 5].includes(bestOf)) throw error(400, 'bestOf must be one of 3 or 5')
 
   const { data: teams, error: teamsError } = await supabaseAdmin
     .from('teams')
@@ -71,7 +99,11 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
   if (teamsError) throw error(500, 'Failed to validate teams')
   if ((teams ?? []).length !== 2) throw error(400, 'One or more teams not found')
-  if ((teams ?? []).some((t: any) => t.approval_status !== 'approved')) {
+  if (
+    ((teams ?? []) as Array<{ approval_status: string | null }>).some(
+      (t) => t.approval_status !== 'approved'
+    )
+  ) {
     throw error(400, 'Both teams must be approved')
   }
 
@@ -96,6 +128,8 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       approval_status,
       best_of,
       scheduled_at,
+      ended_at,
+      metadata,
       team_a_id,
       team_b_id,
       winner_team_id,

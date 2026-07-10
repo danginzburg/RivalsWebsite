@@ -1,107 +1,94 @@
-import type { PageServerLoad } from './$types'
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { safeNumber } from '$lib/server/parse'
+import { getTeamLogoUrl } from '$lib/server/teams/logo'
 
-function getTeamLogoUrl(team: any): string | null {
-  if (!team?.logo_path) return null
-  return supabaseAdmin.storage.from('team-logos').getPublicUrl(team.logo_path).data.publicUrl
+type LeaderboardTeamRel = {
+  id: string
+  name: string
+  tag?: string | null
+  logo_path?: string | null
 }
 
-function safeInt(value: unknown) {
-  const n = Number(value)
-  return Number.isFinite(n) ? n : 0
+type LeaderboardEntryRow = {
+  id: string
+  rank: number | null
+  points: number | null
+  matches_played: number | null
+  wins: number | null
+  losses: number | null
+  map_wins: number | null
+  map_losses: number | null
+  round_diff: number | null
+  teams: LeaderboardTeamRel | LeaderboardTeamRel[] | null
 }
 
-export const load: PageServerLoad = async () => {
-  // Leaderboard is computed from match results.
+export const load = async () => {
+  const { data: batch } = await supabaseAdmin
+    .from('stat_import_batches')
+    .select('id, display_name, source_filename, created_at, metadata')
+    .filter('metadata->>import_type', 'eq', 'leaderboard_entries')
+    .eq('status', 'applied')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
 
-  const { data: teams, error: teamsError } = await supabaseAdmin
-    .from('teams')
-    .select('id, name, tag, logo_path')
-    .eq('approval_status', 'approved')
-    .order('name', { ascending: true })
+  if (!batch) return { rows: [], batch: null }
 
-  if (teamsError) {
-    return { rows: [] }
-  }
-
-  const { data: matches } = await supabaseAdmin
-    .from('matches')
+  const { data: entries, error: entriesError } = await supabaseAdmin
+    .from('leaderboard_entries')
     .select(
-      'id, status, approval_status, team_a_id, team_b_id, team_a_score, team_b_score, winner_team_id'
+      `
+      id,
+      rank,
+      points,
+      matches_played,
+      wins,
+      losses,
+      map_wins,
+      map_losses,
+      round_diff,
+      split,
+      as_of_date,
+      teams:teams!leaderboard_entries_team_id_fkey (id, name, tag, logo_path)
+    `
     )
-    .eq('status', 'completed')
-    .eq('approval_status', 'approved')
+    .eq('import_batch_id', batch.id)
+    .order('rank', { ascending: true, nullsFirst: false })
+    .order('points', { ascending: false })
 
-  type Row = {
-    team_id: string
-    team: { id: string; name: string; tag: string | null; logo_url: string | null }
-    series_played: number
-    series_wins: number
-    series_losses: number
-    maps_played: number
-    map_wins: number
-    map_losses: number
-    map_diff: number
-  }
+  if (entriesError) return { rows: [], batch: null }
 
-  const byTeam = new Map<string, Row>()
-  for (const t of teams ?? []) {
-    byTeam.set(t.id, {
-      team_id: t.id,
-      team: {
-        id: t.id,
-        name: t.name,
-        tag: t.tag ?? null,
-        logo_url: getTeamLogoUrl(t),
-      },
-      series_played: 0,
-      series_wins: 0,
-      series_losses: 0,
-      maps_played: 0,
-      map_wins: 0,
-      map_losses: 0,
-      map_diff: 0,
-    })
-  }
-
-  for (const m of matches ?? []) {
-    const a = byTeam.get(m.team_a_id)
-    const b = byTeam.get(m.team_b_id)
-    if (!a || !b) continue
-
-    const aScore = safeInt(m.team_a_score)
-    const bScore = safeInt(m.team_b_score)
-
-    a.series_played += 1
-    b.series_played += 1
-
-    a.map_wins += aScore
-    a.map_losses += bScore
-    b.map_wins += bScore
-    b.map_losses += aScore
-
-    a.maps_played += aScore + bScore
-    b.maps_played += aScore + bScore
-
-    if (m.winner_team_id === a.team_id) {
-      a.series_wins += 1
-      b.series_losses += 1
-    } else if (m.winner_team_id === b.team_id) {
-      b.series_wins += 1
-      a.series_losses += 1
+  const rows = ((entries ?? []) as LeaderboardEntryRow[]).map((entry) => {
+    const team = Array.isArray(entry.teams) ? entry.teams[0] : entry.teams
+    return {
+      id: entry.id,
+      rank: safeNumber(entry.rank),
+      points: safeNumber(entry.points),
+      series_played: safeNumber(entry.matches_played),
+      series_wins: safeNumber(entry.wins),
+      series_losses: safeNumber(entry.losses),
+      map_wins: safeNumber(entry.map_wins),
+      map_losses: safeNumber(entry.map_losses),
+      maps_played: safeNumber(entry.map_wins) + safeNumber(entry.map_losses),
+      round_diff: safeNumber(entry.round_diff),
+      team: team
+        ? {
+            id: team.id,
+            name: team.name,
+            tag: team.tag ?? null,
+            logo_url: getTeamLogoUrl(team),
+          }
+        : null,
     }
-  }
-
-  for (const row of byTeam.values()) {
-    row.map_diff = row.map_wins - row.map_losses
-  }
-
-  const rows = Array.from(byTeam.values()).sort((x, y) => {
-    if (y.series_wins !== x.series_wins) return y.series_wins - x.series_wins
-    if (y.map_diff !== x.map_diff) return y.map_diff - x.map_diff
-    if (y.map_wins !== x.map_wins) return y.map_wins - x.map_wins
-    return x.team.name.localeCompare(y.team.name)
   })
 
-  return { rows }
+  return {
+    rows,
+    batch: {
+      display_name: batch.metadata?.display_name ?? batch.display_name ?? batch.source_filename,
+      created_at: batch.created_at,
+      as_of_date: batch.metadata?.as_of_date ?? null,
+      split: batch.metadata?.split ?? 'main',
+    },
+  }
 }

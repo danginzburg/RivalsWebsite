@@ -4,6 +4,7 @@ import { setSessionCookie } from '$lib/server/auth/session'
 import { createClient } from '@supabase/supabase-js'
 import { env as publicEnv } from '$env/dynamic/public'
 import { env } from '$env/dynamic/private'
+import { rematchNamedTeamMemberships } from '$lib/server/teams/membership'
 
 export const GET: RequestHandler = async ({ url, cookies }) => {
   const code = url.searchParams.get('code')
@@ -98,6 +99,20 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
         avatar_url: userInfo.picture ?? null,
       })
       .eq('auth0_sub', userInfo.sub)
+  }
+
+  const { data: syncedProfile } = await supabaseAdmin
+    .from('profiles')
+    .select('id')
+    .eq('auth0_sub', userInfo.sub)
+    .maybeSingle()
+
+  if (syncedProfile?.id) {
+    try {
+      await rematchNamedTeamMemberships(syncedProfile.id)
+    } catch (err) {
+      console.warn('Failed to rematch named team memberships during login:', err)
+    }
   }
 
   redirect(303, returnTo)

@@ -1,6 +1,7 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { errorMessage } from '$lib/server/errors'
 
 function normalizeOptional(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -22,7 +23,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   })
 
   if (rpcError) {
-    const msg = String((rpcError as any).message ?? '')
+    const msg = errorMessage(rpcError)
     if (msg.toLowerCase().includes('rematch_rivals_group_stats')) {
       throw error(500, 'Missing rematch function; apply latest Supabase migrations')
     }
