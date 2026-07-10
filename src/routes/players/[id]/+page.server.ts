@@ -13,6 +13,7 @@ import {
   type StatImportBatchRow,
 } from '$lib/server/stats/rivals-batch'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
+import { rematchPlayerMatchMapStatsForBase } from '$lib/server/imports/matching'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -133,6 +134,16 @@ export const load = async ({
   }
 
   if (!profileRel) throw error(404, 'Player not found')
+
+  // If match stats were imported before this player claimed their Riot base name,
+  // their match history can appear only under the "unclaimed" view.
+  // Rematch + rebuild opportunistically so the claimed player page stays accurate.
+  try {
+    const base = (profileRel.riot_id_base ?? (profileRel as any).stats_player_name ?? '').trim()
+    if (base) await rematchPlayerMatchMapStatsForBase(profileId, base)
+  } catch (err) {
+    console.warn('Failed to rematch match map stats on player load:', err)
+  }
 
   // Viewer permissions for inline Riot ID setup.
   let canEditRiotIdBase = false
@@ -586,6 +597,12 @@ export const actions = {
       console.warn('claimRelinkAfterProfileUpdate failed after riot_id_base save:', err)
     }
 
+    try {
+      await rematchPlayerMatchMapStatsForBase(target.id, riotIdBase)
+    } catch (err) {
+      console.warn('Failed to rematch match map stats after riot_id_base save:', err)
+    }
+
     throw redirect(303, `/players/${target.id}`)
   },
   setStatsPlayerName: async ({
@@ -650,6 +667,12 @@ export const actions = {
       await claimRelinkAfterProfileUpdate(target.id)
     } catch (err) {
       console.warn('claimRelinkAfterProfileUpdate failed after stats_player_name save:', err)
+    }
+
+    try {
+      await rematchPlayerMatchMapStatsForBase(target.id, statsPlayerName)
+    } catch (err) {
+      console.warn('Failed to rematch match map stats after stats_player_name save:', err)
     }
 
     throw redirect(303, `/players/${target.id}`)
