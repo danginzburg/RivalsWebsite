@@ -4,6 +4,7 @@ import { claimRelinkAfterProfileUpdate } from '$lib/server/players/claim-relink'
 import { normalizeRiotBase, isValidRiotBase } from '$lib/server/riot-id'
 import { supabaseErrorMessageIncludes } from '$lib/server/supabase/errors'
 import { toBatchLabel } from '$lib/server/stats/batch-label'
+import { average, sum } from '$lib/server/math'
 import {
   extractNumericLabel,
   isLatestLabel,
@@ -12,11 +13,96 @@ import {
   type StatImportBatchRow,
 } from '$lib/server/stats/rivals-batch'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
+import { rematchPlayerMatchMapStatsForBase } from '$lib/server/imports/matching'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
+type ProfileRow = {
+  auth0_sub?: string | null
+  stats_player_name?: string | null
+}
+
+type TeamRel = {
+  id: string
+  name: string
+  tag?: string | null
+  logo_path?: string | null
+  approval_status?: string | null
+}
+
+type StatBatchInfo = Partial<NormalizedRivalsGroupStatBatch> & { id: string; display_name: string }
+
+type StatRow = {
+  import_batch_id: string
+  imported_at?: string | null
+  [key: string]: unknown
+}
+
+type NormalizedStatRow = StatRow & { batch: StatBatchInfo }
+
+type TeamLite = { id: string; name: string; tag?: string | null }
+
+type MatchRel = {
+  id: string
+  status?: string | null
+  approval_status?: string | null
+  scheduled_at?: string | null
+  ended_at?: string | null
+  team_a_id?: string | null
+  team_b_id?: string | null
+  team_a_score?: number | null
+  team_b_score?: number | null
+  winner_team_id?: string | null
+  team_a?: TeamLite | TeamLite[] | null
+  team_b?: TeamLite | TeamLite[] | null
+}
+
+type ParticipatedRow = {
+  id?: string | number | null
+  match_id?: string | null
+  profile_id?: string | null
+  player_name?: string | null
+  team_id?: string | null
+  agents?: string | null
+  acs?: number | null
+  kills?: number | null
+  deaths?: number | null
+  assists?: number | null
+  kd?: number | null
+  adr?: number | null
+  kast_pct?: number | null
+  hs_pct?: number | null
+  matches?: MatchRel | MatchRel[] | null
+}
+
+type MatchHistoryEntry = {
+  match: MatchRel | null
+  team_id: string | null
+  opponent: TeamLite | null
+  score: { us: number; them: number }
+  agents: string | null
+  acs: number | null
+  kills: number | null
+  deaths: number | null
+  assists: number | null
+  kd: number | null
+  adr: number | null
+  kast_pct: number | null
+  hs_pct: number | null
+}
+
 function kindOrder(kind: unknown): number {
   return kind === 'aggregate' ? 0 : kind === 'weekly' ? 1 : 2
+}
+
+function normalizeNameBase(value: unknown): string {
+  const raw = String(value ?? '').trim()
+  if (!raw) return ''
+  return raw.split('#')[0].trim()
+}
+
+function quoteOrValue(value: string): string {
+  return `"${value.replaceAll('"', '""')}"`
 }
 
 export const load = async ({
@@ -52,7 +138,10 @@ export const load = async ({
   // Viewer permissions for inline Riot ID setup.
   let canEditRiotIdBase = false
   if (locals.user) {
-    if ((profileRel as any).auth0_sub && (profileRel as any).auth0_sub === locals.user.sub) {
+    if (
+      (profileRel as ProfileRow).auth0_sub &&
+      (profileRel as ProfileRow).auth0_sub === locals.user.sub
+    ) {
       canEditRiotIdBase = true
     } else {
       const { data: viewer } = await supabaseAdmin
@@ -78,10 +167,11 @@ export const load = async ({
     .is('left_at', null)
     .maybeSingle()
 
+  const membershipTeams = (membership as { teams?: TeamRel | TeamRel[] | null } | null)?.teams
   const teamRel = membership
-    ? Array.isArray((membership as any).teams)
-      ? (membership as any).teams[0]
-      : (membership as any).teams
+    ? Array.isArray(membershipTeams)
+      ? membershipTeams[0]
+      : membershipTeams
     : null
 
   const activeTeam =
@@ -106,7 +196,11 @@ export const load = async ({
 
   const possibleUnmatchedNames = Array.from(
     new Set(
-      [profileRel.display_name, profileRel.riot_id_base, (profileRel as any).stats_player_name]
+      [
+        profileRel.display_name,
+        profileRel.riot_id_base,
+        (profileRel as ProfileRow).stats_player_name,
+      ]
         .map((value) => (typeof value === 'string' ? value.trim() : ''))
         .filter(Boolean)
     )
@@ -125,7 +219,7 @@ export const load = async ({
   const hasUnmatchedStatsCandidate = unmatchedChecks.some((result) => Number(result.count ?? 0) > 0)
 
   const batchIds = Array.from(
-    new Set((statsRows ?? []).map((r: any) => r.import_batch_id).filter(Boolean))
+    new Set(((statsRows ?? []) as StatRow[]).map((r) => r.import_batch_id).filter(Boolean))
   )
 
   const { data: batches } = batchIds.length
@@ -168,7 +262,7 @@ export const load = async ({
     })
     .map((b) => ({ label: toBatchLabel(b), value: b.id }))
 
-  const normalizedStats = (statsRows ?? []).map((r: any) => ({
+  const normalizedStats: NormalizedStatRow[] = ((statsRows ?? []) as StatRow[]).map((r) => ({
     ...r,
     batch: batchById.get(r.import_batch_id) ?? {
       id: r.import_batch_id,
@@ -176,13 +270,13 @@ export const load = async ({
     },
   }))
 
-  let selected = null as any
+  let selected: NormalizedStatRow | null = null
   if (selectedBatchId) {
-    selected = normalizedStats.find((r: any) => r.import_batch_id === selectedBatchId) ?? null
+    selected = normalizedStats.find((r) => r.import_batch_id === selectedBatchId) ?? null
   }
 
   if (!selected) {
-    const byBatchId = new Map<string, any>()
+    const byBatchId = new Map<string, NormalizedStatRow>()
     for (const r of normalizedStats) {
       if (!r.import_batch_id) continue
       if (byBatchId.has(r.import_batch_id)) continue
@@ -190,13 +284,11 @@ export const load = async ({
     }
 
     const aggregates = Array.from(byBatchId.values()).filter(
-      (r: any) => r.batch?.import_kind === 'aggregate'
+      (r) => r.batch?.import_kind === 'aggregate'
     )
-    const weeklies = Array.from(byBatchId.values()).filter(
-      (r: any) => r.batch?.import_kind === 'weekly'
-    )
+    const weeklies = Array.from(byBatchId.values()).filter((r) => r.batch?.import_kind === 'weekly')
 
-    function sortBatches(a: any, b: any) {
+    function sortBatches(a: NormalizedStatRow, b: NormalizedStatRow) {
       const ao = a.batch?.sort_order
       const bo = b.batch?.sort_order
       if (typeof ao === 'number' && typeof bo === 'number' && ao !== bo) return ao - bo
@@ -233,13 +325,12 @@ export const load = async ({
     selected = aggregates[0] ?? weeklies[0] ?? normalizedStats[0] ?? null
   }
 
-  const { data: participated } = await supabaseAdmin
-    .from('player_match_stats')
-    .select(
-      `
+  const matchMapStatsSelect = `
+      id,
       match_id,
+      profile_id,
+      player_name,
       team_id,
-      status,
       agents,
       acs,
       kills,
@@ -264,14 +355,90 @@ export const load = async ({
         team_b:teams!matches_team_b_id_fkey (id, name, tag)
       )
     `
-    )
-    .eq('profile_id', profileId)
-    .in('status', ['submitted', 'approved'])
-    .order('created_at', { ascending: false })
-    .limit(50)
 
-  const matchHistory = (participated ?? [])
-    .map((r: any) => {
+  const importNameFilters = Array.from(
+    new Set(
+      [
+        profileRel.display_name,
+        profileRel.riot_id_base,
+        (profileRel as ProfileRow).stats_player_name,
+      ]
+        .flatMap((name) => {
+          const raw = String(name ?? '').trim()
+          const base = normalizeNameBase(raw)
+          return raw && base ? [raw, base, `${base}#%`] : []
+        })
+        .filter(Boolean)
+    )
+  )
+
+  const [
+    { data: accoladeAssignments },
+    { data: claimedParticipation },
+    { data: unmatchedParticipation },
+  ] = await Promise.all([
+    supabaseAdmin
+      .from('accolade_assignments')
+      .select('accolade_id, context, accolades (id, name, logo_path, icon_key)')
+      .eq('profile_id', profileId),
+    supabaseAdmin
+      .from('player_match_map_stats')
+      .select(matchMapStatsSelect)
+      .eq('profile_id', profileId)
+      .order('created_at', { ascending: false })
+      .limit(500),
+    importNameFilters.length > 0
+      ? supabaseAdmin
+          .from('player_match_map_stats')
+          .select(matchMapStatsSelect)
+          .is('profile_id', null)
+          .or(
+            importNameFilters
+              .map((name) =>
+                name.endsWith('#%')
+                  ? `player_name.ilike.${quoteOrValue(name)}`
+                  : `player_name.eq.${quoteOrValue(name)}`
+              )
+              .join(',')
+          )
+          .order('created_at', { ascending: false })
+          .limit(500)
+      : Promise.resolve({ data: [] }),
+  ])
+
+  const playerAccolades = (accoladeAssignments ?? []).map((a: any) => {
+    const acc = Array.isArray(a.accolades) ? a.accolades[0] : a.accolades
+    return {
+      id: acc?.id ?? a.accolade_id,
+      name: acc?.name ?? 'Accolade',
+      icon_key: acc?.icon_key ?? null,
+      context: a.context ?? null,
+      logo_url: acc?.logo_path
+        ? supabaseAdmin.storage.from('team-logos').getPublicUrl(acc.logo_path).data.publicUrl
+        : null,
+    }
+  })
+
+  const seenParticipationIds = new Set<string>()
+  const groupedParticipation = new Map<string, ParticipatedRow[]>()
+  for (const row of [
+    ...((claimedParticipation ?? []) as ParticipatedRow[]),
+    ...((unmatchedParticipation ?? []) as ParticipatedRow[]),
+  ]) {
+    const id = String(row.id ?? '')
+    if (!id || seenParticipationIds.has(id)) continue
+    seenParticipationIds.add(id)
+
+    const matchRel = Array.isArray(row.matches) ? row.matches[0] : row.matches
+    if (!matchRel?.id) continue
+    const current = groupedParticipation.get(matchRel.id) ?? []
+    current.push(row)
+    groupedParticipation.set(matchRel.id, current)
+  }
+
+  const matchHistory = Array.from(groupedParticipation.values())
+    .map((rows): MatchHistoryEntry => {
+      const r = rows[0]
       const matchRel = Array.isArray(r.matches) ? r.matches[0] : r.matches
       const perspectiveTeamId =
         activeTeam &&
@@ -280,43 +447,60 @@ export const load = async ({
           : r.team_id === matchRel?.team_a_id || r.team_id === matchRel?.team_b_id
             ? r.team_id
             : null
-      const opponent =
+      const rawOpponent =
         matchRel?.team_a_id === perspectiveTeamId
           ? matchRel?.team_b
           : matchRel?.team_b_id === perspectiveTeamId
             ? matchRel?.team_a
             : null
+      const opponent = Array.isArray(rawOpponent) ? (rawOpponent[0] ?? null) : (rawOpponent ?? null)
       const score =
         matchRel?.team_a_id === perspectiveTeamId
           ? { us: Number(matchRel?.team_a_score ?? 0), them: Number(matchRel?.team_b_score ?? 0) }
           : matchRel?.team_b_id === perspectiveTeamId
             ? { us: Number(matchRel?.team_b_score ?? 0), them: Number(matchRel?.team_a_score ?? 0) }
             : { us: Number(matchRel?.team_a_score ?? 0), them: Number(matchRel?.team_b_score ?? 0) }
+      const agents = Array.from(
+        new Set(
+          rows
+            .flatMap((entry) => String(entry.agents ?? '').split(/\s+/))
+            .map((value) => value.trim())
+            .filter(Boolean)
+        )
+      ).join(' ')
       return {
         match: matchRel ?? null,
-        team_id: perspectiveTeamId,
-        status: r.status,
+        team_id: perspectiveTeamId ?? null,
         opponent,
         score,
-        agents: r.agents ?? null,
-        acs: r.acs ?? null,
-        kills: r.kills ?? null,
-        deaths: r.deaths ?? null,
-        assists: r.assists ?? null,
-        kd: r.kd ?? null,
-        adr: r.adr ?? null,
-        kast_pct: r.kast_pct ?? null,
-        hs_pct: r.hs_pct ?? null,
+        agents: agents || null,
+        acs: average(rows.map((entry) => entry.acs)),
+        kills: sum(rows.map((entry) => entry.kills)),
+        deaths: sum(rows.map((entry) => entry.deaths)),
+        assists: sum(rows.map((entry) => entry.assists)),
+        kd: average(rows.map((entry) => entry.kd)),
+        adr: average(rows.map((entry) => entry.adr)),
+        kast_pct: average(rows.map((entry) => entry.kast_pct)),
+        hs_pct: average(rows.map((entry) => entry.hs_pct)),
       }
     })
-    .filter((x: any) => x.match && x.match.approval_status === 'approved')
+    .filter(
+      (x): x is MatchHistoryEntry & { match: MatchRel } =>
+        Boolean(x.match) && x.match?.approval_status === 'approved'
+    )
+    .sort((a, b) => {
+      const at = a.match.ended_at ?? a.match.scheduled_at ?? ''
+      const bt = b.match.ended_at ?? b.match.scheduled_at ?? ''
+      return new Date(bt).getTime() - new Date(at).getTime()
+    })
+    .slice(0, 50)
 
   return {
     player: {
       profile_id: profileId,
       riot_id: profileRel.riot_id_base ?? profileRel.display_name ?? profileRel.email ?? 'Player',
       riot_id_base: profileRel.riot_id_base ?? null,
-      stats_player_name: (profileRel as any).stats_player_name ?? null,
+      stats_player_name: (profileRel as ProfileRow).stats_player_name ?? null,
       has_unmatched_stats_candidate: hasUnmatchedStatsCandidate,
       rank_label: null,
       rank_value: null,
@@ -327,6 +511,7 @@ export const load = async ({
       created_at: profileRel?.created_at ?? null,
     },
     activeTeam,
+    accolades: playerAccolades,
     viewer: {
       canEditRiotIdBase,
     },
@@ -402,6 +587,12 @@ export const actions = {
       console.warn('claimRelinkAfterProfileUpdate failed after riot_id_base save:', err)
     }
 
+    try {
+      await rematchPlayerMatchMapStatsForBase(target.id, riotIdBase)
+    } catch (err) {
+      console.warn('Failed to rematch match map stats after riot_id_base save:', err)
+    }
+
     throw redirect(303, `/players/${target.id}`)
   },
   setStatsPlayerName: async ({
@@ -466,6 +657,12 @@ export const actions = {
       await claimRelinkAfterProfileUpdate(target.id)
     } catch (err) {
       console.warn('claimRelinkAfterProfileUpdate failed after stats_player_name save:', err)
+    }
+
+    try {
+      await rematchPlayerMatchMapStatsForBase(target.id, statsPlayerName)
+    } catch (err) {
+      console.warn('Failed to rematch match map stats after stats_player_name save:', err)
     }
 
     throw redirect(303, `/players/${target.id}`)

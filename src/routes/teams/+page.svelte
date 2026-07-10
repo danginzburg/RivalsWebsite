@@ -1,27 +1,37 @@
 <script lang="ts">
   import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
+  import AdminEditLink from '$lib/components/AdminEditLink.svelte'
   import { Users } from 'lucide-svelte'
+  import { resolve } from '$app/paths'
 
   let { data }: PageProps = $props()
   const teams = $derived(data.teams ?? [])
   const myTeam = $derived(data.myTeam ?? null)
+  const isAdmin = $derived(data.viewer?.isAdmin ?? false)
 </script>
 
 <PageContainer>
   <div class="flex justify-center px-4 py-8">
     <div class="w-full max-w-6xl space-y-6">
-      <div class="flex items-center gap-3">
-        <Users size={36} style="color: var(--text);" />
-        <div>
-          <h1 class="responsive-title">Teams</h1>
-          <p class="text-sm" style="color: rgba(255,255,255,0.72);">All the teams in one place!</p>
+      <div class="flex items-center justify-between gap-3">
+        <div class="flex items-center gap-3">
+          <Users size={36} style="color: var(--text);" />
+          <div>
+            <h1 class="responsive-title">Teams</h1>
+            <p class="text-sm" style="color: rgba(255,255,255,0.72);">
+              All the teams in one place!
+            </p>
+          </div>
         </div>
+        {#if isAdmin}
+          <AdminEditLink href="/admin?tab=teams" label="Manage Teams" />
+        {/if}
       </div>
 
       {#if myTeam}
         <a
-          href={`/teams/${myTeam.id}`}
+          href={resolve(`/teams/${myTeam.id}`)}
           class="flex items-center justify-between gap-3 rounded-lg border p-4 transition-colors hover:bg-white/5"
           style="border-color: rgba(59,130,246,0.24); background: rgba(59,130,246,0.10);"
         >
@@ -58,9 +68,9 @@
         </div>
       {:else}
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {#each teams as team}
+          {#each teams as team (team.id)}
             <a
-              href={`/teams/${team.id}`}
+              href={resolve(`/teams/${team.id}`)}
               class="group rounded-lg border p-4 transition-colors duration-150 hover:bg-white/5"
               style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
             >

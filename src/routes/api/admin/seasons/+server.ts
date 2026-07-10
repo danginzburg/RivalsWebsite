@@ -1,12 +1,5 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit'
 
-import {
-  getLeaderboardRowsForBatch,
-  listLeaderboardBatches,
-  normalizePickemConfig,
-  pickemConfigFromSeasonMetadata,
-  validatePickemBaseline,
-} from '$lib/server/pickems'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
 
@@ -25,57 +18,13 @@ async function listSeasons() {
     .order('created_at', { ascending: false })
 
   if (seasonsError) throw error(500, 'Failed to load seasons')
-  return Promise.all(
-    (data ?? []).map(async (season) => {
-      const pickem = pickemConfigFromSeasonMetadata(season.metadata)
-      if (!pickem.leaderboard_batch_id) {
-        return {
-          ...season,
-          pickem,
-          pickem_preview_rows: [],
-          pickem_preview_error: null,
-        }
-      }
-
-      try {
-        const rows = (await getLeaderboardRowsForBatch(pickem.leaderboard_batch_id)).slice(
-          0,
-          pickem.participant_count
-        )
-        validatePickemBaseline(rows, pickem.participant_count, pickem.baseline_completed_rounds)
-        return {
-          ...season,
-          pickem,
-          pickem_preview_rows: rows.map((row) => ({
-            team_id: row.team?.id ?? null,
-            wins: row.wins,
-            losses: row.losses,
-            round_diff: row.round_diff,
-          })),
-          pickem_preview_error: null,
-        }
-      } catch (previewError) {
-        return {
-          ...season,
-          pickem,
-          pickem_preview_rows: [],
-          pickem_preview_error:
-            previewError instanceof Error
-              ? previewError.message
-              : 'Failed to validate pickem batch',
-        }
-      }
-    })
-  )
+  return data ?? []
 }
 
 export const GET: RequestHandler = async ({ locals }) => {
   await requireAdmin(locals.user)
-  const [seasons, leaderboardBatches] = await Promise.all([
-    listSeasons(),
-    listLeaderboardBatches(50),
-  ])
-  return json({ seasons, leaderboardBatches })
+  const seasons = await listSeasons()
+  return json({ seasons })
 }
 
 export const POST: RequestHandler = async ({ locals, request }) => {
@@ -87,7 +36,6 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   const startsOn = normalizeOptional(body.startsOn)
   const endsOn = normalizeOptional(body.endsOn)
   const isActive = Boolean(body.isActive)
-  const pickem = normalizePickemConfig(body.pickem)
 
   if (!code) throw error(400, 'Season code is required')
   if (!name) throw error(400, 'Season name is required')
@@ -107,9 +55,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       starts_on: startsOn,
       ends_on: endsOn,
       is_active: isActive,
-      metadata: {
-        pickem,
-      },
+      metadata: {},
     })
     .select('id, code, name, starts_on, ends_on, is_active, metadata, created_at')
     .single()
@@ -121,7 +67,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
   return json({
     success: true,
-    season: { ...data, pickem: normalizePickemConfig(data.metadata?.pickem) },
+    season: data,
   })
 }
 
@@ -135,7 +81,6 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
   const startsOn = normalizeOptional(body.startsOn)
   const endsOn = normalizeOptional(body.endsOn)
   const isActive = Boolean(body.isActive)
-  const pickem = normalizePickemConfig(body.pickem)
 
   if (!id) throw error(400, 'Season id is required')
   if (!code) throw error(400, 'Season code is required')
@@ -145,14 +90,6 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
     await supabaseAdmin.from('seasons').update({ is_active: false }).neq('id', id)
   }
 
-  const { data: existingSeason, error: existingSeasonError } = await supabaseAdmin
-    .from('seasons')
-    .select('metadata')
-    .eq('id', id)
-    .maybeSingle()
-
-  if (existingSeasonError || !existingSeason) throw error(404, 'Season not found')
-
   const { data, error: updateError } = await supabaseAdmin
     .from('seasons')
     .update({
@@ -161,10 +98,6 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
       starts_on: startsOn,
       ends_on: endsOn,
       is_active: isActive,
-      metadata: {
-        ...((existingSeason.metadata as Record<string, unknown> | null) ?? {}),
-        pickem,
-      },
     })
     .eq('id', id)
     .select('id, code, name, starts_on, ends_on, is_active, metadata, created_at')
@@ -177,6 +110,6 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
 
   return json({
     success: true,
-    season: { ...data, pickem: normalizePickemConfig(data.metadata?.pickem) },
+    season: data,
   })
 }

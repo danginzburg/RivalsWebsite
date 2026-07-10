@@ -2,6 +2,14 @@ import { error, redirect } from '@sveltejs/kit'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
 
+type BatchRow = {
+  id: string
+  display_name: string | null
+  source_filename: string | null
+  created_at: string
+  metadata: { display_name?: string | null } | null
+}
+
 export const load = async ({ locals }: { locals: App.Locals }) => {
   if (!locals.user) {
     throw redirect(303, '/auth/login?returnTo=/admin/leaderboard-import')
@@ -38,7 +46,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
   return {
     seasons: seasons ?? [],
     teams: teams ?? [],
-    recentBatches: (batches ?? []).map((batch: any) => ({
+    recentBatches: ((batches ?? []) as BatchRow[]).map((batch) => ({
       ...batch,
       display_name: batch.metadata?.display_name ?? batch.display_name ?? batch.source_filename,
     })),

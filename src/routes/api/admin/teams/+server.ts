@@ -2,6 +2,14 @@ import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { logAdminAction } from '$lib/server/audit/admin-actions'
+import { errorMessage } from '$lib/server/errors'
+
+type RosterProfileRow = {
+  id: string
+  display_name: string | null
+  email: string | null
+  riot_id_base: string | null
+}
 
 function normalizeOptional(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -91,7 +99,7 @@ export const GET: RequestHandler = async ({ locals }) => {
       new Set((rosterRows ?? []).map((r) => r.profile_id).filter((id): id is string => Boolean(id)))
     )
 
-    const profileById = new Map<string, any>()
+    const profileById = new Map<string, RosterProfileRow>()
     if (profileIds.length > 0) {
       const { data: profileRows, error: profilesError } = await supabaseAdmin
         .from('profiles')
@@ -108,7 +116,7 @@ export const GET: RequestHandler = async ({ locals }) => {
       const entry = {
         membership_id: row.id,
         profile_id: row.profile_id,
-        player_name: (row as any).player_name ?? null,
+        player_name: (row as { player_name?: string | null }).player_name ?? null,
         role: row.role,
         riot_id_base: p?.riot_id_base ?? null,
         display_name: p?.display_name ?? null,
@@ -223,13 +231,14 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     })
 
     return json({ success: true, team: created })
-  } catch (err: any) {
+  } catch (err) {
     if (uploadedLogoPath) {
       await supabaseAdmin.storage.from('team-logos').remove([uploadedLogoPath])
     }
 
-    const status = typeof err?.status === 'number' ? err.status : 500
-    const message = (err?.body?.message ?? err?.message ?? 'Failed to create team') as string
+    const e = err as { status?: number; message?: string; body?: { message?: string } }
+    const status = typeof e?.status === 'number' ? e.status : 500
+    const message = (e?.body?.message ?? e?.message ?? 'Failed to create team') as string
     return json({ success: false, message }, { status })
   }
 }

@@ -1,5 +1,6 @@
 <script lang="ts">
   import CustomSelect from '$lib/components/CustomSelect.svelte'
+  import { resolve } from '$app/paths'
 
   import {
     bestOfOptions,
@@ -8,6 +9,7 @@
     streamStatusOptions,
   } from '$lib/admin/options'
   import { teamName, toDatetimeLocal } from '$lib/admin/match-ui'
+  import type { AdminMatch, MatchEditState, MatchStreamFormState } from '$lib/admin/types'
 
   interface Props {
     approvedTeamOptions: Array<{ label: string; value: string }>
@@ -17,16 +19,21 @@
     createMatchBestOf: string
     createMatchScheduledAt: string
     isCreatingMatch: boolean
-    matches: any[]
+    matches: AdminMatch[]
     matchSearchQuery: string
     showCompletedAdminMatches: boolean
-    filteredAdminMatches: any[]
+    filteredAdminMatches: AdminMatch[]
     expandedAdminMatchId: string | null
     finalizeForm: Record<string, { teamAScore: string; teamBScore: string; winnerTeamId: string }>
-    matchEditForm: Record<string, any>
-    streamForm: Record<string, any>
-    existingStreamForm: Record<string, any>
+    matchEditForm: Record<string, MatchEditState>
+    streamForm: Record<string, MatchStreamFormState>
+    existingStreamForm: Record<string, MatchStreamFormState>
     vodForm: Record<string, string>
+    matchMapsCache: Record<
+      string,
+      Array<{ id: string; map_order: number; map_name: string | null; is_voided: boolean }>
+    >
+    matchMapsLoading: Record<string, boolean>
     onCreateMatchTeamAIdChange: (value: string) => void
     onCreateMatchTeamBIdChange: (value: string) => void
     onCreateMatchBestOfChange: (value: string) => void
@@ -39,17 +46,19 @@
       matchId: string,
       patch: Partial<{ teamAScore: string; teamBScore: string; winnerTeamId: string }>
     ) => void
-    onFinalizeMatch: (match: any) => void
-    onCancelMatch: (match: any) => void
-    onUpdateMatchEditForm: (matchId: string, patch: Record<string, string>) => void
-    onSaveMatchEdits: (matchId: string, match: any) => void
-    onDeleteMatch: (matchId: string, match: any) => void
-    onUpdateExistingStreamForm: (streamId: string, patch: Record<string, any>) => void
+    onFinalizeMatch: (match: AdminMatch) => void
+    onCancelMatch: (match: AdminMatch) => void
+    onUpdateMatchEditForm: (matchId: string, patch: Partial<MatchEditState>) => void
+    onSaveMatchEdits: (matchId: string, match: AdminMatch) => void
+    onDeleteMatch: (matchId: string, match: AdminMatch) => void
+    onUpdateExistingStreamForm: (streamId: string, patch: Partial<MatchStreamFormState>) => void
     onSaveExistingMatchStream: (matchId: string, streamId: string) => void
     onRemoveMatchStream: (matchId: string, streamId: string, label: string) => void
-    onUpdateStreamForm: (matchId: string, patch: Record<string, any>) => void
+    onUpdateStreamForm: (matchId: string, patch: Partial<MatchStreamFormState>) => void
     onAddMatchStream: (matchId: string) => void
     onVodChange: (matchId: string, value: string) => void
+    onFetchMatchMaps: (matchId: string) => void
+    onToggleMapVoided: (matchId: string, mapId: string, currentVoided: boolean) => void
   }
 
   let {
@@ -70,6 +79,8 @@
     streamForm,
     existingStreamForm,
     vodForm,
+    matchMapsCache,
+    matchMapsLoading,
     onCreateMatchTeamAIdChange,
     onCreateMatchTeamBIdChange,
     onCreateMatchBestOfChange,
@@ -90,6 +101,8 @@
     onUpdateStreamForm,
     onAddMatchStream,
     onVodChange,
+    onFetchMatchMaps,
+    onToggleMapVoided,
   }: Props = $props()
 </script>
 
@@ -230,6 +243,7 @@
             status: match.status === 'live' ? 'live' : 'scheduled',
             isPrimary: !(match.streams?.length > 0),
           }}
+          {@const maps = matchMapsCache[match.id] ?? []}
           <article
             class="rounded-md border p-3"
             style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
@@ -237,7 +251,10 @@
             <button
               type="button"
               class="flex w-full flex-wrap items-center justify-between gap-2 text-left"
-              onclick={() => onToggleExpandedMatch(match.id)}
+              onclick={() => {
+                onToggleExpandedMatch(match.id)
+                onFetchMatchMaps(match.id)
+              }}
             >
               <div>
                 <div class="text-sm" style="color: var(--text);">
@@ -460,6 +477,50 @@
                   class="mb-2 text-[11px] font-semibold tracking-wide uppercase"
                   style="color: rgba(255,255,255,0.7);"
                 >
+                  Maps - Void / FF
+                </div>
+                {#if maps.length > 0}
+                  <div class="space-y-2">
+                    {#each maps as map (map.id)}
+                      <div
+                        class="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-xs"
+                        style="border-color: {map.is_voided
+                          ? 'rgba(248,113,113,0.28)'
+                          : 'rgba(255,255,255,0.10)'}; background: {map.is_voided
+                          ? 'rgba(248,113,113,0.08)'
+                          : 'rgba(255,255,255,0.04)'};"
+                      >
+                        <div style="color: var(--text);">
+                          Map {map.map_order}{map.map_name ? ` - ${map.map_name}` : ''}
+                          {#if map.is_voided}
+                            <span class="ml-2 font-bold" style="color: #fca5a5;">VOIDED / FF</span>
+                          {/if}
+                        </div>
+                        <button
+                          type="button"
+                          class="rounded px-2 py-1 text-[11px] font-semibold"
+                          style={map.is_voided
+                            ? 'background: rgba(74,222,128,0.16); color: #86efac;'
+                            : 'background: rgba(248,113,113,0.16); color: #fca5a5;'}
+                          onclick={() => onToggleMapVoided(match.id, map.id, map.is_voided)}
+                        >
+                          {map.is_voided ? 'Restore' : 'Mark Voided/FF'}
+                        </button>
+                      </div>
+                    {/each}
+                  </div>
+                {:else if matchMapsLoading[match.id]}
+                  <p class="text-xs" style="color: rgba(255,255,255,0.62);">Loading maps...</p>
+                {:else}
+                  <p class="text-xs" style="color: rgba(255,255,255,0.62);">No maps recorded.</p>
+                {/if}
+              </div>
+
+              <div class="mt-3 rounded-md border p-3" style="border-color: rgba(255,255,255,0.10);">
+                <div
+                  class="mb-2 text-[11px] font-semibold tracking-wide uppercase"
+                  style="color: rgba(255,255,255,0.7);"
+                >
                   Map Vetoes
                 </div>
                 <textarea
@@ -596,7 +657,11 @@ Decider: Pearl"
                               class="rounded px-2 py-1 text-[11px] font-semibold"
                               style="background: rgba(248,113,113,0.2); color: #fca5a5;"
                               onclick={() =>
-                                onRemoveMatchStream(match.id, stream.id, stream.platform)}
+                                onRemoveMatchStream(
+                                  match.id,
+                                  stream.id,
+                                  stream.platform ?? 'stream'
+                                )}
                             >
                               Remove
                             </button>
@@ -711,14 +776,14 @@ Decider: Pearl"
 
               <div class="mt-2 flex flex-wrap gap-2">
                 <a
-                  href={`/matches/${match.id}`}
+                  href={resolve(`/matches/${match.id}`)}
                   class="rounded px-2 py-1 text-xs font-semibold"
                   style="background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.85);"
                 >
                   Open Match Page
                 </a>
                 <a
-                  href={`/admin/matches/${match.id}/stats-import`}
+                  href={resolve(`/admin/matches/${match.id}/stats-import`)}
                   class="rounded px-2 py-1 text-xs font-semibold"
                   style="background: rgba(59,130,246,0.2); color: #93c5fd;"
                 >

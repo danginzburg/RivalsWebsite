@@ -59,7 +59,7 @@
           <span>Value</span>
         </div>
 
-        {#each players as player, i}
+        {#each players as player, i (i)}
           <div
             class="grid grid-cols-[30px_1fr_50px] grid-rows-2 items-center gap-2 rounded-lg p-2 transition-colors sm:grid-cols-[40px_1fr_1fr_60px] sm:grid-rows-1 sm:gap-4"
             style="color: var(--text);"

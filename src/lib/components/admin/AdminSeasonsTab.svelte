@@ -1,31 +1,48 @@
 <script lang="ts">
+  import {
+    normalizePlayoffPickemConfig,
+    PLAYOFF_MATCH_IDS,
+    MATCH_LABELS,
+    type PlayoffMatchId,
+  } from '$lib/playoffPickems'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
+  import type {
+    AdminMatch,
+    AdminSeason,
+    ApprovedTeamEntry,
+    SeasonEditState,
+  } from '$lib/admin/types'
 
   interface Props {
-    seasons: any[]
-    leaderboardBatches: any[]
+    seasons: AdminSeason[]
+    approvedTeams: ApprovedTeamEntry[]
+    matches: AdminMatch[]
     createSeasonCode: string
     createSeasonName: string
     createSeasonStartsOn: string
     createSeasonEndsOn: string
     createSeasonIsActive: boolean
     isCreatingSeason: boolean
-    seasonEditForm: Record<string, any>
+    seasonEditForm: Record<string, SeasonEditState>
     onCreateSeasonCodeChange: (value: string) => void
     onCreateSeasonNameChange: (value: string) => void
     onCreateSeasonStartsOnChange: (value: string) => void
     onCreateSeasonEndsOnChange: (value: string) => void
     onCreateSeasonIsActiveChange: (value: boolean) => void
-    onSeasonEditChange: (seasonId: string, nextState: any) => void
+    onSeasonEditChange: (seasonId: string, nextState: SeasonEditState) => void
     onCreateSeason: () => void
     onSaveSeason: (seasonId: string) => void
-    scoringPickemSeasonId: string | null
-    onScorePickem: (seasonId: string) => void
+    onSavePlayoffPickem: (
+      seasonId: string,
+      config: ReturnType<typeof normalizePlayoffPickemConfig>
+    ) => void
+    onScorePlayoffPickem: (seasonId: string) => void
   }
 
   let {
     seasons,
-    leaderboardBatches,
+    approvedTeams,
+    matches,
     createSeasonCode,
     createSeasonName,
     createSeasonStartsOn,
@@ -41,9 +58,79 @@
     onSeasonEditChange,
     onCreateSeason,
     onSaveSeason,
-    scoringPickemSeasonId,
-    onScorePickem,
+    onSavePlayoffPickem,
+    onScorePlayoffPickem,
   }: Props = $props()
+
+  let playoffConfigForm = $state<Record<string, ReturnType<typeof normalizePlayoffPickemConfig>>>(
+    {}
+  )
+
+  $effect(() => {
+    const next: Record<string, ReturnType<typeof normalizePlayoffPickemConfig>> = {}
+    for (const season of seasons ?? []) {
+      next[season.id] =
+        playoffConfigForm[season.id] ??
+        normalizePlayoffPickemConfig(season.metadata?.playoff_pickem)
+    }
+    const keys = Object.keys(next)
+    const currentKeys = Object.keys(playoffConfigForm)
+    const changed =
+      keys.length !== currentKeys.length ||
+      keys.some(
+        (key) => JSON.stringify(playoffConfigForm[key] ?? {}) !== JSON.stringify(next[key] ?? {})
+      )
+    if (changed) playoffConfigForm = next
+  })
+
+  function updatePlayoffConfig(
+    seasonId: string,
+    patch: Partial<ReturnType<typeof normalizePlayoffPickemConfig>>
+  ) {
+    const current = playoffConfigForm[seasonId] ?? normalizePlayoffPickemConfig(null)
+    playoffConfigForm = {
+      ...playoffConfigForm,
+      [seasonId]: {
+        ...current,
+        ...patch,
+      },
+    }
+  }
+
+  function updateSeed(seasonId: string, seed: number, teamId: string) {
+    const current = playoffConfigForm[seasonId] ?? normalizePlayoffPickemConfig(null)
+    const seeds = current.seeds.filter((entry) => entry.seed !== seed)
+    if (teamId) seeds.push({ seed, teamId })
+    updatePlayoffConfig(seasonId, { seeds: seeds.sort((a, b) => a.seed - b.seed) })
+  }
+
+  function updateMatchup(
+    seasonId: string,
+    matchId: string,
+    side: 'seedA' | 'seedB',
+    seedValue: string
+  ) {
+    const current = playoffConfigForm[seasonId] ?? normalizePlayoffPickemConfig(null)
+    updatePlayoffConfig(seasonId, {
+      matchups: current.matchups.map((mu) =>
+        mu.matchId === matchId ? { ...mu, [side]: Number(seedValue) || mu[side] } : mu
+      ),
+    })
+  }
+
+  const seedOptions = Array.from({ length: 8 }, (_, i) => ({
+    value: String(i + 1),
+    label: `Seed ${i + 1}`,
+  }))
+
+  function updateMatchLink(seasonId: string, matchId: string, actualMatchId: string) {
+    const current = playoffConfigForm[seasonId] ?? normalizePlayoffPickemConfig(null)
+    updatePlayoffConfig(seasonId, {
+      match_links: current.match_links.map((link) =>
+        link.matchId === matchId ? { ...link, actualMatchId: actualMatchId || null } : link
+      ),
+    })
+  }
 
   const pickemStatusOptions = [
     { value: 'draft', label: 'Draft' },
@@ -52,37 +139,66 @@
     { value: 'scored', label: 'Scored' },
   ]
 
-  const baselineRoundOptions = [
-    { value: '1', label: 'Week 1 Baseline' },
-    { value: '2', label: 'Week 2 Baseline' },
-  ]
+  const approvedTeamOptions = $derived(
+    approvedTeams.map((t) => ({
+      value: t.id,
+      label: t.name + (t.tag ? ` (${t.tag})` : ''),
+    }))
+  )
 
-  function getBatchMeta(batchId: string) {
-    return leaderboardBatches.find((batch) => batch.id === batchId) ?? null
+  function matchOptions(filteredMatches: AdminMatch[]) {
+    return filteredMatches
+      .filter((m) => m.team_a_id && m.team_b_id)
+      .map((m) => ({ value: m.id, label: matchLabel(m) }))
   }
 
-  function getBatchOptions(seasonId: string) {
-    return leaderboardBatches
-      .filter((batch) => !batch.season_id || batch.season_id === seasonId)
-      .map((batch) => ({
-        value: batch.id,
-        label: `${batch.display_name}${batch.as_of_date ? ` (${batch.as_of_date})` : ''}`,
-      }))
+  function matchLabel(match: AdminMatch) {
+    const a = Array.isArray(match.team_a) ? match.team_a[0] : match.team_a
+    const b = Array.isArray(match.team_b) ? match.team_b[0] : match.team_b
+    const names = `${a?.name ?? 'Team A'} vs ${b?.name ?? 'Team B'}`
+    return match.scheduled_at
+      ? `${names} - ${new Date(match.scheduled_at).toLocaleDateString()}`
+      : names
   }
 
-  function getPreviewRows(season: any) {
-    return Array.isArray(season.pickem_preview_rows) ? season.pickem_preview_rows : []
+  const bracketMatchOptions = PLAYOFF_MATCH_IDS.map((id) => ({
+    value: id,
+    label: MATCH_LABELS[id],
+  }))
+
+  function toggleResolvedMatch(seasonId: string, matchId: string, checked: boolean) {
+    const current = playoffConfigForm[seasonId] ?? normalizePlayoffPickemConfig(null)
+    const resolved = current.resolved_matches.filter((r) => r.matchId !== matchId)
+    if (checked) {
+      resolved.push({ matchId: matchId as PlayoffMatchId, winnerId: '' })
+    }
+    updatePlayoffConfig(seasonId, { resolved_matches: resolved })
   }
 
-  type PreviewRow = { wins?: number; losses?: number }
-
-  function baselineBucketCounts(totalRounds: number, rows: PreviewRow[]) {
-    const total = Math.max(1, Math.floor(Number(totalRounds) || 2))
-    return Array.from({ length: total + 1 }, (_, losses) => {
-      const wins = total - losses
-      const count = rows.filter((row) => row.wins === wins && row.losses === losses).length
-      return { label: `${wins}-${losses}`, count }
+  function updateResolvedWinner(seasonId: string, matchId: string, winnerId: string) {
+    const current = playoffConfigForm[seasonId] ?? normalizePlayoffPickemConfig(null)
+    updatePlayoffConfig(seasonId, {
+      resolved_matches: current.resolved_matches.map((r) =>
+        r.matchId === matchId ? { ...r, winnerId } : r
+      ),
     })
+  }
+
+  function resolvedTeamOptions(seasonId: string, matchId: PlayoffMatchId) {
+    const config = playoffConfigForm[seasonId] ?? normalizePlayoffPickemConfig(null)
+    const seeds = config.seeds
+    const mu = config.matchups.find((m) => m.matchId === matchId)
+    if (mu) {
+      const teamA = seeds.find((s) => s.seed === mu.seedA)
+      const teamB = seeds.find((s) => s.seed === mu.seedB)
+      return [teamA, teamB]
+        .filter((s): s is { seed: number; teamId: string } => Boolean(s))
+        .map((s) => {
+          const team = approvedTeams.find((t) => t.id === s.teamId)
+          return { value: s.teamId, label: team ? (team.tag ?? team.name) : `Seed ${s.seed}` }
+        })
+    }
+    return approvedTeamOptions
   }
 </script>
 
@@ -253,169 +369,217 @@
               </button>
             </div>
 
-            <div
-              class="mt-4 rounded-md border p-3"
-              style="border-color: rgba(147,197,253,0.18); background: rgba(59,130,246,0.06);"
-            >
+            {#if true}
+              {@const pickem = playoffConfigForm[season.id] ?? normalizePlayoffPickemConfig(null)}
               <div
-                class="mb-3 text-sm font-semibold tracking-wide uppercase"
-                style="color: rgba(147,197,253,0.9);"
+                class="mt-4 rounded-md border p-3"
+                style="border-color: rgba(255,255,255,0.10); background: rgba(255,255,255,0.035);"
               >
-                Bucket Pick'em
-              </div>
+                <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div class="text-sm font-semibold" style="color: var(--text);">
+                      Playoff Pick'em
+                    </div>
+                    <div class="text-xs" style="color: rgba(255,255,255,0.62);">
+                      8-team double elimination bracket
+                    </div>
+                  </div>
+                  <label
+                    class="inline-flex items-center gap-2 text-sm"
+                    style="color: rgba(255,255,255,0.82);"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={pickem.enabled}
+                      onchange={(e) =>
+                        updatePlayoffConfig(season.id, {
+                          enabled: (e.currentTarget as HTMLInputElement).checked,
+                        })}
+                    />
+                    Enabled
+                  </label>
+                </div>
 
-              <div class="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
-                <label
-                  class="inline-flex items-center gap-2 text-sm"
-                  style="color: rgba(255,255,255,0.82);"
-                >
+                <div class="grid grid-cols-1 gap-2 md:grid-cols-3">
+                  <CustomSelect
+                    options={pickemStatusOptions}
+                    value={pickem.status}
+                    compact={true}
+                    placeholder="Status"
+                    onSelect={(value) =>
+                      updatePlayoffConfig(season.id, {
+                        status: value as typeof pickem.status,
+                      })}
+                  />
                   <input
-                    type="checkbox"
-                    checked={Boolean(state.pickemEnabled)}
-                    onchange={(e) =>
-                      onSeasonEditChange(season.id, {
-                        ...state,
-                        pickemEnabled: (e.currentTarget as HTMLInputElement).checked,
+                    type="datetime-local"
+                    value={pickem.lock_at ? pickem.lock_at.slice(0, 16) : ''}
+                    oninput={(e) =>
+                      updatePlayoffConfig(season.id, {
+                        lock_at: (e.currentTarget as HTMLInputElement).value || null,
                       })}
-                  />
-                  Enable bucket pick'em
-                </label>
-
-                <div>
-                  <CustomSelect
-                    options={baselineRoundOptions}
-                    value={state.pickemBaselineCompletedRounds ?? '2'}
-                    placeholder="Baseline"
-                    compact={true}
-                    onSelect={(value) =>
-                      onSeasonEditChange(season.id, {
-                        ...state,
-                        pickemBaselineCompletedRounds: value,
-                      })}
+                    class="rounded-md border px-3 py-2 text-sm md:col-span-2"
+                    style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
                   />
                 </div>
 
-                <div class="xl:col-span-2">
-                  <CustomSelect
-                    options={getBatchOptions(season.id)}
-                    value={state.pickemLeaderboardBatchId ?? ''}
-                    placeholder="Select leaderboard batch"
-                    compact={true}
-                    onSelect={(value) =>
-                      onSeasonEditChange(season.id, {
-                        ...state,
-                        pickemLeaderboardBatchId: value,
-                      })}
-                  />
-                </div>
-
-                <CustomSelect
-                  options={pickemStatusOptions}
-                  value={state.pickemStatus ?? 'draft'}
-                  placeholder="Status"
-                  compact={true}
-                  onSelect={(value) =>
-                    onSeasonEditChange(season.id, {
-                      ...state,
-                      pickemStatus: value,
-                    })}
-                />
-              </div>
-
-              <div class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
-                <input
-                  type="datetime-local"
-                  value={state.pickemLockAt ?? ''}
-                  oninput={(e) =>
-                    onSeasonEditChange(season.id, {
-                      ...state,
-                      pickemLockAt: (e.currentTarget as HTMLInputElement).value,
-                    })}
-                  class="rounded-md border px-3 py-2 text-sm"
-                  style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-                />
-
-                {#each [season.id] as _seasonKey (_seasonKey)}
-                  {@const selectedBatch = getBatchMeta(state.pickemLeaderboardBatchId ?? '')}
-                  <div
-                    class="rounded-md border px-3 py-2 text-xs"
-                    style="border-color: rgba(255,255,255,0.12); color: rgba(255,255,255,0.72);"
-                  >
-                    {#if selectedBatch}
-                      Source batch: {selectedBatch.display_name}
-                      {#if selectedBatch.as_of_date}
-                        <span> • {selectedBatch.as_of_date}</span>
-                      {/if}
-                    {:else}
-                      Select the leaderboard batch to freeze the 24-team field.
-                    {/if}
-                  </div>
-                {/each}
-              </div>
-
-              {#if getPreviewRows(season).length > 0}
-                <div
-                  class="mt-3 rounded-md border p-3"
-                  style="border-color: rgba(255,255,255,0.10); background: rgba(0,0,0,0.18);"
-                >
-                  <div
-                    class="flex flex-wrap items-center justify-between gap-2 text-sm"
-                    style="color: var(--text);"
-                  >
-                    <strong>Frozen Baseline Preview</strong>
-                    <span style="color: rgba(255,255,255,0.68);">
-                      {getPreviewRows(season).length} teams
-                    </span>
-                  </div>
-                  <div class="mt-2 flex flex-wrap gap-2 text-xs">
-                    {#each baselineBucketCounts(Number(state.pickemBaselineCompletedRounds ?? '2'), getPreviewRows(season)) as cell}
-                      <span
-                        class="rounded-full px-2 py-1"
-                        style="background: rgba(255,255,255,0.08); color: var(--text);"
+                <div class="mt-3 grid grid-cols-1 gap-2 md:grid-cols-4">
+                  {#each [1, 2, 3, 4, 5, 6, 7, 8] as seed (seed)}
+                    <div>
+                      <div
+                        class="mb-1 text-xs font-semibold"
+                        style="color: rgba(255,255,255,0.68);"
                       >
-                        {cell.label}: {cell.count}
-                      </span>
+                        Seed {seed}
+                      </div>
+                      <CustomSelect
+                        options={approvedTeamOptions}
+                        value={pickem.seeds.find((entry) => entry.seed === seed)?.teamId ?? ''}
+                        compact={true}
+                        placeholder="Select team"
+                        onSelect={(value) => updateSeed(season.id, seed, value)}
+                      />
+                    </div>
+                  {/each}
+                </div>
+
+                <div class="mt-3">
+                  <div
+                    class="mb-2 text-xs font-semibold tracking-wide uppercase"
+                    style="color: rgba(255,255,255,0.68);"
+                  >
+                    QF Matchups
+                  </div>
+                  <div class="grid grid-cols-1 gap-2 md:grid-cols-4">
+                    {#each pickem.matchups as mu (mu.matchId)}
+                      <div
+                        class="rounded-md border p-2"
+                        style="border-color: rgba(255,255,255,0.08); background: rgba(0,0,0,0.15);"
+                      >
+                        <div
+                          class="mb-1 text-xs font-semibold"
+                          style="color: rgba(255,255,255,0.58);"
+                        >
+                          {mu.matchId.replace('ub_qf_', 'QF ')}
+                        </div>
+                        <div class="grid grid-cols-2 gap-1">
+                          <CustomSelect
+                            options={seedOptions}
+                            value={String(mu.seedA)}
+                            compact={true}
+                            placeholder="Seed A"
+                            onSelect={(value) =>
+                              updateMatchup(season.id, mu.matchId, 'seedA', value)}
+                          />
+                          <CustomSelect
+                            options={seedOptions}
+                            value={String(mu.seedB)}
+                            compact={true}
+                            placeholder="Seed B"
+                            onSelect={(value) =>
+                              updateMatchup(season.id, mu.matchId, 'seedB', value)}
+                          />
+                        </div>
+                      </div>
                     {/each}
                   </div>
-                  <p class="mt-2 text-xs" style="color: rgba(255,255,255,0.62);">
-                    Zero round differential is valid here for FF or admin-decision results.
-                  </p>
                 </div>
-              {/if}
 
-              {#if season.pickem_preview_error}
-                <p class="mt-3 text-sm" style="color: #fda4af;">{season.pickem_preview_error}</p>
-              {/if}
+                <div class="mt-3">
+                  <div
+                    class="mb-2 text-xs font-semibold tracking-wide uppercase"
+                    style="color: rgba(255,255,255,0.68);"
+                  >
+                    Resolved Matches (already concluded, no points)
+                  </div>
+                  <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
+                    {#each bracketMatchOptions as opt (opt.value)}
+                      {@const isChecked = pickem.resolved_matches.some(
+                        (r) => r.matchId === opt.value
+                      )}
+                      {@const resolved = pickem.resolved_matches.find(
+                        (r) => r.matchId === opt.value
+                      )}
+                      <div
+                        class="flex items-center gap-2 rounded-md border p-2"
+                        style="border-color: rgba(255,255,255,0.08); background: {isChecked
+                          ? 'rgba(239,68,68,0.08)'
+                          : 'rgba(0,0,0,0.15)'};"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onchange={(e) =>
+                            toggleResolvedMatch(
+                              season.id,
+                              opt.value,
+                              (e.currentTarget as HTMLInputElement).checked
+                            )}
+                          class="accent-red-500"
+                        />
+                        <span
+                          class="min-w-[5rem] text-xs font-semibold"
+                          style="color: rgba(255,255,255,0.6);"
+                        >
+                          {opt.label}
+                        </span>
+                        {#if isChecked}
+                          <div class="flex-1">
+                            <CustomSelect
+                              options={resolvedTeamOptions(season.id, opt.value as PlayoffMatchId)}
+                              value={resolved?.winnerId ?? ''}
+                              compact={true}
+                              placeholder="Select winner"
+                              onSelect={(value) =>
+                                updateResolvedWinner(season.id, opt.value, value)}
+                            />
+                          </div>
+                        {/if}
+                      </div>
+                    {/each}
+                  </div>
+                </div>
 
-              <div
-                class="mt-4 flex flex-col gap-2 border-t pt-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
-                style="border-color: rgba(255,255,255,0.08);"
-              >
-                <p class="max-w-xl text-xs leading-relaxed" style="color: rgba(255,255,255,0.58);">
-                  After Swiss finishes, import the final leaderboard batch, then run scoring here.
-                  This compares every submission to that import and sets points; it also marks the
-                  pick'em as scored.
-                </p>
-                <button
-                  type="button"
-                  class="shrink-0 rounded-md px-3 py-2 text-sm font-semibold disabled:opacity-45"
-                  style="background: rgba(250,204,21,0.16); color: #fde047;"
-                  disabled={!Boolean(state.pickemEnabled) ||
-                    scoringPickemSeasonId === season.id ||
-                    !state.pickemLeaderboardBatchId}
-                  onclick={() => onScorePickem(season.id)}
-                  title={!state.pickemLeaderboardBatchId
-                    ? 'Save a baseline leaderboard batch first'
-                    : undefined}
-                >
-                  {#if scoringPickemSeasonId === season.id}
-                    Scoring…
-                  {:else}
-                    Run pick'em scoring
-                  {/if}
-                </button>
+                <div class="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+                  {#each pickem.match_links as link (link.matchId)}
+                    <div>
+                      <div
+                        class="mb-1 text-xs font-semibold"
+                        style="color: rgba(255,255,255,0.68);"
+                      >
+                        {link.matchId}
+                      </div>
+                      <CustomSelect
+                        options={matchOptions(matches)}
+                        value={link.actualMatchId ?? ''}
+                        compact={true}
+                        placeholder="No linked match"
+                        onSelect={(value) => updateMatchLink(season.id, link.matchId, value)}
+                      />
+                    </div>
+                  {/each}
+                </div>
+
+                <div class="mt-3 flex flex-wrap justify-end gap-2">
+                  <button
+                    type="button"
+                    class="rounded-md px-3 py-2 text-sm font-semibold"
+                    style="background: rgba(59,130,246,0.18); color: #93c5fd;"
+                    onclick={() => onSavePlayoffPickem(season.id, pickem)}
+                  >
+                    Save Pick'em
+                  </button>
+                  <button
+                    type="button"
+                    class="rounded-md px-3 py-2 text-sm font-semibold"
+                    style="background: rgba(245,158,11,0.18); color: #fcd34d;"
+                    onclick={() => onScorePlayoffPickem(season.id)}
+                  >
+                    Score Pick'em
+                  </button>
+                </div>
               </div>
-            </div>
+            {/if}
           </article>
         {/each}
       </div>

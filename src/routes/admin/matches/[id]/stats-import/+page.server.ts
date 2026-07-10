@@ -2,7 +2,22 @@ import { error } from '@sveltejs/kit'
 import type { Actions, PageServerLoad } from './$types'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
-import { buildProfileMatcher, getProfilesForImports } from '$lib/server/imports/matching'
+import {
+  buildProfileMatcher,
+  getProfilesForImports,
+  rebuildPlayerMatchStats,
+} from '$lib/server/imports/matching'
+import { errorMessage } from '$lib/server/errors'
+
+type MatchMapRow = {
+  id: string
+  map_order: number
+  map_name: string | null
+  team_a_rounds: number | null
+  team_b_rounds: number | null
+  source_filename: string | null
+  created_at: string
+}
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -14,16 +29,20 @@ function normalizeBase(value: string): string {
   return value.split('#')[0]?.trim().toLowerCase()
 }
 
-function parseNumber(value: string): number {
+function parseNumber(value: string, decimals?: number): number {
   const n = Number(String(value ?? '').trim())
-  return Number.isFinite(n) ? n : 0
+  if (!Number.isFinite(n)) return 0
+  return decimals !== undefined ? Math.round(n * 10 ** decimals) / 10 ** decimals : n
 }
 
 function parsePercent(value: string): number {
   const cleaned = String(value ?? '')
     .replace('%', '')
     .trim()
-  return parseNumber(cleaned)
+  const n = Number(cleaned)
+  if (!Number.isFinite(n)) return 0
+  if (n > 0 && n < 1) return Math.round(n * 10000) / 100
+  return Math.round(n * 100) / 100
 }
 
 const DETAILED_EXPECTED_HEADERS = [
@@ -168,29 +187,29 @@ function parseMapCsv(text: string, profileMap: Map<string, string>): ParsedRow[]
         rounds: 0,
         rounds_won: 0,
         rounds_lost: 0,
-        acs: parseNumber(parts[2]),
-        kd: parseNumber(parts[6]),
+        acs: parseNumber(parts[2], 1),
+        kd: parseNumber(parts[6], 2),
         kast_pct: parsePercent(parts[8]),
-        adr: parseNumber(parts[7]),
+        adr: parseNumber(parts[7], 1),
         kills: parseNumber(parts[3]),
-        kpg: parseNumber(parts[3]),
+        kpg: parseNumber(parts[3], 2),
         kpr: 0,
         deaths: parseNumber(parts[4]),
-        dpg: parseNumber(parts[4]),
+        dpg: parseNumber(parts[4], 2),
         dpr: 0,
         assists: parseNumber(parts[5]),
-        apg: parseNumber(parts[5]),
+        apg: parseNumber(parts[5], 2),
         apr: 0,
         fk: parseNumber(parts[9]),
-        fkpg: parseNumber(parts[9]),
+        fkpg: parseNumber(parts[9], 2),
         fd: parseNumber(parts[10]),
-        fdpg: parseNumber(parts[10]),
+        fdpg: parseNumber(parts[10], 2),
         hs_pct: parsePercent(parts[12]),
         plants: parseNumber(parts[13]),
-        plants_per_game: parseNumber(parts[13]),
+        plants_per_game: parseNumber(parts[13], 2),
         defuses: parseNumber(parts[14]),
-        defuses_per_game: parseNumber(parts[14]),
-        econ_rating: parseNumber(parts[15]),
+        defuses_per_game: parseNumber(parts[14], 2),
+        econ_rating: parseNumber(parts[15], 2),
         matched_profile_id,
         side,
       })
@@ -223,35 +242,60 @@ function parseMapCsv(text: string, profileMap: Map<string, string>): ParsedRow[]
       rounds: parseNumber(parts[5]),
       rounds_won: parseNumber(parts[6]),
       rounds_lost: parseNumber(parts[7]),
-      acs: parseNumber(parts[8]),
-      kd: parseNumber(parts[9]),
+      acs: parseNumber(parts[8], 1),
+      kd: parseNumber(parts[9], 2),
       kast_pct: parsePercent(parts[10]),
-      adr: parseNumber(parts[11]),
+      adr: parseNumber(parts[11], 1),
       kills: parseNumber(parts[12]),
-      kpg: parseNumber(parts[13]),
-      kpr: parseNumber(parts[14]),
+      kpg: parseNumber(parts[13], 2),
+      kpr: parseNumber(parts[14], 2),
       deaths: parseNumber(parts[15]),
-      dpg: parseNumber(parts[16]),
-      dpr: parseNumber(parts[17]),
+      dpg: parseNumber(parts[16], 2),
+      dpr: parseNumber(parts[17], 2),
       assists: parseNumber(parts[18]),
-      apg: parseNumber(parts[19]),
-      apr: parseNumber(parts[20]),
+      apg: parseNumber(parts[19], 2),
+      apr: parseNumber(parts[20], 2),
       fk: parseNumber(parts[21]),
-      fkpg: parseNumber(parts[22]),
+      fkpg: parseNumber(parts[22], 2),
       fd: parseNumber(parts[23]),
-      fdpg: parseNumber(parts[24]),
+      fdpg: parseNumber(parts[24], 2),
       hs_pct: parsePercent(parts[25]),
       plants: parseNumber(parts[26]),
-      plants_per_game: parseNumber(parts[27]),
+      plants_per_game: parseNumber(parts[27], 2),
       defuses: parseNumber(parts[28]),
-      defuses_per_game: parseNumber(parts[29]),
-      econ_rating: parseNumber(parts[30]),
+      defuses_per_game: parseNumber(parts[29], 2),
+      econ_rating: parseNumber(parts[30], 2),
       matched_profile_id,
     })
   }
 
   if (out.length === 0) throw error(400, 'No player rows found in CSV')
   return out
+}
+
+function applyMapRoundContext(rows: ParsedRow[], teamARounds: number, teamBRounds: number) {
+  const totalRounds = teamARounds + teamBRounds
+
+  return rows.map((row) => {
+    if (row.rounds > 0) return row
+
+    const roundsWon =
+      row.side === 'a' ? teamARounds : row.side === 'b' ? teamBRounds : row.rounds_won
+    const roundsLost =
+      row.side === 'a' ? teamBRounds : row.side === 'b' ? teamARounds : row.rounds_lost
+
+    return {
+      ...row,
+      rounds: totalRounds,
+      rounds_won: roundsWon,
+      rounds_lost: roundsLost,
+      games_won: roundsWon > roundsLost ? 1 : 0,
+      games_lost: roundsWon < roundsLost ? 1 : 0,
+      kpr: totalRounds > 0 ? row.kills / totalRounds : 0,
+      dpr: totalRounds > 0 ? row.deaths / totalRounds : 0,
+      apr: totalRounds > 0 ? row.assists / totalRounds : 0,
+    }
+  })
 }
 
 export const load: PageServerLoad = async ({ locals, params }) => {
@@ -286,7 +330,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
     .select('id, display_name, riot_id_base')
     .order('display_name', { ascending: true })
 
-  let maps: any[] = []
+  let maps: MatchMapRow[] = []
   const { data: matchMaps, error: mapsError } = await supabaseAdmin
     .from('match_maps')
     .select('id, map_order, map_name, team_a_rounds, team_b_rounds, source_filename, created_at')
@@ -326,7 +370,12 @@ export const actions: Actions = {
     const teamBRoundsRaw = String(form.get('teamBRounds') ?? '').trim()
     const teamARounds = teamARoundsRaw.length ? Number(teamARoundsRaw) : null
     const teamBRounds = teamBRoundsRaw.length ? Number(teamBRoundsRaw) : null
-    if (!Number.isFinite(teamARounds ?? NaN) || !Number.isFinite(teamBRounds ?? NaN)) {
+    if (
+      teamARounds === null ||
+      teamBRounds === null ||
+      !Number.isFinite(teamARounds) ||
+      !Number.isFinite(teamBRounds)
+    ) {
       throw error(400, 'Team rounds are required')
     }
 
@@ -343,7 +392,7 @@ export const actions: Actions = {
       .eq('match_id', matchId)
       .eq('map_order', mapOrder)
       .maybeSingle()
-    if (existingError && String((existingError as any).message ?? '').includes('match_maps')) {
+    if (existingError && errorMessage(existingError).includes('match_maps')) {
       throw error(500, 'match_maps table missing; apply Supabase migrations first')
     }
     const profiles = await getProfilesForImports()
@@ -363,15 +412,13 @@ export const actions: Actions = {
     }
 
     const text = await file.text()
-    const parsed = parseMapCsv(text, profileMap)
+    const parsed = applyMapRoundContext(parseMapCsv(text, profileMap), teamARounds, teamBRounds)
 
     for (const row of parsed) {
       if (!row.matched_profile_id) {
         row.matched_profile_id = profileMatcher.resolve(row.player_name)
       }
     }
-
-    const unmatched = parsed.filter((r) => !r.matched_profile_id).map((r) => r.player_name)
 
     const profileIds = parsed.map((r) => r.matched_profile_id!).filter(Boolean)
     const { data: memberships } = await supabaseAdmin
@@ -432,7 +479,7 @@ export const actions: Actions = {
         .select('id')
         .single()
 
-      if (createMapError && String((createMapError as any).message ?? '').includes('match_maps')) {
+      if (createMapError && errorMessage(createMapError).includes('match_maps')) {
         throw error(500, 'match_maps table missing; apply Supabase migrations first')
       }
       if (createMapError || !createdMap) throw error(500, 'Failed to create match map row')
@@ -491,13 +538,16 @@ export const actions: Actions = {
     const { error: insertError } = await supabaseAdmin
       .from('player_match_map_stats')
       .insert(rowsToInsert)
-    if (
-      insertError &&
-      String((insertError as any).message ?? '').includes('player_match_map_stats')
-    ) {
+    if (insertError && errorMessage(insertError).includes('player_match_map_stats')) {
       throw error(500, 'player_match_map_stats table missing; apply Supabase migrations first')
     }
     if (insertError) throw error(500, 'Failed to insert player map stats')
+
+    try {
+      await rebuildPlayerMatchStats(matchId)
+    } catch {
+      throw error(500, 'Failed to rebuild player match stats')
+    }
 
     return { success: true }
   },

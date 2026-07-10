@@ -1,6 +1,7 @@
 <script lang="ts">
   import { page } from '$app/stores'
   import { invalidateAll } from '$app/navigation'
+  import { resolve } from '$app/paths'
   import {
     Menu,
     X,
@@ -14,6 +15,8 @@
     Users,
     User,
     UserCog,
+    Target,
+    MessageCircle,
   } from 'lucide-svelte'
   import rivalsLogo from '$lib/assets/rivals_logo.webp'
 
@@ -24,23 +27,27 @@
 
   const user = $derived($page.data.user)
   const isAdmin = $derived(user?.role === 'admin')
-  const activePickemHref = $derived(
-    $page.data.activePickemSeasonCode ? `/pickems/${$page.data.activePickemSeasonCode}` : null
-  )
+  type NavHref =
+    | '/leaderboard'
+    | '/matches'
+    | '/pickems'
+    | '/rulebook'
+    | '/stats'
+    | '/team-balance'
+    | '/teams'
+    | '/account'
+    | '/admin'
 
   const navItems = $derived.by(() => {
-    const items: Array<{ href: string; label: string; icon: any }> = [
+    const items: Array<{ href: NavHref; label: string; icon: typeof Trophy }> = [
       { href: '/leaderboard', label: 'Leaderboard', icon: Trophy },
       { href: '/matches', label: 'Matches', icon: Calendar },
+      { href: '/pickems', label: "Pick'ems", icon: Target },
       { href: '/rulebook', label: 'Rulebook', icon: BookOpen },
       { href: '/stats', label: 'Stats', icon: BarChart3 },
       { href: '/team-balance', label: 'Calculator', icon: Calculator },
       { href: '/teams', label: 'Teams', icon: Users },
     ]
-
-    if (activePickemHref) {
-      items.splice(1, 0, { href: activePickemHref, label: "Pick'ems", icon: Trophy })
-    }
 
     if (user) {
       items.push({ href: '/account', label: 'Account', icon: User })
@@ -57,10 +64,8 @@
     const groups = [
       {
         label: 'Competition',
-        items: navItems.filter(
-          (item) =>
-            ['/leaderboard', '/matches', '/teams'].includes(item.href) ||
-            item.href === activePickemHref
+        items: navItems.filter((item) =>
+          ['/leaderboard', '/matches', '/pickems', '/teams'].includes(item.href)
         ),
       },
       {
@@ -77,9 +82,15 @@
   const desktopStandaloneItems = $derived.by(() =>
     navItems.filter(
       (item) =>
-        !['/leaderboard', '/matches', '/teams', '/rulebook', '/stats', '/team-balance'].includes(
-          item.href
-        ) && item.href !== activePickemHref
+        ![
+          '/leaderboard',
+          '/matches',
+          '/pickems',
+          '/teams',
+          '/rulebook',
+          '/stats',
+          '/team-balance',
+        ].includes(item.href)
     )
   )
 
@@ -92,8 +103,13 @@
     await invalidateAll()
   }
 
+  function isPathActive(href: string) {
+    if (href === '/pickems') return $page.url.pathname.startsWith('/pickems')
+    return $page.url.pathname === href
+  }
+
   function getClasses(href: string) {
-    const isActive = $page.url.pathname === href
+    const isActive = isPathActive(href)
     const base =
       'flex min-w-[112px] items-center justify-center gap-2 rounded-lg px-5 py-2 transition-colors'
     const active = isActive ? 'font-semibold' : ''
@@ -101,7 +117,7 @@
   }
 
   function getItemStyle(href: string, isHovered: boolean) {
-    const isActive = $page.url.pathname === href
+    const isActive = isPathActive(href)
     if (isActive) {
       return `color: var(--text); background-color: var(--active);`
     }
@@ -112,7 +128,7 @@
   }
 
   function isGroupActive(items: Array<{ href: string }>) {
-    return items.some((item) => $page.url.pathname === item.href)
+    return items.some((item) => isPathActive(item.href))
   }
 
   function toggleMobileMenu() {
@@ -158,7 +174,7 @@
     <div class="flex h-16 items-center justify-between">
       <!-- Logo/Brand -->
       <a
-        href="/"
+        href={resolve('/')}
         class="flex min-w-0 flex-shrink items-center gap-3 pr-3"
         style="color: var(--text);"
         onmouseenter={() => (isBrandHovered = true)}
@@ -200,9 +216,9 @@
                 {#each group.items as item (item.href)}
                   {@const Icon = item.icon}
                   <a
-                    href={item.href}
+                    href={resolve(item.href)}
                     class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors"
-                    style={$page.url.pathname === item.href
+                    style={isPathActive(item.href)
                       ? 'color: var(--text); background-color: var(--active);'
                       : 'color: var(--text);'}
                     onclick={closeDesktopGroup}
@@ -211,17 +227,30 @@
                     <span>{item.label}</span>
                   </a>
                 {/each}
+                {#if group.label === 'Resources'}
+                  <a
+                    href="https://discord.gg/JpTYg2662C"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors"
+                    style="color: var(--text);"
+                    onclick={closeDesktopGroup}
+                  >
+                    <MessageCircle class="h-4 w-4" />
+                    <span>Discord</span>
+                  </a>
+                {/if}
               </div>
             {/if}
           </li>
         {/each}
 
         {#each desktopStandaloneItems as item (item.href)}
-          {@const isActive = $page.url.pathname === item.href}
+          {@const isActive = isPathActive(item.href)}
           {@const Icon = item.icon}
           <li>
             <a
-              href={item.href}
+              href={resolve(item.href)}
               class="flex items-center gap-2 rounded-lg px-4 py-2 transition-colors"
               title={item.label}
               style={isActive ? getItemStyle(item.href, false) : 'color: var(--text);'}
@@ -288,11 +317,11 @@
     <div class="mobile-menu-panel" style="background-color: var(--background);">
       <ul class="space-y-1 px-4 py-3">
         {#each navItems as item (item.href)}
-          {@const isActive = $page.url.pathname === item.href}
+          {@const isActive = isPathActive(item.href)}
           {@const Icon = item.icon}
           <li>
             <a
-              href={item.href}
+              href={resolve(item.href)}
               class={getClasses(item.href)}
               title={item.label}
               style={isActive ? getItemStyle(item.href, false) : 'color: var(--text);'}
@@ -303,6 +332,20 @@
             </a>
           </li>
         {/each}
+
+        <li>
+          <a
+            href="https://discord.gg/JpTYg2662C"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="flex min-w-[112px] items-center justify-center gap-2 rounded-lg px-5 py-2 transition-colors"
+            style="color: var(--text);"
+            onclick={closeMobileMenu}
+          >
+            <MessageCircle class="h-5 w-5" />
+            <span>Discord</span>
+          </a>
+        </li>
 
         <!-- Mobile Auth Button -->
         <li>

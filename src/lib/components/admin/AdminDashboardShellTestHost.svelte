@@ -4,7 +4,7 @@
 
 <AdminDashboardShell
   activeTab="users"
-  counts={{ users: 3, teams: 2, matches: 4, seasons: 1 }}
+  counts={{ users: 3, teams: 2, matches: 4, seasons: 1, accolades: 0 }}
   isLoading={false}
   errorMessage="Something went wrong"
   successMessage="Saved successfully"

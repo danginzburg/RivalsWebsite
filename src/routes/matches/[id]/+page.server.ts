@@ -19,6 +19,7 @@ function normalizePlayerKey(
 export const load = async ({ params, locals }: { params: { id: string }; locals: App.Locals }) => {
   const matchId = params.id
   if (!matchId) throw error(400, 'Missing match id')
+  const isAdmin = locals.user?.role === 'admin'
 
   const { data: match, error: matchError } = await supabaseAdmin
     .from('matches')
@@ -57,7 +58,7 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
     await Promise.all([
       supabaseAdmin
         .from('match_maps')
-        .select('id, map_order, map_name, team_a_rounds, team_b_rounds, metadata')
+        .select('*')
         .eq('match_id', matchId)
         .order('map_order', { ascending: true }),
       supabaseAdmin
@@ -132,6 +133,7 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
       map_name: map.map_name ?? null,
       team_a_rounds: map.team_a_rounds ?? 0,
       team_b_rounds: map.team_b_rounds ?? 0,
+      is_voided: (map as any).is_voided ?? false,
       stats: rows,
       forfeit: mapForfeit ?? null,
     }
@@ -180,8 +182,10 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
       : null,
   }))
 
-  const totalByPlayer = new Map<string, any[]>()
+  type MapStatRow = (typeof normalizedMapsWithForfeitNames)[number]['stats'][number]
+  const totalByPlayer = new Map<string, MapStatRow[]>()
   for (const map of normalizedMapsWithForfeitNames) {
+    if (map.is_voided) continue
     for (const row of map.stats) {
       const key = normalizePlayerKey(row.team_id, row.profile_id, row.player_name)
       const current = totalByPlayer.get(key) ?? []
@@ -226,7 +230,55 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
     defuses_per_game: sum(rows.map((row) => row.defuses)) / Math.max(rows.length, 1),
   }))
 
+  const hasRealStats = totalStats.length > 0
+
+  let placeholderStats: any[] = []
+  if (!hasRealStats) {
+    const teamIds = [match.team_a_id, match.team_b_id].filter(Boolean)
+    if (teamIds.length > 0) {
+      const { data: starters } = await supabaseAdmin
+        .from('team_memberships')
+        .select('profile_id, player_name, team_id')
+        .in('team_id', teamIds)
+        .eq('is_active', true)
+        .eq('is_starter', true)
+        .is('left_at', null)
+
+      const starterProfileIds = (starters ?? [])
+        .map((s) => s.profile_id)
+        .filter((id): id is string => Boolean(id))
+      const starterProfileById = new Map<string, any>()
+      if (starterProfileIds.length > 0) {
+        const { data: profiles } = await supabaseAdmin
+          .from('profiles')
+          .select('id, riot_id_base, display_name')
+          .in('id', starterProfileIds)
+        for (const p of profiles ?? []) starterProfileById.set(p.id, p)
+      }
+
+      placeholderStats = (starters ?? []).map((s) => {
+        const p = s.profile_id ? starterProfileById.get(s.profile_id) : null
+        return {
+          profile_id: s.profile_id,
+          team_id: s.team_id,
+          player_name: s.player_name ?? p?.riot_id_base ?? p?.display_name ?? 'Player',
+          profile_name: p?.riot_id_base ?? p?.display_name ?? null,
+          agents: null,
+          acs: null,
+          kills: null,
+          deaths: null,
+          assists: null,
+          kd: null,
+          adr: null,
+          kast_pct: null,
+          hs_pct: null,
+        }
+      })
+    }
+  }
+
   return {
+    viewer: { isAdmin },
     match: {
       ...match,
       team_a: match.team_a
@@ -244,8 +296,9 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
       streams: streams ?? [],
       vod_url: match.metadata?.youtube_vod_url ?? null,
       maps: normalizedMapsWithForfeitNames,
-      total_stats: totalStats,
       forfeit_display: forfeitDisplay,
+      total_stats: hasRealStats ? totalStats : placeholderStats,
+      has_real_stats: hasRealStats,
     },
   }
 }

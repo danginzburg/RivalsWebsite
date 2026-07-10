@@ -2,6 +2,7 @@
   import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import { Trophy } from 'lucide-svelte'
+  import { resolve } from '$app/paths'
 
   let { data }: PageProps = $props()
 
@@ -62,7 +63,7 @@
               </tr>
             </thead>
             <tbody>
-              {#each rows as row, i}
+              {#each rows as row, i (i)}
                 <tr class="border-t" style="border-color: rgba(255,255,255,0.10);">
                   <td class="px-3 py-2" style="color: rgba(255,255,255,0.82);"
                     >{row.rank || i + 1}</td
@@ -87,7 +88,7 @@
                         >
                       {/if}
                       <a
-                        href={row.team?.id ? `/teams/${row.team.id}` : '/teams'}
+                        href={resolve(row.team?.id ? `/teams/${row.team.id}` : '/teams')}
                         class="font-semibold underline"
                         style="color: var(--text);"
                       >

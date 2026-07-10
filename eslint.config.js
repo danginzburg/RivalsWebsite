@@ -25,6 +25,19 @@ export default defineConfig(
       // see: https://typescript-eslint.io/troubleshooting/faqs/eslint/#i-get-errors-from-the-no-undef-rule-about-global-variables-not-being-defined-even-though-there-are-no-typescript-errors
       'no-undef': 'off',
       '@typescript-eslint/no-explicit-any': 'warn',
+      // Allow intentionally-unused args/vars prefixed with an underscore.
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
+      ],
+    },
+  },
+  {
+    // SvelteKit's App.Locals/PageData live in the global `App` namespace in app.d.ts —
+    // namespaces are the official idiom here, so allow them in declaration files.
+    files: ['**/*.d.ts'],
+    rules: {
+      '@typescript-eslint/no-namespace': 'off',
     },
   },
   {

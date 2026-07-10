@@ -1,88 +1,42 @@
 import { error } from '@sveltejs/kit'
 
+import { requireProfile } from '$lib/server/auth/profile'
 import {
-  buildEmptyBucketPayload,
-  getCurrentBuckets,
-  getPickemBaselineForSeason,
-  getPickemSubmissionForProfile,
-  isPickemLocked,
-  listPickemRankedLeaderboardForSeason,
-  listPickemSubmissionsForSeason,
-  validatePickemBaseline,
-} from '$lib/server/pickems'
-import { supabaseAdmin } from '$lib/supabase/admin'
+  getPlayoffPickemContextBySeasonCode,
+  getPlayoffPickemSubmissionForProfile,
+  listPlayoffPickemLeaderboard,
+  listPlayoffPickemPublicSubmissions,
+} from '$lib/server/playoffPickems'
+import { isPlayoffPickemLocked } from '$lib/playoffPickems'
+import type { PageServerLoad } from './$types'
 
-export const load = async ({ params, locals }) => {
-  const seasonCode = String(params.seasonCode ?? '')
-    .trim()
-    .toUpperCase()
-
-  if (!seasonCode) throw error(404, 'Pickem not found')
-
-  const { data: season, error: seasonError } = await supabaseAdmin
-    .from('seasons')
-    .select('id')
-    .ilike('code', seasonCode)
-    .maybeSingle()
-
-  if (seasonError || !season?.id) throw error(404, 'Pickem not found')
-
-  const baseline = await getPickemBaselineForSeason(season.id)
-  if (!baseline.config.enabled) throw error(404, 'Pickem not available')
-  if (!baseline.config.leaderboard_batch_id) throw error(404, 'Pickem not configured')
-
-  let baselineError: string | null = null
-  try {
-    validatePickemBaseline(
-      baseline.rows,
-      baseline.config.participant_count,
-      baseline.config.baseline_completed_rounds
-    )
-  } catch (err) {
-    baselineError = err instanceof Error ? err.message : 'Invalid pickem baseline'
+export const load: PageServerLoad = async ({ locals, params }) => {
+  const context = await getPlayoffPickemContextBySeasonCode(params.seasonCode)
+  if (!context.config.enabled || context.config.status === 'draft') {
+    throw error(404, 'Pickem not available')
   }
 
-  let viewer: { profileId: string; displayName: string | null } | null = null
-  if (locals.user?.sub) {
-    const { data: profile } = await supabaseAdmin
-      .from('profiles')
-      .select('id, display_name')
-      .eq('auth0_sub', locals.user.sub)
-      .maybeSingle()
-
-    if (profile?.id) {
-      viewer = { profileId: profile.id, displayName: profile.display_name ?? null }
-    }
-  }
-
-  const [submission, submissionsList, pickemLeaderboard] = await Promise.all([
-    viewer?.profileId
-      ? getPickemSubmissionForProfile(season.id, viewer.profileId)
-      : Promise.resolve(null),
-    listPickemSubmissionsForSeason(season.id),
-    listPickemRankedLeaderboardForSeason(season.id),
+  const profile = locals.user ? await requireProfile(locals.user).catch(() => null) : null
+  const mySubmission = profile
+    ? await getPlayoffPickemSubmissionForProfile(context.season.id, profile.id)
+    : null
+  const [submissions, leaderboard] = await Promise.all([
+    listPlayoffPickemPublicSubmissions(context.season.id),
+    listPlayoffPickemLeaderboard(context.season.id),
   ])
-
-  const teamIds = baseline.rows.map((row) => row.team?.id).filter((id): id is string => Boolean(id))
+  const locked = isPlayoffPickemLocked(context.config)
 
   return {
-    season: baseline.season,
-    config: baseline.config,
-    sourceBatch: baseline.sourceBatch,
-    baselineRows: baseline.rows,
-    baselineBuckets: getCurrentBuckets(baseline.rows, baseline.config.baseline_completed_rounds),
-    baselineError,
-    viewer,
-    submission: submission?.payload ?? buildEmptyBucketPayload(teamIds),
-    submissionMeta: submission
-      ? {
-          id: submission.id,
-          updatedAt: submission.updated_at,
-        }
-      : null,
-    isLocked: isPickemLocked(baseline.config),
-    submissionsList,
-    pickemLeaderboard,
-    hasScoredLeaderboard: pickemLeaderboard.length > 0,
+    season: context.season,
+    config: context.config,
+    teams: context.teams,
+    mySubmission,
+    submissions,
+    leaderboard,
+    viewer: {
+      isLoggedIn: Boolean(profile),
+      canEdit: Boolean(profile) && context.config.status === 'open' && !locked,
+    },
+    locked,
   }
 }

@@ -1,11 +1,14 @@
 <script lang="ts">
   import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
+  import AdminEditLink from '$lib/components/AdminEditLink.svelte'
   import { Trophy, Users, CalendarDays, BarChart3 } from 'lucide-svelte'
+  import { resolve } from '$app/paths'
 
   let { data }: PageProps = $props()
 
   const team = $derived(data.team)
+  const isAdmin = $derived(data.viewer?.isAdmin ?? false)
   const roster = $derived(data.roster ?? [])
   const upcomingMatches = $derived(data.upcomingMatches ?? [])
   const matchHistory = $derived(data.matchHistory ?? [])
@@ -79,8 +82,17 @@
               <Users size={34} style="color: var(--text);" />
             </div>
           {/if}
-          <div>
-            <h1 class="responsive-title">{team.name}{team.tag ? ` [${team.tag}]` : ''}</h1>
+          <div class="flex-1">
+            <div class="flex items-center justify-between gap-3">
+              <h1 class="responsive-title">{team.name}{team.tag ? ` [${team.tag}]` : ''}</h1>
+              {#if isAdmin}
+                <AdminEditLink
+                  href="/admin?tab=teams"
+                  label="Edit Team"
+                  class="shrink-0 rounded-md px-3 py-1.5 text-xs font-semibold"
+                />
+              {/if}
+            </div>
             {#if team.org || team.created_at}
               <p class="text-sm" style="color: rgba(255,255,255,0.72);">
                 {#if team.org}{team.org}{/if}
@@ -173,7 +185,7 @@
           </div>
 
           <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-            {#each roster as player}
+            {#each roster as player, pi (pi)}
               <svelte:element
                 this={player.profile_id ? 'a' : 'div'}
                 href={player.profile_id ? `/players/${player.profile_id}` : undefined}
@@ -264,10 +276,10 @@
               </div>
             {:else}
               <div class="space-y-2">
-                {#each upcomingMatches as match}
+                {#each upcomingMatches as match (match.id)}
                   {@const opp = opponentFor(match, team.id)}
                   <a
-                    href={`/matches/${match.id}`}
+                    href={resolve(`/matches/${match.id}`)}
                     class="block rounded-md border p-3 transition-colors hover:bg-white/5"
                     style="border-color: rgba(255,255,255,0.10);"
                   >
@@ -312,13 +324,15 @@
                 </tr>
               </thead>
               <tbody>
-                {#each matchHistory as match}
+                {#each matchHistory as match (match.id)}
                   {@const opp = opponentFor(match, team.id)}
                   {@const score = scoreFor(match, team.id)}
                   <tr class="border-t" style="border-color: rgba(255,255,255,0.10);">
                     <td class="px-3 py-2 font-semibold" style="color: var(--text);">
-                      <a href={`/matches/${match.id}`} class="underline" style="color: var(--text);"
-                        >{teamName(opp)}</a
+                      <a
+                        href={resolve(`/matches/${match.id}`)}
+                        class="underline"
+                        style="color: var(--text);">{teamName(opp)}</a
                       >
                     </td>
                     <td class="px-3 py-2" style="color: rgba(255,255,255,0.9);">

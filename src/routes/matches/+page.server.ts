@@ -1,7 +1,9 @@
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
+import type { MatchStreamRow } from '$lib/server/db-rows'
 
-export const load = async () => {
+export const load = async ({ locals }: { locals: App.Locals }) => {
+  const isAdmin = locals.user?.role === 'admin'
   const { data: matches, error: matchesError } = await supabaseAdmin
     .from('matches')
     .select(
@@ -27,7 +29,7 @@ export const load = async () => {
   }
 
   const matchIds = (matches ?? []).map((m) => m.id)
-  let streamsByMatch: Record<string, any[]> = {}
+  let streamsByMatch: Record<string, MatchStreamRow[]> = {}
 
   if (matchIds.length > 0) {
     const { data: streams } = await supabaseAdmin
@@ -36,13 +38,13 @@ export const load = async () => {
       .in('match_id', matchIds)
       .order('is_primary', { ascending: false })
 
-    streamsByMatch = (streams ?? []).reduce(
+    streamsByMatch = ((streams ?? []) as MatchStreamRow[]).reduce(
       (acc, stream) => {
         if (!acc[stream.match_id]) acc[stream.match_id] = []
         acc[stream.match_id].push(stream)
         return acc
       },
-      {} as Record<string, any[]>
+      {} as Record<string, MatchStreamRow[]>
     )
   }
 
@@ -63,5 +65,5 @@ export const load = async () => {
       : null,
   }))
 
-  return { matches: normalized }
+  return { matches: normalized, viewer: { isAdmin } }
 }

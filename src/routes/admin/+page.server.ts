@@ -1,14 +1,16 @@
 import { redirect } from '@sveltejs/kit'
 
-import {
-  getLeaderboardRowsForBatch,
-  listLeaderboardBatches,
-  pickemConfigFromSeasonMetadata,
-  validatePickemBaseline,
-} from '$lib/server/pickems'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
+import type { MatchStreamRow } from '$lib/server/db-rows'
+
+type RosterProfileRow = {
+  id: string
+  display_name: string | null
+  email: string | null
+  riot_id_base: string | null
+}
 
 export const load = async ({ locals }: { locals: App.Locals }) => {
   if (!locals.user) {
@@ -36,13 +38,6 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
 
   if (seasonsError) {
     console.error('Error fetching seasons:', seasonsError)
-  }
-
-  let leaderboardBatches = [] as Awaited<ReturnType<typeof listLeaderboardBatches>>
-  try {
-    leaderboardBatches = await listLeaderboardBatches(50)
-  } catch (batchError) {
-    console.error('Error fetching leaderboard batches:', batchError)
   }
 
   // Teams are admin-managed; load approved teams.
@@ -87,7 +82,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
   if (approvedTeamIds.length > 0) {
     const { data: rosterRows, error: rosterError } = await supabaseAdmin
       .from('team_memberships')
-      .select('id, team_id, profile_id, player_name, role')
+      .select('id, team_id, profile_id, player_name, role, is_starter')
       .in('team_id', approvedTeamIds)
       .eq('is_active', true)
       .is('left_at', null)
@@ -100,7 +95,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
           (rosterRows ?? []).map((r) => r.profile_id).filter((id): id is string => Boolean(id))
         )
       )
-      const profileById = new Map<string, any>()
+      const profileById = new Map<string, RosterProfileRow>()
       if (profileIds.length > 0) {
         const { data: profileRows, error: profilesError } = await supabaseAdmin
           .from('profiles')
@@ -120,8 +115,9 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
         const rosterEntry = {
           membership_id: row.id,
           profile_id: row.profile_id,
-          player_name: (row as any).player_name ?? null,
+          player_name: (row as { player_name?: string | null }).player_name ?? null,
           role: row.role,
+          is_starter: (row as any).is_starter ?? false,
           riot_id_base: p?.riot_id_base ?? null,
           display_name: p?.display_name ?? null,
           email: p?.email ?? null,
@@ -149,10 +145,30 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
       roster: approvedRosterMap.get(team.id) ?? [],
     }))
 
-  const { data: matches, error: matchesError } = await supabaseAdmin
-    .from('matches')
-    .select(
-      `
+  const [
+    { data: disbandedTeams, error: disbandedTeamsError },
+    { data: matches, error: matchesError },
+  ] = await Promise.all([
+    supabaseAdmin
+      .from('teams')
+      .select(
+        `
+      id,
+      name,
+      tag,
+      logo_path,
+      metadata,
+      status,
+      approval_status,
+      created_at
+    `
+      )
+      .eq('status', 'disbanded')
+      .order('created_at', { ascending: false }),
+    supabaseAdmin
+      .from('matches')
+      .select(
+        `
       id,
        status,
         approval_status,
@@ -168,15 +184,30 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
       team_a:teams!matches_team_a_id_fkey (id, name, tag),
       team_b:teams!matches_team_b_id_fkey (id, name, tag)
     `
-    )
-    .order('created_at', { ascending: false })
+      )
+      .order('scheduled_at', { ascending: true, nullsFirst: false }),
+  ])
+
+  if (disbandedTeamsError) {
+    console.error('Error fetching disbanded teams:', disbandedTeamsError)
+  }
+
+  const disbandedWithLogos = (disbandedTeams ?? []).map((team) => ({
+    ...team,
+    logo_url: team.logo_path
+      ? supabaseAdmin.storage.from('team-logos').getPublicUrl(team.logo_path).data.publicUrl
+      : null,
+    captain_profile: null,
+    roster_count: 0,
+    roster: [],
+  }))
 
   if (matchesError) {
     console.error('Error fetching matches:', matchesError)
   }
 
   const matchIds = (matches ?? []).map((match) => match.id)
-  let streamsByMatch: Record<string, any[]> = {}
+  let streamsByMatch: Record<string, MatchStreamRow[]> = {}
   if (matchIds.length > 0) {
     const { data: streams, error: streamsError } = await supabaseAdmin
       .from('match_streams')
@@ -188,65 +219,22 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     if (streamsError) {
       console.error('Error fetching match streams:', streamsError)
     } else {
-      streamsByMatch = (streams ?? []).reduce(
+      streamsByMatch = ((streams ?? []) as MatchStreamRow[]).reduce(
         (acc, stream) => {
           if (!acc[stream.match_id]) acc[stream.match_id] = []
           acc[stream.match_id].push(stream)
           return acc
         },
-        {} as Record<string, any[]>
+        {} as Record<string, MatchStreamRow[]>
       )
     }
   }
 
-  const normalizedSeasons = await Promise.all(
-    (seasons ?? []).map(async (season) => {
-      const pickem = pickemConfigFromSeasonMetadata(season.metadata)
-      if (!pickem.leaderboard_batch_id) {
-        return {
-          ...season,
-          pickem,
-          pickem_preview_rows: [],
-          pickem_preview_error: null,
-        }
-      }
-
-      try {
-        const rows = (await getLeaderboardRowsForBatch(pickem.leaderboard_batch_id)).slice(
-          0,
-          pickem.participant_count
-        )
-        validatePickemBaseline(rows, pickem.participant_count, pickem.baseline_completed_rounds)
-        return {
-          ...season,
-          pickem,
-          pickem_preview_rows: rows.map((row) => ({
-            team_id: row.team?.id ?? null,
-            wins: row.wins,
-            losses: row.losses,
-            round_diff: row.round_diff,
-          })),
-          pickem_preview_error: null,
-        }
-      } catch (previewError) {
-        return {
-          ...season,
-          pickem,
-          pickem_preview_rows: [],
-          pickem_preview_error:
-            previewError instanceof Error
-              ? previewError.message
-              : 'Failed to validate pickem batch',
-        }
-      }
-    })
-  )
-
   return {
     users: users || [],
-    seasons: normalizedSeasons,
-    leaderboardBatches,
+    seasons: seasons || [],
     approvedTeams: withLogoUrl(approvedTeams || []),
+    disbandedTeams: disbandedWithLogos,
     matches: (matches ?? []).map((match) => ({
       ...match,
       streams: streamsByMatch[match.id] ?? [],

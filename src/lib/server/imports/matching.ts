@@ -142,6 +142,57 @@ export function parseMatchCsvDate(value: string): string {
   return parsed.toISOString()
 }
 
+function quoteOrValue(value: string): string {
+  // PostgREST filter syntax supports quoted values.
+  // Double quotes inside are escaped by doubling.
+  return `"${value.replaceAll('"', '""')}"`
+}
+
+/**
+ * Backfill player_match_map_stats.profile_id for previously-imported map stats.
+ *
+ * Match imports commonly arrive before the player has claimed their Riot base name.
+ * When the profile later sets riot_id_base/stats_player_name, we can relink those
+ * historic imported rows and rebuild player_match_stats so match history appears
+ * on the claimed player page.
+ */
+export async function rematchPlayerMatchMapStatsForBase(profileId: string, baseName: string) {
+  const base = String(baseName ?? '').trim()
+  if (!base) return { updated: 0, rebuiltMatches: 0 }
+
+  const baseQuoted = quoteOrValue(base)
+  const baseTagLikeQuoted = quoteOrValue(`${base}#%`)
+
+  const { data: updatedRows, error: updateError } = await supabaseAdmin
+    .from('player_match_map_stats')
+    .update({ profile_id: profileId })
+    .is('profile_id', null)
+    .or(
+      `player_name.eq.${baseQuoted},player_name.ilike.${baseQuoted},player_name.ilike.${baseTagLikeQuoted}`
+    )
+    .select('match_id')
+
+  if (updateError) {
+    console.warn(
+      'rematchPlayerMatchMapStatsForBase update failed:',
+      updateError.message,
+      updateError.details,
+      updateError.hint
+    )
+    return { updated: 0, rebuiltMatches: 0 }
+  }
+
+  const matchIds = Array.from(
+    new Set((updatedRows ?? []).map((r: any) => String(r.match_id ?? '')).filter(Boolean))
+  )
+
+  for (const matchId of matchIds) {
+    await rebuildPlayerMatchStats(matchId)
+  }
+
+  return { updated: (updatedRows ?? []).length, rebuiltMatches: matchIds.length }
+}
+
 export async function rebuildPlayerMatchStats(matchId: string) {
   const { data: mapStats, error: mapStatsError } = await supabaseAdmin
     .from('player_match_map_stats')
@@ -152,7 +203,8 @@ export async function rebuildPlayerMatchStats(matchId: string) {
 
   if (mapStatsError) throw new Error('Failed to load imported map stats')
 
-  const grouped = new Map<string, any[]>()
+  type MapStatRow = NonNullable<typeof mapStats>[number]
+  const grouped = new Map<string, MapStatRow[]>()
   for (const row of mapStats ?? []) {
     if (!row.profile_id || !row.team_id) continue
     const current = grouped.get(row.profile_id) ?? []
