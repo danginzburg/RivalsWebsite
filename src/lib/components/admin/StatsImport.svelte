@@ -45,6 +45,7 @@
     defuses: number
     defuses_per_game: number
     econ_rating: number
+    league_rank: string | null
     matched_profile_id: string | null
   }
 
@@ -256,12 +257,21 @@
     return out
   }
 
+  function findOptionalColumn(headers: string[], synonyms: string[]): number | null {
+    for (const syn of synonyms) {
+      const idx = headers.findIndex((h) => normalizeHeader(h) === normalizeHeader(syn))
+      if (idx >= 0) return idx
+    }
+    return null
+  }
+
   function parseCSV(text: string): ParsedRow[] {
     const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0)
     if (lines.length < 2) throw new Error('CSV must include a header and at least one data row')
 
     const headers = lines[0].split(',').map((h) => h.trim())
     const idx = buildHeaderIndex(headers)
+    const leagueRankIdx = findOptionalColumn(headers, ['LEAGUE RANK', 'LEAGUE_RANK', 'RANK'])
 
     const out: ParsedRow[] = []
     for (let i = 1; i < lines.length; i++) {
@@ -273,6 +283,8 @@
         profileMap.get(normalizeKey(playerName)) ??
         profileMap.get(normalizeBase(playerName)) ??
         null
+
+      const rawRank = leagueRankIdx !== null ? parts[leagueRankIdx]?.trim() || null : null
 
       out.push({
         player_name: playerName,
@@ -306,6 +318,7 @@
         defuses: parseNumber(parts[idx.DEFUSES]),
         defuses_per_game: parseNumber(parts[idx['DEFUSES/G']]),
         econ_rating: parseNumber(parts[idx.ECON]),
+        league_rank: rawRank,
         matched_profile_id,
       })
     }

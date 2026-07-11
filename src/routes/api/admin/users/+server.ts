@@ -4,6 +4,8 @@ import { supabaseAdmin } from '$lib/supabase/admin'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { normalizeRiotBaseNullable, isValidRiotBaseLenient } from '$lib/server/riot-id'
 import { queryProfilesWithOptionalRiotIdBase } from '$lib/server/supabase/profiles'
+import { claimRelinkAfterProfileUpdate } from '$lib/server/players/claim-relink'
+import { rematchPlayerMatchMapStatsForBase } from '$lib/server/imports/matching'
 
 type AdminUserRow = {
   id: string
@@ -101,6 +103,19 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
   if (updateError) {
     console.error('Error updating user role:', updateError)
     throw error(500, 'Failed to update user role')
+  }
+
+  if ('riotIdBase' in body && riotIdBase) {
+    try {
+      await claimRelinkAfterProfileUpdate(userId)
+    } catch (err) {
+      console.warn('claimRelinkAfterProfileUpdate failed after admin riot_id_base save:', err)
+    }
+    try {
+      await rematchPlayerMatchMapStatsForBase(userId, riotIdBase)
+    } catch (err) {
+      console.warn('rematchPlayerMatchMapStatsForBase failed after admin riot_id_base save:', err)
+    }
   }
 
   return json({

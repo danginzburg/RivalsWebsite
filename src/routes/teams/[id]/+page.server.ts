@@ -104,7 +104,7 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
     .eq('status', 'completed')
     .eq('approval_status', 'approved')
     .or(`team_a_id.eq.${teamId},team_b_id.eq.${teamId}`)
-    .order('ended_at', { ascending: false })
+    .order('scheduled_at', { ascending: false })
     .limit(20)
 
   const { data: upcomingMatches } = await supabaseAdmin

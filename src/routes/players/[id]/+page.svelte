@@ -8,6 +8,7 @@
   import miksIcon from '$lib/assets/agents/Miks_icon.webp'
   import { builtInAccoladeIcons } from '$lib/accolades/icons'
   import { enhance } from '$app/forms'
+  import { rankImageKey } from '$lib/ranks/ranks'
 
   let { data, form }: PageProps = $props()
 
@@ -59,6 +60,29 @@
     const normalize = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, '')
     return agentIconMap.get(normalize(agentName)) ?? null
   }
+
+  const rankAssetModules = import.meta.glob('$lib/assets/ranks/*_Rank.png', {
+    eager: true,
+    import: 'default',
+  }) as Record<string, string>
+
+  const rankIconMap = $derived.by(() => {
+    const map = new SvelteMap<string, string>()
+    for (const [path, url] of Object.entries(rankAssetModules)) {
+      const filename = path.split('/').pop() ?? ''
+      const key = filename.replace(/\.png$/i, '')
+      map.set(key, url)
+    }
+    return map
+  })
+
+  function rankIconUrl(leagueRank: unknown): string | null {
+    if (typeof leagueRank !== 'string') return null
+    const key = rankImageKey(leagueRank)
+    return key ? (rankIconMap.get(key) ?? null) : null
+  }
+
+  const playerRank = $derived((data.bestRank ?? null) as string | null)
 
   function parseAgents(value: unknown): string[] {
     if (typeof value !== 'string') return []
@@ -114,6 +138,17 @@
           <div>
             <div class="flex flex-wrap items-end gap-2">
               <h1 class="responsive-title leading-none">{player.riot_id}</h1>
+              {#if playerRank}
+                {@const rUrl = rankIconUrl(playerRank)}
+                {#if rUrl}
+                  <img
+                    src={rUrl}
+                    alt={playerRank}
+                    title={playerRank}
+                    class="h-8 w-8 object-contain sm:h-10 sm:w-10"
+                  />
+                {/if}
+              {/if}
               {#each accolades as accolade, i (accolade.id + '-' + i)}
                 {@const iconSrc = accolade.icon_key
                   ? (builtInAccoladeIcons[accolade.icon_key] ?? null)

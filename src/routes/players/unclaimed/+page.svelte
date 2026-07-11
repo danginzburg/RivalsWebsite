@@ -7,6 +7,7 @@
   import { resolve } from '$app/paths'
   import { enhance } from '$app/forms'
   import miksIcon from '$lib/assets/agents/Miks_icon.webp'
+  import { rankImageKey } from '$lib/ranks/ranks'
 
   let { data, form }: PageProps = $props()
 
@@ -64,6 +65,29 @@
     return v.toFixed(digits)
   }
 
+  const rankAssetModules = import.meta.glob('$lib/assets/ranks/*_Rank.png', {
+    eager: true,
+    import: 'default',
+  }) as Record<string, string>
+
+  const rankIconMap = $derived.by(() => {
+    const map = new SvelteMap<string, string>()
+    for (const [path, url] of Object.entries(rankAssetModules)) {
+      const filename = path.split('/').pop() ?? ''
+      const key = filename.replace(/\.png$/i, '')
+      map.set(key, url)
+    }
+    return map
+  })
+
+  function rankIconUrl(leagueRank: unknown): string | null {
+    if (typeof leagueRank !== 'string') return null
+    const key = rankImageKey(leagueRank)
+    return key ? (rankIconMap.get(key) ?? null) : null
+  }
+
+  const playerRank = $derived((data.bestRank ?? null) as string | null)
+
   function navToBatch(nextBatchId: string) {
     const params = new SvelteURLSearchParams()
     params.set('name', clickedName)
@@ -79,7 +103,20 @@
         <div class="flex items-center gap-3">
           <BarChart3 size={34} style="color: var(--text);" />
           <div>
-            <h1 class="responsive-title">{clickedName}</h1>
+            <div class="flex items-center gap-2">
+              <h1 class="responsive-title">{clickedName}</h1>
+              {#if playerRank}
+                {@const rUrl = rankIconUrl(playerRank)}
+                {#if rUrl}
+                  <img
+                    src={rUrl}
+                    alt={playerRank}
+                    title={playerRank}
+                    class="h-8 w-8 object-contain sm:h-10 sm:w-10"
+                  />
+                {/if}
+              {/if}
+            </div>
             <p class="text-sm" style="color: rgba(255,255,255,0.72);">
               Unclaimed stats
               {#if base}
