@@ -261,7 +261,12 @@ export const load = async ({
 
       return toBatchLabel(a).localeCompare(toBatchLabel(b))
     })
-    .map((b) => ({ label: toBatchLabel(b), value: b.id }))
+    .map((b) => ({
+      label: toBatchLabel(b),
+      value: b.id,
+      import_kind: b.import_kind ?? null,
+      week_label: b.week_label ?? null,
+    }))
 
   const normalizedStats: NormalizedStatRow[] = ((statsRows ?? []) as StatRow[]).map((r) => ({
     ...r,
