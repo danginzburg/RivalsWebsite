@@ -8,6 +8,7 @@
   import { resolve } from '$app/paths'
   import miksIcon from '$lib/assets/agents/Miks_icon.webp'
   import { statsRowKey } from '$lib/stats/ui'
+  import { rankValue, rankBaseValue, rankImageKey } from '$lib/ranks/ranks'
 
   let { data }: PageProps = $props()
 
@@ -26,6 +27,8 @@
 
   let sortKey = $state<string>('acs')
   let sortDir = $state<'asc' | 'desc'>('desc')
+  let rankSort = $state(false)
+  let disregardTier = $state(false)
 
   let selectedBatchId = $state<string | null>(null)
   let search = $state('')
@@ -119,6 +122,29 @@
     if (!Number.isFinite(v)) return '—'
     return v.toFixed(digits)
   }
+
+  const rankAssetModules = import.meta.glob('$lib/assets/ranks/*_Rank.png', {
+    eager: true,
+    import: 'default',
+  }) as Record<string, string>
+
+  const rankIconMap = $derived.by(() => {
+    const map = new SvelteMap<string, string>()
+    for (const [path, url] of Object.entries(rankAssetModules)) {
+      const filename = path.split('/').pop() ?? ''
+      const key = filename.replace(/\.png$/i, '')
+      map.set(key, url)
+    }
+    return map
+  })
+
+  function rankIconUrl(leagueRank: unknown): string | null {
+    if (typeof leagueRank !== 'string') return null
+    const key = rankImageKey(leagueRank)
+    return key ? (rankIconMap.get(key) ?? null) : null
+  }
+
+  const hasAnyRanks = $derived(rows.some((r: Record<string, unknown>) => !!r.league_rank))
 
   const agentAssetModules = import.meta.glob('$lib/assets/agents/*_icon.webp', {
     eager: true,
@@ -274,8 +300,15 @@
     const dir = sortDir
     const copy = [...filteredRows]
     copy.sort((a, b) => {
+      if (rankSort) {
+        const valueFn = disregardTier ? rankBaseValue : rankValue
+        const aRank = valueFn(a.league_rank as string)
+        const bRank = valueFn(b.league_rank as string)
+        if (aRank !== bRank) return bRank - aRank
+      }
       const delta = compareValues(a, b, key)
-      return dir === 'asc' ? delta : -delta
+      if (delta !== 0) return dir === 'asc' ? delta : -delta
+      return 0
     })
     return copy
   })
@@ -383,6 +416,31 @@
               >
                 Find me
               </button>
+            {/if}
+
+            {#if hasAnyRanks}
+              <button
+                type="button"
+                class="w-full rounded-md border px-3 py-2 text-sm md:w-auto"
+                style={rankSort
+                  ? 'border-color: rgba(250,204,21,0.5); background: rgba(250,204,21,0.18); color: #fde68a;'
+                  : 'border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: rgba(255,255,255,0.72);'}
+                onclick={() => (rankSort = !rankSort)}
+              >
+                Rank Sort
+              </button>
+              {#if rankSort}
+                <button
+                  type="button"
+                  class="w-full rounded-md border px-3 py-2 text-sm md:w-auto"
+                  style={disregardTier
+                    ? 'border-color: rgba(168,85,247,0.5); background: rgba(168,85,247,0.18); color: #c4b5fd;'
+                    : 'border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: rgba(255,255,255,0.72);'}
+                  onclick={() => (disregardTier = !disregardTier)}
+                >
+                  Disregard Tier
+                </button>
+              {/if}
             {/if}
           </div>
 
@@ -522,6 +580,9 @@
             <thead>
               <tr class="text-xs tracking-wide uppercase" style="color: rgba(255,255,255,0.75);">
                 <th class="px-3 py-2">#</th>
+                {#if hasAnyRanks}
+                  <th class="px-3 py-2">Rank</th>
+                {/if}
                 <th class="px-3 py-2">
                   <button
                     type="button"
@@ -570,6 +631,21 @@
                   <td class="px-3 py-2 font-semibold" style="color: rgba(255,255,255,0.82);">
                     {index + 1}
                   </td>
+                  {#if hasAnyRanks}
+                    {@const rUrl = rankIconUrl(row.league_rank)}
+                    <td class="px-3 py-2 align-middle">
+                      {#if rUrl}
+                        <img
+                          src={rUrl}
+                          alt={String(row.league_rank ?? '')}
+                          title={String(row.league_rank ?? '')}
+                          class="h-6 w-6 object-contain"
+                        />
+                      {:else}
+                        <span style="color: rgba(255,255,255,0.3);">—</span>
+                      {/if}
+                    </td>
+                  {/if}
                   <td class="px-3 py-2 font-semibold" style="color: var(--text);">
                     <div class="flex items-center gap-2">
                       {#if row.profile_id}
@@ -653,8 +729,8 @@
 
   .stats-viewport {
     width: 100%;
-    min-height: inherit;
-    overflow: visible;
+    height: calc(100svh - 4rem);
+    overflow: hidden;
     display: flex;
     justify-content: center;
     padding: 24px 16px;
@@ -678,14 +754,19 @@
   .stats-shell {
     display: flex;
     flex-direction: column;
-    height: auto;
+    height: 100%;
     min-height: 0;
   }
 
   .stats-table-wrap {
-    overflow-x: auto;
-    overflow-y: visible;
+    flex: 1 1 0;
+    overflow: auto;
     min-height: 0;
+  }
+
+  .stats-table th,
+  .stats-table td {
+    white-space: nowrap;
   }
 
   .stats-table thead th {
@@ -693,9 +774,6 @@
     top: 0;
     z-index: 5;
     background: var(--secondary-background);
-  }
-
-  .stats-table thead th {
     box-shadow: 0 1px 0 rgba(255, 255, 255, 0.1);
   }
 </style>

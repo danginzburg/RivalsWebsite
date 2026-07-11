@@ -81,6 +81,7 @@ async function importStats(authSub: string, wb2: Wb2Parsed, replaceBatch: boolea
       pick(row, ['defuses_per_game', 'defuses per game', 'defuses / game'])
     ),
     econ_rating: toNumber(pick(row, ['econ_rating', 'econ', 'econ rating'])),
+    league_rank: pick(row, ['league rank', 'league_rank', 'rank']) as string | null,
   }))
 
   if (replaceBatch) {

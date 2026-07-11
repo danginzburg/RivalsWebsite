@@ -14,6 +14,7 @@ import {
 } from '$lib/server/stats/rivals-batch'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
 import { rematchPlayerMatchMapStatsForBase } from '$lib/server/imports/matching'
+import { rankValue } from '$lib/ranks/ranks'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -188,7 +189,7 @@ export const load = async ({
   const { data: statsRows } = await supabaseAdmin
     .from('rivals_group_stats')
     .select(
-      'id, player_name, profile_id, agents, games, games_won, games_lost, rounds, rounds_won, rounds_lost, acs, kd, kast_pct, adr, kills, deaths, assists, fk, fd, hs_pct, econ_rating, kpg, kpr, dpg, dpr, apg, apr, fkpg, fdpg, plants, plants_per_game, defuses, defuses_per_game, import_batch_id, imported_at'
+      'id, player_name, profile_id, agents, games, games_won, games_lost, rounds, rounds_won, rounds_lost, acs, kd, kast_pct, adr, kills, deaths, assists, fk, fd, hs_pct, econ_rating, kpg, kpr, dpg, dpr, apg, apr, fkpg, fdpg, plants, plants_per_game, defuses, defuses_per_game, league_rank, import_batch_id, imported_at'
     )
     .eq('profile_id', profileId)
     .order('imported_at', { ascending: false })
@@ -489,11 +490,23 @@ export const load = async ({
         Boolean(x.match) && x.match?.approval_status === 'approved'
     )
     .sort((a, b) => {
-      const at = a.match.ended_at ?? a.match.scheduled_at ?? ''
-      const bt = b.match.ended_at ?? b.match.scheduled_at ?? ''
+      const at = a.match.scheduled_at ?? a.match.ended_at ?? ''
+      const bt = b.match.scheduled_at ?? b.match.ended_at ?? ''
       return new Date(bt).getTime() - new Date(at).getTime()
     })
     .slice(0, 50)
+
+  let bestRank: string | null = null
+  let bestRankValue = 0
+  for (const r of normalizedStats) {
+    const raw = r.league_rank as string | null
+    if (!raw) continue
+    const v = rankValue(raw)
+    if (v > bestRankValue) {
+      bestRankValue = v
+      bestRank = raw
+    }
+  }
 
   return {
     player: {
@@ -510,6 +523,7 @@ export const load = async ({
       email: profileRel?.email ?? null,
       created_at: profileRel?.created_at ?? null,
     },
+    bestRank,
     activeTeam,
     accolades: playerAccolades,
     viewer: {

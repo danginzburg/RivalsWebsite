@@ -42,6 +42,7 @@ function normalizeSort(value: string | null): string {
     'plants_per_game',
     'defuses',
     'defuses_per_game',
+    'league_rank',
   ])
   return allowed.has(v) ? v : 'acs'
 }

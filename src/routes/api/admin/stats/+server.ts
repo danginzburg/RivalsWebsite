@@ -122,6 +122,7 @@ export const POST = async ({ locals, request }: { locals: App.Locals; request: R
       defuses: row.defuses ?? null,
       defuses_per_game: row.defuses_per_game ?? null,
       econ_rating: row.econ_rating ?? null,
+      league_rank: row.league_rank ?? null,
       import_batch_id: batchId,
       imported_by_profile_id: admin.id,
       imported_at: importedAt,

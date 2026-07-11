@@ -11,6 +11,7 @@ import {
   type StatImportBatchRow,
 } from '$lib/server/stats/rivals-batch'
 import { claimRelinkAfterProfileUpdate } from '$lib/server/players/claim-relink'
+import { rankValue } from '$lib/ranks/ranks'
 
 type StatBatchInfo = Partial<NormalizedRivalsGroupStatBatch> & { id: string; display_name: string }
 
@@ -99,7 +100,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
   const baseTagLikeQuoted = quoteOrValue(`${base}#%`)
   const { data: appearances, error: appearancesError } = await supabaseAdmin
     .from('rivals_group_stats')
-    .select('import_batch_id, player_name, games, imported_at, profile_id')
+    .select('import_batch_id, player_name, games, imported_at, profile_id, league_rank')
     .or(`player_name.eq.${baseQuoted},player_name.ilike.${baseTagLikeQuoted}`)
     .limit(2000)
 
@@ -173,7 +174,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
     const { data: candidates, error: rowError } = await supabaseAdmin
       .from('rivals_group_stats')
       .select(
-        'id, player_name, profile_id, agents, games, games_won, games_lost, rounds, rounds_won, rounds_lost, acs, kd, kast_pct, adr, kills, deaths, assists, fk, fd, hs_pct, econ_rating, kpg, kpr, dpg, dpr, apg, apr, fkpg, fdpg, plants, plants_per_game, defuses, defuses_per_game, import_batch_id, imported_at'
+        'id, player_name, profile_id, agents, games, games_won, games_lost, rounds, rounds_won, rounds_lost, acs, kd, kast_pct, adr, kills, deaths, assists, fk, fd, hs_pct, econ_rating, kpg, kpr, dpg, dpr, apg, apr, fkpg, fdpg, plants, plants_per_game, defuses, defuses_per_game, league_rank, import_batch_id, imported_at'
       )
       .eq('import_batch_id', batchId)
       .or(
@@ -296,12 +297,25 @@ export const load: PageServerLoad = async ({ url, locals }) => {
         Boolean(entry.match) && entry.match?.approval_status === 'approved'
     )
 
+  let bestRank: string | null = null
+  let bestRankValue = 0
+  for (const r of (appearances ?? []) as Array<{ league_rank?: string | null }>) {
+    const raw = r.league_rank ?? null
+    if (!raw) continue
+    const v = rankValue(raw)
+    if (v > bestRankValue) {
+      bestRankValue = v
+      bestRank = raw
+    }
+  }
+
   return {
     clickedName,
     base,
     batchId,
     batchOptions,
     selected,
+    bestRank,
     viewer,
     matchHistory,
   }
