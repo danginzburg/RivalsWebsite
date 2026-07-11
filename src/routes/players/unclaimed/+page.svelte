@@ -14,7 +14,29 @@
   const clickedName = $derived(String(data.clickedName ?? 'Player'))
   const base = $derived(String(data.base ?? ''))
   const batchId = $derived(data.batchId ?? null)
-  const batchOptions = $derived(data.batchOptions ?? [])
+  const allBatchOptions = $derived(
+    (data.batchOptions ?? []) as Array<{
+      label: string
+      value: string
+      import_kind?: string | null
+      week_label?: string | null
+    }>
+  )
+  let hideWeeks = $state(false)
+  function isWeekBatch(b: {
+    import_kind?: string | null
+    week_label?: string | null
+    label?: string | null
+  }) {
+    if (b.import_kind === 'weekly') return true
+    if (b.week_label) return true
+    if (typeof b.label === 'string' && /week/i.test(b.label)) return true
+    return false
+  }
+  const hasAnyWeeks = $derived(allBatchOptions.some((b) => isWeekBatch(b)))
+  const batchOptions = $derived(
+    hideWeeks ? allBatchOptions.filter((b) => !isWeekBatch(b)) : allBatchOptions
+  )
   const selected = $derived(data.selected ?? null)
   const matchHistory = $derived(data.matchHistory ?? [])
   const viewer = $derived(
@@ -186,16 +208,30 @@
           >
             Stats
           </div>
-          {#if batchOptions.length > 0}
-            <div class="min-w-[260px]">
-              <CustomSelect
-                options={batchOptions}
-                value={batchId ?? ''}
-                compact={true}
-                onSelect={navToBatch}
-              />
-            </div>
-          {/if}
+          <div class="flex items-center gap-2">
+            {#if hasAnyWeeks}
+              <button
+                type="button"
+                class="rounded-md border px-3 py-2 text-xs"
+                style={hideWeeks
+                  ? 'border-color: rgba(59,130,246,0.5); background: rgba(59,130,246,0.18); color: #93c5fd;'
+                  : 'border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: rgba(255,255,255,0.72);'}
+                onclick={() => (hideWeeks = !hideWeeks)}
+              >
+                Hide Weeks
+              </button>
+            {/if}
+            {#if batchOptions.length > 0}
+              <div class="min-w-[260px]">
+                <CustomSelect
+                  options={batchOptions}
+                  value={batchId ?? ''}
+                  compact={true}
+                  onSelect={navToBatch}
+                />
+              </div>
+            {/if}
+          </div>
         </div>
 
         {#if !selected}

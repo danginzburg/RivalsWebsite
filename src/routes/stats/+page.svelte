@@ -29,6 +29,7 @@
   let sortDir = $state<'asc' | 'desc'>('desc')
   let rankSort = $state(false)
   let disregardTier = $state(false)
+  let hideWeeks = $state(false)
 
   let selectedBatchId = $state<string | null>(null)
   let search = $state('')
@@ -337,9 +338,23 @@
     }, 2000)
   }
 
+  function isWeekBatch(b: {
+    import_kind?: string | null
+    week_label?: string | null
+    display_name?: string | null
+  }) {
+    if (b.import_kind === 'weekly') return true
+    if (b.week_label) return true
+    if (typeof b.display_name === 'string' && /week/i.test(b.display_name)) return true
+    return false
+  }
+
+  const hasAnyWeeks = $derived(batches.some((b) => isWeekBatch(b)))
+
   const batchOptions = $derived.by(() => {
     const opts: Array<{ label: string; value: string }> = [{ label: 'Latest', value: '' }]
     for (const b of batches) {
+      if (hideWeeks && isWeekBatch(b)) continue
       const label = `${b.display_name}${b.import_kind === 'weekly' && b.week_label ? ` (${b.week_label})` : ''}`
       opts.push({ label, value: b.id })
     }
@@ -370,47 +385,47 @@
           </div>
         </div>
 
-        <div class="flex w-full flex-wrap items-center justify-between gap-3">
-          <div class="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-start">
-            <input
-              type="text"
-              class="w-full rounded-md border px-3 py-2 text-sm md:w-[320px]"
-              style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-              placeholder="Search players"
-              bind:value={search}
-            />
+        <div class="flex w-full flex-wrap items-center gap-3">
+          <input
+            type="text"
+            class="w-full rounded-md border px-3 py-2 text-sm md:w-[260px]"
+            style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+            placeholder="Search players"
+            bind:value={search}
+          />
 
-            <div
-              class="flex w-full items-center gap-3 rounded-md border px-3 py-2 text-sm md:w-[320px]"
-              style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-            >
-              <div class="shrink-0 text-xs font-semibold" style="color: rgba(255,255,255,0.75);">
-                Min games
-              </div>
-              <input
-                type="range"
-                min="0"
-                max={maxGames}
-                step="1"
-                value={String(minGames)}
-                disabled={maxGames <= 0}
-                class="w-full"
-                oninput={(e) => {
-                  minGames = Number((e.currentTarget as HTMLInputElement).value)
-                }}
-              />
-              <div
-                class="w-10 shrink-0 text-right tabular-nums"
-                style="color: rgba(255,255,255,0.85);"
-              >
-                {Math.max(0, Math.trunc(minGames))}
-              </div>
+          <div
+            class="flex w-full items-center gap-3 rounded-md border px-3 py-2 text-sm md:w-[240px]"
+            style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+          >
+            <div class="shrink-0 text-xs font-semibold" style="color: rgba(255,255,255,0.75);">
+              Min games
             </div>
+            <input
+              type="range"
+              min="0"
+              max={maxGames}
+              step="1"
+              value={String(minGames)}
+              disabled={maxGames <= 0}
+              class="w-full"
+              oninput={(e) => {
+                minGames = Number((e.currentTarget as HTMLInputElement).value)
+              }}
+            />
+            <div
+              class="w-10 shrink-0 text-right tabular-nums"
+              style="color: rgba(255,255,255,0.85);"
+            >
+              {Math.max(0, Math.trunc(minGames))}
+            </div>
+          </div>
 
+          <div class="flex shrink-0 items-center gap-2">
             {#if viewer?.profileId}
               <button
                 type="button"
-                class="w-full rounded-md border px-3 py-2 text-sm md:w-auto"
+                class="rounded-md border px-3 py-2 text-sm"
                 style="border-color: rgba(74,222,128,0.35); background: rgba(74,222,128,0.10); color: #86efac;"
                 onclick={findMe}
               >
@@ -421,7 +436,7 @@
             {#if hasAnyRanks}
               <button
                 type="button"
-                class="w-full rounded-md border px-3 py-2 text-sm md:w-auto"
+                class="rounded-md border px-3 py-2 text-sm"
                 style={rankSort
                   ? 'border-color: rgba(250,204,21,0.5); background: rgba(250,204,21,0.18); color: #fde68a;'
                   : 'border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: rgba(255,255,255,0.72);'}
@@ -432,7 +447,7 @@
               {#if rankSort}
                 <button
                   type="button"
-                  class="w-full rounded-md border px-3 py-2 text-sm md:w-auto"
+                  class="rounded-md border px-3 py-2 text-sm"
                   style={disregardTier
                     ? 'border-color: rgba(168,85,247,0.5); background: rgba(168,85,247,0.18); color: #c4b5fd;'
                     : 'border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: rgba(255,255,255,0.72);'}
@@ -444,7 +459,19 @@
             {/if}
           </div>
 
-          <div class="flex flex-wrap items-center justify-end gap-2">
+          <div class="ml-auto flex shrink-0 items-center gap-2">
+            {#if hasAnyWeeks}
+              <button
+                type="button"
+                class="rounded-md border px-3 py-2 text-sm"
+                style={hideWeeks
+                  ? 'border-color: rgba(59,130,246,0.5); background: rgba(59,130,246,0.18); color: #93c5fd;'
+                  : 'border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: rgba(255,255,255,0.72);'}
+                onclick={() => (hideWeeks = !hideWeeks)}
+              >
+                Hide Weeks
+              </button>
+            {/if}
             <div class="min-w-[220px]">
               <CustomSelect
                 options={batchOptions}
