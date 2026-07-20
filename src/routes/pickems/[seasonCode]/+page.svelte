@@ -42,6 +42,16 @@
   )
 
   const resolvedIds = $derived(new Set(data.config.resolved_matches?.map((r) => r.matchId) ?? []))
+  const actualWinners = $derived(
+    (data.actualWinners ?? {}) as Partial<Record<PlayoffMatchId, string>>
+  )
+  const decidedIds = $derived.by(() => {
+    const ids = new Set(resolvedIds)
+    for (const matchId of Object.keys(actualWinners) as PlayoffMatchId[]) {
+      ids.add(matchId)
+    }
+    return ids
+  })
   const slotById = $derived(new Map(slots.map((s) => [s.id, s])))
 
   function getSlots(ids: string[]): PlayoffPickemSlot[] {
@@ -83,8 +93,17 @@
     return teamId ? (teamById.get(teamId)?.logo_url ?? null) : null
   }
 
+  function pickResult(matchId: PlayoffMatchId): 'correct' | 'wrong' | 'no-pick' | null {
+    if (resolvedIds.has(matchId)) return null
+    const winner = actualWinners[matchId]
+    if (!winner) return null
+    const pick = displayPayload.picks[matchId]
+    if (!pick) return 'no-pick'
+    return pick === winner ? 'correct' : 'wrong'
+  }
+
   function chooseWinner(matchId: PlayoffMatchId, teamId: string | null) {
-    if (!data.viewer.canEdit || !isViewingOwn || !teamId || resolvedIds.has(matchId)) return
+    if (!data.viewer.canEdit || !isViewingOwn || !teamId || decidedIds.has(matchId)) return
     picks = { ...picks, [matchId]: teamId }
     saveMessage = null
     errorMessage = null
@@ -215,67 +234,67 @@
 
       <!-- Main area: bracket + leaderboard -->
       <div class="page-grid">
-        <div class="bracket-grid">
-          <!-- Col 1: UB QF + LB R1 -->
-          <div class="round-col">
-            <div class="bracket-section">
-              <div class="section-label ub">Upper Bracket</div>
+        <div class="bracket-wrapper">
+          <!-- Upper bracket + Grand Final -->
+          <div class="bracket-flow ub-flow">
+            <div class="bracket-round conn-merge">
               {#each ubQF as slot (slot.id)}
-                {@render matchCard(slot)}
+                <div class="match-item">
+                  {@render matchCard(slot)}
+                </div>
               {/each}
             </div>
-            <div class="bracket-section">
-              <div class="section-label lb">Lower Bracket</div>
-              {#each lbR1 as slot (slot.id)}
-                {@render matchCard(slot)}
-              {/each}
-            </div>
-          </div>
-
-          <!-- Col 2: UB SF + LB R2 -->
-          <div class="round-col">
-            <div class="bracket-section">
-              <div class="section-label ub">Upper</div>
+            <div class="bracket-round conn-merge">
               {#each ubSF as slot (slot.id)}
-                {@render matchCard(slot)}
+                <div class="match-item">
+                  {@render matchCard(slot)}
+                </div>
               {/each}
             </div>
-            <div class="bracket-section">
-              <div class="section-label lb">Lower</div>
-              {#each lbR2 as slot (slot.id)}
-                {@render matchCard(slot)}
-              {/each}
-            </div>
-          </div>
-
-          <!-- Col 3: UB Final + LB R3 -->
-          <div class="round-col">
-            <div class="bracket-section">
-              <div class="section-label ub">Upper</div>
+            <div class="bracket-round conn-straight">
               {#each ubFinal as slot (slot.id)}
-                {@render matchCard(slot)}
+                <div class="match-item">
+                  {@render matchCard(slot)}
+                </div>
               {/each}
             </div>
-            <div class="bracket-section">
-              <div class="section-label lb">Lower</div>
-              {#each lbR3 as slot (slot.id)}
-                {@render matchCard(slot)}
+            <div class="bracket-round">
+              {#each grandFinal as slot (slot.id)}
+                <div class="match-item">
+                  {@render matchCard(slot)}
+                </div>
               {/each}
             </div>
           </div>
 
-          <!-- Col 4: GF on top, LB Final below -->
-          <div class="round-col">
-            <div class="bracket-section gf-section">
-              <div class="section-label gf">Grand Final</div>
-              {#each grandFinal as slot (slot.id)}
-                {@render matchCard(slot)}
+          <!-- Lower bracket -->
+          <div class="bracket-flow lb-flow">
+            <div class="bracket-round conn-straight">
+              {#each lbR1 as slot (slot.id)}
+                <div class="match-item">
+                  {@render matchCard(slot)}
+                </div>
               {/each}
             </div>
-            <div class="bracket-section">
-              <div class="section-label lb">Lower</div>
+            <div class="bracket-round conn-merge">
+              {#each lbR2 as slot (slot.id)}
+                <div class="match-item">
+                  {@render matchCard(slot)}
+                </div>
+              {/each}
+            </div>
+            <div class="bracket-round conn-straight">
+              {#each lbR3 as slot (slot.id)}
+                <div class="match-item">
+                  {@render matchCard(slot)}
+                </div>
+              {/each}
+            </div>
+            <div class="bracket-round">
               {#each lbFinal as slot (slot.id)}
-                {@render matchCard(slot)}
+                <div class="match-item">
+                  {@render matchCard(slot)}
+                </div>
               {/each}
             </div>
           </div>
@@ -315,10 +334,22 @@
 
 {#snippet matchCard(slot: PlayoffPickemSlot)}
   {@const isResolved = resolvedIds.has(slot.id)}
-  <article class="match-card" class:gf={slot.id === 'grand_final'} class:resolved={isResolved}>
+  {@const isDecided = isResolved || Boolean(actualWinners[slot.id])}
+  {@const result = pickResult(slot.id)}
+  <article
+    class="match-card"
+    class:gf={slot.id === 'grand_final'}
+    class:resolved={isDecided && result === null}
+    class:pick-correct={result === 'correct'}
+    class:pick-wrong={result === 'wrong'}
+  >
     <div class="match-header">
       <span class="match-label">{slot.label}</span>
-      {#if isResolved}
+      {#if result === 'correct'}
+        <span class="pick-indicator correct">Correct</span>
+      {:else if result === 'wrong'}
+        <span class="pick-indicator wrong">Wrong</span>
+      {:else if isResolved}
         <span class="resolved-tag">Decided</span>
       {:else}
         <span class="pts">{slot.points}pt{slot.points !== 1 ? 's' : ''}</span>
@@ -330,6 +361,7 @@
         class="team-btn"
         class:picked={slot.winnerId === teamId}
         class:tbd={!teamId}
+        class:actual-winner={isDecided && teamId === (actualWinners[slot.id] ?? null)}
         disabled={isResolved || !data.viewer.canEdit || !isViewingOwn || !teamId}
         onclick={() => chooseWinner(slot.id, teamId)}
       >
@@ -362,67 +394,93 @@
     }
   }
 
-  /* Bracket: 4-column grid */
-  .bracket-grid {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 0.5rem;
-    align-items: start;
-  }
-
-  .bracket-section {
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    border-radius: 0.375rem;
-    padding: 0.3rem;
-    background: rgba(0, 0, 0, 0.08);
+  /* Bracket layout */
+  .bracket-wrapper {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: 2rem;
+    --conn: rgba(255, 255, 255, 0.18);
+    --conn-w: 1.25rem;
   }
 
-  .gf-section {
-    border-color: var(--accent);
-    background: rgba(94, 52, 114, 0.08);
+  .bracket-flow {
+    display: flex;
+    gap: calc(var(--conn-w) * 2);
   }
 
-  .section-label {
-    font-size: 0.5rem;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    padding-bottom: 0.15rem;
-    border-bottom: 1px solid;
-  }
-
-  .section-label.ub {
-    color: rgba(147, 197, 253, 0.7);
-    border-color: rgba(59, 130, 246, 0.25);
-  }
-
-  .section-label.lb {
-    color: rgba(252, 165, 165, 0.7);
-    border-color: rgba(239, 68, 68, 0.25);
-  }
-
-  .section-label.gf {
-    color: rgba(216, 180, 254, 0.9);
-    border-color: var(--accent);
-  }
-
-  /* Round columns */
-  .round-col {
+  .bracket-round {
+    flex: 1;
     display: flex;
     flex-direction: column;
-    gap: 0.35rem;
+    position: relative;
+    overflow: visible;
     min-width: 0;
+  }
+
+  .match-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    position: relative;
+    padding: 0.25rem 0;
+  }
+
+  /* Merge connector: odd match (top of pair) → "┐" */
+  .conn-merge > .match-item:nth-of-type(odd)::after {
+    content: '';
+    position: absolute;
+    right: calc(var(--conn-w) * -1);
+    width: var(--conn-w);
+    top: 50%;
+    bottom: 0;
+    border-top: 2px solid var(--conn);
+    border-right: 2px solid var(--conn);
+    pointer-events: none;
+  }
+
+  /* Merge connector: even match (bottom of pair) → "┘" */
+  .conn-merge > .match-item:nth-of-type(even)::after {
+    content: '';
+    position: absolute;
+    right: calc(var(--conn-w) * -1);
+    width: var(--conn-w);
+    top: 0;
+    bottom: 50%;
+    border-bottom: 2px solid var(--conn);
+    border-right: 2px solid var(--conn);
+    pointer-events: none;
+  }
+
+  /* Straight connector: horizontal line right */
+  .conn-straight > .match-item::after {
+    content: '';
+    position: absolute;
+    right: calc(var(--conn-w) * -1);
+    width: var(--conn-w);
+    top: 50%;
+    border-top: 2px solid var(--conn);
+    pointer-events: none;
+  }
+
+  /* Input connector: horizontal line from left */
+  .bracket-round:not(:first-child) > .match-item::before {
+    content: '';
+    position: absolute;
+    left: calc(var(--conn-w) * -1);
+    width: var(--conn-w);
+    top: 50%;
+    border-top: 2px solid var(--conn);
+    pointer-events: none;
   }
 
   /* Match cards */
   .match-card {
+    min-width: 8rem;
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 0.375rem;
     background: rgba(0, 0, 0, 0.2);
-    padding: 0.3rem 0.4rem;
+    padding: 0.4rem 0.5rem;
   }
 
   .match-card.gf {
@@ -434,12 +492,44 @@
     opacity: 0.55;
   }
 
+  .match-card.pick-correct {
+    opacity: 1;
+    border-color: rgba(74, 222, 128, 0.4);
+    background: rgba(74, 222, 128, 0.06);
+  }
+
+  .match-card.pick-wrong {
+    opacity: 1;
+    border-color: rgba(244, 63, 94, 0.4);
+    background: rgba(244, 63, 94, 0.06);
+  }
+
   .resolved-tag {
     font-size: 0.5625rem;
     font-weight: 800;
     text-transform: uppercase;
     color: rgba(255, 255, 255, 0.4);
     flex-shrink: 0;
+  }
+
+  .pick-indicator {
+    font-size: 0.5625rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    flex-shrink: 0;
+  }
+
+  .pick-indicator.correct {
+    color: #86efac;
+  }
+
+  .pick-indicator.wrong {
+    color: #fda4af;
+  }
+
+  .team-btn.actual-winner {
+    border-color: rgba(74, 222, 128, 0.5);
+    background: rgba(74, 222, 128, 0.12);
   }
 
   .match-header {
@@ -474,7 +564,7 @@
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: 0.25rem;
     background: rgba(255, 255, 255, 0.03);
-    padding: 0.25rem 0.4rem;
+    padding: 0.35rem 0.5rem;
     color: var(--text);
     text-align: left;
     cursor: pointer;
@@ -484,7 +574,7 @@
   }
 
   .team-btn + .team-btn {
-    margin-top: 0.15rem;
+    margin-top: 0.2rem;
   }
 
   .team-btn:not(:disabled):hover {
@@ -617,27 +707,25 @@
 
   /* Override PageContainer padding for wider bracket */
   :global(.page-container.pickem-page) {
-    padding-left: 1rem;
-    padding-right: 1rem;
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
   }
 
   @media (min-width: 768px) {
     :global(.page-container.pickem-page) {
-      padding-left: 2rem;
-      padding-right: 2rem;
+      padding-left: 1rem;
+      padding-right: 1rem;
     }
   }
 
   /* Responsive */
   @media (max-width: 900px) {
-    .bracket-grid {
-      grid-template-columns: repeat(2, 1fr);
+    .bracket-wrapper {
+      overflow-x: auto;
     }
-  }
 
-  @media (max-width: 500px) {
-    .bracket-grid {
-      grid-template-columns: 1fr;
+    .bracket-flow {
+      min-width: 600px;
     }
   }
 </style>

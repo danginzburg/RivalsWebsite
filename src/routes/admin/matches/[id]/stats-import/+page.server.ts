@@ -6,6 +6,7 @@ import {
   buildProfileMatcher,
   getProfilesForImports,
   rebuildPlayerMatchStats,
+  rematchPlayerMatchMapStatsForBase,
 } from '$lib/server/imports/matching'
 import { errorMessage } from '$lib/server/errors'
 
@@ -542,6 +543,37 @@ export const actions: Actions = {
       throw error(500, 'player_match_map_stats table missing; apply Supabase migrations first')
     }
     if (insertError) throw error(500, 'Failed to insert player map stats')
+
+    const hasUnlinked = rowsToInsert.some((r) => !r.profile_id)
+    if (hasUnlinked) {
+      const linkedProfileIds = [
+        ...new Set(rowsToInsert.map((r) => r.profile_id).filter(Boolean) as string[]),
+      ]
+      const teamProfileIds = new Set(linkedProfileIds)
+      const { data: members } = await supabaseAdmin
+        .from('team_memberships')
+        .select('profile_id')
+        .in('team_id', [match.team_a_id, match.team_b_id])
+        .eq('is_active', true)
+        .is('left_at', null)
+      for (const m of members ?? []) {
+        if (m.profile_id) teamProfileIds.add(m.profile_id)
+      }
+      for (const pid of teamProfileIds) {
+        const profile = profiles.find((p) => p.id === pid)
+        if (!profile) continue
+        for (const name of [
+          profile.riot_id_base,
+          profile.display_name,
+          profile.stats_player_name,
+        ]) {
+          if (!name) continue
+          try {
+            await rematchPlayerMatchMapStatsForBase(pid, name)
+          } catch {}
+        }
+      }
+    }
 
     try {
       await rebuildPlayerMatchStats(matchId)

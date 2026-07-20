@@ -2,7 +2,7 @@ import { error, redirect, type Actions } from '@sveltejs/kit'
 import type { PageServerLoad } from './$types'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { rematchPlayerMatchMapStatsForBase } from '$lib/server/imports/matching'
-import { average, sum } from '$lib/server/math'
+import { average, sum, weightedAverage } from '$lib/server/math'
 import { normalizeRiotBase, isValidRiotBase } from '$lib/server/riot-id'
 import { toBatchLabel } from '$lib/server/stats/batch-label'
 import {
@@ -217,10 +217,11 @@ export const load: PageServerLoad = async ({ url, locals }) => {
     }
   }
 
-  const { data: matchRows } = await supabaseAdmin
-    .from('player_match_map_stats')
-    .select(
-      `
+  const [{ data: matchRows }, { data: perMapRows }] = await Promise.all([
+    supabaseAdmin
+      .from('player_match_map_stats')
+      .select(
+        `
       match_id,
       team_id,
       profile_id,
@@ -246,10 +247,19 @@ export const load: PageServerLoad = async ({ url, locals }) => {
         team_b:teams!matches_team_b_id_fkey (id, name, tag)
       )
     `
-    )
-    .is('profile_id', null)
-    .or(`player_name.eq.${baseQuoted},player_name.ilike.${baseTagLikeQuoted}`)
-    .limit(500)
+      )
+      .is('profile_id', null)
+      .or(`player_name.eq.${baseQuoted},player_name.ilike.${baseTagLikeQuoted}`)
+      .limit(500),
+    supabaseAdmin
+      .from('player_match_map_stats')
+      .select(
+        'team_id, agents, acs, kills, deaths, assists, kd, adr, kast_pct, hs_pct, rounds, fk, fd, plants, defuses, match_maps(map_name, is_voided, team_a_rounds, team_b_rounds, matches(team_a_id, team_b_id))'
+      )
+      .is('profile_id', null)
+      .or(`player_name.eq.${baseQuoted},player_name.ilike.${baseTagLikeQuoted}`)
+      .limit(1000),
+  ])
 
   const byMatch = new Map<string, MatchMapRow[]>()
   for (const row of (matchRows ?? []) as MatchMapRow[]) {
@@ -302,6 +312,107 @@ export const load: PageServerLoad = async ({ url, locals }) => {
         Boolean(entry.match) && entry.match?.approval_status === 'approved'
     )
 
+  type PerMapStatRow = {
+    team_id: string | null
+    agents: string | null
+    acs: number | null
+    kills: number | null
+    deaths: number | null
+    assists: number | null
+    kd: number | null
+    adr: number | null
+    kast_pct: number | null
+    hs_pct: number | null
+    rounds: number | null
+    fk: number | null
+    fd: number | null
+    plants: number | null
+    defuses: number | null
+    match_maps: {
+      map_name: string | null
+      is_voided: boolean
+      team_a_rounds: number | null
+      team_b_rounds: number | null
+      matches: { team_a_id: string | null; team_b_id: string | null } | null
+    } | null
+  }
+
+  function didWinMap(row: PerMapStatRow): boolean | null {
+    const mm = Array.isArray(row.match_maps) ? row.match_maps[0] : row.match_maps
+    if (!mm || !row.team_id) return null
+    const match = Array.isArray(mm.matches) ? mm.matches[0] : mm.matches
+    if (!match) return null
+    const aRounds = mm.team_a_rounds ?? 0
+    const bRounds = mm.team_b_rounds ?? 0
+    if (aRounds === bRounds) return null
+    const isTeamA = row.team_id === match.team_a_id
+    return isTeamA ? aRounds > bRounds : bRounds > aRounds
+  }
+
+  const validPerMap = ((perMapRows ?? []) as unknown as PerMapStatRow[]).filter((r) => {
+    const mm = Array.isArray(r.match_maps) ? r.match_maps[0] : r.match_maps
+    return mm && !mm.is_voided && mm.map_name
+  })
+
+  function aggregatePerMap(rows: PerMapStatRow[]) {
+    const totalKills = sum(rows.map((r) => r.kills))
+    const totalDeaths = sum(rows.map((r) => r.deaths))
+    const wins = rows.filter((r) => didWinMap(r) === true)
+    const decided = rows.filter((r) => didWinMap(r) !== null)
+    return {
+      maps_played: rows.length,
+      maps_won: wins.length,
+      win_pct: decided.length > 0 ? (wins.length / decided.length) * 100 : null,
+      rounds: sum(rows.map((r) => r.rounds)),
+      acs: average(rows.map((r) => r.acs)),
+      kills: totalKills,
+      deaths: totalDeaths,
+      assists: sum(rows.map((r) => r.assists)),
+      kd: totalDeaths > 0 ? totalKills / totalDeaths : null,
+      adr: weightedAverage(
+        rows.map((r) => ({ adr: r.adr, rounds: r.rounds })),
+        'adr',
+        'rounds'
+      ),
+      kast_pct: weightedAverage(
+        rows.map((r) => ({ kast_pct: r.kast_pct, rounds: r.rounds })),
+        'kast_pct',
+        'rounds'
+      ),
+      hs_pct: average(rows.map((r) => r.hs_pct)),
+      fk: sum(rows.map((r) => r.fk)),
+      fd: sum(rows.map((r) => r.fd)),
+    }
+  }
+
+  const byMap = new Map<string, PerMapStatRow[]>()
+  for (const r of validPerMap) {
+    const mm = Array.isArray(r.match_maps) ? r.match_maps[0] : r.match_maps
+    const mapName = mm?.map_name ?? 'Unknown'
+    const arr = byMap.get(mapName) ?? []
+    arr.push(r)
+    byMap.set(mapName, arr)
+  }
+  const mapStats = Array.from(byMap.entries())
+    .map(([mapName, rows]) => ({ key: mapName, ...aggregatePerMap(rows) }))
+    .sort((a, b) => b.maps_played - a.maps_played)
+
+  const byAgent = new Map<string, PerMapStatRow[]>()
+  for (const r of validPerMap) {
+    const agents = String(r.agents ?? '')
+      .split(/\s+/)
+      .map((a) => a.trim())
+      .filter(Boolean)
+    for (const agent of agents.length > 0 ? agents : ['Unknown']) {
+      const arr = byAgent.get(agent) ?? []
+      arr.push(r)
+      byAgent.set(agent, arr)
+    }
+  }
+  const agentStats = Array.from(byAgent.entries())
+    .map(([agent, rows]) => ({ key: agent, ...aggregatePerMap(rows) }))
+    .sort((a, b) => b.maps_played - a.maps_played)
+
   let bestRank: string | null = null
   let bestRankValue = 0
   for (const r of (appearances ?? []) as Array<{ league_rank?: string | null }>) {
@@ -323,6 +434,8 @@ export const load: PageServerLoad = async ({ url, locals }) => {
     bestRank,
     viewer,
     matchHistory,
+    mapStats,
+    agentStats,
   }
 }
 
