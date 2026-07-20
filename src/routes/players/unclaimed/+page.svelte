@@ -39,6 +39,44 @@
   )
   const selected = $derived(data.selected ?? null)
   const matchHistory = $derived(data.matchHistory ?? [])
+  const mapStats = $derived(
+    (data.mapStats ?? []) as Array<{
+      key: string
+      maps_played: number
+      maps_won: number
+      win_pct: number | null
+      rounds: number
+      acs: number | null
+      kills: number
+      deaths: number
+      assists: number
+      kd: number | null
+      adr: number | null
+      kast_pct: number | null
+      hs_pct: number | null
+      fk: number
+      fd: number
+    }>
+  )
+  const agentStats = $derived(
+    (data.agentStats ?? []) as Array<{
+      key: string
+      maps_played: number
+      maps_won: number
+      win_pct: number | null
+      rounds: number
+      acs: number | null
+      kills: number
+      deaths: number
+      assists: number
+      kd: number | null
+      adr: number | null
+      kast_pct: number | null
+      hs_pct: number | null
+      fk: number
+      fd: number
+    }>
+  )
   const viewer = $derived(
     (data.viewer ?? null) as {
       profileId: string
@@ -120,7 +158,7 @@
 
 <PageContainer>
   <div class="flex justify-center px-4 py-8">
-    <div class="w-full max-w-6xl">
+    <div class="w-full max-w-6xl min-w-0">
       <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div class="flex items-center gap-3">
           <BarChart3 size={34} style="color: var(--text);" />
@@ -155,7 +193,7 @@
       </div>
 
       <section
-        class="rounded-md border p-4"
+        class="overflow-hidden rounded-md border p-4"
         style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
       >
         {#if viewer?.profileId && !viewer?.riotIdBase}
@@ -323,101 +361,245 @@
               </div>
             {/if}
           </div>
-
-          <section
-            class="mt-4 rounded-md border p-4"
-            style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
-          >
-            <div class="mb-3 flex items-center gap-2">
-              <BarChart3 size={16} />
-              <div
-                class="text-xs font-semibold tracking-wide uppercase"
-                style="color: rgba(255,255,255,0.72);"
-              >
-                Match History
-              </div>
-            </div>
-
-            {#if matchHistory.length === 0}
-              <p class="text-sm" style="color: rgba(255,255,255,0.72);">
-                No match stats recorded yet.
-              </p>
-            {:else}
-              <div class="overflow-x-auto">
-                <table class="min-w-full text-left text-sm">
-                  <thead>
-                    <tr
-                      class="text-xs tracking-wide uppercase"
-                      style="color: rgba(255,255,255,0.75);"
-                    >
-                      <th class="px-3 py-2">Opponent</th>
-                      <th class="px-3 py-2">Agent</th>
-                      <th class="px-3 py-2">ACS</th>
-                      <th class="px-3 py-2">K/D/A</th>
-                      <th class="px-3 py-2">KAST</th>
-                      <th class="px-3 py-2">HS%</th>
-                      <th class="px-3 py-2">Result</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {#each matchHistory as entry (entry.match.id)}
-                      <tr class="border-t" style="border-color: rgba(255,255,255,0.10);">
-                        <td class="px-3 py-2" style="color: var(--text);">
-                          <a
-                            href={resolve(`/matches/${entry.match.id}`)}
-                            class="underline"
-                            style="color: var(--text);">vs {entry.opponent?.name ?? 'Team'}</a
-                          >
-                        </td>
-                        <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);">
-                          {#if parseAgents(entry.agents).length === 0}
-                            —
-                          {:else}
-                            <div class="agents-icons">
-                              {#each parseAgents(entry.agents) as agent (agent)}
-                                {@const url = agentIconUrl(agent)}
-                                {#if url}
-                                  <img
-                                    src={url}
-                                    alt={agent}
-                                    title={agent}
-                                    class="h-7 w-7 rounded-sm object-contain"
-                                    style="background: rgba(0,0,0,0.15);"
-                                  />
-                                {:else}
-                                  <span
-                                    class="inline-flex h-7 w-7 items-center justify-center rounded-sm border text-[10px] font-bold"
-                                    style="border-color: rgba(255,255,255,0.15); color: rgba(255,255,255,0.8);"
-                                    title={agent}>{agent.slice(0, 3).toUpperCase()}</span
-                                  >
-                                {/if}
-                              {/each}
-                            </div>
-                          {/if}
-                        </td>
-                        <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);"
-                          >{fmt(entry.acs, 0)}</td
-                        >
-                        <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);"
-                          >{entry.kills}/{entry.deaths}/{entry.assists}</td
-                        >
-                        <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);"
-                          >{fmt(entry.kast_pct, 0)}%</td
-                        >
-                        <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);"
-                          >{fmt(entry.hs_pct, 0)}%</td
-                        >
-                        <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);"
-                          >{entry.score.us}-{entry.score.them}</td
-                        >
-                      </tr>
-                    {/each}
-                  </tbody>
-                </table>
-              </div>
-            {/if}
-          </section>
         {/if}
+
+        {#if mapStats.length > 0 || agentStats.length > 0}
+          <div class="mt-4 flex flex-col gap-4">
+            {#if mapStats.length > 0}
+              <section
+                class="rounded-md border p-4"
+                style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
+              >
+                <div class="mb-3">
+                  <div
+                    class="text-xs font-semibold tracking-wide uppercase"
+                    style="color: rgba(255,255,255,0.72);"
+                  >
+                    Map Stats
+                  </div>
+                </div>
+                <div class="overflow-x-auto">
+                  <table class="min-w-full text-left text-sm">
+                    <thead>
+                      <tr
+                        class="text-xs tracking-wide uppercase"
+                        style="color: rgba(255,255,255,0.75);"
+                      >
+                        <th class="px-3 py-2">Map</th>
+                        <th class="px-3 py-2">Played</th>
+                        <th class="px-3 py-2">Win%</th>
+                        <th class="px-3 py-2">ACS</th>
+                        <th class="px-3 py-2">K/D</th>
+                        <th class="px-3 py-2">ADR</th>
+                        <th class="px-3 py-2">KAST</th>
+                        <th class="px-3 py-2">HS%</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {#each mapStats as entry (entry.key)}
+                        <tr class="border-t" style="border-color: rgba(255,255,255,0.10);">
+                          <td class="px-3 py-2 font-medium" style="color: var(--text);">
+                            {entry.key}
+                          </td>
+                          <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);">
+                            {entry.maps_played}
+                          </td>
+                          <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);">
+                            {entry.win_pct != null ? `${fmt(entry.win_pct, 0)}%` : '—'}
+                          </td>
+                          <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);">
+                            {fmt(entry.acs, 0)}
+                          </td>
+                          <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);">
+                            {fmt(entry.kd, 2)}
+                          </td>
+                          <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);">
+                            {fmt(entry.adr, 0)}
+                          </td>
+                          <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);">
+                            {fmt(entry.kast_pct, 0)}%
+                          </td>
+                          <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);">
+                            {fmt(entry.hs_pct, 0)}%
+                          </td>
+                        </tr>
+                      {/each}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            {/if}
+
+            {#if agentStats.length > 0}
+              <section
+                class="rounded-md border p-4"
+                style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
+              >
+                <div class="mb-3">
+                  <div
+                    class="text-xs font-semibold tracking-wide uppercase"
+                    style="color: rgba(255,255,255,0.72);"
+                  >
+                    Agent Stats
+                  </div>
+                </div>
+                <div class="overflow-x-auto">
+                  <table class="min-w-full text-left text-sm">
+                    <thead>
+                      <tr
+                        class="text-xs tracking-wide uppercase"
+                        style="color: rgba(255,255,255,0.75);"
+                      >
+                        <th class="px-3 py-2">Agent</th>
+                        <th class="px-3 py-2">Played</th>
+                        <th class="px-3 py-2">Win%</th>
+                        <th class="px-3 py-2">ACS</th>
+                        <th class="px-3 py-2">K/D</th>
+                        <th class="px-3 py-2">ADR</th>
+                        <th class="px-3 py-2">KAST</th>
+                        <th class="px-3 py-2">HS%</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {#each agentStats as entry (entry.key)}
+                        <tr class="border-t" style="border-color: rgba(255,255,255,0.10);">
+                          <td class="px-3 py-2" style="color: var(--text);">
+                            <div class="flex items-center gap-2">
+                              {#if agentIconUrl(entry.key)}
+                                <img
+                                  src={agentIconUrl(entry.key) ?? ''}
+                                  alt={entry.key}
+                                  class="h-6 w-6 rounded-sm object-contain"
+                                  style="background: rgba(0,0,0,0.15);"
+                                />
+                              {/if}
+                              <span class="font-medium">{entry.key}</span>
+                            </div>
+                          </td>
+                          <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);">
+                            {entry.maps_played}
+                          </td>
+                          <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);">
+                            {entry.win_pct != null ? `${fmt(entry.win_pct, 0)}%` : '—'}
+                          </td>
+                          <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);">
+                            {fmt(entry.acs, 0)}
+                          </td>
+                          <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);">
+                            {fmt(entry.kd, 2)}
+                          </td>
+                          <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);">
+                            {fmt(entry.adr, 0)}
+                          </td>
+                          <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);">
+                            {fmt(entry.kast_pct, 0)}%
+                          </td>
+                          <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);">
+                            {fmt(entry.hs_pct, 0)}%
+                          </td>
+                        </tr>
+                      {/each}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            {/if}
+          </div>
+        {/if}
+
+        <section
+          class="mt-4 rounded-md border p-4"
+          style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
+        >
+          <div class="mb-3 flex items-center gap-2">
+            <BarChart3 size={16} />
+            <div
+              class="text-xs font-semibold tracking-wide uppercase"
+              style="color: rgba(255,255,255,0.72);"
+            >
+              Match History
+            </div>
+          </div>
+
+          {#if matchHistory.length === 0}
+            <p class="text-sm" style="color: rgba(255,255,255,0.72);">
+              No match stats recorded yet.
+            </p>
+          {:else}
+            <div class="overflow-x-auto">
+              <table class="min-w-full text-left text-sm">
+                <thead>
+                  <tr
+                    class="text-xs tracking-wide uppercase"
+                    style="color: rgba(255,255,255,0.75);"
+                  >
+                    <th class="px-3 py-2">Opponent</th>
+                    <th class="px-3 py-2">Agent</th>
+                    <th class="px-3 py-2">ACS</th>
+                    <th class="px-3 py-2">K/D/A</th>
+                    <th class="px-3 py-2">KAST</th>
+                    <th class="px-3 py-2">HS%</th>
+                    <th class="px-3 py-2">Result</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {#each matchHistory as entry (entry.match.id)}
+                    <tr class="border-t" style="border-color: rgba(255,255,255,0.10);">
+                      <td class="px-3 py-2" style="color: var(--text);">
+                        <a
+                          href={resolve(`/matches/${entry.match.id}`)}
+                          class="underline"
+                          style="color: var(--text);">vs {entry.opponent?.name ?? 'Team'}</a
+                        >
+                      </td>
+                      <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);">
+                        {#if parseAgents(entry.agents).length === 0}
+                          —
+                        {:else}
+                          <div class="agents-icons">
+                            {#each parseAgents(entry.agents) as agent (agent)}
+                              {@const url = agentIconUrl(agent)}
+                              {#if url}
+                                <img
+                                  src={url}
+                                  alt={agent}
+                                  title={agent}
+                                  class="h-7 w-7 rounded-sm object-contain"
+                                  style="background: rgba(0,0,0,0.15);"
+                                />
+                              {:else}
+                                <span
+                                  class="inline-flex h-7 w-7 items-center justify-center rounded-sm border text-[10px] font-bold"
+                                  style="border-color: rgba(255,255,255,0.15); color: rgba(255,255,255,0.8);"
+                                  title={agent}>{agent.slice(0, 3).toUpperCase()}</span
+                                >
+                              {/if}
+                            {/each}
+                          </div>
+                        {/if}
+                      </td>
+                      <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);"
+                        >{fmt(entry.acs, 0)}</td
+                      >
+                      <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);"
+                        >{entry.kills}/{entry.deaths}/{entry.assists}</td
+                      >
+                      <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);"
+                        >{fmt(entry.kast_pct, 0)}%</td
+                      >
+                      <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);"
+                        >{fmt(entry.hs_pct, 0)}%</td
+                      >
+                      <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);"
+                        >{entry.score.us}-{entry.score.them}</td
+                      >
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            </div>
+          {/if}
+        </section>
       </section>
     </div>
   </div>
@@ -425,16 +607,8 @@
 
 <style>
   .agents-icons {
-    display: inline-grid;
-    grid-template-rows: 28px;
-    grid-auto-flow: column;
-    grid-auto-columns: 28px;
+    display: flex;
+    flex-wrap: wrap;
     gap: 6px;
-  }
-
-  @media (max-width: 768px) {
-    .agents-icons {
-      grid-template-rows: 28px 28px;
-    }
   }
 </style>

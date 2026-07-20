@@ -4,7 +4,7 @@ import { claimRelinkAfterProfileUpdate } from '$lib/server/players/claim-relink'
 import { normalizeRiotBase, isValidRiotBase } from '$lib/server/riot-id'
 import { supabaseErrorMessageIncludes } from '$lib/server/supabase/errors'
 import { toBatchLabel } from '$lib/server/stats/batch-label'
-import { average, sum } from '$lib/server/math'
+import { average, sum, weightedAverage } from '$lib/server/math'
 import {
   extractNumericLabel,
   isLatestLabel,
@@ -90,6 +90,92 @@ type MatchHistoryEntry = {
   adr: number | null
   kast_pct: number | null
   hs_pct: number | null
+}
+
+type AggregatedStatEntry = {
+  key: string
+  maps_played: number
+  maps_won: number
+  win_pct: number | null
+  rounds: number
+  acs: number | null
+  kills: number
+  deaths: number
+  assists: number
+  kd: number | null
+  adr: number | null
+  kast_pct: number | null
+  hs_pct: number | null
+  fk: number
+  fd: number
+}
+
+type PerMapStatRow = {
+  team_id: string | null
+  agents: string | null
+  acs: number | null
+  kills: number | null
+  deaths: number | null
+  assists: number | null
+  kd: number | null
+  adr: number | null
+  kast_pct: number | null
+  hs_pct: number | null
+  rounds: number | null
+  fk: number | null
+  fd: number | null
+  plants: number | null
+  defuses: number | null
+  match_maps: {
+    map_name: string | null
+    is_voided: boolean
+    team_a_rounds: number | null
+    team_b_rounds: number | null
+    matches: { team_a_id: string | null; team_b_id: string | null } | null
+  } | null
+}
+
+function didWinMap(row: PerMapStatRow): boolean | null {
+  const mm = Array.isArray(row.match_maps) ? row.match_maps[0] : row.match_maps
+  if (!mm || !row.team_id) return null
+  const match = Array.isArray(mm.matches) ? mm.matches[0] : mm.matches
+  if (!match) return null
+  const aRounds = mm.team_a_rounds ?? 0
+  const bRounds = mm.team_b_rounds ?? 0
+  if (aRounds === bRounds) return null
+  const isTeamA = row.team_id === match.team_a_id
+  return isTeamA ? aRounds > bRounds : bRounds > aRounds
+}
+
+function aggregateStats(rows: PerMapStatRow[]): Omit<AggregatedStatEntry, 'key'> {
+  const totalKills = sum(rows.map((r) => r.kills))
+  const totalDeaths = sum(rows.map((r) => r.deaths))
+  const wins = rows.filter((r) => didWinMap(r) === true)
+  const decided = rows.filter((r) => didWinMap(r) !== null)
+  return {
+    maps_played: rows.length,
+    maps_won: wins.length,
+    win_pct: decided.length > 0 ? (wins.length / decided.length) * 100 : null,
+    rounds: sum(rows.map((r) => r.rounds)),
+    acs: average(rows.map((r) => r.acs)),
+    kills: totalKills,
+    deaths: totalDeaths,
+    assists: sum(rows.map((r) => r.assists)),
+    kd: totalDeaths > 0 ? totalKills / totalDeaths : null,
+    adr: weightedAverage(
+      rows.map((r) => ({ adr: r.adr, rounds: r.rounds })),
+      'adr',
+      'rounds'
+    ),
+    kast_pct: weightedAverage(
+      rows.map((r) => ({ kast_pct: r.kast_pct, rounds: r.rounds })),
+      'kast_pct',
+      'rounds'
+    ),
+    hs_pct: average(rows.map((r) => r.hs_pct)),
+    fk: sum(rows.map((r) => r.fk)),
+    fd: sum(rows.map((r) => r.fd)),
+  }
 }
 
 function kindOrder(kind: unknown): number {
@@ -378,10 +464,15 @@ export const load = async ({
     )
   )
 
+  const perMapSelect =
+    'id, team_id, agents, acs, kills, deaths, assists, kd, adr, kast_pct, hs_pct, rounds, fk, fd, plants, defuses, match_maps(map_name, is_voided, team_a_rounds, team_b_rounds, matches(team_a_id, team_b_id))'
+
   const [
     { data: accoladeAssignments },
     { data: claimedParticipation },
     { data: unmatchedParticipation },
+    { data: perMapClaimedStats },
+    { data: perMapUnmatchedStats },
   ] = await Promise.all([
     supabaseAdmin
       .from('accolade_assignments')
@@ -409,6 +500,27 @@ export const load = async ({
           )
           .order('created_at', { ascending: false })
           .limit(500)
+      : Promise.resolve({ data: [] }),
+    supabaseAdmin
+      .from('player_match_map_stats')
+      .select(perMapSelect)
+      .eq('profile_id', profileId)
+      .limit(1000),
+    importNameFilters.length > 0
+      ? supabaseAdmin
+          .from('player_match_map_stats')
+          .select(perMapSelect)
+          .is('profile_id', null)
+          .or(
+            importNameFilters
+              .map((name) =>
+                name.endsWith('#%')
+                  ? `player_name.ilike.${quoteOrValue(name)}`
+                  : `player_name.eq.${quoteOrValue(name)}`
+              )
+              .join(',')
+          )
+          .limit(1000)
       : Promise.resolve({ data: [] }),
   ])
 
@@ -501,6 +613,52 @@ export const load = async ({
     })
     .slice(0, 50)
 
+  const seenPerMapIds = new Set<string>()
+  const perMapRawStats: (PerMapStatRow & { id: string })[] = []
+  for (const r of [
+    ...((perMapClaimedStats ?? []) as unknown as (PerMapStatRow & { id: string })[]),
+    ...((perMapUnmatchedStats ?? []) as unknown as (PerMapStatRow & { id: string })[]),
+  ]) {
+    if (seenPerMapIds.has(r.id)) continue
+    seenPerMapIds.add(r.id)
+    perMapRawStats.push(r)
+  }
+
+  const validMapStats = (perMapRawStats as PerMapStatRow[]).filter((r) => {
+    const mm = Array.isArray(r.match_maps) ? r.match_maps[0] : r.match_maps
+    return mm && !mm.is_voided && mm.map_name
+  })
+
+  const byMap = new Map<string, PerMapStatRow[]>()
+  for (const r of validMapStats) {
+    const mm = Array.isArray(r.match_maps) ? r.match_maps[0] : r.match_maps
+    const mapName = mm?.map_name ?? 'Unknown'
+    const arr = byMap.get(mapName) ?? []
+    arr.push(r)
+    byMap.set(mapName, arr)
+  }
+
+  const mapStats: AggregatedStatEntry[] = Array.from(byMap.entries())
+    .map(([mapName, rows]) => ({ key: mapName, ...aggregateStats(rows) }))
+    .sort((a, b) => b.maps_played - a.maps_played)
+
+  const byAgent = new Map<string, PerMapStatRow[]>()
+  for (const r of validMapStats) {
+    const agents = String(r.agents ?? '')
+      .split(/\s+/)
+      .map((a) => a.trim())
+      .filter(Boolean)
+    for (const agent of agents.length > 0 ? agents : ['Unknown']) {
+      const arr = byAgent.get(agent) ?? []
+      arr.push(r)
+      byAgent.set(agent, arr)
+    }
+  }
+
+  const agentStats: AggregatedStatEntry[] = Array.from(byAgent.entries())
+    .map(([agent, rows]) => ({ key: agent, ...aggregateStats(rows) }))
+    .sort((a, b) => b.maps_played - a.maps_played)
+
   let bestRank: string | null = null
   let bestRankValue = 0
   for (const r of normalizedStats) {
@@ -541,6 +699,8 @@ export const load = async ({
       batchOptions,
     },
     matchHistory,
+    mapStats,
+    agentStats,
   }
 }
 

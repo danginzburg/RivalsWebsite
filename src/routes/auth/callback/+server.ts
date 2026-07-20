@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js'
 import { env as publicEnv } from '$env/dynamic/public'
 import { env } from '$env/dynamic/private'
 import { rematchNamedTeamMemberships } from '$lib/server/teams/membership'
+import { claimRelinkAfterProfileUpdate } from '$lib/server/players/claim-relink'
 
 export const GET: RequestHandler = async ({ url, cookies }) => {
   const code = url.searchParams.get('code')
@@ -112,6 +113,11 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
       await rematchNamedTeamMemberships(syncedProfile.id)
     } catch (err) {
       console.warn('Failed to rematch named team memberships during login:', err)
+    }
+    try {
+      await claimRelinkAfterProfileUpdate(syncedProfile.id)
+    } catch (err) {
+      console.warn('Failed to relink match stats during login:', err)
     }
   }
 

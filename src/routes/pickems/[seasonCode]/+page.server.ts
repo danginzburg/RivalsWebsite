@@ -2,12 +2,13 @@ import { error } from '@sveltejs/kit'
 
 import { requireProfile } from '$lib/server/auth/profile'
 import {
+  getActualPlayoffWinnersFromLinkedMatches,
   getPlayoffPickemContextBySeasonCode,
   getPlayoffPickemSubmissionForProfile,
   listPlayoffPickemLeaderboard,
   listPlayoffPickemPublicSubmissions,
 } from '$lib/server/playoffPickems'
-import { isPlayoffPickemLocked } from '$lib/playoffPickems'
+import { isPlayoffPickemLocked, type PlayoffMatchId } from '$lib/playoffPickems'
 import type { PageServerLoad } from './$types'
 
 export const load: PageServerLoad = async ({ locals, params }) => {
@@ -20,9 +21,10 @@ export const load: PageServerLoad = async ({ locals, params }) => {
   const mySubmission = profile
     ? await getPlayoffPickemSubmissionForProfile(context.season.id, profile.id)
     : null
-  const [submissions, leaderboard] = await Promise.all([
+  const [submissions, leaderboard, actualWinners] = await Promise.all([
     listPlayoffPickemPublicSubmissions(context.season.id),
     listPlayoffPickemLeaderboard(context.season.id),
+    getActualPlayoffWinnersFromLinkedMatches(context.config),
   ])
   const locked = isPlayoffPickemLocked(context.config)
 
@@ -33,6 +35,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
     mySubmission,
     submissions,
     leaderboard,
+    actualWinners: actualWinners as Partial<Record<PlayoffMatchId, string>>,
     viewer: {
       isLoggedIn: Boolean(profile),
       canEdit: Boolean(profile) && context.config.status === 'open' && !locked,
