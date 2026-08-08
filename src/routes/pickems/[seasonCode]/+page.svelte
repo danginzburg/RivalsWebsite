@@ -17,10 +17,12 @@
 
   let { data }: PageProps = $props()
 
+  const RESULTS_VIEW_ID = '__results__'
+
   let picks = $state<Partial<Record<PlayoffMatchId, string>>>(
     untrack(() => ({ ...(data.mySubmission?.payload.picks ?? {}) }))
   )
-  let selectedSubmissionId = $state<string>(untrack(() => data.mySubmission?.id ?? ''))
+  let selectedSubmissionId = $state<string>(untrack(() => RESULTS_VIEW_ID))
   let isSaving = $state(false)
   let saveMessage = $state<string | null>(null)
   let errorMessage = $state<string | null>(null)
@@ -28,17 +30,20 @@
   const teamById = $derived(
     new Map((data.teams as PlayoffPickemTeam[]).map((team) => [team.id, team]))
   )
+  const isViewingResults = $derived(selectedSubmissionId === RESULTS_VIEW_ID)
   const selectedSubmission = $derived(
     data.submissions.find((submission) => submission.id === selectedSubmissionId) ?? null
   )
   const displayPayload = $derived<PlayoffPickemPayload>(
-    selectedSubmission && selectedSubmission.id !== data.mySubmission?.id
-      ? normalizePlayoffPickemPayload(selectedSubmission.payload)
-      : { picks }
+    isViewingResults
+      ? { picks: { ...(data.actualWinners as Partial<Record<PlayoffMatchId, string>>) } }
+      : selectedSubmission && selectedSubmission.id !== data.mySubmission?.id
+        ? normalizePlayoffPickemPayload(selectedSubmission.payload)
+        : { picks }
   )
   const slots = $derived(buildPlayoffBracketSlots(data.config, displayPayload))
   const isViewingOwn = $derived(
-    !selectedSubmission || selectedSubmission.id === data.mySubmission?.id
+    !isViewingResults && (!selectedSubmission || selectedSubmission.id === data.mySubmission?.id)
   )
 
   const resolvedIds = $derived(new Set(data.config.resolved_matches?.map((r) => r.matchId) ?? []))
@@ -69,9 +74,10 @@
 
   const submissionOptions = $derived.by(() => {
     const opts: Array<{ value: string; label: string }> = []
+    opts.push({ value: RESULTS_VIEW_ID, label: 'Actual Bracket' })
     if (data.mySubmission) {
       opts.push({ value: data.mySubmission.id, label: 'My bracket' })
-    } else {
+    } else if (data.viewer.canEdit) {
       opts.push({ value: '', label: 'Current picks' })
     }
     for (const s of data.submissions) {
@@ -94,6 +100,7 @@
   }
 
   function pickResult(matchId: PlayoffMatchId): 'correct' | 'wrong' | 'no-pick' | null {
+    if (isViewingResults) return null
     if (resolvedIds.has(matchId)) return null
     const winner = actualWinners[matchId]
     if (!winner) return null
@@ -339,7 +346,7 @@
   <article
     class="match-card"
     class:gf={slot.id === 'grand_final'}
-    class:resolved={isDecided && result === null}
+    class:resolved={isDecided && result === null && !isViewingResults}
     class:pick-correct={result === 'correct'}
     class:pick-wrong={result === 'wrong'}
   >
