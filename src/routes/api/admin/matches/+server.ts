@@ -21,14 +21,15 @@ function parseScheduledAt(value: unknown): string | null {
   return d.toISOString()
 }
 
-export const GET: RequestHandler = async ({ locals }) => {
+export const GET: RequestHandler = async ({ locals, url }) => {
   await requireAdmin(locals.user)
 
-  const { data: matches, error: matchesError } = await supabaseAdmin
-    .from('matches')
-    .select(
-      `
+  const seasonId = url.searchParams.get('seasonId')
+
+  let query = supabaseAdmin.from('matches').select(
+    `
       id,
+      season_id,
       status,
       approval_status,
       best_of,
@@ -43,8 +44,17 @@ export const GET: RequestHandler = async ({ locals }) => {
       team_a:teams!matches_team_a_id_fkey (id, name, tag),
       team_b:teams!matches_team_b_id_fkey (id, name, tag)
     `
-    )
-    .order('created_at', { ascending: false })
+  )
+
+  if (seasonId === '__none__') {
+    query = query.is('season_id', null)
+  } else if (seasonId) {
+    query = query.eq('season_id', seasonId)
+  }
+
+  const { data: matches, error: matchesError } = await query.order('created_at', {
+    ascending: false,
+  })
 
   if (matchesError) throw error(500, 'Failed to load matches')
 
@@ -107,6 +117,12 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     throw error(400, 'Both teams must be approved')
   }
 
+  const { data: activeSeason } = await supabaseAdmin
+    .from('seasons')
+    .select('id')
+    .eq('is_active', true)
+    .maybeSingle()
+
   const now = new Date().toISOString()
   const { data: created, error: createError } = await supabaseAdmin
     .from('matches')
@@ -120,10 +136,12 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       submitted_by_profile_id: admin.id,
       approved_by_profile_id: admin.id,
       approved_at: now,
+      season_id: activeSeason?.id ?? null,
     })
     .select(
       `
       id,
+      season_id,
       status,
       approval_status,
       best_of,

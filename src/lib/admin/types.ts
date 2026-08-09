@@ -101,6 +101,7 @@ export type AdminMatch = {
   team_b: AdminTeamLite | AdminTeamLite[] | null
   streams: MatchStreamRow[]
   vod_url: string | null
+  season_id: string | null
 }
 
 export type TeamEditState = {

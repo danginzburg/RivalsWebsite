@@ -27,7 +27,7 @@ type FetchAdapter = {
       includeHttpStatusInError?: boolean
     }
   ): Promise<T>
-  fetchDashboardData(): Promise<DashboardData>
+  fetchDashboardData(options?: { seasonId?: string | null }): Promise<DashboardData>
 }
 
 export type DashboardStatusSink = {
@@ -38,12 +38,12 @@ export type DashboardStatusSink = {
 }
 
 export function createAdminDashboardState({ fetchAdapter }: { fetchAdapter: FetchAdapter }) {
-  async function refresh(sink: DashboardStatusSink) {
+  async function refresh(sink: DashboardStatusSink & { seasonId?: string | null }) {
     sink.setLoading(true)
     sink.setError(null)
     sink.setSuccess(null)
     try {
-      sink.replaceData(await fetchAdapter.fetchDashboardData())
+      sink.replaceData(await fetchAdapter.fetchDashboardData({ seasonId: sink.seasonId }))
     } catch (err) {
       sink.setError(err instanceof Error ? err.message : 'Failed to refresh data')
     } finally {
@@ -52,7 +52,7 @@ export function createAdminDashboardState({ fetchAdapter }: { fetchAdapter: Fetc
   }
 
   return {
-    async refresh(sink: DashboardStatusSink) {
+    async refresh(sink: DashboardStatusSink & { seasonId?: string | null }) {
       await refresh(sink)
     },
 

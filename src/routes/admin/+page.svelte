@@ -56,6 +56,7 @@
   let seasons = $state<AdminSeason[]>(getInitialSeasons())
   let approvedTeams = $state<ApprovedTeamEntry[]>(getInitialApprovedTeams() as ApprovedTeamEntry[])
   let matches = $state<AdminMatch[]>(getInitialMatches())
+  let adminMatchSeasonId = $state<string>(data.activeSeasonId ?? '')
   let matchSearchQuery = $state('')
   let showCompletedAdminMatches = $state(false)
   let createSeasonCode = $state('')
@@ -67,6 +68,18 @@
   let seasonEditForm = $state<Record<string, SeasonEditState>>({})
 
   const approvedTeamOptions = $derived(buildApprovedTeamOptions(approvedTeams ?? []))
+
+  const matchSeasonOptions = $derived.by(() => {
+    const opts: Array<{ value: string; label: string }> = [{ value: '', label: 'All seasons' }]
+    for (const s of seasons) {
+      opts.push({
+        value: s.id,
+        label: `${s.name}${s.is_active ? ' (Active)' : ''}`,
+      })
+    }
+    opts.push({ value: '__none__', label: 'No season' })
+    return opts
+  })
 
   let createMatchTeamAId = $state('')
   let createMatchTeamBId = $state('')
@@ -620,6 +633,7 @@
 
   async function refreshData() {
     await dashboardState.refresh({
+      seasonId: adminMatchSeasonId || undefined,
       setLoading: (value) => (isLoading = value),
       setError: (message) => (errorMessage = message),
       setSuccess: (message) => (successMessage = message),
@@ -630,6 +644,11 @@
         matches = dashboardData.matches
       },
     })
+  }
+
+  async function onMatchSeasonChange(seasonId: string) {
+    adminMatchSeasonId = seasonId
+    await refreshData()
   }
 
   async function finalizeMatch(match: AdminMatch) {
@@ -1334,6 +1353,9 @@
         {addPlayerForm}
         {teamEditForm}
         {processingTeamId}
+        {matchSeasonOptions}
+        {adminMatchSeasonId}
+        {onMatchSeasonChange}
         onTeamsSearchChange={(value) => (teamsSearch = value)}
         onCreateTeamNameChange={(value) => (createTeamName = value)}
         onCreateTeamTagChange={(value) => (createTeamTag = value)}
@@ -1377,6 +1399,9 @@
         {vodForm}
         {matchMapsCache}
         {matchMapsLoading}
+        {matchSeasonOptions}
+        {adminMatchSeasonId}
+        {onMatchSeasonChange}
         onCreateMatchTeamAIdChange={(value) => (createMatchTeamAId = value)}
         onCreateMatchTeamBIdChange={(value) => (createMatchTeamBId = value)}
         onCreateMatchBestOfChange={(value) => (createMatchBestOf = value as BestOfValue)}

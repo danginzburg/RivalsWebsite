@@ -34,6 +34,9 @@
       Array<{ id: string; map_order: number; map_name: string | null; is_voided: boolean }>
     >
     matchMapsLoading: Record<string, boolean>
+    matchSeasonOptions: Array<{ value: string; label: string }>
+    adminMatchSeasonId: string
+    onMatchSeasonChange: (value: string) => void
     onCreateMatchTeamAIdChange: (value: string) => void
     onCreateMatchTeamBIdChange: (value: string) => void
     onCreateMatchBestOfChange: (value: string) => void
@@ -81,6 +84,9 @@
     vodForm,
     matchMapsCache,
     matchMapsLoading,
+    matchSeasonOptions,
+    adminMatchSeasonId,
+    onMatchSeasonChange,
     onCreateMatchTeamAIdChange,
     onCreateMatchTeamBIdChange,
     onCreateMatchBestOfChange,
@@ -192,13 +198,24 @@
     </div>
 
     <div class="mb-3 space-y-3">
-      <input
-        bind:value={matchSearchQuery}
-        class="w-full rounded-lg border px-3 py-2 text-sm md:max-w-md"
-        style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2); color: var(--text);"
-        placeholder="Search teams or match status"
-        oninput={(e) => onMatchSearchChange((e.currentTarget as HTMLInputElement).value)}
-      />
+      <div class="flex flex-col gap-2 md:flex-row md:items-center">
+        <div class="md:max-w-xs">
+          <CustomSelect
+            options={matchSeasonOptions}
+            value={adminMatchSeasonId}
+            compact={true}
+            placeholder="Filter by season"
+            onSelect={onMatchSeasonChange}
+          />
+        </div>
+        <input
+          bind:value={matchSearchQuery}
+          class="w-full rounded-lg border px-3 py-2 text-sm md:max-w-md"
+          style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2); color: var(--text);"
+          placeholder="Search teams or match status"
+          oninput={(e) => onMatchSearchChange((e.currentTarget as HTMLInputElement).value)}
+        />
+      </div>
       <label
         class="inline-flex w-full items-center gap-2 text-sm"
         style="color: rgba(255,255,255,0.8);"

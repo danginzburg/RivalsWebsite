@@ -40,8 +40,10 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     console.error('Error fetching seasons:', seasonsError)
   }
 
+  const activeSeason = (seasons ?? []).find((s: any) => s.is_active) ?? null
+
   // Teams are admin-managed; load approved teams.
-  const { data: approvedTeams, error: approvedTeamsError } = await supabaseAdmin
+  let approvedTeamsQuery = supabaseAdmin
     .from('teams')
     .select(
       `
@@ -51,12 +53,21 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
       logo_path,
       metadata,
       status,
+      season_id,
       approval_status,
       created_at
     `
     )
     .eq('approval_status', 'approved')
-    .order('created_at', { ascending: false })
+
+  if (activeSeason) {
+    approvedTeamsQuery = approvedTeamsQuery.eq('season_id', activeSeason.id)
+  }
+
+  const { data: approvedTeams, error: approvedTeamsError } = await approvedTeamsQuery.order(
+    'created_at',
+    { ascending: false }
+  )
 
   if (approvedTeamsError) {
     console.error('Error fetching approved teams:', approvedTeamsError)
@@ -145,6 +156,30 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
       roster: approvedRosterMap.get(team.id) ?? [],
     }))
 
+  let matchesQuery = supabaseAdmin.from('matches').select(
+    `
+      id,
+      season_id,
+      status,
+      approval_status,
+      best_of,
+      scheduled_at,
+      ended_at,
+      metadata,
+      team_a_id,
+      team_b_id,
+      winner_team_id,
+      team_a_score,
+      team_b_score,
+      team_a:teams!matches_team_a_id_fkey (id, name, tag),
+      team_b:teams!matches_team_b_id_fkey (id, name, tag)
+    `
+  )
+
+  if (activeSeason) {
+    matchesQuery = matchesQuery.eq('season_id', activeSeason.id)
+  }
+
   const [
     { data: disbandedTeams, error: disbandedTeamsError },
     { data: matches, error: matchesError },
@@ -165,27 +200,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
       )
       .eq('status', 'disbanded')
       .order('created_at', { ascending: false }),
-    supabaseAdmin
-      .from('matches')
-      .select(
-        `
-      id,
-       status,
-        approval_status,
-        best_of,
-        scheduled_at,
-        ended_at,
-        metadata,
-        team_a_id,
-        team_b_id,
-        winner_team_id,
-      team_a_score,
-      team_b_score,
-      team_a:teams!matches_team_a_id_fkey (id, name, tag),
-      team_b:teams!matches_team_b_id_fkey (id, name, tag)
-    `
-      )
-      .order('scheduled_at', { ascending: true, nullsFirst: false }),
+    matchesQuery.order('scheduled_at', { ascending: true, nullsFirst: false }),
   ])
 
   if (disbandedTeamsError) {
@@ -240,5 +255,6 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
       streams: streamsByMatch[match.id] ?? [],
       vod_url: match.metadata?.youtube_vod_url ?? null,
     })),
+    activeSeasonId: activeSeason?.id ?? null,
   }
 }

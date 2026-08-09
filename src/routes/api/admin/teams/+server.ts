@@ -31,10 +31,12 @@ function isImageFile(file: File) {
   return typeof file.type === 'string' && file.type.startsWith('image/')
 }
 
-export const GET: RequestHandler = async ({ locals }) => {
+export const GET: RequestHandler = async ({ locals, url }) => {
   await requireAdmin(locals.user)
 
-  const { data, error: fetchError } = await supabaseAdmin
+  const seasonId = url.searchParams.get('seasonId')
+
+  let query = supabaseAdmin
     .from('teams')
     .select(
       `
@@ -44,6 +46,7 @@ export const GET: RequestHandler = async ({ locals }) => {
       logo_path,
       metadata,
       status,
+      season_id,
       approval_status,
       approval_notes,
       created_at,
@@ -55,7 +58,14 @@ export const GET: RequestHandler = async ({ locals }) => {
     `
     )
     .in('approval_status', ['pending', 'approved'])
-    .order('created_at', { ascending: false })
+
+  if (seasonId === '__none__') {
+    query = query.is('season_id', null)
+  } else if (seasonId) {
+    query = query.eq('season_id', seasonId)
+  }
+
+  const { data, error: fetchError } = await query.order('created_at', { ascending: false })
 
   if (fetchError) {
     throw error(500, 'Failed to load team moderation queue')
@@ -191,6 +201,12 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       uploadedLogoPath = objectPath
     }
 
+    const { data: activeSeason } = await supabaseAdmin
+      .from('seasons')
+      .select('id')
+      .eq('is_active', true)
+      .maybeSingle()
+
     const now = new Date().toISOString()
     const { data: created, error: createError } = await supabaseAdmin
       .from('teams')
@@ -204,6 +220,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
         submitted_by_profile_id: adminProfile.id,
         approved_by_profile_id: adminProfile.id,
         approved_at: now,
+        season_id: activeSeason?.id ?? null,
         metadata: {
           match_import_names: [],
           leaderboard_import_tags: [],

@@ -27,6 +27,7 @@
 
   const user = $derived($page.data.user)
   const isAdmin = $derived(user?.role === 'admin')
+  const hasActivePickem = $derived($page.data.hasActivePickem ?? false)
   type NavHref =
     | '/leaderboard'
     | '/matches'
@@ -42,7 +43,9 @@
     const items: Array<{ href: NavHref; label: string; icon: typeof Trophy }> = [
       { href: '/leaderboard', label: 'Leaderboard', icon: Trophy },
       { href: '/matches', label: 'Matches', icon: Calendar },
-      { href: '/pickems', label: "Pick'ems", icon: Target },
+      ...(hasActivePickem
+        ? [{ href: '/pickems' as NavHref, label: "Pick'ems", icon: Target }]
+        : []),
       { href: '/rulebook', label: 'Rulebook', icon: BookOpen },
       { href: '/stats', label: 'Stats', icon: BarChart3 },
       { href: '/team-balance', label: 'Calculator', icon: Calculator },

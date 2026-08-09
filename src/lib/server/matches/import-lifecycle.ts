@@ -210,6 +210,12 @@ export async function importCompletedSeries({
     }
   }
 
+  const { data: activeSeason } = await supabaseAdmin
+    .from('seasons')
+    .select('id')
+    .eq('is_active', true)
+    .maybeSingle()
+
   const [teams, profiles] = await Promise.all([
     getApprovedTeamsForImports(),
     getProfilesForImports(),
@@ -258,6 +264,7 @@ export async function importCompletedSeries({
         submitted_by_profile_id: adminProfileId,
         approved_by_profile_id: adminProfileId,
         approved_at: new Date().toISOString(),
+        season_id: activeSeason?.id ?? null,
         metadata: {
           imported_from_csv: true,
           has_series_result: true,
@@ -675,6 +682,12 @@ export async function importNoShowForfeit({
 
   const bestOf = [1, 3, 5, 7].includes(Number(body.bestOf)) ? Number(body.bestOf) : 3
 
+  const { data: activeSeasonForForfeit } = await supabaseAdmin
+    .from('seasons')
+    .select('id')
+    .eq('is_active', true)
+    .maybeSingle()
+
   const [teams] = await Promise.all([getApprovedTeamsForImports()])
   const teamMatcher = buildTeamMatcher(teams)
 
@@ -729,6 +742,7 @@ export async function importNoShowForfeit({
         submitted_by_profile_id: adminProfileId,
         approved_by_profile_id: adminProfileId,
         approved_at: new Date().toISOString(),
+        season_id: activeSeasonForForfeit?.id ?? null,
         metadata: {
           imported_from_csv: true,
           has_series_result: true,

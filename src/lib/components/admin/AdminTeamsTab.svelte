@@ -43,6 +43,9 @@
     addPlayerForm: Record<string, AddState>
     teamEditForm: Record<string, EditState>
     processingTeamId: string | null
+    matchSeasonOptions: Array<{ value: string; label: string }>
+    adminMatchSeasonId: string
+    onMatchSeasonChange: (value: string) => void
     onTeamsSearchChange: (value: string) => void
     onCreateTeamNameChange: (value: string) => void
     onCreateTeamTagChange: (value: string) => void
@@ -72,6 +75,9 @@
     addPlayerForm,
     teamEditForm,
     processingTeamId,
+    matchSeasonOptions,
+    adminMatchSeasonId,
+    onMatchSeasonChange,
     onTeamsSearchChange,
     onCreateTeamNameChange,
     onCreateTeamTagChange,
@@ -89,13 +95,24 @@
   let createTeamLogoInput: HTMLInputElement | null = null
 </script>
 
-<input
-  bind:value={teamsSearch}
-  placeholder="Search teams by name, tag, captain"
-  class="mb-3 w-full rounded-md border px-3 py-2 text-sm"
-  style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-  oninput={(e) => onTeamsSearchChange((e.currentTarget as HTMLInputElement).value)}
-/>
+<div class="mb-3 flex flex-col gap-2 md:flex-row md:items-center">
+  <div class="md:max-w-xs">
+    <CustomSelect
+      options={matchSeasonOptions}
+      value={adminMatchSeasonId}
+      compact={true}
+      placeholder="Filter by season"
+      onSelect={onMatchSeasonChange}
+    />
+  </div>
+  <input
+    bind:value={teamsSearch}
+    placeholder="Search teams by name, tag, captain"
+    class="w-full rounded-md border px-3 py-2 text-sm"
+    style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+    oninput={(e) => onTeamsSearchChange((e.currentTarget as HTMLInputElement).value)}
+  />
+</div>
 
 <div class="mb-6 rounded-md border p-3" style="border-color: rgba(255,255,255,0.12);">
   <h3
