@@ -2,6 +2,7 @@
   import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import AdminEditLink from '$lib/components/AdminEditLink.svelte'
+  import CommentThread from '$lib/components/CommentThread.svelte'
   import { BarChart3, CalendarDays, RadioTower, Video } from 'lucide-svelte'
   import { SvelteMap } from 'svelte/reactivity'
   import { resolve } from '$app/paths'
@@ -171,6 +172,9 @@
       <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div class="flex items-center gap-3">
           <div>
+            {#if match.designation}
+              <div class="match-designation">{match.designation}</div>
+            {/if}
             <h1 class="responsive-title flex flex-wrap items-center gap-3">
               <span class="inline-flex items-center gap-2">
                 {#if teamLogo(match.team_a)}
@@ -672,6 +676,25 @@
           {/if}
         {/if}
       </section>
+
+      <CommentThread
+        entityType="match"
+        entityId={match.id}
+        comments={data.comments ?? []}
+        viewerId={data.viewer?.profileId ?? null}
+        isAdmin={data.viewer?.isAdmin ?? false}
+      />
     </div>
   </div>
 </PageContainer>
+
+<style>
+  .match-designation {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: #fcd34d;
+    margin-bottom: 0.5rem;
+  }
+</style>

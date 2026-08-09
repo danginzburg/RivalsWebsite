@@ -2,7 +2,8 @@
   import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
-  import { User } from 'lucide-svelte'
+  import CommentThread from '$lib/components/CommentThread.svelte'
+  import { User, MessageCircle, ExternalLink } from 'lucide-svelte'
   import { SvelteMap } from 'svelte/reactivity'
   import { resolve } from '$app/paths'
   import miksIcon from '$lib/assets/agents/Miks_icon.webp'
@@ -56,6 +57,7 @@
       hs_pct: number | null
       fk: number
       fd: number
+      win_pct: number | null
     }>
   )
   const agentStats = $derived(
@@ -73,6 +75,7 @@
       hs_pct: number | null
       fk: number
       fd: number
+      win_pct: number | null
     }>
   )
   const accolades = $derived(
@@ -172,7 +175,7 @@
 
 <PageContainer>
   <div class="flex justify-center px-4 py-8">
-    <div class="w-full max-w-6xl min-w-0">
+    <div class="page-content min-w-0">
       <div class="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div class="flex items-start gap-4">
           {#if activeTeam?.logo_url}
@@ -250,6 +253,30 @@
               </a>
             {:else}
               <p class="mt-2 text-sm" style="color: rgba(255,255,255,0.72);">No active team</p>
+            {/if}
+
+            <!-- Contact links, published when a signup is approved -->
+            {#if player.discord_handle || (player.tracker_links ?? []).length > 0}
+              <div class="contact-row">
+                {#if player.discord_handle}
+                  <span class="contact-chip" title="Discord">
+                    <MessageCircle size={13} />
+                    {player.discord_handle}
+                  </span>
+                {/if}
+                {#each player.tracker_links ?? [] as link (link.url)}
+                  <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+                  <a
+                    href={link.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="contact-chip contact-chip-link"
+                  >
+                    <ExternalLink size={12} />
+                    {link.label}
+                  </a>
+                {/each}
+              </div>
             {/if}
           </div>
         </div>
@@ -712,6 +739,14 @@
           </div>
         {/if}
       </section>
+
+      <CommentThread
+        entityType="player"
+        entityId={player.profile_id}
+        comments={data.comments ?? []}
+        viewerId={data.viewer?.profileId ?? null}
+        isAdmin={data.viewer?.isAdmin ?? false}
+      />
     </div>
   </div>
 </PageContainer>
@@ -721,5 +756,31 @@
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
+  }
+
+  .contact-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+    margin-top: 0.625rem;
+  }
+
+  .contact-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3125rem;
+    padding: 0.1875rem 0.5rem;
+    border-radius: 0.3125rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.04);
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.75rem;
+    text-decoration: none;
+  }
+
+  .contact-chip-link:hover {
+    border-color: rgba(120, 67, 145, 0.5);
+    background: rgba(120, 67, 145, 0.12);
+    color: #d8b4fe;
   }
 </style>

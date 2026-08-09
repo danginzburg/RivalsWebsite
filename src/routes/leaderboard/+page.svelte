@@ -14,8 +14,8 @@
 </script>
 
 <PageContainer>
-  <div class="flex justify-center px-4 py-8">
-    <div class="w-full max-w-6xl">
+  <div class="flex justify-center py-6">
+    <div class="page-content">
       <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div class="flex items-center gap-3">
           <Trophy size={36} style="color: var(--text);" />

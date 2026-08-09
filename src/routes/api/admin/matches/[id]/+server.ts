@@ -62,6 +62,7 @@ export const PATCH: RequestHandler = async ({ locals, request, params }) => {
         winnerTeamId: normalizeOptional(body.winnerTeamId),
         youtubeVodUrl: normalizeOptional(body.youtubeVodUrl),
         mapVetoes: parseMapVetoes(body.mapVetoes),
+        designation: normalizeOptional(body.designation),
       })
       return json({ success: true, match: updated })
     }

@@ -17,6 +17,15 @@
     seasons: AdminSeason[]
     approvedTeams: ApprovedTeamEntry[]
     matches: AdminMatch[]
+    /** Candidates for the season MVP picker. */
+    players?: Array<{
+      id: string
+      display_name: string | null
+      riot_id_base: string | null
+      email: string | null
+    }>
+    /** Leaderboard imports that can be pinned as a season's final standings. */
+    leaderboardBatches?: Array<{ id: string; label: string }>
     createSeasonCode: string
     createSeasonName: string
     createSeasonStartsOn: string
@@ -43,6 +52,8 @@
     seasons,
     approvedTeams,
     matches,
+    players = [],
+    leaderboardBatches = [],
     createSeasonCode,
     createSeasonName,
     createSeasonStartsOn,
@@ -63,6 +74,29 @@
   }: Props = $props()
 
   let expandedPickemSeasonId = $state<string | null>(null)
+  let expandedResultsSeasonId = $state<string | null>(null)
+
+  /** Blank option lets an admin clear a previously-set result. */
+  const teamPickerOptions = $derived([
+    { value: '', label: '— None —' },
+    ...approvedTeams.map((t) => ({
+      value: t.id,
+      label: t.name + (t.tag ? ` (${t.tag})` : ''),
+    })),
+  ])
+
+  const playerPickerOptions = $derived([
+    { value: '', label: '— None —' },
+    ...(players ?? []).map((p) => ({
+      value: p.id,
+      label: p.riot_id_base ?? p.display_name ?? p.email ?? 'Player',
+    })),
+  ])
+
+  const leaderboardBatchOptions = $derived([
+    { value: '', label: '— Use latest import —' },
+    ...(leaderboardBatches ?? []).map((b) => ({ value: b.id, label: b.label })),
+  ])
 
   let playoffConfigForm = $state<Record<string, ReturnType<typeof normalizePlayoffPickemConfig>>>(
     {}
@@ -285,7 +319,13 @@
             startsOn: season.starts_on ?? '',
             endsOn: season.ends_on ?? '',
             isActive: Boolean(season.is_active),
+            summary: season.summary ?? '',
+            winnerTeamId: season.winner_team_id ?? '',
+            runnerUpTeamId: season.runner_up_team_id ?? '',
+            mvpProfileId: season.mvp_profile_id ?? '',
+            finalLeaderboardBatchId: season.final_leaderboard_batch_id ?? '',
           }}
+          {@const isResultsExpanded = expandedResultsSeasonId === season.id}
           <article
             class="rounded-md border p-3"
             style="border-color: rgba(255,255,255,0.10); background: rgba(0,0,0,0.18);"
@@ -369,6 +409,127 @@
               >
                 Save Season
               </button>
+            </div>
+
+            <!-- Season results — feeds /events and the Hall of Fame -->
+            <div
+              class="mt-3 rounded-md border"
+              style="border-color: rgba(255,255,255,0.10); background: rgba(255,255,255,0.03);"
+            >
+              <button
+                type="button"
+                class="flex w-full items-center gap-2 p-3"
+                style="cursor: pointer;"
+                onclick={() => (expandedResultsSeasonId = isResultsExpanded ? null : season.id)}
+              >
+                <span
+                  class="inline-block text-xs"
+                  style="color: rgba(255,255,255,0.5); transform: rotate({isResultsExpanded
+                    ? '90deg'
+                    : '0deg'});">▶</span
+                >
+                <div class="text-left">
+                  <div class="text-sm font-semibold" style="color: var(--text);">
+                    Season Results
+                  </div>
+                  <div class="text-xs" style="color: rgba(255,255,255,0.62);">
+                    Champion, MVP, and summary shown on the Events page
+                    {#if season.winner_team_id}
+                      <span style="color: #fcd34d;"> · Champion set</span>
+                    {/if}
+                  </div>
+                </div>
+              </button>
+
+              {#if isResultsExpanded}
+                <div class="px-3 pb-3">
+                  <div class="grid grid-cols-1 gap-2 md:grid-cols-3">
+                    <label class="text-xs" style="color: rgba(255,255,255,0.82);">
+                      Champion
+                      <div class="mt-1">
+                        <CustomSelect
+                          options={teamPickerOptions}
+                          value={state.winnerTeamId}
+                          compact={true}
+                          placeholder="No champion set"
+                          onSelect={(value) =>
+                            onSeasonEditChange(season.id, { ...state, winnerTeamId: value })}
+                        />
+                      </div>
+                    </label>
+                    <label class="text-xs" style="color: rgba(255,255,255,0.82);">
+                      Runner-up
+                      <div class="mt-1">
+                        <CustomSelect
+                          options={teamPickerOptions}
+                          value={state.runnerUpTeamId}
+                          compact={true}
+                          placeholder="No runner-up set"
+                          onSelect={(value) =>
+                            onSeasonEditChange(season.id, { ...state, runnerUpTeamId: value })}
+                        />
+                      </div>
+                    </label>
+                    <label class="text-xs" style="color: rgba(255,255,255,0.82);">
+                      MVP
+                      <div class="mt-1">
+                        <CustomSelect
+                          options={playerPickerOptions}
+                          value={state.mvpProfileId}
+                          compact={true}
+                          placeholder="No MVP set"
+                          onSelect={(value) =>
+                            onSeasonEditChange(season.id, { ...state, mvpProfileId: value })}
+                        />
+                      </div>
+                    </label>
+                  </div>
+
+                  <label class="mt-2 block text-xs" style="color: rgba(255,255,255,0.82);">
+                    Final Standings Snapshot
+                    <div class="mt-1">
+                      <CustomSelect
+                        options={leaderboardBatchOptions}
+                        value={state.finalLeaderboardBatchId}
+                        compact={true}
+                        placeholder="Use latest leaderboard import"
+                        onSelect={(value) =>
+                          onSeasonEditChange(season.id, {
+                            ...state,
+                            finalLeaderboardBatchId: value,
+                          })}
+                      />
+                    </div>
+                  </label>
+
+                  <label class="mt-2 block text-xs" style="color: rgba(255,255,255,0.82);">
+                    Summary
+                    <textarea
+                      rows="3"
+                      value={state.summary}
+                      class="mt-1 w-full rounded-md border px-3 py-2 text-sm leading-5"
+                      style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                      placeholder="A short recap shown on the season card and detail page."
+                      oninput={(e) =>
+                        onSeasonEditChange(season.id, {
+                          ...state,
+                          summary: (e.currentTarget as HTMLTextAreaElement).value,
+                        })}
+                    ></textarea>
+                  </label>
+
+                  <div class="mt-2 flex justify-end">
+                    <button
+                      type="button"
+                      class="rounded-md px-3 py-2 text-xs font-semibold"
+                      style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+                      onclick={() => onSaveSeason(season.id)}
+                    >
+                      Save Results
+                    </button>
+                  </div>
+                </div>
+              {/if}
             </div>
 
             {#if true}

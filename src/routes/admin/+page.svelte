@@ -16,6 +16,9 @@
   import AdminTeamsTab from '$lib/components/admin/AdminTeamsTab.svelte'
   import AdminUsersTab from '$lib/components/admin/AdminUsersTab.svelte'
   import AdminAccoladesTab from '$lib/components/admin/AdminAccoladesTab.svelte'
+  import AdminHallOfFameTab from '$lib/components/admin/AdminHallOfFameTab.svelte'
+  import AdminModerationTab from '$lib/components/admin/AdminModerationTab.svelte'
+  import AdminSignupsTab from '$lib/components/admin/AdminSignupsTab.svelte'
   import AdminActionConfirmationModal from '$lib/components/admin/AdminActionConfirmationModal.svelte'
   import type {
     ApprovedTeamEntry,
@@ -25,11 +28,16 @@
     AdminTabId,
     AdminUser,
     BestOfValue,
+    CommentReport,
+    HallOfFameEntry,
+    HallOfFameFormState,
     MatchEditState,
     MatchStreamFormState,
     PendingActionConfirmation,
     PendingRoleChange,
+    PlayerSignup,
     SeasonEditState,
+    SignupEditState,
     TeamEditState,
   } from '$lib/admin/types'
   import type { PageData, PageProps } from './$types'
@@ -119,6 +127,365 @@
   let editingAccoladeId = $state<string | null>(null)
   let editAccoladeName = $state('')
   let accoladeLogoStatus = $state<Record<string, 'uploading' | 'done' | null>>({})
+
+  // ---- Hall of Fame ----
+  const blankHallOfFameForm = (): HallOfFameFormState => ({
+    entryType: 'record',
+    title: '',
+    description: '',
+    statValue: '',
+    statLabel: '',
+    mediaUrl: '',
+    playerName: '',
+    profileId: '',
+    teamId: '',
+    seasonId: '',
+    isPublished: true,
+    sortOrder: '0',
+  })
+
+  let hallOfFameEntries = $state<HallOfFameEntry[]>([])
+  let hallOfFameLoaded = $state(false)
+  let hallOfFameCreateForm = $state<HallOfFameFormState>(blankHallOfFameForm())
+  let hallOfFameEditForm = $state<Record<string, HallOfFameFormState>>({})
+  let isCreatingHallOfFameEntry = $state(false)
+  let processingHallOfFameId = $state<string | null>(null)
+
+  /** Options shared by the create and edit forms. Blank entry clears the field. */
+  const hofTeamOptions = $derived([
+    { value: '', label: '— None —' },
+    ...(approvedTeams ?? []).map((t) => ({
+      value: t.id,
+      label: t.name + (t.tag ? ` (${t.tag})` : ''),
+    })),
+  ])
+
+  const hofPlayerOptions = $derived([
+    { value: '', label: '— None —' },
+    ...(users ?? []).map((u) => ({
+      value: u.id,
+      label: u.riot_id_base ?? u.display_name ?? u.email ?? 'Player',
+    })),
+  ])
+
+  const hofSeasonOptions = $derived([
+    { value: '', label: '— None —' },
+    ...(seasons ?? []).map((s) => ({ value: s.id, label: `${s.code} — ${s.name}` })),
+  ])
+
+  async function loadHallOfFame() {
+    try {
+      const result = await adminJsonRequest<{ entries?: HallOfFameEntry[] }>(
+        '/api/admin/hall-of-fame',
+        { fallbackMessage: 'Failed to load hall of fame entries' }
+      )
+      hallOfFameEntries = result.entries ?? []
+      hallOfFameLoaded = true
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to load hall of fame entries'
+    }
+  }
+
+  /** Map a form state onto the API request body. */
+  function hallOfFameBody(state: HallOfFameFormState) {
+    return {
+      entryType: state.entryType,
+      title: state.title,
+      description: state.description || null,
+      statValue: state.statValue || null,
+      statLabel: state.statLabel || null,
+      mediaUrl: state.mediaUrl || null,
+      playerName: state.playerName || null,
+      profileId: state.profileId || null,
+      teamId: state.teamId || null,
+      seasonId: state.seasonId || null,
+      isPublished: state.isPublished,
+      sortOrder: Number(state.sortOrder) || 0,
+    }
+  }
+
+  async function createHallOfFameEntry() {
+    if (!hallOfFameCreateForm.title.trim()) {
+      errorMessage = 'Title is required'
+      return
+    }
+
+    isCreatingHallOfFameEntry = true
+    errorMessage = null
+    successMessage = null
+    try {
+      await adminJsonRequest('/api/admin/hall-of-fame', {
+        method: 'POST',
+        body: hallOfFameBody(hallOfFameCreateForm),
+        fallbackMessage: 'Failed to create entry',
+      })
+      successMessage = 'Entry added.'
+      hallOfFameCreateForm = blankHallOfFameForm()
+      await loadHallOfFame()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to create entry'
+    } finally {
+      isCreatingHallOfFameEntry = false
+    }
+  }
+
+  async function saveHallOfFameEntry(entryId: string) {
+    const state = hallOfFameEditForm[entryId]
+    if (!state) return
+
+    processingHallOfFameId = entryId
+    errorMessage = null
+    successMessage = null
+    try {
+      await adminJsonRequest('/api/admin/hall-of-fame', {
+        method: 'PATCH',
+        body: { id: entryId, ...hallOfFameBody(state) },
+        fallbackMessage: 'Failed to update entry',
+      })
+      successMessage = 'Entry updated.'
+      await loadHallOfFame()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to update entry'
+    } finally {
+      processingHallOfFameId = null
+    }
+  }
+
+  async function deleteHallOfFameEntry(entryId: string, title: string) {
+    if (!window.confirm(`Delete "${title}" from the Hall of Fame?`)) return
+
+    processingHallOfFameId = entryId
+    errorMessage = null
+    successMessage = null
+    try {
+      await adminJsonRequest(`/api/admin/hall-of-fame?id=${encodeURIComponent(entryId)}`, {
+        method: 'DELETE',
+        fallbackMessage: 'Failed to delete entry',
+      })
+      successMessage = 'Entry deleted.'
+      await loadHallOfFame()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to delete entry'
+    } finally {
+      processingHallOfFameId = null
+    }
+  }
+
+  // ---- Player signups ----
+  let playerSignups = $state<PlayerSignup[]>([])
+  let signupsLoaded = $state(false)
+  let signupStatusFilter = $state('pending')
+  let signupEditForm = $state<Record<string, SignupEditState>>({})
+  let processingSignupId = $state<string | null>(null)
+
+  const pendingSignupCount = $derived(playerSignups.filter((s) => s.status === 'pending').length)
+
+  async function loadSignups() {
+    try {
+      const result = await adminJsonRequest<{ signups?: PlayerSignup[] }>(
+        `/api/admin/signups?status=${encodeURIComponent(signupStatusFilter)}`,
+        { fallbackMessage: 'Failed to load signups' }
+      )
+      playerSignups = result.signups ?? []
+      signupsLoaded = true
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to load signups'
+    }
+  }
+
+  function signupStateFor(signupId: string): SignupEditState | null {
+    const existing = signupEditForm[signupId]
+    if (existing) return existing
+
+    const signup = playerSignups.find((s) => s.id === signupId)
+    if (!signup) return null
+
+    return {
+      displayName: signup.display_name ?? '',
+      discordHandle: signup.discord_handle ?? '',
+      currentRank: signup.current_rank ?? '',
+      peakRank: signup.peak_rank ?? '',
+      trackerCurrentScore:
+        signup.tracker_current_score != null ? String(signup.tracker_current_score) : '',
+      trackerPeakScore: signup.tracker_peak_score != null ? String(signup.tracker_peak_score) : '',
+      manualValueOverride:
+        signup.manual_value_override != null ? String(signup.manual_value_override) : '',
+      adminNotes: signup.admin_notes ?? '',
+    }
+  }
+
+  function updateSignupEditForm(signupId: string, patch: Partial<SignupEditState>) {
+    const current = signupStateFor(signupId)
+    if (!current) return
+    signupEditForm = { ...signupEditForm, [signupId]: { ...current, ...patch } }
+  }
+
+  /** Blank numeric fields are sent as null so the API clears them. */
+  function signupBody(state: SignupEditState) {
+    return {
+      displayName: state.displayName || null,
+      discordHandle: state.discordHandle || null,
+      currentRank: state.currentRank || null,
+      peakRank: state.peakRank || null,
+      trackerCurrentScore: state.trackerCurrentScore === '' ? null : state.trackerCurrentScore,
+      trackerPeakScore: state.trackerPeakScore === '' ? null : state.trackerPeakScore,
+      manualValueOverride: state.manualValueOverride === '' ? null : state.manualValueOverride,
+      adminNotes: state.adminNotes || null,
+    }
+  }
+
+  async function saveSignup(signupId: string, status?: 'pending' | 'approved' | 'rejected') {
+    const state = signupStateFor(signupId)
+    if (!state) return
+
+    processingSignupId = signupId
+    errorMessage = null
+    successMessage = null
+    try {
+      await adminJsonRequest('/api/admin/signups', {
+        method: 'PATCH',
+        body: { id: signupId, ...signupBody(state), ...(status ? { status } : {}) },
+        fallbackMessage: 'Failed to update signup',
+      })
+      successMessage = status ? `Signup ${status}.` : 'Signup updated.'
+      await loadSignups()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to update signup'
+    } finally {
+      processingSignupId = null
+    }
+  }
+
+  async function deleteSignup(signupId: string, name: string) {
+    if (!window.confirm(`Delete the signup for ${name}?`)) return
+
+    processingSignupId = signupId
+    errorMessage = null
+    successMessage = null
+    try {
+      await adminJsonRequest(`/api/admin/signups?id=${encodeURIComponent(signupId)}`, {
+        method: 'DELETE',
+        fallbackMessage: 'Failed to delete signup',
+      })
+      successMessage = 'Signup deleted.'
+      await loadSignups()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to delete signup'
+    } finally {
+      processingSignupId = null
+    }
+  }
+
+  // ---- Comment moderation ----
+  let commentReports = $state<CommentReport[]>([])
+  let commentReportsLoaded = $state(false)
+  let commentReportStatusFilter = $state('pending')
+  let processingReportId = $state<string | null>(null)
+
+  /** Pending count drives the badge on the Moderation tab. */
+  const pendingReportCount = $derived(commentReports.filter((r) => r.status === 'pending').length)
+
+  async function loadCommentReports() {
+    try {
+      const result = await adminJsonRequest<{ reports?: CommentReport[] }>(
+        `/api/admin/comment-reports?status=${encodeURIComponent(commentReportStatusFilter)}`,
+        { fallbackMessage: 'Failed to load reports' }
+      )
+      commentReports = result.reports ?? []
+      commentReportsLoaded = true
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to load reports'
+    }
+  }
+
+  async function moderationAction(
+    reportId: string | null,
+    body: Record<string, unknown>,
+    successText: string
+  ) {
+    processingReportId = reportId
+    errorMessage = null
+    successMessage = null
+    try {
+      await adminJsonRequest('/api/admin/comment-reports', {
+        method: 'PATCH',
+        body,
+        fallbackMessage: 'Moderation action failed',
+      })
+      successMessage = successText
+      await loadCommentReports()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Moderation action failed'
+    } finally {
+      processingReportId = null
+    }
+  }
+
+  function resolveReport(reportId: string) {
+    return moderationAction(reportId, { action: 'resolve', reportId }, 'Report resolved.')
+  }
+
+  function dismissReport(reportId: string) {
+    return moderationAction(reportId, { action: 'dismiss', reportId }, 'Report dismissed.')
+  }
+
+  function deleteReportedComment(commentId: string, reportId: string) {
+    if (!window.confirm('Delete this comment? Replies to it will remain.')) return
+    return moderationAction(reportId, { action: 'delete_comment', commentId }, 'Comment deleted.')
+  }
+
+  function banFromCommenting(profileId: string, name: string) {
+    const input = window.prompt(
+      `Ban ${name} from commenting.\n\nEnter the number of days, or leave blank for a permanent ban.`,
+      '7'
+    )
+    if (input === null) return
+
+    const days = input.trim() === '' ? 0 : Number(input)
+    if (input.trim() !== '' && (!Number.isFinite(days) || days < 0)) {
+      errorMessage = 'Enter a positive number of days, or leave it blank for permanent.'
+      return
+    }
+
+    const reason = window.prompt('Reason shown to the user (optional):') ?? null
+    return moderationAction(
+      null,
+      { action: 'ban', profileId, days, reason },
+      days > 0 ? `${name} banned for ${days} day(s).` : `${name} banned permanently.`
+    )
+  }
+
+  function unbanFromCommenting(profileId: string, name: string) {
+    if (!window.confirm(`Lift the commenting ban on ${name}?`)) return
+    return moderationAction(null, { action: 'unban', profileId }, `Ban lifted for ${name}.`)
+  }
+
+  function updateHallOfFameEditForm(entryId: string, patch: Partial<HallOfFameFormState>) {
+    const entry = hallOfFameEntries.find((e) => e.id === entryId)
+    const current =
+      hallOfFameEditForm[entryId] ??
+      (entry
+        ? {
+            entryType: entry.entry_type,
+            title: entry.title,
+            description: entry.description ?? '',
+            statValue: entry.stat_value ?? '',
+            statLabel: entry.stat_label ?? '',
+            mediaUrl: entry.media_url ?? '',
+            playerName: entry.player_name ?? '',
+            profileId: entry.profile_id ?? '',
+            teamId: entry.team_id ?? '',
+            seasonId: entry.season_id ?? '',
+            isPublished: entry.is_published,
+            sortOrder: String(entry.sort_order ?? 0),
+          }
+        : blankHallOfFameForm())
+
+    hallOfFameEditForm = {
+      ...hallOfFameEditForm,
+      [entryId]: { ...current, ...patch },
+    }
+  }
 
   const filteredAdminMatches = $derived(
     filterAdminMatches(matches ?? [], matchSearchQuery, showCompletedAdminMatches)
@@ -473,6 +840,7 @@
         teamBScore: '0',
         winnerTeamId: '',
         mapVetoes: '',
+        designation: '',
       } as const)
     matchEditForm = {
       ...matchEditForm,
@@ -498,6 +866,7 @@
         mapVetoes: Array.isArray(match.metadata?.map_vetoes)
           ? match.metadata.map_vetoes.join('\n')
           : '',
+        designation: (match.metadata?.designation as string | undefined) ?? '',
       }
     }
     const keys = Object.keys(next)
@@ -575,6 +944,11 @@
         startsOn: season.starts_on ?? '',
         endsOn: season.ends_on ?? '',
         isActive: Boolean(season.is_active),
+        summary: season.summary ?? '',
+        winnerTeamId: season.winner_team_id ?? '',
+        runnerUpTeamId: season.runner_up_team_id ?? '',
+        mvpProfileId: season.mvp_profile_id ?? '',
+        finalLeaderboardBatchId: season.final_leaderboard_batch_id ?? '',
       }
     }
     const keys = Object.keys(next)
@@ -974,6 +1348,11 @@
           startsOn: state.startsOn || null,
           endsOn: state.endsOn || null,
           isActive: Boolean(state.isActive),
+          summary: state.summary || null,
+          winnerTeamId: state.winnerTeamId || null,
+          runnerUpTeamId: state.runnerUpTeamId || null,
+          mvpProfileId: state.mvpProfileId || null,
+          finalLeaderboardBatchId: state.finalLeaderboardBatchId || null,
         },
         fallbackMessage: 'Failed to update season',
       })
@@ -1316,6 +1695,9 @@
       matches: matches.length,
       seasons: seasons.length,
       accolades: accolades.length,
+      hallOfFame: hallOfFameEntries.length,
+      moderation: pendingReportCount,
+      signups: pendingSignupCount,
     }}
     {isLoading}
     {errorMessage}
@@ -1323,6 +1705,9 @@
     onTabChange={(tab) => {
       activeTab = tab
       if (tab === 'accolades' && !accoladesLoaded) loadAccolades()
+      if (tab === 'hall-of-fame' && !hallOfFameLoaded) loadHallOfFame()
+      if (tab === 'moderation' && !commentReportsLoaded) loadCommentReports()
+      if (tab === 'signups' && !signupsLoaded) loadSignups()
     }}
     onRefresh={refreshData}
   >
@@ -1451,6 +1836,8 @@
         {seasons}
         {approvedTeams}
         {matches}
+        players={users}
+        leaderboardBatches={data.leaderboardBatches ?? []}
         {createSeasonCode}
         {createSeasonName}
         {createSeasonStartsOn}
@@ -1516,6 +1903,62 @@
         onAssignAccolade={assignAccolade}
         onSetAccoladeIconKey={setAccoladeIconKey}
         onUnassignAccolade={unassignAccolade}
+      />
+    {/if}
+
+    {#if activeTab === 'hall-of-fame'}
+      <AdminHallOfFameTab
+        entries={hallOfFameEntries}
+        entriesLoaded={hallOfFameLoaded}
+        createForm={hallOfFameCreateForm}
+        editForm={hallOfFameEditForm}
+        teamOptions={hofTeamOptions}
+        playerOptions={hofPlayerOptions}
+        seasonOptions={hofSeasonOptions}
+        processingEntryId={processingHallOfFameId}
+        isCreating={isCreatingHallOfFameEntry}
+        onCreateFormChange={(patch) =>
+          (hallOfFameCreateForm = { ...hallOfFameCreateForm, ...patch })}
+        onEditFormChange={updateHallOfFameEditForm}
+        onCreate={createHallOfFameEntry}
+        onSave={saveHallOfFameEntry}
+        onDelete={deleteHallOfFameEntry}
+      />
+    {/if}
+
+    {#if activeTab === 'moderation'}
+      <AdminModerationTab
+        reports={commentReports}
+        reportsLoaded={commentReportsLoaded}
+        statusFilter={commentReportStatusFilter}
+        {processingReportId}
+        onStatusFilterChange={(value) => {
+          commentReportStatusFilter = value
+          loadCommentReports()
+        }}
+        onResolve={resolveReport}
+        onDismiss={dismissReport}
+        onDeleteComment={deleteReportedComment}
+        onBanUser={banFromCommenting}
+        onUnbanUser={unbanFromCommenting}
+      />
+    {/if}
+
+    {#if activeTab === 'signups'}
+      <AdminSignupsTab
+        signups={playerSignups}
+        {signupsLoaded}
+        statusFilter={signupStatusFilter}
+        editForm={signupEditForm}
+        {processingSignupId}
+        onStatusFilterChange={(value) => {
+          signupStatusFilter = value
+          loadSignups()
+        }}
+        onEditChange={updateSignupEditForm}
+        onSave={(signupId) => saveSignup(signupId)}
+        onSetStatus={(signupId, status) => saveSignup(signupId, status)}
+        onDelete={deleteSignup}
       />
     {/if}
   </AdminDashboardShell>

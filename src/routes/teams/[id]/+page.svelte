@@ -62,7 +62,7 @@
 
 <PageContainer>
   <div class="flex justify-center px-4 py-8">
-    <div class="w-full max-w-6xl space-y-4">
+    <div class="page-content space-y-4">
       <section
         class="rounded-lg border p-5"
         style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"

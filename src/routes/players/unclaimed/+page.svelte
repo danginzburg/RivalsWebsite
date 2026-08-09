@@ -158,7 +158,7 @@
 
 <PageContainer>
   <div class="flex justify-center px-4 py-8">
-    <div class="w-full max-w-6xl min-w-0">
+    <div class="page-content min-w-0">
       <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div class="flex items-center gap-3">
           <BarChart3 size={34} style="color: var(--text);" />

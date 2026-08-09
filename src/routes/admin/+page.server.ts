@@ -245,15 +245,35 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     }
   }
 
+  // Leaderboard imports an admin can pin as a season's final standings.
+  const { data: leaderboardBatchRows } = await supabaseAdmin
+    .from('stat_import_batches')
+    .select('id, display_name, source_filename, created_at, metadata')
+    .filter('metadata->>import_type', 'eq', 'leaderboard_entries')
+    .eq('status', 'applied')
+    .order('created_at', { ascending: false })
+    .limit(50)
+
+  const leaderboardBatches = (leaderboardBatchRows ?? []).map((batch) => ({
+    id: batch.id,
+    label:
+      batch.metadata?.display_name ??
+      batch.display_name ??
+      batch.source_filename ??
+      new Date(batch.created_at).toLocaleDateString(),
+  }))
+
   return {
     users: users || [],
     seasons: seasons || [],
+    leaderboardBatches,
     approvedTeams: withLogoUrl(approvedTeams || []),
     disbandedTeams: disbandedWithLogos,
     matches: (matches ?? []).map((match) => ({
       ...match,
       streams: streamsByMatch[match.id] ?? [],
       vod_url: match.metadata?.youtube_vod_url ?? null,
+      designation: match.metadata?.designation ?? null,
     })),
     activeSeasonId: activeSeason?.id ?? null,
   }

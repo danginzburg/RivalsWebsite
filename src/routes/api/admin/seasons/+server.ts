@@ -3,6 +3,22 @@ import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
 
+const SEASON_COLUMNS = `
+  id,
+  code,
+  name,
+  starts_on,
+  ends_on,
+  is_active,
+  metadata,
+  summary,
+  winner_team_id,
+  runner_up_team_id,
+  mvp_profile_id,
+  final_leaderboard_batch_id,
+  created_at
+`
+
 function normalizeOptional(value: unknown): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
@@ -12,7 +28,7 @@ function normalizeOptional(value: unknown): string | null {
 async function listSeasons() {
   const { data, error: seasonsError } = await supabaseAdmin
     .from('seasons')
-    .select('id, code, name, starts_on, ends_on, is_active, metadata, created_at')
+    .select(SEASON_COLUMNS)
     .order('is_active', { ascending: false })
     .order('starts_on', { ascending: false, nullsFirst: false })
     .order('created_at', { ascending: false })
@@ -57,7 +73,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       is_active: isActive,
       metadata: {},
     })
-    .select('id, code, name, starts_on, ends_on, is_active, metadata, created_at')
+    .select(SEASON_COLUMNS)
     .single()
 
   if (insertError) {
@@ -98,9 +114,15 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
       starts_on: startsOn,
       ends_on: endsOn,
       is_active: isActive,
+      // Season results — surfaced on the Events pages and Hall of Fame.
+      summary: normalizeOptional(body.summary),
+      winner_team_id: normalizeOptional(body.winnerTeamId),
+      runner_up_team_id: normalizeOptional(body.runnerUpTeamId),
+      mvp_profile_id: normalizeOptional(body.mvpProfileId),
+      final_leaderboard_batch_id: normalizeOptional(body.finalLeaderboardBatchId),
     })
     .eq('id', id)
-    .select('id, code, name, starts_on, ends_on, is_active, metadata, created_at')
+    .select(SEASON_COLUMNS)
     .single()
 
   if (updateError) {

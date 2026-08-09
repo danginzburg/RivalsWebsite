@@ -41,11 +41,25 @@ nav {
    across all pages.
    =========================================== */
 
-/* Page-level container with slight bottom padding for breathing room */
+/* Page-level container — fluid width with generous breakpoints so content
+   uses the screen instead of being squeezed into a narrow column. */
 .page-container {
-  @apply flex flex-col items-center justify-center px-4 pt-8 pb-0 sm:px-16 md:px-48 md:pt-0;
+  @apply flex w-full flex-col items-center px-3 pt-4 pb-0 sm:px-6 lg:px-10 xl:px-14;
   max-width: 100%;
   overflow-x: hidden;
+}
+
+/* Standard inner content wrapper — use inside .page-container for page bodies.
+   Wider than the old max-w-6xl so tables and lists breathe. */
+.page-content {
+  @apply mx-auto w-full;
+  max-width: 90rem;
+}
+
+/* Narrower variant for reading-heavy pages (rulebook, FAQ, account forms). */
+.page-content-narrow {
+  @apply mx-auto w-full;
+  max-width: 56rem;
 }
 
 /* Section wrappers for different content types */
@@ -103,4 +117,31 @@ nav {
 /* Responsive grid - 1 col on mobile, 3 on md+ */
 .responsive-grid {
   @apply grid w-full max-w-5xl grid-cols-1 gap-4 md:grid-cols-3;
+}
+
+/* ===========================================
+   MOBILE HELPERS
+   =========================================== */
+
+/* Wrap wide tables so they scroll inside their own container
+   instead of forcing the page body to scroll sideways. */
+.table-scroll {
+  @apply w-full overflow-x-auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Page heading row: stacks on mobile, side-by-side from sm up. */
+.page-header {
+  @apply mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between;
+}
+
+/* Numeric table cells line up when digits share a width. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 640px) {
+  .responsive-title {
+    @apply text-xl;
+  }
 }

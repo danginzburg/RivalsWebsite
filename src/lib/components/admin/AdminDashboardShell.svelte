@@ -7,6 +7,9 @@
     Upload,
     Layers3,
     Shield,
+    Award,
+    Flag,
+    ClipboardList,
   } from 'lucide-svelte'
   import { resolve } from '$app/paths'
 
@@ -21,6 +24,9 @@
       matches: number
       seasons: number
       accolades: number
+      hallOfFame: number
+      moderation: number
+      signups: number
     }
     isLoading: boolean
     errorMessage: string | null
@@ -42,8 +48,8 @@
   }: Props = $props()
 </script>
 
-<div class="flex justify-center px-4 py-8">
-  <div class="w-full max-w-6xl">
+<div class="flex justify-center py-6">
+  <div class="page-content">
     <div class="mb-4 flex flex-wrap justify-end gap-2">
       <a
         href={resolve('/admin/leaderboard-import')}
@@ -78,10 +84,14 @@
     </div>
 
     <div class="info-card info-card-surface p-0">
-      <div class="flex border-b" style="border-color: rgba(255, 255, 255, 0.12);">
+      <!-- Tabs stay on one line and scroll horizontally rather than wrapping. -->
+      <div
+        class="admin-tabs flex overflow-x-auto border-b"
+        style="border-color: rgba(255, 255, 255, 0.12);"
+      >
         <button
           type="button"
-          class="flex items-center gap-2 border-b-2 px-3 py-3 text-sm sm:px-5 sm:text-base"
+          class="flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-sm whitespace-nowrap sm:px-4"
           style={activeTab === 'users'
             ? 'border-color: var(--accent); color: var(--text); background: rgba(255, 255, 255, 0.05);'
             : 'border-color: transparent; color: rgba(255,255,255,0.7);'}
@@ -92,7 +102,7 @@
         </button>
         <button
           type="button"
-          class="flex items-center gap-2 border-b-2 px-3 py-3 text-sm sm:px-5 sm:text-base"
+          class="flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-sm whitespace-nowrap sm:px-4"
           style={activeTab === 'teams'
             ? 'border-color: var(--accent); color: var(--text); background: rgba(255, 255, 255, 0.05);'
             : 'border-color: transparent; color: rgba(255,255,255,0.7);'}
@@ -103,7 +113,7 @@
         </button>
         <button
           type="button"
-          class="flex items-center gap-2 border-b-2 px-3 py-3 text-sm sm:px-5 sm:text-base"
+          class="flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-sm whitespace-nowrap sm:px-4"
           style={activeTab === 'matches'
             ? 'border-color: var(--accent); color: var(--text); background: rgba(255, 255, 255, 0.05);'
             : 'border-color: transparent; color: rgba(255,255,255,0.7);'}
@@ -114,7 +124,7 @@
         </button>
         <button
           type="button"
-          class="flex items-center gap-2 border-b-2 px-3 py-3 text-sm sm:px-5 sm:text-base"
+          class="flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-sm whitespace-nowrap sm:px-4"
           style={activeTab === 'seasons'
             ? 'border-color: var(--accent); color: var(--text); background: rgba(255, 255, 255, 0.05);'
             : 'border-color: transparent; color: rgba(255,255,255,0.7);'}
@@ -125,7 +135,7 @@
         </button>
         <button
           type="button"
-          class="flex items-center gap-2 border-b-2 px-3 py-3 text-sm sm:px-5 sm:text-base"
+          class="flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-sm whitespace-nowrap sm:px-4"
           style={activeTab === 'accolades'
             ? 'border-color: var(--accent); color: var(--text); background: rgba(255, 255, 255, 0.05);'
             : 'border-color: transparent; color: rgba(255,255,255,0.7);'}
@@ -133,6 +143,39 @@
         >
           <Shield size={18} />
           <span>Accolades ({counts.accolades})</span>
+        </button>
+        <button
+          type="button"
+          class="flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-sm whitespace-nowrap sm:px-4"
+          style={activeTab === 'hall-of-fame'
+            ? 'border-color: var(--accent); color: var(--text); background: rgba(255, 255, 255, 0.05);'
+            : 'border-color: transparent; color: rgba(255,255,255,0.7);'}
+          onclick={() => onTabChange('hall-of-fame')}
+        >
+          <Award size={18} />
+          <span>HOF ({counts.hallOfFame})</span>
+        </button>
+        <button
+          type="button"
+          class="flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-sm whitespace-nowrap sm:px-4"
+          style={activeTab === 'moderation'
+            ? 'border-color: var(--accent); color: var(--text); background: rgba(255, 255, 255, 0.05);'
+            : 'border-color: transparent; color: rgba(255,255,255,0.7);'}
+          onclick={() => onTabChange('moderation')}
+        >
+          <Flag size={18} />
+          <span>Moderation{counts.moderation > 0 ? ` (${counts.moderation})` : ''}</span>
+        </button>
+        <button
+          type="button"
+          class="flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-sm whitespace-nowrap sm:px-4"
+          style={activeTab === 'signups'
+            ? 'border-color: var(--accent); color: var(--text); background: rgba(255, 255, 255, 0.05);'
+            : 'border-color: transparent; color: rgba(255,255,255,0.7);'}
+          onclick={() => onTabChange('signups')}
+        >
+          <ClipboardList size={18} />
+          <span>Signups{counts.signups > 0 ? ` (${counts.signups})` : ''}</span>
         </button>
         <button
           type="button"
@@ -166,3 +209,21 @@
     </div>
   </div>
 </div>
+
+<style>
+  /* Keep the tab strip scrollable without a visible scrollbar eating height. */
+  .admin-tabs {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .admin-tabs::-webkit-scrollbar {
+    height: 3px;
+  }
+
+  .admin-tabs::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 3px;
+  }
+</style>

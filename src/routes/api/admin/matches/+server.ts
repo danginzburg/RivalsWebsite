@@ -85,6 +85,7 @@ export const GET: RequestHandler = async ({ locals, url }) => {
       ...match,
       streams: streamsByMatch[match.id] ?? [],
       vod_url: match.metadata?.youtube_vod_url ?? null,
+      designation: match.metadata?.designation ?? null,
     })),
   })
 }

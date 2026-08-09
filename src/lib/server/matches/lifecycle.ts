@@ -177,6 +177,7 @@ export async function updateMatchDetails(
     winnerTeamId: string | null
     youtubeVodUrl: string | null
     mapVetoes: string[]
+    designation: string | null
   },
   repo: MatchLifecycleRepository = createSupabaseMatchLifecycleRepository()
 ) {
@@ -212,6 +213,7 @@ export async function updateMatchDetails(
         ...(match.metadata ?? {}),
         youtube_vod_url: input.youtubeVodUrl,
         map_vetoes: input.mapVetoes,
+        designation: input.designation,
       },
       approved_by_profile_id: input.adminProfileId,
       approved_at: repo.now(),

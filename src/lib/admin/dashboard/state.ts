@@ -151,6 +151,7 @@ export function createAdminDashboardState({ fetchAdapter }: { fetchAdapter: Fetc
           winnerTeamId: state.winnerTeamId || null,
           youtubeVodUrl: vodUrl || null,
           mapVetoes: state.mapVetoes || '',
+          designation: state.designation || null,
         },
         fallbackMessage: 'Failed to update match',
       })

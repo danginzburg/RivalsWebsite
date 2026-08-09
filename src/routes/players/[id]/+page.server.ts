@@ -15,6 +15,8 @@ import {
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
 import { rematchPlayerMatchMapStatsForBase } from '$lib/server/imports/matching'
 import { rankValue } from '$lib/ranks/ranks'
+import { loadCommentThread } from '$lib/server/comments'
+import { getViewerProfileId } from '$lib/server/auth/viewer'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -208,7 +210,9 @@ export const load = async ({
 
   const { data: profileRel, error: profileError } = await supabaseAdmin
     .from('profiles')
-    .select('id, auth0_sub, role, display_name, email, riot_id_base, stats_player_name, created_at')
+    .select(
+      'id, auth0_sub, role, display_name, email, riot_id_base, stats_player_name, created_at, discord_handle, tracker_links'
+    )
     .eq('id', profileId)
     .maybeSingle()
 
@@ -671,6 +675,11 @@ export const load = async ({
     }
   }
 
+  const viewerProfileId = await getViewerProfileId(locals.user)
+  const playerComments = await loadCommentThread('player', profileId, {
+    includeReportCounts: locals.user?.role === 'admin',
+  })
+
   return {
     player: {
       profile_id: profileId,
@@ -681,7 +690,11 @@ export const load = async ({
       rank_label: null,
       rank_value: null,
       pronouns: null,
-      tracker_links: null,
+      // Published from an approved signup; empty until then.
+      discord_handle: (profileRel as { discord_handle?: string | null }).discord_handle ?? null,
+      tracker_links: ((
+        profileRel as { tracker_links?: Array<{ label: string; url: string }> | null }
+      ).tracker_links ?? []) as Array<{ label: string; url: string }>,
       display_name: profileRel?.display_name ?? null,
       email: profileRel?.email ?? null,
       created_at: profileRel?.created_at ?? null,
@@ -691,7 +704,10 @@ export const load = async ({
     accolades: playerAccolades,
     viewer: {
       canEditRiotIdBase,
+      profileId: viewerProfileId,
+      isAdmin: locals.user?.role === 'admin',
     },
+    comments: playerComments,
     stats: {
       rows: normalizedStats,
       selected,

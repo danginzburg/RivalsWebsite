@@ -2,6 +2,8 @@ import { error } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { average, sum, weightedAverage } from '$lib/server/math'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
+import { loadCommentThread } from '$lib/server/comments'
+import { getViewerProfileId } from '$lib/server/auth/viewer'
 
 function normalizePlayerKey(
   teamId: string | null | undefined,
@@ -20,6 +22,7 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
   const matchId = params.id
   if (!matchId) throw error(400, 'Missing match id')
   const isAdmin = locals.user?.role === 'admin'
+  const viewerProfileId = await getViewerProfileId(locals.user)
 
   const { data: match, error: matchError } = await supabaseAdmin
     .from('matches')
@@ -277,8 +280,11 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
     }
   }
 
+  const comments = await loadCommentThread('match', matchId, { includeReportCounts: isAdmin })
+
   return {
-    viewer: { isAdmin },
+    viewer: { isAdmin, profileId: viewerProfileId },
+    comments,
     match: {
       ...match,
       team_a: match.team_a
@@ -295,6 +301,7 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
         : null,
       streams: streams ?? [],
       vod_url: match.metadata?.youtube_vod_url ?? null,
+      designation: (matchMeta?.designation as string | null) ?? null,
       maps: normalizedMapsWithForfeitNames,
       forfeit_display: forfeitDisplay,
       total_stats: hasRealStats ? totalStats : placeholderStats,

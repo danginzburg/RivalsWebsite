@@ -253,6 +253,7 @@
             mapVetoes: Array.isArray(match.metadata?.map_vetoes)
               ? match.metadata.map_vetoes.join('\n')
               : '',
+            designation: match.metadata?.designation ?? '',
           }}
           {@const streamState = streamForm[match.id] ?? {
             platform: 'twitch',
@@ -414,6 +415,19 @@
                       oninput={(e) =>
                         onUpdateMatchEditForm(match.id, {
                           scheduledAt: (e.currentTarget as HTMLInputElement).value,
+                        })}
+                    />
+                  </label>
+                  <label class="text-xs md:col-span-2" style="color: rgba(255,255,255,0.82);">
+                    Designation
+                    <input
+                      value={editState.designation}
+                      class="mt-1 w-full rounded-md border px-2 py-1 text-sm"
+                      style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                      placeholder="e.g. Grand Finals, Upper Bracket QF, Week 3"
+                      oninput={(e) =>
+                        onUpdateMatchEditForm(match.id, {
+                          designation: (e.currentTarget as HTMLInputElement).value,
                         })}
                     />
                   </label>

@@ -364,7 +364,7 @@
 
 <PageContainer class="stats-page">
   <div class="stats-viewport">
-    <div class="stats-shell w-full max-w-7xl">
+    <div class="stats-shell page-content">
       <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div class="flex items-center gap-3">
           <BarChart3 size={36} style="color: var(--text);" />
