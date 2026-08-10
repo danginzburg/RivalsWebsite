@@ -91,6 +91,8 @@ export function createAdminDashboardState({ fetchAdapter }: { fetchAdapter: Fetc
       teamBId: string
       bestOf: BestOfValue
       scheduledAt: string
+      /** Omitted files the match under the active season. */
+      seasonId?: string
     }) {
       if (!input.teamAId || !input.teamBId) return { error: 'Select both teams' }
       if (input.teamAId === input.teamBId) return { error: 'Teams must be different' }
@@ -102,6 +104,7 @@ export function createAdminDashboardState({ fetchAdapter }: { fetchAdapter: Fetc
           teamBId: input.teamBId,
           bestOf: Number(input.bestOf),
           scheduledAt: input.scheduledAt || null,
+          ...(input.seasonId ? { seasonId: input.seasonId } : {}),
         },
         fallbackMessage: 'Failed to create match',
       })

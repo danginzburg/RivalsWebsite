@@ -51,8 +51,10 @@ export type CommentReport = {
     body: string
     is_deleted: boolean
     created_at: string
-    entity_type: 'match' | 'player'
+    entity_type: 'match' | 'player' | 'season'
     entity_id: string
+    /** Season code, when the thread lives on an event page. */
+    entity_slug?: string | null
     author: { id: string; name: string; banned_until: string | null }
   } | null
 }
@@ -131,6 +133,8 @@ export type AdminSeason = {
   ends_on: string | null
   is_active: boolean | null
   metadata?: Record<string, unknown> | null
+  logo_path?: string | null
+  logo_url?: string | null
   /** Season results — surfaced on /events and the Hall of Fame. */
   summary?: string | null
   winner_team_id?: string | null

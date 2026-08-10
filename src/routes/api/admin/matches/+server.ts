@@ -2,6 +2,7 @@ import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import type { MatchStreamRow } from '$lib/server/db-rows'
+import { resolveTargetSeasonId } from '$lib/server/seasons/resolve'
 
 function normalizeOptional(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -118,11 +119,9 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     throw error(400, 'Both teams must be approved')
   }
 
-  const { data: activeSeason } = await supabaseAdmin
-    .from('seasons')
-    .select('id')
-    .eq('is_active', true)
-    .maybeSingle()
+  // Defaults to the active season, but an explicit id lets an admin backfill
+  // results for a past season.
+  const targetSeasonId = await resolveTargetSeasonId(body.seasonId)
 
   const now = new Date().toISOString()
   const { data: created, error: createError } = await supabaseAdmin
@@ -137,7 +136,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       submitted_by_profile_id: admin.id,
       approved_by_profile_id: admin.id,
       approved_at: now,
-      season_id: activeSeason?.id ?? null,
+      season_id: targetSeasonId,
     })
     .select(
       `

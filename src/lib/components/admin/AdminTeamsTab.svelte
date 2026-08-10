@@ -93,6 +93,26 @@
   }: Props = $props()
 
   let createTeamLogoInput: HTMLInputElement | null = null
+
+  /**
+   * New teams land in whichever season is being viewed, so the form says which
+   * one that is rather than leaving it implicit.
+   */
+  const selectedSeason = $derived(
+    matchSeasonOptions.find((option) => option.value === adminMatchSeasonId)
+  )
+  const targetSeasonLabel = $derived(
+    !adminMatchSeasonId
+      ? 'the active season'
+      : adminMatchSeasonId === '__none__'
+        ? 'no season'
+        : (selectedSeason?.label ?? 'the selected season')
+  )
+  const targetSeasonIsPast = $derived(
+    Boolean(adminMatchSeasonId) &&
+      adminMatchSeasonId !== '__none__' &&
+      !(selectedSeason?.label ?? '').includes('Active')
+  )
 </script>
 
 <div class="mb-3 flex flex-col gap-2 md:flex-row md:items-center">
@@ -116,11 +136,17 @@
 
 <div class="mb-6 rounded-md border p-3" style="border-color: rgba(255,255,255,0.12);">
   <h3
-    class="mb-3 text-sm font-semibold tracking-wide uppercase"
+    class="mb-1 text-sm font-semibold tracking-wide uppercase"
     style="color: rgba(255,255,255,0.8);"
   >
     Create Team
   </h3>
+  <p class="mb-3 text-xs" style="color: rgba(255,255,255,0.55);">
+    Filed under <strong style="color: {targetSeasonIsPast ? '#fcd34d' : 'rgba(255,255,255,0.8)'};"
+      >{targetSeasonLabel}</strong
+    >{#if targetSeasonIsPast}
+      — backfilling a past season.{/if}
+  </p>
 
   <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
     <label class="flex flex-col gap-1 text-sm" style="color: var(--text);">

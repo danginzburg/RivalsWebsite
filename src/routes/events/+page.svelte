@@ -49,6 +49,11 @@
       <div class="season-list">
         {#each seasons as season (season.id)}
           <a href={resolve(`/events/${season.code}`)} class="season-card">
+            {#if season.logo_url}
+              <img src={season.logo_url} alt="" class="season-logo" />
+            {:else}
+              <div class="season-logo season-logo-blank">{season.code?.slice(0, 3) ?? ''}</div>
+            {/if}
             <div class="season-main">
               <div class="season-head">
                 <div class="season-title-row">
@@ -144,6 +149,28 @@
   .season-card:hover {
     border-color: rgba(120, 67, 145, 0.45);
     background: rgba(255, 255, 255, 0.03);
+  }
+
+  .season-logo {
+    width: 3rem;
+    height: 3rem;
+    border-radius: 0.5rem;
+    object-fit: contain;
+    flex-shrink: 0;
+    align-self: flex-start;
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .season-logo-blank {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: rgba(255, 255, 255, 0.3);
+    background: rgba(255, 255, 255, 0.05);
   }
 
   .season-main {

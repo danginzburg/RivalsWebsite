@@ -1,6 +1,7 @@
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { safeNumber } from '$lib/server/parse'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
+import { publicDataCache } from '$lib/server/cache'
 
 type LeaderboardTeamRel = {
   id: string
@@ -22,7 +23,17 @@ type LeaderboardEntryRow = {
   teams: LeaderboardTeamRel | LeaderboardTeamRel[] | null
 }
 
+/**
+ * Standings change only when an admin imports a new batch, so a short cache
+ * is safe and removes a multi-join query from every page view.
+ */
 export const load = async () => {
+  return publicDataCache.wrap('leaderboard:latest', loadLeaderboard) as ReturnType<
+    typeof loadLeaderboard
+  >
+}
+
+async function loadLeaderboard() {
   const { data: batch } = await supabaseAdmin
     .from('stat_import_batches')
     .select('id, display_name, source_filename, created_at, metadata')

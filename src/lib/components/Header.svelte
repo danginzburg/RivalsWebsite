@@ -19,9 +19,9 @@
     User,
     UserCog,
     Target,
-    MessageCircle,
     ClipboardList,
   } from 'lucide-svelte'
+  import DiscordIcon from '$lib/components/icons/DiscordIcon.svelte'
   import rivalsLogo from '$lib/assets/rivals_logo.webp'
 
   let isMobileMenuOpen = $state(false)
@@ -140,7 +140,7 @@
           title="Discord"
           aria-label="Discord"
         >
-          <MessageCircle class="h-5 w-5" />
+          <DiscordIcon size={19} />
         </a>
 
         {#each utilityItems as item (item.href)}
@@ -223,7 +223,7 @@
             class="mobile-link"
             onclick={closeMobileMenu}
           >
-            <MessageCircle class="h-5 w-5" />
+            <DiscordIcon size={19} />
             <span>Discord</span>
           </a>
         </li>

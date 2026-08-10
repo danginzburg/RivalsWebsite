@@ -178,6 +178,8 @@ export async function updateMatchDetails(
     youtubeVodUrl: string | null
     mapVetoes: string[]
     designation: string | null
+    /** Omitted leaves the match where it is; null files it under no season. */
+    seasonId?: string | null | undefined
   },
   repo: MatchLifecycleRepository = createSupabaseMatchLifecycleRepository()
 ) {
@@ -217,6 +219,9 @@ export async function updateMatchDetails(
       },
       approved_by_profile_id: input.adminProfileId,
       approved_at: repo.now(),
+      // Only touched when the caller supplied a value, so ordinary edits
+      // cannot silently move a match out of its season.
+      ...(input.seasonId !== undefined ? { season_id: input.seasonId } : {}),
     },
     'id, status, team_a_id, team_b_id, winner_team_id, team_a_score, team_b_score, scheduled_at'
   )

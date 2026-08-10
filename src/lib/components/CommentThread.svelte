@@ -1,10 +1,10 @@
 <script lang="ts">
   import { MessageSquare, Reply, Flag, Trash2, Pencil, X, Check } from 'lucide-svelte'
   import { resolve } from '$app/paths'
-  import type { CommentNode } from '$lib/server/comments'
+  import type { CommentNode, CommentEntityType } from '$lib/server/comments'
 
   interface Props {
-    entityType: 'match' | 'player'
+    entityType: CommentEntityType
     entityId: string
     comments: CommentNode[]
     /** Null when signed out — the composer is replaced by a sign-in prompt. */

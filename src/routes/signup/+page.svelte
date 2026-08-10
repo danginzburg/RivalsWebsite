@@ -2,61 +2,42 @@
   import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import PageHeading from '$lib/components/PageHeading.svelte'
-  import CustomSelect from '$lib/components/CustomSelect.svelte'
-  import { ClipboardList, Plus, X } from 'lucide-svelte'
+  import { ClipboardList, Plus, X, Lock, Info } from 'lucide-svelte'
   import { enhance } from '$app/forms'
   import { untrack } from 'svelte'
-  import {
-    computeRatingFromRankNames,
-    roundRating,
-    SIGNUP_RANK_OPTIONS,
-  } from '$lib/signups/formula'
 
   let { data, form }: PageProps = $props()
 
   const signup = $derived(data.signup)
   const activeSeason = $derived(data.activeSeason)
+  const isApproved = $derived(data.signup?.status === 'approved')
+  const isLocked = $derived(isApproved)
 
   type LinkRow = { label: string; url: string }
 
   /**
-   * Seed the form once from an existing signup, falling back to profile values.
-   * These are deliberately a snapshot — once the form is open, the fields belong
-   * to the user, not to subsequent load data.
+   * Seed the form once from an existing signup. These are a snapshot: while the
+   * form is open the fields belong to the user, not to later load data.
    */
   const seed = untrack(() => ({
-    displayName:
-      data.signup?.display_name ?? data.profile.riot_id_base ?? data.profile.display_name ?? '',
-    discordHandle: data.signup?.discord_handle ?? '',
-    currentRank: data.signup?.current_rank ?? '',
-    peakRank: data.signup?.peak_rank ?? '',
-    trackerCurrentScore:
-      data.signup?.tracker_current_score != null ? String(data.signup.tracker_current_score) : '',
-    trackerPeakScore:
-      data.signup?.tracker_peak_score != null ? String(data.signup.tracker_peak_score) : '',
+    // Prefill from the existing signup, then fall back to the profile so a
+    // returning player does not retype details the site already knows.
+    riotId: data.signup?.display_name ?? data.profile.riot_id_base ?? '',
+    discordHandle: data.signup?.discord_handle ?? data.profile.discord_handle ?? '',
     trackerLinks: ((data.signup?.tracker_links as LinkRow[] | undefined)?.length
       ? [...(data.signup!.tracker_links as LinkRow[])]
       : [{ label: '', url: '' }]) as LinkRow[],
   }))
 
-  let displayName = $state(seed.displayName)
+  let riotId = $state(seed.riotId)
   let discordHandle = $state(seed.discordHandle)
-  let currentRank = $state(seed.currentRank)
-  let peakRank = $state(seed.peakRank)
-  let trackerCurrentScore = $state(seed.trackerCurrentScore)
-  let trackerPeakScore = $state(seed.trackerPeakScore)
   let trackerLinks = $state<LinkRow[]>(seed.trackerLinks)
 
   let submitting = $state(false)
+  let withdrawing = $state(false)
 
-  /** Live preview so a player can see how their inputs move the number. */
-  const preview = $derived(
-    computeRatingFromRankNames({
-      currentRank: currentRank || null,
-      peakRank: peakRank || null,
-      trackerCurrentScore: trackerCurrentScore === '' ? null : Number(trackerCurrentScore),
-      trackerPeakScore: trackerPeakScore === '' ? null : Number(trackerPeakScore),
-    })
+  const canSubmit = $derived(
+    riotId.trim().length >= 3 && trackerLinks.some((l) => l.url.trim().length > 0)
   )
 
   function addLink() {
@@ -73,6 +54,12 @@
     pending: 'background: rgba(251,191,36,0.16); color: #fcd34d;',
     approved: 'background: rgba(74,222,128,0.16); color: #86efac;',
     rejected: 'background: rgba(248,113,113,0.16); color: #fca5a5;',
+  }
+
+  const statusCopy: Record<string, string> = {
+    pending: 'Waiting for an admin to review your details.',
+    approved: 'You are registered for this season.',
+    rejected: 'An admin could not approve this. See their note below.',
   }
 </script>
 
@@ -94,23 +81,35 @@
         opens.
       </div>
     {:else}
+      <!-- Current status -->
       {#if signup}
-        <div class="status-bar">
-          <span class="status-label">Your signup</span>
-          <span class="status-pill" style={statusStyle[signup.status] ?? ''}>{signup.status}</span>
-          {#if signup.status === 'approved'}
-            <span class="status-note">
-              Assigned value:
-              <strong>{signup.manual_value_override ?? signup.computed_value ?? '—'}</strong>
+        <div class="status-card" class:status-card-approved={isApproved}>
+          <div class="status-head">
+            <span class="status-pill" style={statusStyle[signup.status] ?? ''}>
+              {signup.status}
             </span>
+            <span class="status-copy">{statusCopy[signup.status] ?? ''}</span>
+          </div>
+
+          {#if isApproved}
+            <div class="assigned">
+              <span class="assigned-label">Assigned value</span>
+              <span class="assigned-value">
+                {signup.manual_value_override ?? signup.computed_value ?? 'Not yet set'}
+              </span>
+              {#if signup.current_rank}
+                <span class="assigned-rank">{signup.current_rank}</span>
+              {/if}
+            </div>
+          {/if}
+
+          {#if signup.admin_notes}
+            <div class="admin-note">
+              <Info size={14} style="flex-shrink: 0; margin-top: 1px;" />
+              <span>{signup.admin_notes}</span>
+            </div>
           {/if}
         </div>
-        {#if signup.admin_notes}
-          <div class="notice notice-info">
-            <strong>Note from an admin:</strong>
-            {signup.admin_notes}
-          </div>
-        {/if}
       {/if}
 
       {#if form?.success}
@@ -119,176 +118,180 @@
         <div class="notice notice-error">{form.message}</div>
       {/if}
 
-      <form
-        method="POST"
-        class="signup-form"
-        use:enhance={() => {
-          submitting = true
-          return async ({ update }) => {
-            await update()
-            submitting = false
-          }
-        }}
-      >
-        <!-- Identity -->
-        <section class="form-section">
-          <h2 class="section-title">Who you are</h2>
-
-          <label class="field">
-            <span class="field-label">Display name <span class="required">*</span></span>
-            <input
-              name="displayName"
-              bind:value={displayName}
-              class="input"
-              placeholder="The name you play under"
-              required
-              maxlength="48"
-            />
-            <span class="field-hint">
-              This is how you'll appear on rosters, stats, and match pages.
-            </span>
-          </label>
-
-          <label class="field">
-            <span class="field-label">Discord</span>
-            <input
-              name="discordHandle"
-              bind:value={discordHandle}
-              class="input"
-              placeholder="yourname"
-              maxlength="64"
-            />
-            <span class="field-hint">
-              Shown on your player profile so captains and teammates can reach you.
-            </span>
-          </label>
-        </section>
-
-        <!-- Ranks -->
-        <section class="form-section">
-          <h2 class="section-title">Your rank</h2>
-
-          <div class="field-row">
-            <label class="field">
-              <span class="field-label">Current rank <span class="required">*</span></span>
-              <CustomSelect
-                options={SIGNUP_RANK_OPTIONS}
-                value={currentRank}
-                placeholder="Select current rank"
-                onSelect={(value) => (currentRank = value)}
-              />
-              <input type="hidden" name="currentRank" value={currentRank} />
-            </label>
-
-            <label class="field">
-              <span class="field-label">Peak rank</span>
-              <CustomSelect
-                options={SIGNUP_RANK_OPTIONS}
-                value={peakRank}
-                placeholder="Select peak rank"
-                onSelect={(value) => (peakRank = value)}
-              />
-              <input type="hidden" name="peakRank" value={peakRank} />
-            </label>
+      {#if isLocked}
+        <div class="locked-panel">
+          <Lock size={18} style="color: rgba(255,255,255,0.4); flex-shrink: 0;" />
+          <div>
+            <div class="locked-title">Your signup is locked</div>
+            <p class="locked-text">
+              Approved signups can't be edited or withdrawn. Message an admin if your Riot ID,
+              Discord, or tracker links need updating.
+            </p>
           </div>
-        </section>
-
-        <!-- Trackers -->
-        <section class="form-section">
-          <h2 class="section-title">Tracker</h2>
-
-          <div class="links">
-            {#each trackerLinks as link, index (index)}
-              <div class="link-row">
-                <input
-                  name="trackerLabel"
-                  bind:value={link.label}
-                  class="input input-label"
-                  placeholder="Label"
-                  maxlength="60"
-                />
-                <input
-                  name="trackerUrl"
-                  bind:value={link.url}
-                  class="input"
-                  placeholder="https://tracker.gg/valorant/profile/..."
-                  type="url"
-                />
-                {#if trackerLinks.length > 1}
-                  <button
-                    type="button"
-                    class="link-remove"
-                    aria-label="Remove link"
-                    onclick={() => removeLink(index)}
-                  >
-                    <X size={14} />
-                  </button>
-                {/if}
-              </div>
-            {/each}
-          </div>
-
-          {#if trackerLinks.length < data.maxTrackerLinks}
-            <button type="button" class="add-link" onclick={addLink}>
-              <Plus size={13} /> Add another link
-            </button>
-          {/if}
-
-          <div class="field-row score-row">
-            <label class="field">
-              <span class="field-label">Tracker current score</span>
-              <input
-                name="trackerCurrentScore"
-                bind:value={trackerCurrentScore}
-                class="input"
-                type="number"
-                step="any"
-                min="0"
-                placeholder="Leave blank if unknown"
-              />
-            </label>
-            <label class="field">
-              <span class="field-label">Tracker peak score</span>
-              <input
-                name="trackerPeakScore"
-                bind:value={trackerPeakScore}
-                class="input"
-                type="number"
-                step="any"
-                min="0"
-                placeholder="Leave blank if unknown"
-              />
-            </label>
-          </div>
-          <p class="field-hint">
-            These are filled in automatically where possible. Enter them by hand if you know them.
-          </p>
-        </section>
-
-        <!-- Live preview -->
-        {#if currentRank}
-          <section class="preview">
-            <div class="preview-head">
-              <span class="preview-label">Estimated value</span>
-              <span class="preview-value">{roundRating(preview.rating)}</span>
-            </div>
-            <div class="preview-terms">
-              <span>Current {preview.currentTerm.toFixed(2)}</span>
-              <span>Peak {preview.peakTerm.toFixed(2)}</span>
-              <span>√Tracker {preview.trackerCurrentTerm.toFixed(2)}</span>
-              <span>ln(Peak) {preview.trackerPeakTerm.toFixed(2)}</span>
-              <span>×{preview.multiplier.toFixed(3)}</span>
-            </div>
-            <p class="preview-note">An admin reviews this before it's final and may adjust it.</p>
-          </section>
-        {/if}
-
-        <div class="form-actions">
-          <button type="submit" class="submit-btn" disabled={submitting || !currentRank}>
-            {submitting ? 'Submitting...' : signup ? 'Update Signup' : 'Submit Signup'}
-          </button>
         </div>
-      </form>
+
+        <!-- Read-only summary -->
+        <section class="form-section">
+          <h2 class="section-title">Submitted details</h2>
+          <dl class="summary">
+            <dt>Riot ID</dt>
+            <dd>{signup?.display_name ?? '—'}</dd>
+            <dt>Discord</dt>
+            <dd>{signup?.discord_handle ?? '—'}</dd>
+            <dt>Trackers</dt>
+            <dd>
+              {#if (signup?.tracker_links ?? []).length > 0}
+                <div class="summary-links">
+                  {#each signup?.tracker_links ?? [] as link (link.url)}
+                    <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+                    <a href={link.url} target="_blank" rel="noopener noreferrer">{link.label}</a>
+                  {/each}
+                </div>
+              {:else}
+                —
+              {/if}
+            </dd>
+          </dl>
+        </section>
+      {:else}
+        <form
+          method="POST"
+          action="?/submit"
+          class="signup-form"
+          use:enhance={() => {
+            submitting = true
+            return async ({ update }) => {
+              await update()
+              submitting = false
+            }
+          }}
+        >
+          <section class="form-section">
+            <h2 class="section-title">Who you are</h2>
+
+            <label class="field">
+              <span class="field-label">Riot ID <span class="required">*</span></span>
+              <input
+                name="riotId"
+                bind:value={riotId}
+                class="input"
+                placeholder="YourName"
+                required
+                minlength="3"
+                maxlength="24"
+                disabled={submitting}
+              />
+              <span class="field-hint">
+                Name only — leave off the #tag. This is your identity across rosters, stats, and
+                match pages, and is how imported stats find you.
+              </span>
+            </label>
+
+            <label class="field">
+              <span class="field-label">Discord</span>
+              <input
+                name="discordHandle"
+                bind:value={discordHandle}
+                class="input"
+                placeholder="yourname"
+                maxlength="64"
+                disabled={submitting}
+              />
+              <span class="field-hint">
+                {#if data.profile.discord_handle && !data.signup}
+                  Filled in from your Discord login — edit it if you use a different handle.
+                {:else}
+                  Shown on your player profile once approved, so captains can reach you.
+                {/if}
+              </span>
+            </label>
+          </section>
+
+          <section class="form-section">
+            <h2 class="section-title">Tracker links <span class="required">*</span></h2>
+            <p class="section-intro">
+              An admin uses these to verify your rank and set your rating. Add at least one.
+            </p>
+
+            <div class="links">
+              {#each trackerLinks as link, index (index)}
+                <div class="link-row">
+                  <input
+                    name="trackerUrl"
+                    bind:value={link.url}
+                    class="input"
+                    placeholder="https://tracker.gg/valorant/profile/..."
+                    type="url"
+                    disabled={submitting}
+                  />
+                  {#if trackerLinks.length > 1}
+                    <button
+                      type="button"
+                      class="link-remove"
+                      aria-label="Remove link"
+                      onclick={() => removeLink(index)}
+                    >
+                      <X size={14} />
+                    </button>
+                  {/if}
+                </div>
+              {/each}
+            </div>
+
+            {#if trackerLinks.length < data.maxTrackerLinks}
+              <button type="button" class="add-link" onclick={addLink}>
+                <Plus size={13} /> Add another link
+              </button>
+            {/if}
+          </section>
+
+          <div class="rating-note">
+            <Info
+              size={14}
+              style="flex-shrink: 0; margin-top: 2px; color: rgba(255,255,255,0.4);"
+            />
+            <p>
+              Your rank and rating are set by an admin after reviewing your tracker — you don't
+              enter them yourself. {#if signup}Editing your signup sends it back for review.{/if}
+            </p>
+          </div>
+
+          <div class="form-actions">
+            {#if signup}
+              <button
+                type="submit"
+                form="withdraw-form"
+                class="withdraw-btn"
+                disabled={withdrawing || submitting}
+              >
+                {withdrawing ? 'Withdrawing...' : 'Withdraw signup'}
+              </button>
+            {/if}
+            <button type="submit" class="submit-btn" disabled={submitting || !canSubmit}>
+              {submitting ? 'Saving...' : signup ? 'Update signup' : 'Submit signup'}
+            </button>
+          </div>
+        </form>
+
+        {#if signup}
+          <!-- Separate form so the withdraw button posts no signup fields. -->
+          <form
+            id="withdraw-form"
+            method="POST"
+            action="?/withdraw"
+            use:enhance={() => {
+              if (!window.confirm('Withdraw your signup for this season?')) {
+                return async () => {}
+              }
+              withdrawing = true
+              return async ({ update }) => {
+                await update()
+                withdrawing = false
+              }
+            }}
+          ></form>
+        {/if}
+      {/if}
     {/if}
   </div>
 </PageContainer>
@@ -318,28 +321,20 @@
     border-bottom: 1px solid rgba(255, 255, 255, 0.07);
   }
 
+  .section-intro {
+    font-size: 0.8125rem;
+    color: rgba(255, 255, 255, 0.55);
+    line-height: 1.5;
+    margin-bottom: 0.875rem;
+  }
+
   .field {
     display: flex;
     flex-direction: column;
     gap: 0.3125rem;
-    flex: 1;
-    min-width: 0;
   }
 
   .field + .field {
-    margin-top: 0.875rem;
-  }
-
-  .field-row {
-    display: flex;
-    gap: 0.75rem;
-  }
-
-  .field-row .field + .field {
-    margin-top: 0;
-  }
-
-  .score-row {
     margin-top: 0.875rem;
   }
 
@@ -372,6 +367,10 @@
     border-color: var(--hover);
   }
 
+  .input:disabled {
+    opacity: 0.6;
+  }
+
   .field-hint {
     font-size: 0.6875rem;
     color: rgba(255, 255, 255, 0.4);
@@ -389,11 +388,6 @@
     display: flex;
     gap: 0.5rem;
     align-items: center;
-  }
-
-  .input-label {
-    max-width: 9rem;
-    flex-shrink: 0;
   }
 
   .link-remove {
@@ -432,72 +426,25 @@
     text-decoration: underline;
   }
 
-  /* Preview */
-  .preview {
-    padding: 1rem 1.25rem;
-    border-radius: 0.75rem;
-    border: 1px solid rgba(120, 67, 145, 0.35);
-    background: rgba(120, 67, 145, 0.08);
-  }
-
-  .preview-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 1rem;
-  }
-
-  .preview-label {
-    font-size: 0.6875rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: rgba(255, 255, 255, 0.5);
-  }
-
-  .preview-value {
-    font-size: 1.75rem;
-    font-weight: 700;
-    color: #d8b4fe;
-    font-variant-numeric: tabular-nums;
-    line-height: 1;
-  }
-
-  .preview-terms {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.75rem;
-    margin-top: 0.625rem;
-    font-size: 0.6875rem;
-    color: rgba(255, 255, 255, 0.45);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .preview-note {
-    font-size: 0.6875rem;
-    color: rgba(255, 255, 255, 0.38);
-    margin-top: 0.5rem;
-  }
-
-  /* Status + notices */
-  .status-bar {
-    display: flex;
-    align-items: center;
-    gap: 0.625rem;
-    flex-wrap: wrap;
-    padding: 0.75rem 1rem;
+  /* Status */
+  .status-card {
+    padding: 0.875rem 1rem;
     border-radius: 0.625rem;
     background: rgba(255, 255, 255, 0.03);
     border: 1px solid rgba(255, 255, 255, 0.07);
     margin-bottom: 0.75rem;
   }
 
-  .status-label {
-    font-size: 0.6875rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
-    color: rgba(255, 255, 255, 0.45);
+  .status-card-approved {
+    border-color: rgba(74, 222, 128, 0.28);
+    background: rgba(74, 222, 128, 0.05);
+  }
+
+  .status-head {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    flex-wrap: wrap;
   }
 
   .status-pill {
@@ -509,10 +456,120 @@
     border-radius: 9999px;
   }
 
-  .status-note {
+  .status-copy {
+    font-size: 0.8125rem;
+    color: rgba(255, 255, 255, 0.62);
+  }
+
+  .assigned {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
+    flex-wrap: wrap;
+  }
+
+  .assigned-label {
+    font-size: 0.625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: rgba(255, 255, 255, 0.42);
+  }
+
+  .assigned-value {
+    font-size: 1.375rem;
+    font-weight: 700;
+    color: #d8b4fe;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+
+  .assigned-rank {
     font-size: 0.75rem;
-    color: rgba(255, 255, 255, 0.6);
-    margin-left: auto;
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .admin-note {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    color: rgba(255, 255, 255, 0.7);
+  }
+
+  /* Locked */
+  .locked-panel {
+    display: flex;
+    gap: 0.75rem;
+    padding: 0.875rem 1rem;
+    border-radius: 0.625rem;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    margin-bottom: 1.25rem;
+  }
+
+  .locked-title {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .locked-text {
+    font-size: 0.8125rem;
+    color: rgba(255, 255, 255, 0.55);
+    line-height: 1.5;
+    margin-top: 0.1875rem;
+  }
+
+  .summary {
+    display: grid;
+    grid-template-columns: 7rem 1fr;
+    gap: 0.5rem 1rem;
+    font-size: 0.8125rem;
+  }
+
+  .summary dt {
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .summary dd {
+    color: rgba(255, 255, 255, 0.8);
+    word-break: break-word;
+  }
+
+  .summary-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .summary-links a {
+    color: #93c5fd;
+    text-decoration: none;
+  }
+
+  .summary-links a:hover {
+    text-decoration: underline;
+  }
+
+  /* Notices */
+  .rating-note {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    border-radius: 0.5rem;
+    background: rgba(255, 255, 255, 0.025);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    font-size: 0.75rem;
+    line-height: 1.5;
+    color: rgba(255, 255, 255, 0.5);
   }
 
   .notice {
@@ -541,15 +598,12 @@
     color: #fde68a;
   }
 
-  .notice-info {
-    background: rgba(96, 165, 250, 0.08);
-    border: 1px solid rgba(96, 165, 250, 0.25);
-    color: #bfdbfe;
-  }
-
+  /* Actions */
   .form-actions {
     display: flex;
     justify-content: flex-end;
+    align-items: center;
+    gap: 0.75rem;
   }
 
   .submit-btn {
@@ -573,22 +627,49 @@
     cursor: not-allowed;
   }
 
+  .withdraw-btn {
+    margin-right: auto;
+    padding: 0.625rem 1rem;
+    border-radius: 0.5rem;
+    border: 1px solid rgba(248, 113, 113, 0.25);
+    background: transparent;
+    color: #f87171;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  .withdraw-btn:hover:not(:disabled) {
+    background: rgba(248, 113, 113, 0.12);
+  }
+
+  .withdraw-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
   @media (max-width: 640px) {
     .form-section {
       padding: 0.875rem;
     }
 
-    .field-row {
-      flex-direction: column;
-      gap: 0.875rem;
+    .summary {
+      grid-template-columns: 1fr;
+      gap: 0.125rem 0;
     }
 
-    .link-row {
-      flex-wrap: wrap;
+    .summary dd {
+      margin-bottom: 0.5rem;
     }
 
-    .input-label {
-      max-width: none;
+    .form-actions {
+      flex-direction: column-reverse;
+      align-items: stretch;
+    }
+
+    .withdraw-btn {
+      margin-right: 0;
     }
   }
 </style>

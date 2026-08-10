@@ -46,6 +46,10 @@
       config: ReturnType<typeof normalizePlayoffPickemConfig>
     ) => void
     onScorePlayoffPickem: (seasonId: string) => void
+    /** Season id whose logo is mid-upload, or null. */
+    logoUploadingSeasonId?: string | null
+    onUploadSeasonLogo: (seasonId: string, file: File) => void
+    onRemoveSeasonLogo: (seasonId: string, seasonName: string) => void
   }
 
   let {
@@ -71,7 +75,13 @@
     onSaveSeason,
     onSavePlayoffPickem,
     onScorePlayoffPickem,
+    logoUploadingSeasonId = null,
+    onUploadSeasonLogo,
+    onRemoveSeasonLogo,
   }: Props = $props()
+
+  const inputStyle =
+    'border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);'
 
   let expandedPickemSeasonId = $state<string | null>(null)
   let expandedResultsSeasonId = $state<string | null>(null)
@@ -331,7 +341,24 @@
             style="border-color: rgba(255,255,255,0.10); background: rgba(0,0,0,0.18);"
           >
             <div class="mb-2 flex items-center justify-between gap-2">
-              <div class="font-semibold" style="color: var(--text);">{season.name}</div>
+              <div class="flex min-w-0 items-center gap-2">
+                {#if season.logo_url}
+                  <img
+                    src={season.logo_url}
+                    alt="{season.name} logo"
+                    class="h-8 w-8 flex-shrink-0 rounded object-contain"
+                    style="background: rgba(255,255,255,0.04);"
+                  />
+                {:else}
+                  <div
+                    class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded text-[9px] font-bold"
+                    style="background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.35);"
+                  >
+                    {season.code?.slice(0, 3).toUpperCase() ?? '—'}
+                  </div>
+                {/if}
+                <div class="truncate font-semibold" style="color: var(--text);">{season.name}</div>
+              </div>
               {#if season.is_active}
                 <span
                   class="rounded-full px-2 py-1 text-xs font-bold"
@@ -501,6 +528,60 @@
                       />
                     </div>
                   </label>
+
+                  <div
+                    class="mt-2 rounded-md border p-2"
+                    style="border-color: rgba(255,255,255,0.10);"
+                  >
+                    <div class="mb-2 text-xs font-semibold" style="color: rgba(255,255,255,0.82);">
+                      Season Logo
+                    </div>
+                    <div class="flex flex-wrap items-center gap-3">
+                      {#if season.logo_url}
+                        <img
+                          src={season.logo_url}
+                          alt="{season.name} logo"
+                          class="h-12 w-12 rounded object-contain"
+                          style="background: rgba(255,255,255,0.04);"
+                        />
+                      {:else}
+                        <div
+                          class="flex h-12 w-12 items-center justify-center rounded text-[10px]"
+                          style="background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.35);"
+                        >
+                          None
+                        </div>
+                      {/if}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        class="flex-1 rounded-md border px-2 py-1 text-xs"
+                        style={inputStyle}
+                        disabled={logoUploadingSeasonId === season.id}
+                        onchange={(e) => {
+                          const file = (e.currentTarget as HTMLInputElement).files?.[0] ?? null
+                          if (file) onUploadSeasonLogo(season.id, file)
+                          ;(e.currentTarget as HTMLInputElement).value = ''
+                        }}
+                      />
+                      {#if season.logo_url}
+                        <button
+                          type="button"
+                          class="rounded px-2 py-1 text-xs font-semibold"
+                          style="background: rgba(248,113,113,0.18); color: #f87171;"
+                          disabled={logoUploadingSeasonId === season.id}
+                          onclick={() => onRemoveSeasonLogo(season.id, season.name)}
+                        >
+                          Remove
+                        </button>
+                      {/if}
+                    </div>
+                    {#if logoUploadingSeasonId === season.id}
+                      <div class="mt-1 text-[11px]" style="color: rgba(255,255,255,0.5);">
+                        Uploading...
+                      </div>
+                    {/if}
+                  </div>
 
                   <label class="mt-2 block text-xs" style="color: rgba(255,255,255,0.82);">
                     Summary

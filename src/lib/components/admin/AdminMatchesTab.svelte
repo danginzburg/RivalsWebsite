@@ -110,11 +110,31 @@
     onFetchMatchMaps,
     onToggleMapVoided,
   }: Props = $props()
+
+  /**
+   * New matches land in whichever season is being viewed, so the form says
+   * which one that is rather than leaving it implicit.
+   */
+  const selectedSeason = $derived(
+    matchSeasonOptions.find((option) => option.value === adminMatchSeasonId)
+  )
+  const targetSeasonLabel = $derived(
+    !adminMatchSeasonId
+      ? 'the active season'
+      : adminMatchSeasonId === '__none__'
+        ? 'no season'
+        : (selectedSeason?.label ?? 'the selected season')
+  )
+  const targetSeasonIsPast = $derived(
+    Boolean(adminMatchSeasonId) &&
+      adminMatchSeasonId !== '__none__' &&
+      !(selectedSeason?.label ?? '').includes('Active')
+  )
 </script>
 
 <div class="grid grid-cols-1 gap-4">
   <section class="rounded-md border p-3" style="border-color: rgba(255,255,255,0.12);">
-    <div class="mb-3 flex items-center gap-2">
+    <div class="mb-1 flex items-center gap-2">
       <h3
         class="text-sm font-semibold tracking-wide uppercase"
         style="color: rgba(255,255,255,0.8);"
@@ -122,6 +142,12 @@
         Create Match
       </h3>
     </div>
+    <p class="mb-3 text-xs" style="color: rgba(255,255,255,0.55);">
+      Filed under <strong style="color: {targetSeasonIsPast ? '#fcd34d' : 'rgba(255,255,255,0.8)'};"
+        >{targetSeasonLabel}</strong
+      >{#if targetSeasonIsPast}
+        — backfilling a past season.{/if}
+    </p>
 
     <div class="grid grid-cols-1 gap-2 md:grid-cols-5">
       <div class="md:col-span-2">

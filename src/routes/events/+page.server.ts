@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
+import { getSeasonLogoUrl } from '$lib/server/seasons/logo'
 import { playoffPickemConfigFromSeasonMetadata } from '$lib/playoffPickems'
 
 type TeamRel = { id: string; name: string; tag?: string | null; logo_path?: string | null }
@@ -25,6 +26,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
       is_active,
       summary,
       metadata,
+      logo_path,
       winner_team_id,
       runner_up_team_id,
       mvp_profile_id,
@@ -93,6 +95,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
       ends_on: season.ends_on,
       is_active: season.is_active,
       summary: season.summary ?? null,
+      logo_url: getSeasonLogoUrl(season),
       winner: winner
         ? {
             id: winner.id,

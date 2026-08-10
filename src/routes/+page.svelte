@@ -10,13 +10,42 @@
   let searchQuery = $state('')
   let activeTab = $state<'all' | 'live' | 'upcoming' | 'completed'>('all')
 
+  /**
+   * `status` on a match only changes when an admin edits it, so a match that
+   * has reached its start time still reads as "scheduled". The tabs therefore
+   * derive state from the clock, with the stored status as an override.
+   *
+   * Ticks so a match moves into Live on its own without a page refresh.
+   */
+  let now = $state(Date.now())
+  $effect(() => {
+    const id = setInterval(() => (now = Date.now()), 30_000)
+    return () => clearInterval(id)
+  })
+
+  function isFinished(match: any) {
+    return match.status === 'completed' || match.status === 'cancelled'
+  }
+
+  /** Underway: explicitly flagged live, or past its start time and unfinished. */
+  function isLive(match: any) {
+    if (isFinished(match)) return false
+    if (match.status === 'live') return true
+    return match.scheduled_at != null && new Date(match.scheduled_at).getTime() <= now
+  }
+
+  /** Still ahead of us. A match with no date set counts as upcoming. */
+  function isUpcoming(match: any) {
+    if (isFinished(match) || match.status === 'live') return false
+    return match.scheduled_at == null || new Date(match.scheduled_at).getTime() > now
+  }
+
   const filteredMatches = $derived.by(() => {
     const query = searchQuery.trim().toLowerCase()
     const filtered = matches.filter((match: any) => {
       // Tab filter
-      if (activeTab === 'live' && match.status !== 'live') return false
-      if (activeTab === 'upcoming' && match.status !== 'scheduled' && match.status !== 'pending')
-        return false
+      if (activeTab === 'live' && !isLive(match)) return false
+      if (activeTab === 'upcoming' && !isUpcoming(match)) return false
       if (activeTab === 'completed' && match.status !== 'completed') return false
 
       if (!query) return true
@@ -46,10 +75,10 @@
     })
   })
 
-  /** Sort bucket for the All tab: live (0) → upcoming (1) → completed (2). */
+  /** Sort bucket for the All tab: live (0) → upcoming (1) → finished (2). */
   function statusRank(match: any) {
-    if (match.status === 'live') return 0
-    if (match.status === 'completed') return 2
+    if (isLive(match)) return 0
+    if (isFinished(match)) return 2
     return 1
   }
 
@@ -62,10 +91,8 @@
     return value ? new Date(value).getTime() : 0
   }
 
-  const liveCount = $derived(matches.filter((m: any) => m.status === 'live').length)
-  const upcomingCount = $derived(
-    matches.filter((m: any) => m.status === 'scheduled' || m.status === 'pending').length
-  )
+  const liveCount = $derived(matches.filter(isLive).length)
+  const upcomingCount = $derived(matches.filter(isUpcoming).length)
   const completedCount = $derived(matches.filter((m: any) => m.status === 'completed').length)
 
   function teamName(value: unknown) {
@@ -85,11 +112,6 @@
     if (!value) return 'Date TBD'
     const date = new Date(value)
     return date.toLocaleString(undefined, { timeZoneName: 'short' })
-  }
-
-  function formatStatus(status: string | null | undefined) {
-    if (!status) return 'Unknown'
-    return status.charAt(0).toUpperCase() + status.slice(1)
   }
 
   const tabs = $derived([
@@ -207,42 +229,7 @@
                 <span class="match-format">BO{match.best_of}</span>
                 <span class="meta-dot">·</span>
                 <span>{formatLocal(match.scheduled_at)}</span>
-                {#if match.status === 'live'}
-                  <span class="status-badge status-live">
-                    <span class="live-dot"></span> Live
-                  </span>
-                {:else if match.status === 'completed'}
-                  <span class="status-badge status-completed">Completed</span>
-                {:else}
-                  <span class="status-badge status-scheduled">{formatStatus(match.status)}</span>
-                {/if}
               </div>
-
-              {#if (match.streams ?? []).length > 0}
-                <div class="match-streams">
-                  {#each match.streams as stream (stream.stream_url)}
-                    <!-- eslint-disable svelte/no-navigation-without-resolve -->
-                    <span
-                      class="stream-badge"
-                      onclick={(event) => {
-                        event.preventDefault()
-                        event.stopPropagation()
-                        if (stream.stream_url) {
-                          window.open(stream.stream_url, '_blank', 'noopener,noreferrer')
-                        }
-                      }}
-                      onkeydown={(event) => event.stopPropagation()}
-                      role="link"
-                      tabindex="0"
-                    >
-                      {stream.metadata?.display_name || stream.platform}{stream.is_primary
-                        ? ' (Primary)'
-                        : ''}
-                    </span>
-                    <!-- eslint-enable svelte/no-navigation-without-resolve -->
-                  {/each}
-                </div>
-              {/if}
             </a>
           {/each}
         </div>
@@ -525,60 +512,6 @@
 
   .meta-dot {
     opacity: 0.4;
-  }
-
-  .status-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    padding: 0.125rem 0.5rem;
-    border-radius: 9999px;
-    font-size: 0.6875rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-
-  .status-live {
-    background: rgba(74, 222, 128, 0.15);
-    color: #4ade80;
-  }
-
-  .status-completed {
-    background: rgba(34, 197, 94, 0.12);
-    color: #86efac;
-  }
-
-  .status-scheduled {
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.7);
-  }
-
-  .match-streams {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.375rem;
-    margin-top: 0.5rem;
-    justify-content: center;
-  }
-
-  .stream-badge {
-    display: inline-block;
-    padding: 0.1875rem 0.5rem;
-    border-radius: 0.25rem;
-    border: 1px solid rgba(59, 130, 246, 0.18);
-    background: rgba(59, 130, 246, 0.12);
-    color: #93c5fd;
-    font-size: 0.6875rem;
-    cursor: pointer;
-    transition:
-      background 0.15s,
-      border-color 0.15s;
-  }
-
-  .stream-badge:hover {
-    background: rgba(59, 130, 246, 0.22);
-    border-color: rgba(147, 197, 253, 0.4);
   }
 
   .empty-state {

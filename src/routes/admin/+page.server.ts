@@ -3,6 +3,7 @@ import { redirect } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
+import { getSeasonLogoUrl } from '$lib/server/seasons/logo'
 import type { MatchStreamRow } from '$lib/server/db-rows'
 
 type RosterProfileRow = {
@@ -31,7 +32,12 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
 
   const { data: seasons, error: seasonsError } = await supabaseAdmin
     .from('seasons')
-    .select('id, code, name, starts_on, ends_on, is_active, metadata, created_at')
+    // Results columns must be here too: the seasons tab seeds its edit form
+    // from this payload, and a missing field would be saved back as null.
+    .select(
+      `id, code, name, starts_on, ends_on, is_active, metadata, created_at, logo_path,
+       summary, winner_team_id, runner_up_team_id, mvp_profile_id, final_leaderboard_batch_id`
+    )
     .order('is_active', { ascending: false })
     .order('starts_on', { ascending: false, nullsFirst: false })
     .order('created_at', { ascending: false })
@@ -265,7 +271,10 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
 
   return {
     users: users || [],
-    seasons: seasons || [],
+    seasons: (seasons ?? []).map((season) => ({
+      ...season,
+      logo_url: getSeasonLogoUrl(season),
+    })),
     leaderboardBatches,
     approvedTeams: withLogoUrl(approvedTeams || []),
     disbandedTeams: disbandedWithLogos,

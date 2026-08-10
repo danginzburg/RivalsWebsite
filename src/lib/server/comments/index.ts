@@ -2,7 +2,7 @@ import { error } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
 
 export const COMMENT_MAX_LENGTH = 2000
-export const ENTITY_TYPES = ['match', 'player'] as const
+export const ENTITY_TYPES = ['match', 'player', 'season'] as const
 
 export type CommentEntityType = (typeof ENTITY_TYPES)[number]
 

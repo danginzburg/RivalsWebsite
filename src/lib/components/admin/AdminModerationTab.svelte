@@ -39,9 +39,12 @@
   function entityHref(report: CommentReport) {
     const comment = report.comment
     if (!comment) return null
-    return comment.entity_type === 'match'
-      ? resolve(`/matches/${comment.entity_id}`)
-      : resolve(`/players/${comment.entity_id}`)
+    if (comment.entity_type === 'match') return resolve(`/matches/${comment.entity_id}`)
+    if (comment.entity_type === 'season') {
+      // Event pages are addressed by code; without one there is nothing to link to.
+      return comment.entity_slug ? resolve(`/events/${comment.entity_slug}`) : null
+    }
+    return resolve(`/players/${comment.entity_id}`)
   }
 
   function isBanned(until: string | null | undefined) {

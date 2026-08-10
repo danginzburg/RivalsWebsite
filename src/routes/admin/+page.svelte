@@ -1092,6 +1092,9 @@
         teamBId: createMatchTeamBId,
         bestOf: createMatchBestOf,
         scheduledAt: createMatchScheduledAt,
+        // New rows land in whichever season is being viewed, so filtering to a
+        // past season is how you backfill its history.
+        seasonId: adminMatchSeasonId || undefined,
       })
       if (result.error) {
         errorMessage = result.error
@@ -1123,6 +1126,9 @@
       form.set('name', createTeamName)
       form.set('tag', createTeamTag)
       if (createTeamLogoFile) form.set('logo', createTeamLogoFile)
+      // Matches the season currently being viewed, so a past season can be
+      // populated with the teams that played in it.
+      if (adminMatchSeasonId) form.set('seasonId', adminMatchSeasonId)
 
       await adminFormRequest('/api/admin/teams', {
         method: 'POST',
@@ -1360,6 +1366,53 @@
       await refreshData()
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Failed to update season'
+    }
+  }
+
+  let logoUploadingSeasonId = $state<string | null>(null)
+
+  async function uploadSeasonLogo(seasonId: string, file: File) {
+    logoUploadingSeasonId = seasonId
+    errorMessage = null
+    successMessage = null
+    try {
+      const form = new FormData()
+      form.set('seasonId', seasonId)
+      form.set('logo', file)
+
+      await adminFormRequest('/api/admin/seasons/logo', {
+        method: 'POST',
+        body: form,
+        fallbackMessage: 'Failed to upload season logo',
+        includeHttpStatusInError: true,
+      })
+
+      successMessage = 'Season logo updated.'
+      await refreshData()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to upload season logo'
+    } finally {
+      logoUploadingSeasonId = null
+    }
+  }
+
+  async function removeSeasonLogo(seasonId: string, seasonName: string) {
+    if (!window.confirm(`Remove the logo for ${seasonName}?`)) return
+
+    logoUploadingSeasonId = seasonId
+    errorMessage = null
+    successMessage = null
+    try {
+      await adminJsonRequest(`/api/admin/seasons/logo?seasonId=${encodeURIComponent(seasonId)}`, {
+        method: 'DELETE',
+        fallbackMessage: 'Failed to remove season logo',
+      })
+      successMessage = 'Season logo removed.'
+      await refreshData()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to remove season logo'
+    } finally {
+      logoUploadingSeasonId = null
     }
   }
 
@@ -1859,6 +1912,9 @@
         onSaveSeason={saveSeason}
         onSavePlayoffPickem={savePlayoffPickem}
         onScorePlayoffPickem={scorePlayoffPickem}
+        {logoUploadingSeasonId}
+        onUploadSeasonLogo={uploadSeasonLogo}
+        onRemoveSeasonLogo={removeSeasonLogo}
       />
     {/if}
 

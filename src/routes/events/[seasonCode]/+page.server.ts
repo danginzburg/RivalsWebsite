@@ -4,8 +4,12 @@ import { getTeamLogoUrl } from '$lib/server/teams/logo'
 import {
   buildPlayoffBracketSlots,
   playoffPickemConfigFromSeasonMetadata,
+  type PlayoffMatchId,
 } from '$lib/playoffPickems'
 import { safeNumber } from '$lib/server/parse'
+import { loadCommentThread } from '$lib/server/comments'
+import { getViewerProfileId } from '$lib/server/auth/viewer'
+import { getSeasonLogoUrl } from '$lib/server/seasons/logo'
 
 type TeamRel = { id: string; name: string; tag?: string | null; logo_path?: string | null }
 type ProfileRel = { id: string; display_name: string | null; riot_id_base: string | null }
@@ -36,6 +40,7 @@ export const load = async ({
       is_active,
       summary,
       metadata,
+      logo_path,
       winner_team_id,
       runner_up_team_id,
       mvp_profile_id,
@@ -112,8 +117,41 @@ export const load = async ({
     }
   }
 
+  /**
+   * The bracket's winners come from the real matches its slots are linked to,
+   * not from the pick'em's `resolved_matches` list — that list is only filled
+   * in for games decided before the pick'em opened, so on its own it leaves
+   * most of an already-played bracket showing TBD.
+   *
+   * `buildPlayoffBracketSlots` layers `resolved_matches` on top of the payload,
+   * so an explicit admin resolution still wins over a linked result.
+   */
+  const linkedMatchIds = pickem.match_links
+    .map((link) => link.actualMatchId)
+    .filter((id): id is string => Boolean(id))
+
+  const actualPicks: Partial<Record<PlayoffMatchId, string>> = {}
+  if (linkedMatchIds.length > 0) {
+    const { data: linkedMatches } = await supabaseAdmin
+      .from('matches')
+      .select('id, winner_team_id')
+      .in('id', linkedMatchIds)
+
+    const winnerByMatchId = new Map(
+      (linkedMatches ?? []).map((m) => [m.id, m.winner_team_id as string | null])
+    )
+
+    for (const link of pickem.match_links) {
+      if (!link.actualMatchId) continue
+      const winner = winnerByMatchId.get(link.actualMatchId)
+      if (winner) actualPicks[link.matchId] = winner
+    }
+  }
+
   const bracketSlots =
-    pickem.enabled && pickem.seeds.length > 0 ? buildPlayoffBracketSlots(pickem) : []
+    pickem.enabled && pickem.seeds.length > 0
+      ? buildPlayoffBracketSlots(pickem, { picks: actualPicks })
+      : []
 
   const matches = (matchRows ?? []).map((match) => {
     const teamA = firstRel(match.team_a as TeamRel | TeamRel[] | null)
@@ -212,6 +250,11 @@ export const load = async ({
     })
   }
 
+  const viewerProfileId = await getViewerProfileId(locals.user)
+  const comments = await loadCommentThread('season', season.id, {
+    includeReportCounts: isAdmin,
+  })
+
   const winner = firstRel(season.winner as TeamRel | TeamRel[] | null)
   const runnerUp = firstRel(season.runner_up as TeamRel | TeamRel[] | null)
   const mvp = firstRel(season.mvp as unknown as ProfileRel | ProfileRel[] | null)
@@ -225,6 +268,7 @@ export const load = async ({
       ends_on: season.ends_on,
       is_active: season.is_active,
       summary: season.summary ?? null,
+      logo_url: getSeasonLogoUrl(season),
       winner: winner
         ? {
             id: winner.id,
@@ -248,6 +292,7 @@ export const load = async ({
     leaderboard,
     leaderboardLabel,
     bracket: { slots: bracketSlots, teams: teamMap },
-    viewer: { isAdmin },
+    comments,
+    viewer: { isAdmin, profileId: viewerProfileId },
   }
 }

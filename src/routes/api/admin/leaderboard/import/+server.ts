@@ -2,6 +2,7 @@ import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { buildTeamMatcher, getApprovedTeamsForImports } from '$lib/server/imports/matching'
+import { publicDataCache } from '$lib/server/cache'
 
 type RawLeaderboardRow = {
   team?: unknown
@@ -161,6 +162,10 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     .from('leaderboard_entries')
     .insert(rowsToInsert)
   if (insertError) throw error(500, insertError.message || 'Failed to insert leaderboard rows')
+
+  // The public leaderboard caches the latest batch — drop it so the new
+  // standings are visible immediately instead of after the TTL.
+  publicDataCache.delete('leaderboard:latest')
 
   return json({
     success: true,

@@ -8,6 +8,7 @@ import {
   loadCommentThread,
   normalizeBody,
   parseEntityType,
+  type CommentEntityType,
 } from '$lib/server/comments'
 
 /** Load the full profile including ban fields. */
@@ -123,7 +124,7 @@ export const PATCH: RequestHandler = async ({ request, locals }) => {
   if (updateError) throw error(500, 'Failed to update comment')
 
   const comments = await loadCommentThread(
-    existing.entity_type as 'match' | 'player',
+    existing.entity_type as CommentEntityType,
     existing.entity_id,
     { includeReportCounts: profile.role === 'admin' }
   )
@@ -174,7 +175,7 @@ export const DELETE: RequestHandler = async ({ url, locals }) => {
     .eq('status', 'pending')
 
   const comments = await loadCommentThread(
-    existing.entity_type as 'match' | 'player',
+    existing.entity_type as CommentEntityType,
     existing.entity_id,
     { includeReportCounts: isAdmin }
   )

@@ -62,6 +62,20 @@ export const GET: RequestHandler = async ({ locals, url }) => {
     ((profiles ?? []) as ProfileRow[]).map((p) => [p.id, p])
   )
 
+  // Season pages are addressed by code, not id, so resolve those for linking.
+  const seasonIds = (comments ?? [])
+    .filter((c) => c.entity_type === 'season')
+    .map((c) => c.entity_id)
+
+  const seasonCodeById = new Map<string, string>()
+  if (seasonIds.length > 0) {
+    const { data: seasonRows } = await supabaseAdmin
+      .from('seasons')
+      .select('id, code')
+      .in('id', seasonIds)
+    for (const row of seasonRows ?? []) seasonCodeById.set(row.id, row.code)
+  }
+
   return json({
     reports: rows.map((report) => {
       const comment = commentById.get(report.comment_id)
@@ -83,6 +97,8 @@ export const GET: RequestHandler = async ({ locals, url }) => {
               created_at: comment.created_at,
               entity_type: comment.entity_type,
               entity_id: comment.entity_id,
+              /** Season code when the thread is on an event page. */
+              entity_slug: seasonCodeById.get(comment.entity_id) ?? null,
               author: {
                 id: comment.profile_id,
                 name: authorLabel(author),

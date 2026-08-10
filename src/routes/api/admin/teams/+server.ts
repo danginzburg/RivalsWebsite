@@ -3,6 +3,7 @@ import { supabaseAdmin } from '$lib/supabase/admin'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { logAdminAction } from '$lib/server/audit/admin-actions'
 import { errorMessage } from '$lib/server/errors'
+import { resolveTargetSeasonId } from '$lib/server/seasons/resolve'
 
 type RosterProfileRow = {
   id: string
@@ -201,11 +202,9 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       uploadedLogoPath = objectPath
     }
 
-    const { data: activeSeason } = await supabaseAdmin
-      .from('seasons')
-      .select('id')
-      .eq('is_active', true)
-      .maybeSingle()
+    // Defaults to the active season; an explicit id lets an admin add teams
+    // to a past season when backfilling its history.
+    const targetSeasonId = await resolveTargetSeasonId(form.get('seasonId'))
 
     const now = new Date().toISOString()
     const { data: created, error: createError } = await supabaseAdmin
@@ -220,7 +219,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
         submitted_by_profile_id: adminProfile.id,
         approved_by_profile_id: adminProfile.id,
         approved_at: now,
-        season_id: activeSeason?.id ?? null,
+        season_id: targetSeasonId,
         metadata: {
           match_import_names: [],
           leaderboard_import_tags: [],

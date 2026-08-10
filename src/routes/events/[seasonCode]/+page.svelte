@@ -3,6 +3,7 @@
   import PageContainer from '$lib/components/PageContainer.svelte'
   import AdminEditLink from '$lib/components/AdminEditLink.svelte'
   import ArchiveBracket from '$lib/components/ArchiveBracket.svelte'
+  import CommentThread from '$lib/components/CommentThread.svelte'
   import { Trophy, Crown, Medal, ArrowLeft } from 'lucide-svelte'
   import { resolve } from '$app/paths'
 
@@ -62,6 +63,9 @@
 
     <!-- Header -->
     <div class="season-header">
+      {#if season.logo_url}
+        <img src={season.logo_url} alt="{season.name} logo" class="season-logo" />
+      {/if}
       <div class="season-header-main">
         <div class="title-row">
           <span class="season-code">{season.code}</span>
@@ -138,30 +142,73 @@
 
     <!-- Panels -->
     {#if activeTab === 'overview'}
-      <div class="panel">
-        {#if season.summary}
-          <p class="summary">{season.summary}</p>
-        {/if}
-        <div class="stat-grid">
-          <div class="stat-cell">
-            <div class="stat-num">{teams.length}</div>
-            <div class="stat-label">Teams</div>
+      <!-- Overview is the whole season on one page; the other tabs are
+           focused views of the same blocks. -->
+      <div class="overview">
+        <div class="panel">
+          {#if season.summary}
+            <p class="summary">{season.summary}</p>
+          {/if}
+          <div class="stat-grid">
+            <div class="stat-cell">
+              <div class="stat-num">{teams.length}</div>
+              <div class="stat-label">Teams</div>
+            </div>
+            <div class="stat-cell">
+              <div class="stat-num">{matches.length}</div>
+              <div class="stat-label">Matches</div>
+            </div>
+            <div class="stat-cell">
+              <div class="stat-num">{completedCount}</div>
+              <div class="stat-label">Played</div>
+            </div>
+            <div class="stat-cell">
+              <div class="stat-num">{bracket.slots.length > 0 ? 'Yes' : '—'}</div>
+              <div class="stat-label">Playoffs</div>
+            </div>
           </div>
-          <div class="stat-cell">
-            <div class="stat-num">{matches.length}</div>
-            <div class="stat-label">Matches</div>
-          </div>
-          <div class="stat-cell">
-            <div class="stat-num">{completedCount}</div>
-            <div class="stat-label">Played</div>
-          </div>
-          <div class="stat-cell">
-            <div class="stat-num">{bracket.slots.length > 0 ? 'Yes' : '—'}</div>
-            <div class="stat-label">Playoffs</div>
-          </div>
+          {#if !season.summary && teams.length === 0 && matches.length === 0}
+            <p class="empty-text">No data recorded for this season yet.</p>
+          {/if}
         </div>
-        {#if !season.summary && teams.length === 0 && matches.length === 0}
-          <p class="empty-text">No data recorded for this season yet.</p>
+
+        {#if teams.length > 0}
+          <section class="panel">
+            <h2 class="block-title">Teams <span class="block-count">{teams.length}</span></h2>
+            {@render teamsGrid()}
+          </section>
+        {/if}
+
+        {#if leaderboard.length > 0}
+          <section class="panel">
+            <h2 class="block-title">
+              Standings
+              {#if data.leaderboardLabel}
+                <span class="block-note">{data.leaderboardLabel}</span>
+              {/if}
+            </h2>
+            {@render standingsTable()}
+          </section>
+        {/if}
+
+        {#if bracket.slots.length > 0}
+          <section class="panel">
+            <h2 class="block-title">Playoff Bracket</h2>
+            <ArchiveBracket slots={bracket.slots} teams={bracket.teams} />
+          </section>
+        {/if}
+
+        {#if matches.length > 0}
+          <section class="panel">
+            <h2 class="block-title">
+              Matches <span class="block-count">{matches.length}</span>
+            </h2>
+            <!-- Long seasons would run to thousands of pixels, so the list
+                 scrolls within a fixed frame instead. -->
+            <div class="match-scroll">
+              {@render matchList()}
+            </div>
+          </section>
         {/if}
       </div>
     {:else if activeTab === 'bracket'}
@@ -173,99 +220,113 @@
         {#if data.leaderboardLabel}
           <p class="panel-note">{data.leaderboardLabel}</p>
         {/if}
-        <div class="table-scroll">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th class="col-rank">#</th>
-                <th>Team</th>
-                <th class="col-num">Pts</th>
-                <th class="col-num">W</th>
-                <th class="col-num">L</th>
-              </tr>
-            </thead>
-            <tbody>
-              {#each leaderboard as row, i (row.team?.id ?? i)}
-                <tr>
-                  <td class="col-rank tabular">{row.rank || i + 1}</td>
-                  <td>
-                    {#if row.team}
-                      <a href={resolve(`/teams/${row.team.id}`)} class="team-cell">
-                        {#if row.team.logo_url}
-                          <img src={row.team.logo_url} alt="" class="cell-logo" />
-                        {/if}
-                        {row.team.name}
-                      </a>
-                    {:else}
-                      <span class="muted">Unknown team</span>
-                    {/if}
-                  </td>
-                  <td class="col-num tabular">{row.points}</td>
-                  <td class="col-num tabular">{row.wins}</td>
-                  <td class="col-num tabular">{row.losses}</td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        </div>
+        {@render standingsTable()}
       </div>
     {:else if activeTab === 'matches'}
       <div class="panel">
-        <div class="match-list">
-          {#each matches as match (match.id)}
-            <a href={resolve(`/matches/${match.id}`)} class="match-row">
-              {#if match.designation}
-                <span class="match-designation">{match.designation}</span>
-              {/if}
-              <div class="match-body">
-                <span
-                  class="match-team"
-                  class:match-winner={match.winner_team_id === match.team_a?.id}
-                >
-                  {match.team_a?.name ?? 'TBD'}
-                </span>
-                {#if match.status === 'completed'}
-                  <span class="match-score tabular">
-                    {match.team_a_score}–{match.team_b_score}
-                  </span>
-                {:else}
-                  <span class="match-vs">vs</span>
-                {/if}
-                <span
-                  class="match-team"
-                  class:match-winner={match.winner_team_id === match.team_b?.id}
-                >
-                  {match.team_b?.name ?? 'TBD'}
-                </span>
-              </div>
-              <span class="match-date">{formatDate(match.scheduled_at)}</span>
-            </a>
-          {/each}
-        </div>
+        {@render matchList()}
       </div>
     {:else if activeTab === 'teams'}
       <div class="panel">
-        <div class="team-grid">
-          {#each teams as team (team.id)}
-            <a href={resolve(`/teams/${team.id}`)} class="team-card">
-              {#if team.logo_url}
-                <img src={team.logo_url} alt="" class="team-card-logo" />
-              {:else}
-                <div class="team-card-logo team-card-logo-blank"></div>
-              {/if}
-              <div class="team-card-body">
-                <div class="team-card-name">{team.name}</div>
-                {#if team.tag}
-                  <div class="team-card-tag">[{team.tag}]</div>
-                {/if}
-              </div>
-            </a>
-          {/each}
-        </div>
+        {@render teamsGrid()}
       </div>
     {/if}
+
+    <CommentThread
+      entityType="season"
+      entityId={season.id}
+      comments={data.comments ?? []}
+      viewerId={data.viewer?.profileId ?? null}
+      isAdmin={data.viewer?.isAdmin ?? false}
+    />
   </div>
 </PageContainer>
+
+{#snippet teamsGrid()}
+  <div class="team-grid">
+    {#each teams as team (team.id)}
+      <a href={resolve(`/teams/${team.id}`)} class="team-card">
+        {#if team.logo_url}
+          <img src={team.logo_url} alt="" class="team-card-logo" />
+        {:else}
+          <div class="team-card-logo team-card-logo-blank"></div>
+        {/if}
+        <div class="team-card-body">
+          <div class="team-card-name">{team.name}</div>
+          {#if team.tag}
+            <div class="team-card-tag">[{team.tag}]</div>
+          {/if}
+        </div>
+      </a>
+    {/each}
+  </div>
+{/snippet}
+
+{#snippet standingsTable()}
+  <div class="table-scroll">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th class="col-rank">#</th>
+          <th>Team</th>
+          <th class="col-num">Pts</th>
+          <th class="col-num">W</th>
+          <th class="col-num">L</th>
+        </tr>
+      </thead>
+      <tbody>
+        {#each leaderboard as row, i (row.team?.id ?? i)}
+          <tr>
+            <td class="col-rank tabular">{row.rank || i + 1}</td>
+            <td>
+              {#if row.team}
+                <a href={resolve(`/teams/${row.team.id}`)} class="team-cell">
+                  {#if row.team.logo_url}
+                    <img src={row.team.logo_url} alt="" class="cell-logo" />
+                  {/if}
+                  {row.team.name}
+                </a>
+              {:else}
+                <span class="muted">Unknown team</span>
+              {/if}
+            </td>
+            <td class="col-num tabular">{row.points}</td>
+            <td class="col-num tabular">{row.wins}</td>
+            <td class="col-num tabular">{row.losses}</td>
+          </tr>
+        {/each}
+      </tbody>
+    </table>
+  </div>
+{/snippet}
+
+{#snippet matchList()}
+  <div class="match-list">
+    {#each matches as match (match.id)}
+      <a href={resolve(`/matches/${match.id}`)} class="match-row">
+        {#if match.designation}
+          <span class="match-designation">{match.designation}</span>
+        {/if}
+        <div class="match-body">
+          <span class="match-team" class:match-winner={match.winner_team_id === match.team_a?.id}>
+            {match.team_a?.name ?? 'TBD'}
+          </span>
+          {#if match.status === 'completed'}
+            <span class="match-score tabular">
+              {match.team_a_score}–{match.team_b_score}
+            </span>
+          {:else}
+            <span class="match-vs">vs</span>
+          {/if}
+          <span class="match-team" class:match-winner={match.winner_team_id === match.team_b?.id}>
+            {match.team_b?.name ?? 'TBD'}
+          </span>
+        </div>
+        <span class="match-date">{formatDate(match.scheduled_at)}</span>
+      </a>
+    {/each}
+  </div>
+{/snippet}
 
 <style>
   .back-link {
@@ -289,6 +350,20 @@
     justify-content: space-between;
     gap: 1rem;
     margin-bottom: 1.25rem;
+  }
+
+  .season-logo {
+    width: 3.5rem;
+    height: 3.5rem;
+    border-radius: 0.625rem;
+    object-fit: contain;
+    flex-shrink: 0;
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .season-header-main {
+    flex: 1;
+    min-width: 0;
   }
 
   .title-row {
@@ -455,6 +530,71 @@
     font-size: 0.75rem;
     color: rgba(255, 255, 255, 0.45);
     margin-bottom: 0.75rem;
+  }
+
+  /* Overview stacks every block on one page. */
+  .overview {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .block-title {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.45);
+    margin-bottom: 0.875rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  }
+
+  .block-count {
+    font-size: 0.625rem;
+    font-weight: 700;
+    padding: 0.0625rem 0.375rem;
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.6);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0;
+  }
+
+  .block-note {
+    margin-left: auto;
+    font-size: 0.625rem;
+    font-weight: 500;
+    text-transform: none;
+    letter-spacing: 0;
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  /* Keeps a long season's match list from dominating the page. */
+  .match-scroll {
+    max-height: 26rem;
+    overflow-y: auto;
+    padding-right: 0.25rem;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .match-scroll::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .match-scroll::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 3px;
+  }
+
+  .match-scroll::-webkit-scrollbar-track {
+    background: transparent;
   }
 
   .summary {
