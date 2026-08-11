@@ -15,6 +15,7 @@ export type PlayerSignup = {
   profile_id: string
   season_id: string | null
   display_name: string | null
+  riot_tag: string | null
   discord_handle: string | null
   tracker_links: Array<{ label: string; url: string }>
   current_rank: string | null

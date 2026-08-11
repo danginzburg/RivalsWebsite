@@ -98,6 +98,8 @@ type AggregatedStatEntry = {
   key: string
   maps_played: number
   maps_won: number
+  /** Maps with a determinable winner — the denominator behind win_pct. */
+  maps_decided: number
   win_pct: number | null
   rounds: number
   acs: number | null
@@ -142,22 +144,38 @@ function didWinMap(row: PerMapStatRow): boolean | null {
   if (!mm || !row.team_id) return null
   const match = Array.isArray(mm.matches) ? mm.matches[0] : mm.matches
   if (!match) return null
+
+  // The player's team must be one of the two sides. Without this guard a row
+  // whose team_id matches neither (a re-linked roster, a bad import) falls
+  // through to the team-B branch and is scored against the wrong side.
+  const isTeamA = row.team_id === match.team_a_id
+  const isTeamB = row.team_id === match.team_b_id
+  if (!isTeamA && !isTeamB) return null
+
   const aRounds = mm.team_a_rounds ?? 0
   const bRounds = mm.team_b_rounds ?? 0
   if (aRounds === bRounds) return null
-  const isTeamA = row.team_id === match.team_a_id
+
   return isTeamA ? aRounds > bRounds : bRounds > aRounds
 }
 
 function aggregateStats(rows: PerMapStatRow[]): Omit<AggregatedStatEntry, 'key'> {
   const totalKills = sum(rows.map((r) => r.kills))
   const totalDeaths = sum(rows.map((r) => r.deaths))
-  const wins = rows.filter((r) => didWinMap(r) === true)
-  const decided = rows.filter((r) => didWinMap(r) !== null)
+
+  // Evaluate each row once — didWinMap walks joined rows and was previously
+  // called twice per row per aggregate.
+  const outcomes = rows.map(didWinMap)
+  const wins = outcomes.filter((o) => o === true).length
+  // Maps with no determinable result are excluded from the percentage rather
+  // than counted as losses, so `maps_decided` is the honest denominator.
+  const decided = outcomes.filter((o) => o !== null).length
+
   return {
     maps_played: rows.length,
-    maps_won: wins.length,
-    win_pct: decided.length > 0 ? (wins.length / decided.length) * 100 : null,
+    maps_won: wins,
+    maps_decided: decided,
+    win_pct: decided > 0 ? (wins / decided) * 100 : null,
     rounds: sum(rows.map((r) => r.rounds)),
     acs: average(rows.map((r) => r.acs)),
     kills: totalKills,

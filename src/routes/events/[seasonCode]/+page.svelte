@@ -163,8 +163,10 @@
               <div class="stat-label">Played</div>
             </div>
             <div class="stat-cell">
-              <div class="stat-num">{bracket.slots.length > 0 ? 'Yes' : '—'}</div>
-              <div class="stat-label">Playoffs</div>
+              <div class="stat-num">{bracket.teamCount > 0 ? bracket.teamCount : '—'}</div>
+              <div class="stat-label">
+                {bracket.teamCount === 1 ? 'Playoff team' : 'Playoff teams'}
+              </div>
             </div>
           </div>
           {#if !season.summary && teams.length === 0 && matches.length === 0}
@@ -304,21 +306,31 @@
   <div class="match-list">
     {#each matches as match (match.id)}
       <a href={resolve(`/matches/${match.id}`)} class="match-row">
-        {#if match.designation}
-          <span class="match-designation">{match.designation}</span>
-        {/if}
+        <!-- Always rendered, even when empty, so the grid columns line up
+             across rows whether or not a match has a designation. -->
+        <span class="match-designation">
+          {#if match.designation}<span class="designation-chip">{match.designation}</span>{/if}
+        </span>
         <div class="match-body">
-          <span class="match-team" class:match-winner={match.winner_team_id === match.team_a?.id}>
+          <span
+            class="match-team match-team-a"
+            class:match-winner={match.winner_team_id === match.team_a?.id}
+          >
             {match.team_a?.name ?? 'TBD'}
           </span>
-          {#if match.status === 'completed'}
-            <span class="match-score tabular">
-              {match.team_a_score}–{match.team_b_score}
-            </span>
-          {:else}
-            <span class="match-vs">vs</span>
-          {/if}
-          <span class="match-team" class:match-winner={match.winner_team_id === match.team_b?.id}>
+          <span class="match-mid">
+            {#if match.status === 'completed'}
+              <span class="match-score tabular">
+                {match.team_a_score}–{match.team_b_score}
+              </span>
+            {:else}
+              <span class="match-vs">vs</span>
+            {/if}
+          </span>
+          <span
+            class="match-team match-team-b"
+            class:match-winner={match.winner_team_id === match.team_b?.id}
+          >
             {match.team_b?.name ?? 'TBD'}
           </span>
         </div>
@@ -706,14 +718,21 @@
   }
 
   /* Match list */
+  /**
+   * The list owns the columns so every row shares them. The designation and
+   * date columns size to their widest content, which keeps the score column
+   * at one x-position across all rows without capping the label width.
+   */
   .match-list {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr) max-content;
     gap: 0.375rem;
   }
 
   .match-row {
-    display: flex;
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: subgrid;
     align-items: center;
     gap: 0.75rem;
     padding: 0.625rem 0.875rem;
@@ -732,7 +751,13 @@
     background: rgba(255, 255, 255, 0.045);
   }
 
+  /* Grid cell — the chip inside only renders when there is a designation. */
   .match-designation {
+    min-width: 0;
+  }
+
+  .designation-chip {
+    display: inline-block;
     font-size: 0.5625rem;
     font-weight: 700;
     text-transform: uppercase;
@@ -741,15 +766,15 @@
     background: rgba(252, 211, 77, 0.1);
     padding: 0.1875rem 0.375rem;
     border-radius: 0.25rem;
-    flex-shrink: 0;
     white-space: nowrap;
   }
 
+  /* Equal side columns with a fixed centre, so the score is always centred. */
   .match-body {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 3.25rem minmax(0, 1fr);
     align-items: center;
-    gap: 0.625rem;
-    flex: 1;
+    gap: 0.5rem;
     min-width: 0;
     font-size: 0.8125rem;
   }
@@ -759,11 +784,20 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    flex: 1;
+    min-width: 0;
   }
 
-  .match-team:last-of-type {
+  /* Names hug the score so the centre reads as the pivot. */
+  .match-team-a {
     text-align: right;
+  }
+
+  .match-team-b {
+    text-align: left;
+  }
+
+  .match-mid {
+    text-align: center;
   }
 
   .match-winner {
@@ -771,22 +805,39 @@
     font-weight: 700;
   }
 
+  /* Without subgrid the rows cannot share tracks, so fall back to fixed
+     columns — alignment is preserved, long designations ellipsize. */
+  @supports not (grid-template-columns: subgrid) {
+    .match-list {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .match-row {
+      grid-template-columns: 8rem minmax(0, 1fr) 6rem;
+    }
+
+    .designation-chip {
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+  }
+
   .match-score {
     font-weight: 700;
-    flex-shrink: 0;
   }
 
   .match-vs {
     font-size: 0.6875rem;
     color: rgba(255, 255, 255, 0.35);
-    flex-shrink: 0;
   }
 
   .match-date {
     font-size: 0.6875rem;
     color: rgba(255, 255, 255, 0.4);
-    flex-shrink: 0;
     white-space: nowrap;
+    text-align: right;
   }
 
   /* Team grid */
@@ -854,13 +905,32 @@
       padding: 0.875rem;
     }
 
+    /* Too narrow for a designation column — drop the label and stack the
+       date under the match so the score stays centred. */
+    .match-list {
+      display: flex;
+      flex-direction: column;
+    }
+
     .match-row {
-      flex-wrap: wrap;
-      gap: 0.375rem 0.625rem;
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas:
+        'body'
+        'date';
+      gap: 0.25rem;
+    }
+
+    .match-designation {
+      display: none;
+    }
+
+    .match-body {
+      grid-area: body;
     }
 
     .match-date {
-      width: 100%;
+      grid-area: date;
+      text-align: center;
     }
   }
 </style>

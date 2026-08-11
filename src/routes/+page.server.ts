@@ -1,6 +1,7 @@
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
 import type { MatchStreamRow } from '$lib/server/db-rows'
+import { isUnreachableError } from '$lib/server/supabase/unreachable'
 
 export const load = async ({ locals }: { locals: App.Locals }) => {
   const isAdmin = locals.user?.role === 'admin'
@@ -28,6 +29,11 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
   if (matchesError) {
     console.error('Failed to load matches:', matchesError)
   }
+
+  // An unreachable database must not render as "no matches yet" — that reads
+  // as an empty league rather than an outage.
+  const loadFailed = Boolean(matchesError)
+  const unreachable = isUnreachableError(matchesError)
 
   const matchIds = (matches ?? []).map((m) => m.id)
   let streamsByMatch: Record<string, MatchStreamRow[]> = {}
@@ -67,5 +73,10 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
       : null,
   }))
 
-  return { matches: normalized, viewer: { isAdmin } }
+  return {
+    matches: normalized,
+    loadFailed,
+    unreachable,
+    viewer: { isAdmin },
+  }
 }

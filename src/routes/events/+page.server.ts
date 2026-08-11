@@ -117,6 +117,8 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
       completed_count: counts.completed,
       team_count: teamCounts.get(season.id) ?? 0,
       has_bracket: pickem.enabled && pickem.seeds.length > 0,
+      // Seeds actually assigned a team — how many made playoffs.
+      playoff_team_count: pickem.seeds.filter((seed) => Boolean(seed.teamId)).length,
     }
   })
 

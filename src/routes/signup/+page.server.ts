@@ -1,7 +1,7 @@
 import { redirect, fail } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { requireProfile } from '$lib/server/auth/profile'
-import { normalizeRiotBase, isValidRiotBase } from '$lib/server/riot-id'
+import { normalizeRiotBase, isValidRiotBase, normalizeRiotTag } from '$lib/server/riot-id'
 import {
   normalizeDiscordHandle,
   normalizeTrackerLinks,
@@ -11,6 +11,7 @@ import {
 const SIGNUP_COLUMNS = `
   id,
   display_name,
+  riot_tag,
   discord_handle,
   tracker_links,
   current_rank,
@@ -52,7 +53,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
   // form pre-fills from directly.
   const { data: profileDetail } = await supabaseAdmin
     .from('profiles')
-    .select('riot_id_base, discord_handle')
+    .select('riot_id_base, riot_tag, discord_handle')
     .eq('id', profile.id)
     .maybeSingle()
 
@@ -63,6 +64,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
       id: profile.id,
       display_name: profile.display_name ?? null,
       riot_id_base: profileDetail?.riot_id_base ?? null,
+      riot_tag: profileDetail?.riot_tag ?? null,
       // Stored handle first, then the username from the Discord login itself.
       discord_handle: profileDetail?.discord_handle ?? locals.user.discord_username ?? null,
     },
@@ -94,7 +96,23 @@ export const actions = {
       })
     }
 
+    // The tag is stored separately because riot_id_base intentionally holds
+    // only the name, while every Riot API needs the full name#tag pair.
+    const riotTag = normalizeRiotTag(form.get('riotTag'))
+    if (!riotTag) {
+      return fail(400, {
+        success: false,
+        message: 'Enter your Riot tagline — the part after the # (3–5 characters).',
+      })
+    }
+
     const discordHandle = normalizeDiscordHandle(form.get('discordHandle'))
+    if (!discordHandle) {
+      return fail(400, {
+        success: false,
+        message: 'Enter your Discord handle so captains and admins can reach you.',
+      })
+    }
 
     // Labels are derived from each URL's hostname, so only the URL is collected.
     const trackerLinks = normalizeTrackerLinks(
@@ -147,6 +165,7 @@ export const actions = {
       season_id: activeSeason.id,
       // Riot ID is the canonical identity across the site.
       display_name: riotId,
+      riot_tag: riotTag,
       discord_handle: discordHandle,
       tracker_links: trackerLinks,
       // Editing returns the signup to review.
@@ -163,7 +182,10 @@ export const actions = {
     }
 
     // Keep the profile's Riot ID in step so stats matching uses the same name.
-    await supabaseAdmin.from('profiles').update({ riot_id_base: riotId }).eq('id', profile.id)
+    await supabaseAdmin
+      .from('profiles')
+      .update({ riot_id_base: riotId, riot_tag: riotTag })
+      .eq('id', profile.id)
 
     return {
       success: true,

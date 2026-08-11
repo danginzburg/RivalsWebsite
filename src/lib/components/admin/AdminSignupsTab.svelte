@@ -16,6 +16,12 @@
     processingSignupId: string | null
     onStatusFilterChange: (value: string) => void
     onEditChange: (signupId: string, patch: Partial<SignupEditState>) => void
+    /** Signup whose Riot lookup is in flight, or null. */
+    riotLookupSignupId?: string | null
+    onFetchRiotRank: (signupId: string) => void
+    /** Signup whose tracker.gg lookup is in flight, or null. */
+    trackerLookupSignupId?: string | null
+    onFetchTrackerScore: (signupId: string) => void
     onSave: (signupId: string) => void
     onSetStatus: (signupId: string, status: 'pending' | 'approved' | 'rejected') => void
     onDelete: (signupId: string, name: string) => void
@@ -29,6 +35,10 @@
     processingSignupId,
     onStatusFilterChange,
     onEditChange,
+    riotLookupSignupId = null,
+    onFetchRiotRank,
+    trackerLookupSignupId = null,
+    onFetchTrackerScore,
     onSave,
     onSetStatus,
     onDelete,
@@ -228,6 +238,45 @@
                       })}
                   />
                 </label>
+              </div>
+
+              <!-- Riot lookup fills the rank fields; scores stay manual. -->
+              <div class="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  class="rounded px-3 py-1.5 text-xs font-semibold"
+                  style="background: rgba(59,130,246,0.18); color: #93c5fd;"
+                  disabled={riotLookupSignupId === signup.id || !signup.riot_tag}
+                  title={signup.riot_tag
+                    ? `Look up ${signup.display_name}#${signup.riot_tag}`
+                    : 'This signup has no Riot tagline'}
+                  onclick={() => onFetchRiotRank(signup.id)}
+                >
+                  {riotLookupSignupId === signup.id ? 'Looking up...' : 'Fetch rank from Riot'}
+                </button>
+                <button
+                  type="button"
+                  class="rounded px-3 py-1.5 text-xs font-semibold"
+                  style="background: rgba(168,85,247,0.18); color: #d8b4fe;"
+                  disabled={trackerLookupSignupId === signup.id || !signup.riot_tag}
+                  title={signup.riot_tag
+                    ? 'Read the tracker.gg performance score for current and peak'
+                    : 'This signup has no Riot tagline'}
+                  onclick={() => onFetchTrackerScore(signup.id)}
+                >
+                  {trackerLookupSignupId === signup.id
+                    ? 'Reading tracker...'
+                    : 'Fetch tracker score'}
+                </button>
+                {#if signup.riot_tag}
+                  <span class="text-[11px]" style="color: rgba(255,255,255,0.45);">
+                    {signup.display_name}#{signup.riot_tag}
+                  </span>
+                {:else}
+                  <span class="text-[11px]" style="color: #fcd34d;">
+                    No tagline on this signup — ask the player to resubmit.
+                  </span>
+                {/if}
               </div>
 
               <div class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-4">

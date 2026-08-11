@@ -2,11 +2,14 @@
   import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import AdminEditLink from '$lib/components/AdminEditLink.svelte'
+  import { AlertTriangle } from 'lucide-svelte'
   import { resolve } from '$app/paths'
 
   let { data }: PageProps = $props()
   const matches = $derived(data.matches ?? [])
   const isAdmin = $derived(data.viewer?.isAdmin ?? false)
+  const loadFailed = $derived(data.loadFailed ?? false)
+  const unreachable = $derived(data.unreachable ?? false)
   let searchQuery = $state('')
   let activeTab = $state<'all' | 'live' | 'upcoming' | 'completed'>('all')
 
@@ -57,9 +60,9 @@
       return haystack.includes(query)
     })
     return filtered.sort((a: any, b: any) => {
-      // Completed tab: most recently finished first.
+      // Completed tab: most recently played first.
       if (activeTab === 'completed') {
-        return endedTime(b) - endedTime(a)
+        return playedTime(b) - playedTime(a)
       }
 
       // All tab groups by state so live and upcoming stay on top, with
@@ -67,7 +70,7 @@
       if (activeTab === 'all') {
         const rankDiff = statusRank(a) - statusRank(b)
         if (rankDiff !== 0) return rankDiff
-        if (statusRank(a) === 2) return endedTime(b) - endedTime(a)
+        if (statusRank(a) === 2) return playedTime(b) - playedTime(a)
       }
 
       // Live and upcoming: soonest first.
@@ -86,8 +89,16 @@
     return match.scheduled_at ? new Date(match.scheduled_at).getTime() : Infinity
   }
 
-  function endedTime(match: any) {
-    const value = match.ended_at ?? match.scheduled_at
+  /**
+   * When the match was actually played.
+   *
+   * `ended_at` is stamped at the moment an admin marks a match completed, so
+   * for a backfilled result it is the data-entry time, not the match date.
+   * The scheduled date is the real one; `ended_at` is only a fallback for
+   * matches that never had a date set.
+   */
+  function playedTime(match: any) {
+    const value = match.scheduled_at ?? match.ended_at
     return value ? new Date(value).getTime() : 0
   }
 
@@ -162,7 +173,24 @@
       </div>
 
       <!-- Match list -->
-      {#if filteredMatches.length === 0}
+      {#if loadFailed}
+        <!-- Never show "no matches" for a failed load; that reads as an empty
+             league rather than a temporary outage. -->
+        <div class="error-state">
+          <AlertTriangle size={22} />
+          <div>
+            <p class="error-title">
+              {unreachable ? "Couldn't reach the server" : 'Failed to load matches'}
+            </p>
+            <p class="error-text">
+              {unreachable
+                ? 'The connection timed out. This is usually temporary — try again in a moment.'
+                : 'Something went wrong loading the schedule.'}
+            </p>
+          </div>
+          <button type="button" class="retry-btn" onclick={() => location.reload()}> Retry </button>
+        </div>
+      {:else if filteredMatches.length === 0}
         <div class="empty-state">
           <p>
             {#if matches.length === 0}
@@ -512,6 +540,48 @@
 
   .meta-dot {
     opacity: 0.4;
+  }
+
+  .error-state {
+    display: flex;
+    align-items: center;
+    gap: 0.875rem;
+    padding: 1.25rem;
+    border-radius: 0.625rem;
+    border: 1px solid rgba(248, 113, 113, 0.28);
+    background: rgba(248, 113, 113, 0.07);
+    color: #fca5a5;
+  }
+
+  .error-title {
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: #fecaca;
+  }
+
+  .error-text {
+    font-size: 0.8125rem;
+    color: rgba(255, 255, 255, 0.55);
+    margin-top: 0.125rem;
+    line-height: 1.45;
+  }
+
+  .retry-btn {
+    margin-left: auto;
+    flex-shrink: 0;
+    padding: 0.4375rem 1rem;
+    border-radius: 0.4375rem;
+    border: 1px solid rgba(248, 113, 113, 0.3);
+    background: transparent;
+    color: #fca5a5;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  .retry-btn:hover {
+    background: rgba(248, 113, 113, 0.14);
   }
 
   .empty-state {

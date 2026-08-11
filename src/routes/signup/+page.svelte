@@ -23,6 +23,7 @@
     // Prefill from the existing signup, then fall back to the profile so a
     // returning player does not retype details the site already knows.
     riotId: data.signup?.display_name ?? data.profile.riot_id_base ?? '',
+    riotTag: data.signup?.riot_tag ?? data.profile.riot_tag ?? '',
     discordHandle: data.signup?.discord_handle ?? data.profile.discord_handle ?? '',
     trackerLinks: ((data.signup?.tracker_links as LinkRow[] | undefined)?.length
       ? [...(data.signup!.tracker_links as LinkRow[])]
@@ -30,6 +31,7 @@
   }))
 
   let riotId = $state(seed.riotId)
+  let riotTag = $state(seed.riotTag)
   let discordHandle = $state(seed.discordHandle)
   let trackerLinks = $state<LinkRow[]>(seed.trackerLinks)
 
@@ -37,7 +39,11 @@
   let withdrawing = $state(false)
 
   const canSubmit = $derived(
-    riotId.trim().length >= 3 && trackerLinks.some((l) => l.url.trim().length > 0)
+    riotId.trim().length >= 3 &&
+      /^[A-Za-z0-9]{3,5}$/.test(riotTag.trim()) &&
+      // Stripped of a leading @, the same way the server normalises it.
+      discordHandle.trim().replace(/^@+/, '').length > 0 &&
+      trackerLinks.some((l) => l.url.trim().length > 0)
   )
 
   function addLink() {
@@ -97,9 +103,6 @@
               <span class="assigned-value">
                 {signup.manual_value_override ?? signup.computed_value ?? 'Not yet set'}
               </span>
-              {#if signup.current_rank}
-                <span class="assigned-rank">{signup.current_rank}</span>
-              {/if}
             </div>
           {/if}
 
@@ -135,7 +138,15 @@
           <h2 class="section-title">Submitted details</h2>
           <dl class="summary">
             <dt>Riot ID</dt>
-            <dd>{signup?.display_name ?? '—'}</dd>
+            <dd>
+              {#if signup?.display_name}
+                {signup.display_name}{#if signup.riot_tag}<span class="summary-tag"
+                    >#{signup.riot_tag}</span
+                  >{/if}
+              {:else}
+                —
+              {/if}
+            </dd>
             <dt>Discord</dt>
             <dd>{signup?.discord_handle ?? '—'}</dd>
             <dt>Trackers</dt>
@@ -169,31 +180,47 @@
           <section class="form-section">
             <h2 class="section-title">Who you are</h2>
 
-            <label class="field">
+            <div class="field">
               <span class="field-label">Riot ID <span class="required">*</span></span>
-              <input
-                name="riotId"
-                bind:value={riotId}
-                class="input"
-                placeholder="YourName"
-                required
-                minlength="3"
-                maxlength="24"
-                disabled={submitting}
-              />
+              <div class="riot-id-row">
+                <input
+                  name="riotId"
+                  bind:value={riotId}
+                  class="input"
+                  placeholder="YourName"
+                  required
+                  minlength="3"
+                  maxlength="24"
+                  disabled={submitting}
+                  aria-label="Riot ID name"
+                />
+                <span class="riot-hash">#</span>
+                <input
+                  name="riotTag"
+                  bind:value={riotTag}
+                  class="input input-tag"
+                  placeholder="NA1"
+                  required
+                  minlength="3"
+                  maxlength="5"
+                  disabled={submitting}
+                  aria-label="Riot ID tagline"
+                />
+              </div>
               <span class="field-hint">
-                Name only — leave off the #tag. This is your identity across rosters, stats, and
-                match pages, and is how imported stats find you.
+                Both parts of your in-game Riot ID. This is your identity across rosters, stats, and
+                match pages, and is what an admin uses to look up your rank.
               </span>
-            </label>
+            </div>
 
             <label class="field">
-              <span class="field-label">Discord</span>
+              <span class="field-label">Discord <span class="required">*</span></span>
               <input
                 name="discordHandle"
                 bind:value={discordHandle}
                 class="input"
                 placeholder="yourname"
+                required
                 maxlength="64"
                 disabled={submitting}
               />
@@ -377,6 +404,25 @@
     line-height: 1.45;
   }
 
+  /* Name and tagline read as one field, split by a literal '#'. */
+  .riot-id-row {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+  }
+
+  .riot-hash {
+    color: rgba(255, 255, 255, 0.35);
+    font-size: 0.9375rem;
+    flex-shrink: 0;
+  }
+
+  .input-tag {
+    max-width: 6rem;
+    flex-shrink: 0;
+    text-transform: uppercase;
+  }
+
   /* Tracker links */
   .links {
     display: flex;
@@ -487,11 +533,6 @@
     line-height: 1;
   }
 
-  .assigned-rank {
-    font-size: 0.75rem;
-    color: rgba(255, 255, 255, 0.5);
-  }
-
   .admin-note {
     display: flex;
     gap: 0.5rem;
@@ -542,6 +583,10 @@
   .summary dd {
     color: rgba(255, 255, 255, 0.8);
     word-break: break-word;
+  }
+
+  .summary-tag {
+    color: rgba(255, 255, 255, 0.45);
   }
 
   .summary-links {

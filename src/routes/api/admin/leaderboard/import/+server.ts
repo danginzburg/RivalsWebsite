@@ -165,7 +165,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
   // The public leaderboard caches the latest batch — drop it so the new
   // standings are visible immediately instead of after the TTL.
-  publicDataCache.delete('leaderboard:latest')
+  publicDataCache.delete('leaderboard:standings')
 
   return json({
     success: true,

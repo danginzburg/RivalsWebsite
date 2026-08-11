@@ -334,6 +334,121 @@
     }
   }
 
+  let riotLookupSignupId = $state<string | null>(null)
+
+  /**
+   * Look the player up against the Riot API and fill the rank fields.
+   * Only touches ranks — tracker scores are not exposed by that API, and any
+   * manual override the admin has set is left alone.
+   */
+  async function fetchRiotRank(signupId: string) {
+    const signup = playerSignups.find((s) => s.id === signupId)
+    if (!signup) return
+
+    const name = signup.display_name?.trim()
+    const tag = signup.riot_tag?.trim()
+    if (!name || !tag) {
+      errorMessage = 'This signup has no Riot tagline, so it cannot be looked up.'
+      return
+    }
+
+    riotLookupSignupId = signupId
+    errorMessage = null
+    successMessage = null
+    try {
+      const result = await adminJsonRequest<{
+        account: { name: string; tag: string; region: string | null }
+        rank: {
+          currentTier: string | null
+          currentRank: string | null
+          peakTier: string | null
+          peakRank: string | null
+        } | null
+      }>(`/api/admin/riot-lookup?riotId=${encodeURIComponent(`${name}#${tag}`)}`, {
+        fallbackMessage: 'Riot lookup failed',
+      })
+
+      if (!result.rank) {
+        successMessage = `${result.account.name}#${result.account.tag} verified, but has no competitive rank on record.`
+        return
+      }
+
+      const patch: Partial<SignupEditState> = {}
+      if (result.rank.currentRank) patch.currentRank = result.rank.currentRank
+      if (result.rank.peakRank) patch.peakRank = result.rank.peakRank
+
+      if (Object.keys(patch).length === 0) {
+        successMessage = `${result.account.name}#${result.account.tag} verified, but their tier (${result.rank.currentTier ?? 'unknown'}) does not map to a league rank.`
+        return
+      }
+
+      updateSignupEditForm(signupId, patch)
+      successMessage = `Filled from Riot: ${result.rank.currentRank ?? '—'} current, ${result.rank.peakRank ?? '—'} peak. Save to apply.`
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Riot lookup failed'
+    } finally {
+      riotLookupSignupId = null
+    }
+  }
+
+  let trackerLookupSignupId = $state<string | null>(null)
+
+  /**
+   * Read the player's tracker.gg score and fill Tc/Tp.
+   * Leaves ranks and any manual override untouched.
+   */
+  async function fetchTrackerScore(signupId: string) {
+    const signup = playerSignups.find((s) => s.id === signupId)
+    if (!signup) return
+
+    const name = signup.display_name?.trim()
+    const tag = signup.riot_tag?.trim()
+    if (!name || !tag) {
+      errorMessage = 'This signup has no Riot tagline, so it cannot be looked up.'
+      return
+    }
+
+    trackerLookupSignupId = signupId
+    errorMessage = null
+    successMessage = null
+    try {
+      const result = await adminJsonRequest<{
+        current: { act: string; score: number } | null
+        peak: { act: string; score: number } | null
+        peakSource: 'peak-rank-act' | 'highest-score' | null
+        peakRank: string | null
+        warning: string | null
+      }>(`/api/admin/tracker-lookup?riotId=${encodeURIComponent(`${name}#${tag}`)}`, {
+        fallbackMessage: 'Tracker lookup failed',
+      })
+
+      const patch: Partial<SignupEditState> = {}
+      if (result.current) patch.trackerCurrentScore = String(result.current.score)
+      if (result.peak) patch.trackerPeakScore = String(result.peak.score)
+
+      if (Object.keys(patch).length === 0) {
+        errorMessage = 'No tracker scores found for that profile.'
+        return
+      }
+
+      updateSignupEditForm(signupId, patch)
+
+      // Say where the peak came from — the act they peaked in, or a fallback.
+      const peakNote =
+        result.peakSource === 'peak-rank-act'
+          ? `Tp ${result.peak?.score} from ${result.peak?.act}, the act they peaked at ${result.peakRank ?? 'their best rank'}`
+          : `Tp ${result.peak?.score ?? '—'} (${result.peak?.act ?? '—'}, highest recent act)`
+
+      successMessage =
+        `Filled from tracker.gg: Tc ${result.current?.score ?? '—'} (${result.current?.act}), ${peakNote}. Save to apply.` +
+        (result.warning ? ` ${result.warning}` : '')
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Tracker lookup failed'
+    } finally {
+      trackerLookupSignupId = null
+    }
+  }
+
   async function saveSignup(signupId: string, status?: 'pending' | 'approved' | 'rejected') {
     const state = signupStateFor(signupId)
     if (!state) return
@@ -2012,6 +2127,10 @@
           loadSignups()
         }}
         onEditChange={updateSignupEditForm}
+        {riotLookupSignupId}
+        onFetchRiotRank={fetchRiotRank}
+        {trackerLookupSignupId}
+        onFetchTrackerScore={fetchTrackerScore}
         onSave={(signupId) => saveSignup(signupId)}
         onSetStatus={(signupId, status) => saveSignup(signupId, status)}
         onDelete={deleteSignup}

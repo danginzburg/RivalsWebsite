@@ -52,7 +52,6 @@
   const navItems = $derived.by<NavItem[]>(() => [
     { href: '/', label: 'Matches', icon: Calendar },
     { href: '/leaderboard', label: 'Leaderboard', icon: Trophy },
-    { href: '/teams', label: 'Teams', icon: Users },
     ...(hasActivePickem ? [{ href: '/pickems' as NavHref, label: "Pick'ems", icon: Target }] : []),
     { href: '/events', label: 'Events', icon: CalendarClock },
     { href: '/hall-of-fame', label: 'Hall of Fame', icon: Award },

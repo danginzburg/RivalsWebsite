@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
+import { getRankValue } from '$lib/team-balance'
+
 import { computeRating, computeRatingFromRankNames, roundRating } from './formula'
 
 describe('computeRating', () => {
@@ -109,15 +111,22 @@ describe('computeRating', () => {
 
 describe('computeRatingFromRankNames', () => {
   it('resolves rank names through the team balance table', () => {
+    // Derived from the table rather than hardcoded, so a rescale of the rank
+    // values does not silently invalidate this test.
+    const gold1 = getRankValue('Gold 1')
+    const diamond2 = getRankValue('Diamond 2')
+    expect(gold1).toBeGreaterThan(0)
+    expect(diamond2).toBeGreaterThan(gold1)
+
     const result = computeRatingFromRankNames({
-      currentRank: 'Gold 1', // 30
-      peakRank: 'Diamond 2', // 34.5
+      currentRank: 'Gold 1',
+      peakRank: 'Diamond 2',
       trackerCurrentScore: null,
       trackerPeakScore: null,
     })
 
-    expect(result.currentTerm).toBeCloseTo(0.575 * 30, 10)
-    expect(result.peakTerm).toBeCloseTo(0.425 * 34.5, 10)
+    expect(result.currentTerm).toBeCloseTo(0.575 * gold1, 10)
+    expect(result.peakTerm).toBeCloseTo(0.425 * diamond2, 10)
   })
 
   it('treats unknown rank names as zero', () => {

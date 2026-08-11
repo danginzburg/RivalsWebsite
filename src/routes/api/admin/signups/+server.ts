@@ -14,6 +14,7 @@ const SELECT_COLUMNS = `
   profile_id,
   season_id,
   display_name,
+  riot_tag,
   discord_handle,
   tracker_links,
   current_rank,

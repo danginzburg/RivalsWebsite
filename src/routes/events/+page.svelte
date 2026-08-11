@@ -110,7 +110,11 @@
                   <Swords size={13} />
                   {season.completed_count}/{season.match_count} matches played
                 </span>
-                {#if season.has_bracket}
+                {#if season.playoff_team_count > 0}
+                  <span class="stat stat-accent">
+                    {season.playoff_team_count}-team playoffs
+                  </span>
+                {:else if season.has_bracket}
                   <span class="stat stat-accent">Playoff bracket</span>
                 {/if}
               </div>

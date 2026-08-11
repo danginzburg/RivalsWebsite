@@ -3,7 +3,8 @@
   import PageContainer from '$lib/components/PageContainer.svelte'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
   import CommentThread from '$lib/components/CommentThread.svelte'
-  import { User, MessageCircle, ExternalLink } from 'lucide-svelte'
+  import { User, ExternalLink } from 'lucide-svelte'
+  import DiscordIcon from '$lib/components/icons/DiscordIcon.svelte'
   import { SvelteMap } from 'svelte/reactivity'
   import { resolve } from '$app/paths'
   import miksIcon from '$lib/assets/agents/Miks_icon.webp'
@@ -46,6 +47,8 @@
     (data.mapStats ?? []) as Array<{
       key: string
       maps_played: number
+      maps_won: number
+      maps_decided: number
       rounds: number
       acs: number | null
       kills: number
@@ -64,6 +67,8 @@
     (data.agentStats ?? []) as Array<{
       key: string
       maps_played: number
+      maps_won: number
+      maps_decided: number
       rounds: number
       acs: number | null
       kills: number
@@ -231,53 +236,56 @@
                 {/if}
               {/each}
             </div>
-            {#if activeTeam}
-              <a
-                href={resolve(`/teams/${activeTeam.id}`)}
-                class="mt-2 inline-flex items-center gap-2 rounded-md px-1 py-1 transition-colors hover:bg-white/5"
-                style="color: var(--text);"
-              >
-                <span class="font-medium" style="color: rgba(255,255,255,0.88);"
-                  >{activeTeam.name}</span
+            <!-- Team identity and contact links share one line; contacts are
+                 published only once a signup is approved. -->
+            <div class="identity-row">
+              {#if activeTeam}
+                <a
+                  href={resolve(`/teams/${activeTeam.id}`)}
+                  class="inline-flex items-center gap-2 rounded-md px-1 py-1 transition-colors hover:bg-white/5"
+                  style="color: var(--text);"
                 >
-                {#if activeTeam.tag}
-                  <span class="text-sm" style="color: rgba(255,255,255,0.62);"
-                    >[{String(activeTeam.tag).toUpperCase()}]</span
+                  <span class="font-medium" style="color: rgba(255,255,255,0.88);"
+                    >{activeTeam.name}</span
                   >
-                {/if}
-                {#if activeTeam.role}
-                  <span class="text-sm capitalize" style="color: rgba(255,255,255,0.52);"
-                    >{activeTeam.role}</span
-                  >
-                {/if}
-              </a>
-            {:else}
-              <p class="mt-2 text-sm" style="color: rgba(255,255,255,0.72);">No active team</p>
-            {/if}
+                  {#if activeTeam.tag}
+                    <span class="text-sm" style="color: rgba(255,255,255,0.62);"
+                      >[{String(activeTeam.tag).toUpperCase()}]</span
+                    >
+                  {/if}
+                  {#if activeTeam.role}
+                    <span class="text-sm capitalize" style="color: rgba(255,255,255,0.52);"
+                      >{activeTeam.role}</span
+                    >
+                  {/if}
+                </a>
+              {:else}
+                <span class="text-sm" style="color: rgba(255,255,255,0.72);">No active team</span>
+              {/if}
 
-            <!-- Contact links, published when a signup is approved -->
-            {#if player.discord_handle || (player.tracker_links ?? []).length > 0}
-              <div class="contact-row">
-                {#if player.discord_handle}
-                  <span class="contact-chip" title="Discord">
-                    <MessageCircle size={13} />
-                    {player.discord_handle}
-                  </span>
-                {/if}
-                {#each player.tracker_links ?? [] as link (link.url)}
-                  <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
-                  <a
-                    href={link.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="contact-chip contact-chip-link"
-                  >
-                    <ExternalLink size={12} />
-                    {link.label}
-                  </a>
-                {/each}
-              </div>
-            {/if}
+              {#if player.discord_handle || (player.tracker_links ?? []).length > 0}
+                <span class="identity-divider"></span>
+              {/if}
+
+              {#if player.discord_handle}
+                <span class="contact-chip" title="Discord">
+                  <DiscordIcon size={13} />
+                  {player.discord_handle}
+                </span>
+              {/if}
+              {#each player.tracker_links ?? [] as link (link.url)}
+                <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+                <a
+                  href={link.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="contact-chip contact-chip-link"
+                >
+                  <ExternalLink size={12} />
+                  {link.label}
+                </a>
+              {/each}
+            </div>
           </div>
         </div>
 
@@ -513,6 +521,9 @@
                 >
                   Map Stats
                 </div>
+                <div class="text-xs" style="color: rgba(255,255,255,0.45);">
+                  All recorded maps — not affected by the batch selector above.
+                </div>
               </div>
               <div class="overflow-x-auto">
                 <table class="min-w-full text-left text-sm">
@@ -541,7 +552,18 @@
                           {entry.maps_played}
                         </td>
                         <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);">
-                          {entry.win_pct != null ? `${fmt(entry.win_pct, 0)}%` : '—'}
+                          {#if entry.win_pct != null}
+                            {fmt(entry.win_pct, 0)}%
+                            <span
+                              class="ml-1 text-xs"
+                              style="color: rgba(255,255,255,0.4);"
+                              title="Maps won–lost. Maps with no recorded result are excluded."
+                            >
+                              {entry.maps_won}–{entry.maps_decided - entry.maps_won}
+                            </span>
+                          {:else}
+                            —
+                          {/if}
                         </td>
                         <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);">
                           {fmt(entry.acs, 0)}
@@ -577,6 +599,9 @@
                   style="color: rgba(255,255,255,0.72);"
                 >
                   Agent Stats
+                </div>
+                <div class="text-xs" style="color: rgba(255,255,255,0.45);">
+                  All recorded maps — not affected by the batch selector above.
                 </div>
               </div>
               <div class="overflow-x-auto">
@@ -616,7 +641,18 @@
                           {entry.maps_played}
                         </td>
                         <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);">
-                          {entry.win_pct != null ? `${fmt(entry.win_pct, 0)}%` : '—'}
+                          {#if entry.win_pct != null}
+                            {fmt(entry.win_pct, 0)}%
+                            <span
+                              class="ml-1 text-xs"
+                              style="color: rgba(255,255,255,0.4);"
+                              title="Maps won–lost. Maps with no recorded result are excluded."
+                            >
+                              {entry.maps_won}–{entry.maps_decided - entry.maps_won}
+                            </span>
+                          {:else}
+                            —
+                          {/if}
                         </td>
                         <td class="px-3 py-2" style="color: rgba(255,255,255,0.78);">
                           {fmt(entry.acs, 0)}
@@ -758,11 +794,22 @@
     gap: 6px;
   }
 
-  .contact-row {
+  /* Team identity and contact chips on one line, wrapping when narrow. */
+  .identity-row {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     gap: 0.375rem;
-    margin-top: 0.625rem;
+    margin-top: 0.5rem;
+  }
+
+  /* Short and centred so it separates without crowding the text above. */
+  .identity-divider {
+    width: 1px;
+    height: 0.75rem;
+    align-self: center;
+    background: rgba(255, 255, 255, 0.12);
+    margin: 0 0.375rem;
   }
 
   .contact-chip {

@@ -10,6 +10,7 @@ import { safeNumber } from '$lib/server/parse'
 import { loadCommentThread } from '$lib/server/comments'
 import { getViewerProfileId } from '$lib/server/auth/viewer'
 import { getSeasonLogoUrl } from '$lib/server/seasons/logo'
+import { isUnreachableError } from '$lib/server/supabase/unreachable'
 
 type TeamRel = { id: string; name: string; tag?: string | null; logo_path?: string | null }
 type ProfileRel = { id: string; display_name: string | null; riot_id_base: string | null }
@@ -53,6 +54,11 @@ export const load = async ({
     .eq('code', params.seasonCode)
     .maybeSingle()
 
+  // A transport failure is not a missing season — reporting 404 for an outage
+  // tells the visitor the event was deleted.
+  if (isUnreachableError(seasonError)) {
+    throw error(503, 'Could not reach the server. This is usually temporary — try again shortly.')
+  }
   if (seasonError || !season) throw error(404, 'Season not found')
 
   // Teams, matches, and the leaderboard snapshot all scope to this season.
@@ -291,7 +297,12 @@ export const load = async ({
     matches,
     leaderboard,
     leaderboardLabel,
-    bracket: { slots: bracketSlots, teams: teamMap },
+    bracket: {
+      slots: bracketSlots,
+      teams: teamMap,
+      // Seeds actually assigned a team — how many made playoffs.
+      teamCount: pickem.seeds.filter((seed) => Boolean(seed.teamId)).length,
+    },
     comments,
     viewer: { isAdmin, profileId: viewerProfileId },
   }
