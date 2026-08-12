@@ -99,6 +99,15 @@
     return teamId ? (teamById.get(teamId)?.logo_url ?? null) : null
   }
 
+  /** Playoff seed for a team, from the bracket config. */
+  const seedByTeamId = $derived(
+    new Map((data.config.seeds ?? []).map((entry) => [entry.teamId, entry.seed]))
+  )
+
+  function teamSeed(teamId: string | null): number | null {
+    return teamId ? (seedByTeamId.get(teamId) ?? null) : null
+  }
+
   function pickResult(matchId: PlayoffMatchId): 'correct' | 'wrong' | 'no-pick' | null {
     if (isViewingResults) return null
     if (resolvedIds.has(matchId)) return null
@@ -363,19 +372,40 @@
       {/if}
     </div>
     {#each [slot.teamAId, slot.teamBId] as teamId, index (`${slot.id}-${index}`)}
+      {@const isPick = !isViewingResults && slot.winnerId === teamId}
+      {@const isWinner = isDecided && teamId === (actualWinners[slot.id] ?? null)}
+      {@const seed = teamSeed(teamId)}
       <button
         type="button"
         class="team-btn"
-        class:picked={slot.winnerId === teamId}
         class:tbd={!teamId}
-        class:actual-winner={isDecided && teamId === (actualWinners[slot.id] ?? null)}
+        class:pick-pending={isPick && result === null}
+        class:pick-hit={isPick && result === 'correct'}
+        class:pick-miss={isPick && result === 'wrong'}
+        class:won={isWinner}
         disabled={isResolved || !data.viewer.canEdit || !isViewingOwn || !teamId}
         onclick={() => chooseWinner(slot.id, teamId)}
       >
+        {#if seed != null}
+          <span class="team-seed">{seed}</span>
+        {/if}
         {#if teamLogo(teamId)}
           <img src={teamLogo(teamId) ?? ''} alt="" class="team-logo" />
         {/if}
         <span class="team-name">{teamLabel(teamId)}</span>
+        <!-- Outcome markers: the pick carries right/wrong, the winner is
+             stated separately so a correct-looking colour never lands on a
+             team the viewer did not pick. -->
+        {#if isPick && result === 'correct'}
+          <span class="team-mark mark-hit" title="Your pick — correct">✓</span>
+        {:else if isPick && result === 'wrong'}
+          <span class="team-mark mark-miss" title="Your pick — wrong">✕</span>
+        {:else if isPick}
+          <span class="team-mark mark-pick" title="Your pick">●</span>
+        {/if}
+        {#if isWinner && !isPick}
+          <span class="team-mark mark-won" title="Won this match">W</span>
+        {/if}
       </button>
     {/each}
   </article>
@@ -534,9 +564,71 @@
     color: #fda4af;
   }
 
-  .team-btn.actual-winner {
-    border-color: rgba(74, 222, 128, 0.5);
-    background: rgba(74, 222, 128, 0.12);
+  /*
+   * Colour means one thing only: how YOUR pick did.
+   * Green = your pick was right, red = your pick was wrong, purple = pending.
+   * The team that actually won is marked neutrally, because green on a team
+   * you did not pick reads as "correct" and contradicts the Wrong label.
+   */
+  .team-btn.won {
+    border-color: rgba(255, 255, 255, 0.28);
+    background: rgba(255, 255, 255, 0.07);
+  }
+
+  .team-btn.pick-hit {
+    border-color: rgba(74, 222, 128, 0.55);
+    background: rgba(74, 222, 128, 0.16);
+    box-shadow: 0 0 0 1px rgba(74, 222, 128, 0.35);
+  }
+
+  .team-btn.pick-miss {
+    border-color: rgba(244, 63, 94, 0.5);
+    background: rgba(244, 63, 94, 0.14);
+    box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.3);
+  }
+
+  /* Marker chips sit at the end of the row. */
+  .team-mark {
+    margin-left: auto;
+    flex-shrink: 0;
+    font-size: 0.5625rem;
+    font-weight: 800;
+    line-height: 1;
+  }
+
+  .mark-hit {
+    color: #4ade80;
+  }
+
+  .mark-miss {
+    color: #fb7185;
+  }
+
+  .mark-pick {
+    color: #c084fc;
+    font-size: 0.5rem;
+  }
+
+  .mark-won {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0.875rem;
+    padding: 0.0625rem 0.1875rem;
+    border-radius: 0.1875rem;
+    background: rgba(255, 255, 255, 0.14);
+    color: rgba(255, 255, 255, 0.75);
+  }
+
+  /* Seed number, shown before the logo. */
+  .team-seed {
+    flex-shrink: 0;
+    min-width: 0.875rem;
+    font-size: 0.5625rem;
+    font-weight: 700;
+    text-align: center;
+    color: rgba(255, 255, 255, 0.38);
+    font-variant-numeric: tabular-nums;
   }
 
   .match-header {
@@ -589,7 +681,7 @@
     background: rgba(120, 67, 145, 0.18);
   }
 
-  .team-btn.picked {
+  .team-btn.pick-pending {
     border-color: var(--hover);
     background: rgba(120, 67, 145, 0.3);
     box-shadow: 0 0 0 1px var(--hover);
@@ -600,7 +692,7 @@
     background: rgba(168, 85, 247, 0.25);
   }
 
-  .match-card.gf .team-btn.picked {
+  .match-card.gf .team-btn.pick-pending {
     border-color: #c084fc;
     background: rgba(168, 85, 247, 0.35);
     box-shadow: 0 0 0 1px #c084fc;

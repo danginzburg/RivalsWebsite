@@ -6,9 +6,15 @@
   interface Props {
     slots: PlayoffPickemSlot[]
     teams: Record<string, BracketTeam>
+    /** Playoff seeds keyed by team id, from the bracket config. */
+    seeds?: Record<string, number>
   }
 
-  let { slots, teams }: Props = $props()
+  let { slots, teams, seeds = {} }: Props = $props()
+
+  function teamSeed(id: string | null): number | null {
+    return id ? (seeds[id] ?? null) : null
+  }
 
   const slotById = $derived(new Map(slots.map((s) => [s.id, s])))
 
@@ -103,11 +109,15 @@
       <span class="match-label">{slot.label}</span>
     </div>
     {#each [slot.teamAId, slot.teamBId] as teamId, index (`${slot.id}-${index}`)}
+      {@const seed = teamSeed(teamId)}
       <div
         class="team-row"
         class:winner={Boolean(slot.winnerId) && teamId === slot.winnerId}
         class:tbd={!teamId}
       >
+        {#if seed != null}
+          <span class="team-seed">{seed}</span>
+        {/if}
         {#if teamLogo(teamId)}
           <img src={teamLogo(teamId) ?? ''} alt="" class="team-logo" />
         {:else}
@@ -268,6 +278,16 @@
     border-radius: 0.125rem;
     background: rgba(255, 255, 255, 0.05);
     flex-shrink: 0;
+  }
+
+  .team-seed {
+    flex-shrink: 0;
+    min-width: 0.75rem;
+    font-size: 0.5625rem;
+    font-weight: 700;
+    text-align: center;
+    color: rgba(255, 255, 255, 0.38);
+    font-variant-numeric: tabular-nums;
   }
 
   .team-name {

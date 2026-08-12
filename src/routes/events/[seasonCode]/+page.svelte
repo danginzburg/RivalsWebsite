@@ -196,7 +196,7 @@
         {#if bracket.slots.length > 0}
           <section class="panel">
             <h2 class="block-title">Playoff Bracket</h2>
-            <ArchiveBracket slots={bracket.slots} teams={bracket.teams} />
+            <ArchiveBracket slots={bracket.slots} teams={bracket.teams} seeds={bracket.seeds} />
           </section>
         {/if}
 

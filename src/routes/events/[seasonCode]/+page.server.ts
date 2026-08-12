@@ -302,6 +302,10 @@ export const load = async ({
       teams: teamMap,
       // Seeds actually assigned a team — how many made playoffs.
       teamCount: pickem.seeds.filter((seed) => Boolean(seed.teamId)).length,
+      // Seed number keyed by team id, for display in the bracket.
+      seeds: Object.fromEntries(
+        pickem.seeds.filter((s) => s.teamId).map((s) => [s.teamId, s.seed])
+      ) as Record<string, number>,
     },
     comments,
     viewer: { isAdmin, profileId: viewerProfileId },

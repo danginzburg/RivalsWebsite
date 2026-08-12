@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { tick } from 'svelte'
+  import { tick, untrack } from 'svelte'
   import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
-  import { BarChart3 } from 'lucide-svelte'
+  import { BarChart3, Search } from 'lucide-svelte'
   import { SvelteMap, SvelteURLSearchParams } from 'svelte/reactivity'
   import { resolve } from '$app/paths'
   import miksIcon from '$lib/assets/agents/Miks_icon.webp'
@@ -24,12 +24,23 @@
   const initialMinGames = $derived(Number(data.initialMinGames ?? 0) || 0)
   const initialSort = $derived(String(data.initialSort ?? 'acs'))
   const initialDir = $derived((data.initialDir ?? 'desc') as 'asc' | 'desc')
+  const initialHideWeeks = $derived(Boolean(data.initialHideWeeks))
+  const initialRankSort = $derived(Boolean(data.initialRankSort))
+  const initialDisregardTier = $derived(Boolean(data.initialDisregardTier))
+
+  // Seeded from the URL so the server-rendered markup already reflects the
+  // active toggles; the effect below keeps them in step on later navigations.
+  const seed = untrack(() => ({
+    hideWeeks: Boolean(data.initialHideWeeks),
+    rankSort: Boolean(data.initialRankSort),
+    disregardTier: Boolean(data.initialDisregardTier),
+  }))
 
   let sortKey = $state<string>('acs')
   let sortDir = $state<'asc' | 'desc'>('desc')
-  let rankSort = $state(false)
-  let disregardTier = $state(false)
-  let hideWeeks = $state(false)
+  let rankSort = $state(seed.rankSort)
+  let disregardTier = $state(seed.disregardTier)
+  let hideWeeks = $state(seed.hideWeeks)
 
   let selectedBatchId = $state<string | null>(null)
   let search = $state('')
@@ -42,6 +53,9 @@
     minGames = Math.max(0, Math.trunc(initialMinGames))
     sortKey = initialSort
     sortDir = initialDir
+    hideWeeks = initialHideWeeks
+    rankSort = initialRankSort
+    disregardTier = initialDisregardTier
   })
 
   $effect(() => {
@@ -71,6 +85,16 @@
     if (sortDir) params.set('dir', sortDir)
     else params.delete('dir')
 
+    // Toggles survive the full navigation that changing batch performs.
+    if (hideWeeks) params.set('hideWeeks', '1')
+    else params.delete('hideWeeks')
+
+    if (rankSort) params.set('rankSort', '1')
+    else params.delete('rankSort')
+
+    if (disregardTier) params.set('ignoreTier', '1')
+    else params.delete('ignoreTier')
+
     const next = u.pathname + (params.toString() ? `?${params.toString()}` : '')
     const current = window.location.pathname + window.location.search
     if (next !== current) {
@@ -92,6 +116,9 @@
     // Sort updates are handled immediately inside toggleSort.
     void search
     void minGames
+    void hideWeeks
+    void rankSort
+    void disregardTier
     scheduleUrlSync(200)
   })
 
@@ -105,6 +132,9 @@
     if (mg > 0) params.set('minGames', String(mg))
     if (sortKey) params.set('sort', sortKey)
     if (sortDir) params.set('dir', sortDir)
+    if (hideWeeks) params.set('hideWeeks', '1')
+    if (rankSort) params.set('rankSort', '1')
+    if (disregardTier) params.set('ignoreTier', '1')
 
     const qs = params.toString()
     return qs ? `/stats?${qs}` : '/stats'
@@ -365,283 +395,190 @@
 <PageContainer class="stats-page">
   <div class="stats-viewport">
     <div class="stats-shell page-content">
-      <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <div class="flex items-center gap-3">
-          <BarChart3 size={36} style="color: var(--text);" />
-          <div>
-            <h1 class="responsive-title">Player Stats</h1>
-            <p class="pt-2 text-sm" style="color: rgba(255,255,255,0.72);">
+      <div class="stats-head">
+        <div class="stats-title-block">
+          <BarChart3 size={22} style="color: var(--hover); flex-shrink: 0;" />
+          <div class="min-w-0">
+            <h1 class="stats-title">Player Stats</h1>
+            <p class="stats-subtitle">
               {#if batch?.display_name}
                 {batch.display_name}
                 {#if batch.import_kind === 'weekly' && batch.week_label}
-                  <span class="opacity-80"> • {batch.week_label}</span>
+                  <span class="stats-subtitle-dim"> · {batch.week_label}</span>
                 {/if}
               {:else if batchId}
                 {batchId}
               {:else}
                 No imports yet
               {/if}
+              <span class="stats-subtitle-dim"> · {sortedRows.length} players</span>
             </p>
           </div>
         </div>
 
-        <div class="flex w-full flex-wrap items-center gap-3">
-          <input
-            type="text"
-            class="w-full rounded-md border px-3 py-2 text-sm md:w-[260px]"
-            style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-            placeholder="Search players"
-            bind:value={search}
-          />
-
-          <div
-            class="flex w-full items-center gap-3 rounded-md border px-3 py-2 text-sm md:w-[240px]"
-            style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-          >
-            <div class="shrink-0 text-xs font-semibold" style="color: rgba(255,255,255,0.75);">
-              Min games
-            </div>
-            <input
-              type="range"
-              min="0"
-              max={maxGames}
-              step="1"
-              value={String(minGames)}
-              disabled={maxGames <= 0}
-              class="w-full"
-              oninput={(e) => {
-                minGames = Number((e.currentTarget as HTMLInputElement).value)
-              }}
-            />
-            <div
-              class="w-10 shrink-0 text-right tabular-nums"
-              style="color: rgba(255,255,255,0.85);"
+        <div class="batch-picker">
+          {#if hasAnyWeeks}
+            <button
+              type="button"
+              class="chip"
+              class:chip-on={hideWeeks}
+              onclick={() => (hideWeeks = !hideWeeks)}
             >
-              {Math.max(0, Math.trunc(minGames))}
-            </div>
-          </div>
-
-          <div class="flex shrink-0 items-center gap-2">
-            {#if viewer?.profileId}
-              <button
-                type="button"
-                class="rounded-md border px-3 py-2 text-sm"
-                style="border-color: rgba(74,222,128,0.35); background: rgba(74,222,128,0.10); color: #86efac;"
-                onclick={findMe}
-              >
-                Find me
-              </button>
-            {/if}
-
-            {#if hasAnyRanks}
-              <button
-                type="button"
-                class="rounded-md border px-3 py-2 text-sm"
-                style={rankSort
-                  ? 'border-color: rgba(250,204,21,0.5); background: rgba(250,204,21,0.18); color: #fde68a;'
-                  : 'border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: rgba(255,255,255,0.72);'}
-                onclick={() => (rankSort = !rankSort)}
-              >
-                Rank Sort
-              </button>
-              {#if rankSort}
-                <button
-                  type="button"
-                  class="rounded-md border px-3 py-2 text-sm"
-                  style={disregardTier
-                    ? 'border-color: rgba(168,85,247,0.5); background: rgba(168,85,247,0.18); color: #c4b5fd;'
-                    : 'border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: rgba(255,255,255,0.72);'}
-                  onclick={() => (disregardTier = !disregardTier)}
-                >
-                  Disregard Tier
-                </button>
-              {/if}
-            {/if}
-          </div>
-
-          <div class="ml-auto flex shrink-0 items-center gap-2">
-            {#if hasAnyWeeks}
-              <button
-                type="button"
-                class="rounded-md border px-3 py-2 text-sm"
-                style={hideWeeks
-                  ? 'border-color: rgba(59,130,246,0.5); background: rgba(59,130,246,0.18); color: #93c5fd;'
-                  : 'border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: rgba(255,255,255,0.72);'}
-                onclick={() => (hideWeeks = !hideWeeks)}
-              >
-                Hide Weeks
-              </button>
-            {/if}
-            <div class="min-w-[220px]">
-              <CustomSelect
-                options={batchOptions}
-                value={selectedBatchId ?? ''}
-                compact={true}
-                onSelect={(value) => (window.location.href = qp({ batchId: value || null }))}
-              />
-            </div>
+              Hide weeks
+            </button>
+          {/if}
+          <div class="batch-select">
+            <CustomSelect
+              options={batchOptions}
+              value={selectedBatchId ?? ''}
+              compact={true}
+              onSelect={(value) => (window.location.href = qp({ batchId: value || null }))}
+            />
           </div>
         </div>
       </div>
 
-      {#if findMeError}
-        <div
-          class="mb-4 rounded-md border px-3 py-2 text-sm"
-          style="border-color: rgba(250,204,21,0.35); background: rgba(250,204,21,0.10); color: #fde68a;"
-        >
-          {findMeError}
+      <!-- Filters -->
+      <div class="toolbar">
+        <div class="search-wrap">
+          <span class="search-icon"><Search size={14} /></span>
+          <input class="search-input" placeholder="Search players..." bind:value={search} />
         </div>
+
+        <div class="min-games">
+          <span class="min-games-label">Min games</span>
+          <input
+            type="range"
+            min="0"
+            max={maxGames}
+            step="1"
+            value={String(minGames)}
+            disabled={maxGames <= 0}
+            class="min-games-range"
+            oninput={(e) => {
+              minGames = Number((e.currentTarget as HTMLInputElement).value)
+            }}
+          />
+          <span class="min-games-value">{Math.max(0, Math.trunc(minGames))}</span>
+        </div>
+
+        <div class="chip-group">
+          {#if viewer?.profileId}
+            <button type="button" class="chip chip-find" onclick={findMe}>Find me</button>
+          {/if}
+          {#if hasAnyRanks}
+            <button
+              type="button"
+              class="chip"
+              class:chip-on={rankSort}
+              onclick={() => (rankSort = !rankSort)}
+            >
+              Rank sort
+            </button>
+            {#if rankSort}
+              <button
+                type="button"
+                class="chip"
+                class:chip-on={disregardTier}
+                onclick={() => (disregardTier = !disregardTier)}
+              >
+                Ignore tier
+              </button>
+            {/if}
+          {/if}
+        </div>
+      </div>
+
+      {#if findMeError}
+        <div class="alert">{findMeError}</div>
       {/if}
 
-      <!-- Columns: collapsible on mobile, always open on md+ -->
-      <details
-        class="mb-4 rounded-md border p-3 md:hidden"
-        style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.18);"
-      >
-        <summary class="flex cursor-pointer items-center justify-between gap-3">
-          <div
-            class="text-xs font-semibold tracking-wide uppercase"
-            style="color: rgba(255,255,255,0.72);"
-          >
-            Visible Columns
-            <span class="ml-2 font-normal" style="color: rgba(255,255,255,0.55);">
-              ({visibleColumns.length}/{allColumns.length})
-            </span>
-          </div>
-          <div class="text-xs font-bold" style="color: rgba(255,255,255,0.7);">+</div>
+      <!-- Column picker: one collapsible panel at every size. -->
+      <details class="columns" open>
+        <summary class="columns-summary">
+          <span class="columns-chevron">▶</span>
+          <span class="columns-title">Visible columns</span>
+          <span class="columns-count">{visibleColumns.length}/{allColumns.length}</span>
+          <span class="columns-actions">
+            <button
+              type="button"
+              class="mini-btn"
+              onclick={(e) => {
+                e.preventDefault()
+                setAllColumns()
+              }}
+            >
+              Show all
+            </button>
+            <button
+              type="button"
+              class="mini-btn"
+              onclick={(e) => {
+                e.preventDefault()
+                resetColumns()
+              }}
+            >
+              Reset
+            </button>
+          </span>
         </summary>
 
-        <div class="mt-3">
-          <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <div class="flex items-center gap-2">
-              <button
-                type="button"
-                class="rounded px-2 py-1 text-xs"
-                style="background: rgba(59,130,246,0.2); color: #93c5fd;"
-                onclick={setAllColumns}
-              >
-                Show all
-              </button>
-              <button
-                type="button"
-                class="rounded px-2 py-1 text-xs"
-                style="background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.85);"
-                onclick={resetColumns}
-              >
-                Reset
-              </button>
-            </div>
-          </div>
-          <div class="flex flex-wrap gap-2">
-            {#each allColumns as col (col.key)}
-              <button
-                type="button"
-                class="rounded-full px-3 py-1 text-xs"
-                style={visibleColumns.includes(col.key)
-                  ? 'background: rgba(74,222,128,0.16); color: #86efac;'
-                  : 'background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.78);'}
-                onclick={() => toggleColumn(col.key)}
-              >
-                {col.label}
-              </button>
-            {/each}
-          </div>
-        </div>
-      </details>
-
-      <div
-        class="mb-4 hidden rounded-md border p-3 md:block"
-        style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.18);"
-      >
-        <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <div
-            class="text-xs font-semibold tracking-wide uppercase"
-            style="color: rgba(255,255,255,0.72);"
-          >
-            Visible Columns
-          </div>
-          <div class="flex items-center gap-2">
-            <button
-              type="button"
-              class="rounded px-2 py-1 text-xs"
-              style="background: rgba(59,130,246,0.2); color: #93c5fd;"
-              onclick={setAllColumns}>Show all</button
-            >
-            <button
-              type="button"
-              class="rounded px-2 py-1 text-xs"
-              style="background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.85);"
-              onclick={resetColumns}>Reset</button
-            >
-          </div>
-        </div>
-        <div class="flex flex-wrap gap-2">
+        <div class="columns-list">
           {#each allColumns as col (col.key)}
             <button
               type="button"
-              class="rounded-full px-3 py-1 text-xs"
-              style={visibleColumns.includes(col.key)
-                ? 'background: rgba(74,222,128,0.16); color: #86efac;'
-                : 'background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.78);'}
+              class="chip chip-sm"
+              class:chip-on={visibleColumns.includes(col.key)}
               onclick={() => toggleColumn(col.key)}
             >
               {col.label}
             </button>
           {/each}
         </div>
-      </div>
+      </details>
 
       {#if sortedRows.length === 0}
-        <div
-          class="inline-flex w-fit self-center rounded-md border px-3 py-2"
-          style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
-        >
-          <p class="text-sm" style="color: rgba(255,255,255,0.72);">No players found.</p>
+        <div class="empty-state">
+          <BarChart3 size={36} style="color: rgba(255,255,255,0.25);" />
+          <p class="empty-text">No players match the current filters.</p>
         </div>
       {:else}
-        <div
-          class="stats-table-wrap rounded-md border"
-          style="border-color: rgba(255,255,255,0.12);"
-        >
-          <table class="stats-table min-w-full text-left text-sm">
+        <div class="stats-table-wrap">
+          <table class="stats-table">
             <thead>
-              <tr class="text-xs tracking-wide uppercase" style="color: rgba(255,255,255,0.75);">
-                <th class="px-3 py-2">#</th>
+              <tr>
+                <th class="col-index">#</th>
                 {#if hasAnyRanks}
-                  <th class="px-3 py-2">Rank</th>
+                  <th class="col-rank">Rank</th>
                 {/if}
-                <th class="px-3 py-2">
+                <th class="col-player">
                   <button
                     type="button"
-                    class="inline-flex items-center gap-1"
-                    style="color: inherit;"
+                    class="sort-btn"
+                    class:sort-active={sortKey === 'player_name'}
                     onclick={() => toggleSort('player_name')}
                     title="Sort by player"
                   >
                     Player
-                    {#if sortKey === 'player_name'}
-                      <span class="text-xs font-bold" style="color: #86efac;"
-                        >{sortDir === 'asc' ? '^' : 'v'}</span
-                      >
-                    {/if}
+                    <span class="sort-caret">
+                      {sortKey === 'player_name' ? (sortDir === 'asc' ? '▲' : '▼') : ''}
+                    </span>
                   </button>
                 </th>
                 {#each allColumns as col (col.key)}
                   {#if visibleColumns.includes(col.key)}
-                    <th class="px-3 py-2">
+                    <th class="col-stat">
                       <button
                         type="button"
-                        class="inline-flex items-center gap-1"
-                        style="color: inherit;"
+                        class="sort-btn"
+                        class:sort-active={sortKey === col.key}
                         onclick={() => toggleSort(col.key)}
                         title={`Sort by ${col.label}`}
                       >
                         {col.label}
-                        {#if sortKey === col.key}
-                          <span class="text-xs font-bold" style="color: #86efac;"
-                            >{sortDir === 'asc' ? '^' : 'v'}</span
-                          >
-                        {/if}
+                        <span class="sort-caret">
+                          {sortKey === col.key ? (sortDir === 'asc' ? '▲' : '▼') : ''}
+                        </span>
                       </button>
                     </th>
                   {/if}
@@ -651,77 +588,58 @@
             <tbody>
               {#each sortedRows as row, index (statsRowKey(row, index))}
                 <tr
-                  class="border-t"
                   id={row.profile_id ? `profile-${row.profile_id}` : undefined}
-                  style={`border-color: rgba(255,255,255,0.10); ${row.profile_id && row.profile_id === highlightedProfileId ? 'background: rgba(74,222,128,0.08);' : ''}`}
+                  class:row-highlight={row.profile_id && row.profile_id === highlightedProfileId}
                 >
-                  <td class="px-3 py-2 font-semibold" style="color: rgba(255,255,255,0.82);">
-                    {index + 1}
-                  </td>
+                  <td class="col-index tabular">{index + 1}</td>
                   {#if hasAnyRanks}
                     {@const rUrl = rankIconUrl(row.league_rank)}
-                    <td class="px-3 py-2 align-middle">
+                    <td class="col-rank">
                       {#if rUrl}
                         <img
                           src={rUrl}
                           alt={String(row.league_rank ?? '')}
                           title={String(row.league_rank ?? '')}
-                          class="h-6 w-6 object-contain"
+                          class="rank-icon"
                         />
                       {:else}
-                        <span style="color: rgba(255,255,255,0.3);">—</span>
+                        <span class="dash">—</span>
                       {/if}
                     </td>
                   {/if}
-                  <td class="px-3 py-2 font-semibold" style="color: var(--text);">
-                    <div class="flex items-center gap-2">
-                      {#if row.profile_id}
-                        <a
-                          class="min-w-0 truncate"
-                          style="color: var(--text);"
-                          href={resolve(`/players/${row.profile_id}`)}
-                        >
-                          {row.player_name}
-                        </a>
-                      {:else}
-                        <!-- eslint-disable svelte/no-navigation-without-resolve -->
-                        <!-- unclaimedHref() returns a resolve()-built URL with a query string -->
-                        <a
-                          class="min-w-0 truncate"
-                          style="color: var(--text);"
-                          href={unclaimedHref(String(row.player_name ?? 'Player'))}
-                        >
-                          {row.player_name}
-                        </a>
-                        <!-- eslint-enable svelte/no-navigation-without-resolve -->
-                      {/if}
-                    </div>
+                  <td class="col-player">
+                    {#if row.profile_id}
+                      <a class="player-link" href={resolve(`/players/${row.profile_id}`)}>
+                        {row.player_name}
+                      </a>
+                    {:else}
+                      <!-- eslint-disable svelte/no-navigation-without-resolve -->
+                      <!-- unclaimedHref() returns a resolve()-built URL with a query string -->
+                      <a
+                        class="player-link player-link-unclaimed"
+                        href={unclaimedHref(String(row.player_name ?? 'Player'))}
+                        title="Unclaimed player"
+                      >
+                        {row.player_name}
+                      </a>
+                      <!-- eslint-enable svelte/no-navigation-without-resolve -->
+                    {/if}
                   </td>
                   {#each allColumns as col (col.key)}
                     {#if visibleColumns.includes(col.key)}
-                      <td class="px-3 py-2 align-middle" style="color: rgba(255,255,255,0.82);">
+                      <td class="col-stat" class:tabular={col.key !== 'agents'}>
                         {#if col.key === 'agents'}
                           {@const agents = parseAgents(row.agents)}
                           {#if agents.length === 0}
-                            —
+                            <span class="dash">—</span>
                           {:else}
                             <div class="agents-icons">
                               {#each agents as agent (agent)}
                                 {@const url = agentIconUrl(agent)}
                                 {#if url}
-                                  <img
-                                    src={url}
-                                    alt={agent}
-                                    title={agent}
-                                    class="h-6 w-6 rounded-sm object-contain"
-                                    style="background: rgba(0,0,0,0.15);"
-                                  />
+                                  <img src={url} alt={agent} title={agent} class="agent-icon" />
                                 {:else}
-                                  <span
-                                    class="inline-flex h-6 w-6 items-center justify-center rounded-sm border text-[10px] font-bold"
-                                    style="border-color: rgba(255,255,255,0.15); color: rgba(255,255,255,0.8);"
-                                    title={agent}
-                                  >
+                                  <span class="agent-fallback" title={agent}>
                                     {agent.slice(0, 3).toUpperCase()}
                                   </span>
                                 {/if}
@@ -745,6 +663,13 @@
 </PageContainer>
 
 <style>
+  /*
+   * The table owns the remaining viewport height and scrolls internally, so
+   * the sticky header stays visible while paging through players.
+   * `--surface` is the flattened equivalent of the panel tint over the page
+   * background — the sticky header needs an opaque colour that matches the
+   * rows exactly, which an rgba overlay cannot provide.
+   */
   :global(.page-container.stats-page) {
     padding: 0;
     justify-content: flex-start;
@@ -755,27 +680,13 @@
   }
 
   .stats-viewport {
+    --surface: #2e1a4d;
     width: 100%;
     height: calc(100svh - 4rem);
     overflow: hidden;
     display: flex;
     justify-content: center;
-    padding: 24px 16px;
-  }
-
-  .agents-icons {
-    display: inline-grid;
-    grid-template-rows: 24px;
-    grid-auto-flow: column;
-    grid-auto-columns: 24px;
-    gap: 4px;
-  }
-
-  /* On smaller screens, allow wrapping into 2 rows to reduce horizontal sprawl. */
-  @media (max-width: 768px) {
-    .agents-icons {
-      grid-template-rows: 24px 24px;
-    }
+    padding: 1.5rem 1rem;
   }
 
   .stats-shell {
@@ -785,22 +696,488 @@
     min-height: 0;
   }
 
+  /* Header */
+  .stats-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.875rem;
+  }
+
+  .stats-title-block {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    min-width: 0;
+  }
+
+  .stats-title {
+    font-size: 1.375rem;
+    font-weight: 700;
+    color: var(--title);
+    line-height: 1.2;
+  }
+
+  .stats-subtitle {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.55);
+    margin-top: 0.125rem;
+  }
+
+  .stats-subtitle-dim {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .batch-picker {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-shrink: 0;
+  }
+
+  .batch-select {
+    min-width: 14rem;
+  }
+
+  /* Toolbar */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.625rem;
+  }
+
+  .search-wrap {
+    position: relative;
+    flex: 1;
+    min-width: 11rem;
+    max-width: 18rem;
+  }
+
+  .search-icon {
+    position: absolute;
+    top: 50%;
+    left: 0.625rem;
+    transform: translateY(-50%);
+    color: rgba(255, 255, 255, 0.3);
+    pointer-events: none;
+    display: flex;
+  }
+
+  .search-input {
+    width: 100%;
+    padding: 0.4375rem 0.75rem 0.4375rem 2rem;
+    border-radius: 0.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(0, 0, 0, 0.25);
+    color: var(--text);
+    font-size: 0.8125rem;
+  }
+
+  .search-input::placeholder {
+    color: rgba(255, 255, 255, 0.32);
+  }
+
+  .search-input:focus {
+    outline: none;
+    border-color: var(--hover);
+  }
+
+  .min-games {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.3125rem 0.75rem;
+    border-radius: 0.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(0, 0, 0, 0.25);
+    min-width: 13rem;
+    flex: 1;
+    max-width: 16rem;
+  }
+
+  .min-games-label {
+    font-size: 0.625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: rgba(255, 255, 255, 0.45);
+    white-space: nowrap;
+  }
+
+  .min-games-range {
+    flex: 1;
+    min-width: 0;
+    accent-color: var(--hover);
+  }
+
+  .min-games-value {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+    min-width: 1.5rem;
+    text-align: right;
+  }
+
+  /* Chips */
+  .chip-group {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    flex-wrap: wrap;
+  }
+
+  .chip {
+    padding: 0.4375rem 0.75rem;
+    border-radius: 0.4375rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(0, 0, 0, 0.25);
+    color: rgba(255, 255, 255, 0.62);
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition:
+      background 0.15s,
+      border-color 0.15s,
+      color 0.15s;
+  }
+
+  .chip:hover {
+    color: var(--text);
+    border-color: rgba(255, 255, 255, 0.2);
+  }
+
+  .chip-on {
+    background: var(--accent);
+    border-color: var(--hover);
+    color: var(--text);
+  }
+
+  .chip-on:hover {
+    background: var(--hover);
+  }
+
+  .chip-sm {
+    padding: 0.25rem 0.5625rem;
+    font-size: 0.6875rem;
+    font-weight: 500;
+  }
+
+  .chip-find {
+    border-color: rgba(74, 222, 128, 0.3);
+    background: rgba(74, 222, 128, 0.1);
+    color: #86efac;
+  }
+
+  .chip-find:hover {
+    background: rgba(74, 222, 128, 0.18);
+    color: #bbf7d0;
+  }
+
+  .alert {
+    padding: 0.5rem 0.875rem;
+    border-radius: 0.5rem;
+    border: 1px solid rgba(251, 191, 36, 0.3);
+    background: rgba(251, 191, 36, 0.08);
+    color: #fde68a;
+    font-size: 0.8125rem;
+    margin-bottom: 0.625rem;
+  }
+
+  /* Column picker */
+  .columns {
+    border-radius: 0.625rem;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    background: rgba(0, 0, 0, 0.2);
+    margin-bottom: 0.625rem;
+    flex-shrink: 0;
+  }
+
+  .columns-summary {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.625rem 0.875rem;
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .columns-summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .columns-chevron {
+    font-size: 0.5625rem;
+    color: rgba(255, 255, 255, 0.4);
+    transition: transform 0.15s;
+  }
+
+  .columns[open] .columns-chevron {
+    transform: rotate(90deg);
+  }
+
+  .columns-title {
+    font-size: 0.6875rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .columns-count {
+    font-size: 0.625rem;
+    font-weight: 700;
+    padding: 0.0625rem 0.375rem;
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.55);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .columns-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 0.375rem;
+  }
+
+  .mini-btn {
+    padding: 0.1875rem 0.5rem;
+    border-radius: 0.3125rem;
+    border: none;
+    background: rgba(255, 255, 255, 0.07);
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .mini-btn:hover {
+    background: rgba(255, 255, 255, 0.13);
+    color: var(--text);
+  }
+
+  .columns-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+    padding: 0 0.875rem 0.875rem;
+  }
+
+  /* Table */
   .stats-table-wrap {
     flex: 1 1 0;
     overflow: auto;
     min-height: 0;
+    border-radius: 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    background: var(--surface);
+  }
+
+  .stats-table {
+    width: 100%;
+    min-width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8125rem;
+    text-align: left;
   }
 
   .stats-table th,
   .stats-table td {
     white-space: nowrap;
+    padding: 0.5rem 0.75rem;
   }
 
   .stats-table thead th {
     position: sticky;
     top: 0;
     z-index: 5;
-    background: var(--secondary-background);
-    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.1);
+    /* Opaque so rows do not show through while scrolling. */
+    background: var(--surface);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    font-size: 0.625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: rgba(255, 255, 255, 0.42);
+  }
+
+  .stats-table tbody tr {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  }
+
+  .stats-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .stats-table tbody tr:last-child {
+    border-bottom: none;
+  }
+
+  .stats-table td {
+    color: rgba(255, 255, 255, 0.8);
+  }
+
+  .row-highlight {
+    background: rgba(74, 222, 128, 0.1);
+  }
+
+  .sort-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    color: inherit;
+    cursor: pointer;
+  }
+
+  .sort-btn:hover {
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  .sort-active {
+    color: #86efac;
+  }
+
+  .sort-caret {
+    font-size: 0.5rem;
+    min-width: 0.5rem;
+  }
+
+  .col-index {
+    width: 3rem;
+    color: rgba(255, 255, 255, 0.4);
+  }
+
+  .col-rank {
+    width: 3.5rem;
+  }
+
+  .col-player {
+    min-width: 10rem;
+  }
+
+  .col-stat {
+    text-align: right;
+  }
+
+  .stats-table thead th.col-stat {
+    text-align: right;
+  }
+
+  .stats-table thead th.col-stat .sort-btn {
+    justify-content: flex-end;
+    width: 100%;
+  }
+
+  .player-link {
+    color: var(--text);
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  .player-link:hover {
+    color: var(--hover);
+  }
+
+  .player-link-unclaimed {
+    color: rgba(255, 255, 255, 0.62);
+    font-weight: 500;
+    font-style: italic;
+  }
+
+  .dash {
+    color: rgba(255, 255, 255, 0.25);
+  }
+
+  .rank-icon {
+    width: 1.375rem;
+    height: 1.375rem;
+    object-fit: contain;
+  }
+
+  /* Agents */
+  .agents-icons {
+    display: inline-grid;
+    grid-template-rows: 1.375rem;
+    grid-auto-flow: column;
+    grid-auto-columns: 1.375rem;
+    gap: 0.1875rem;
+  }
+
+  .agent-icon {
+    width: 1.375rem;
+    height: 1.375rem;
+    border-radius: 0.1875rem;
+    object-fit: contain;
+    background: rgba(0, 0, 0, 0.2);
+  }
+
+  .agent-fallback {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.375rem;
+    height: 1.375rem;
+    border-radius: 0.1875rem;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    font-size: 0.5rem;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.75);
+  }
+
+  /* Empty */
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    text-align: center;
+    padding: 3rem 1.5rem;
+    border-radius: 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    background: rgba(0, 0, 0, 0.18);
+  }
+
+  .empty-text {
+    font-size: 0.875rem;
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  @media (max-width: 768px) {
+    /* Two rows of agent icons keeps the column from sprawling sideways. */
+    .agents-icons {
+      grid-template-rows: 1.375rem 1.375rem;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .stats-viewport {
+      padding: 1rem 0.75rem;
+    }
+
+    .stats-head {
+      gap: 0.625rem;
+    }
+
+    .batch-picker,
+    .batch-select {
+      width: 100%;
+      min-width: 0;
+    }
+
+    .search-wrap,
+    .min-games {
+      max-width: none;
+    }
   }
 </style>

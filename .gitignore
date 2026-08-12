@@ -27,3 +27,8 @@ vite.config.ts.timestamp-*
 scripts/out/
 scripts/.cache/
 scripts/backups/
+
+# Claude Code
+# launch.json is intentionally tracked — it is the shared dev server config.
+.claude/settings.local.json
+.claude/worktrees/
