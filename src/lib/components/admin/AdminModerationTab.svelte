@@ -69,7 +69,7 @@
   }
 </script>
 
-<section class="rounded-md border p-3" style="border-color: rgba(255,255,255,0.12);">
+<section class="admin-bordered p-3">
   <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
     <div
       class="text-sm font-semibold tracking-wide uppercase"
@@ -160,7 +160,7 @@
                     Banned
                   </span>
                 {/if}
-                <span style="color: rgba(255,255,255,0.4);">
+                <span style="color: rgba(255,255,255,0.6);">
                   {formatDate(report.comment.created_at)}
                 </span>
                 {#if report.comment.is_deleted}
@@ -180,7 +180,7 @@
               </p>
             </div>
           {:else}
-            <div class="text-xs italic" style="color: rgba(255,255,255,0.4);">
+            <div class="text-xs italic" style="color: rgba(255,255,255,0.6);">
               The reported comment no longer exists.
             </div>
           {/if}
@@ -189,8 +189,7 @@
             {#if report.status === 'pending'}
               <button
                 type="button"
-                class="rounded px-3 py-1.5 text-xs font-semibold"
-                style="background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.7);"
+                class="admin-btn admin-btn-sm admin-btn-neutral"
                 disabled={processingReportId === report.id}
                 onclick={() => onDismiss(report.id)}
               >
@@ -200,8 +199,7 @@
             {#if report.comment && !report.comment.is_deleted}
               <button
                 type="button"
-                class="rounded px-3 py-1.5 text-xs font-semibold"
-                style="background: rgba(248,113,113,0.2); color: #f87171;"
+                class="admin-btn admin-btn-sm admin-btn-danger"
                 disabled={processingReportId === report.id}
                 onclick={() => onDeleteComment(report.comment!.id, report.id)}
               >
@@ -212,8 +210,7 @@
               {#if banned}
                 <button
                   type="button"
-                  class="rounded px-3 py-1.5 text-xs font-semibold"
-                  style="background: rgba(74,222,128,0.18); color: #86efac;"
+                  class="admin-btn admin-btn-sm admin-btn-go"
                   disabled={processingReportId === report.id}
                   onclick={() =>
                     onUnbanUser(report.comment!.author.id, report.comment!.author.name)}
@@ -223,8 +220,7 @@
               {:else}
                 <button
                   type="button"
-                  class="rounded px-3 py-1.5 text-xs font-semibold"
-                  style="background: rgba(245,158,11,0.18); color: #fcd34d;"
+                  class="admin-btn admin-btn-sm admin-btn-warn"
                   disabled={processingReportId === report.id}
                   onclick={() => onBanUser(report.comment!.author.id, report.comment!.author.name)}
                 >
@@ -235,8 +231,7 @@
             {#if report.status === 'pending'}
               <button
                 type="button"
-                class="rounded px-3 py-1.5 text-xs font-semibold"
-                style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+                class="admin-btn admin-btn-sm admin-btn-info"
                 disabled={processingReportId === report.id}
                 onclick={() => onResolve(report.id)}
               >

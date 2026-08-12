@@ -3,6 +3,7 @@ import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { authorLabel } from '$lib/server/comments'
+import { invalidateRecentComments } from '$lib/server/comments/recent'
 
 type ProfileRow = {
   id: string
@@ -147,6 +148,8 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
       .eq('id', commentId)
 
     if (deleteError) throw error(500, 'Failed to delete comment')
+
+    invalidateRecentComments()
 
     await supabaseAdmin
       .from('comment_reports')

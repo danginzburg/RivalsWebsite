@@ -265,7 +265,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.07em;
-    color: rgba(255, 255, 255, 0.4);
+    color: rgba(255, 255, 255, 0.6);
   }
 
   .cap-value {
@@ -335,7 +335,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: rgba(255, 255, 255, 0.45);
+    color: rgba(255, 255, 255, 0.64);
   }
 
   .roster-warn {
@@ -378,7 +378,7 @@
   .row-num {
     font-size: 0.75rem;
     font-weight: 700;
-    color: rgba(255, 255, 255, 0.3);
+    color: rgba(255, 255, 255, 0.52);
     text-align: center;
     font-variant-numeric: tabular-nums;
   }
@@ -408,7 +408,7 @@
   }
 
   .input::placeholder {
-    color: rgba(255, 255, 255, 0.28);
+    color: rgba(255, 255, 255, 0.5);
   }
 
   .input:focus {
@@ -426,7 +426,7 @@
     top: 50%;
     right: 0.625rem;
     transform: translateY(-50%);
-    color: rgba(255, 255, 255, 0.2);
+    color: rgba(255, 255, 255, 0.45);
     pointer-events: none;
     display: flex;
   }
@@ -454,7 +454,7 @@
     font-size: 0.5625rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: rgba(255, 255, 255, 0.3);
+    color: rgba(255, 255, 255, 0.52);
   }
 
   .value-unknown {
@@ -464,7 +464,7 @@
 
   .value-empty {
     font-size: 1.125rem;
-    color: rgba(255, 255, 255, 0.2);
+    color: rgba(255, 255, 255, 0.45);
   }
 
   .row-clear {
@@ -474,7 +474,7 @@
     background: none;
     border: none;
     padding: 0;
-    color: rgba(255, 255, 255, 0.2);
+    color: rgba(255, 255, 255, 0.45);
     cursor: pointer;
     transition: color 0.15s;
   }
@@ -500,7 +500,7 @@
 
   .foot-note {
     font-size: 0.6875rem;
-    color: rgba(255, 255, 255, 0.38);
+    color: rgba(255, 255, 255, 0.58);
     line-height: 1.5;
     max-width: 44ch;
   }

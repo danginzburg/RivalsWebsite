@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
+  import PageHeading from '$lib/components/PageHeading.svelte'
   import { User } from 'lucide-svelte'
 
   import { enhance } from '$app/forms'
@@ -16,14 +17,12 @@
 <PageContainer>
   <div class="flex justify-center px-4 py-8">
     <div class="w-full max-w-xl">
-      <div class="mb-6 flex items-center gap-3">
-        <User size={34} style="color: var(--text);" />
-        <div>
-          <h1 class="responsive-title">Account</h1>
-          <p class="text-sm" style="color: rgba(255,255,255,0.72);">
-            Set your Riot ID base name (name before #tag) so match stats can link to you.
-          </p>
-        </div>
+      <div class="mb-6">
+        <PageHeading
+          title="Account"
+          subtitle="Set your Riot ID base name (name before #tag) so match stats can link to you."
+          icon={User}
+        />
       </div>
 
       <section
@@ -42,7 +41,7 @@
             id="riot-id-base"
             name="riot_id_base"
             class="mt-2 w-full rounded-md border px-3 py-2 text-sm"
-            style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+            style="border-color: rgba(255,255,255,0.45); background: rgba(0,0,0,0.25); color: var(--text);"
             placeholder="Example: Ginzburg"
             bind:value
           />

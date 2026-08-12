@@ -4,6 +4,7 @@
   import AdminEditLink from '$lib/components/AdminEditLink.svelte'
   import ArchiveBracket from '$lib/components/ArchiveBracket.svelte'
   import CommentThread from '$lib/components/CommentThread.svelte'
+  import TeamSeed from '$lib/components/TeamSeed.svelte'
   import { Trophy, Crown, Medal, ArrowLeft } from 'lucide-svelte'
   import { resolve } from '$app/paths'
 
@@ -255,9 +256,12 @@
         {/if}
         <div class="team-card-body">
           <div class="team-card-name">{team.name}</div>
-          {#if team.tag}
-            <div class="team-card-tag">[{team.tag}]</div>
-          {/if}
+          <div class="team-card-meta">
+            {#if team.tag}
+              <span class="team-card-tag">[{team.tag}]</span>
+            {/if}
+            <TeamSeed seed={bracket.seeds?.[team.id] ?? null} />
+          </div>
         </div>
       </a>
     {/each}
@@ -317,6 +321,7 @@
             class:match-winner={match.winner_team_id === match.team_a?.id}
           >
             {match.team_a?.name ?? 'TBD'}
+            <TeamSeed seed={bracket.seeds?.[match.team_a?.id ?? ''] ?? null} variant="bare" />
           </span>
           <span class="match-mid">
             {#if match.status === 'completed'}
@@ -331,6 +336,7 @@
             class="match-team match-team-b"
             class:match-winner={match.winner_team_id === match.team_b?.id}
           >
+            <TeamSeed seed={bracket.seeds?.[match.team_b?.id ?? ''] ?? null} variant="bare" />
             {match.team_b?.name ?? 'TBD'}
           </span>
         </div>
@@ -346,14 +352,14 @@
     align-items: center;
     gap: 0.375rem;
     font-size: 0.75rem;
-    color: rgba(255, 255, 255, 0.45);
+    color: rgba(255, 255, 255, 0.64);
     text-decoration: none;
     margin-bottom: 0.875rem;
     transition: color 0.15s;
   }
 
   .back-link:hover {
-    color: var(--hover);
+    color: var(--accent-text);
   }
 
   .season-header {
@@ -390,7 +396,7 @@
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--hover);
+    color: var(--accent-text);
     background: rgba(120, 67, 145, 0.16);
     padding: 0.1875rem 0.4375rem;
     border-radius: 0.25rem;
@@ -419,7 +425,7 @@
 
   .season-dates {
     font-size: 0.8125rem;
-    color: rgba(255, 255, 255, 0.45);
+    color: rgba(255, 255, 255, 0.64);
     margin-top: 0.25rem;
   }
 
@@ -469,7 +475,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: rgba(255, 255, 255, 0.42);
+    color: rgba(255, 255, 255, 0.62);
   }
 
   .podium-value {
@@ -540,7 +546,7 @@
 
   .panel-note {
     font-size: 0.75rem;
-    color: rgba(255, 255, 255, 0.45);
+    color: rgba(255, 255, 255, 0.64);
     margin-bottom: 0.75rem;
   }
 
@@ -560,7 +566,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: rgba(255, 255, 255, 0.45);
+    color: rgba(255, 255, 255, 0.64);
     margin-bottom: 0.875rem;
     padding-bottom: 0.5rem;
     border-bottom: 1px solid rgba(255, 255, 255, 0.07);
@@ -583,7 +589,7 @@
     font-weight: 500;
     text-transform: none;
     letter-spacing: 0;
-    color: rgba(255, 255, 255, 0.35);
+    color: rgba(255, 255, 255, 0.56);
   }
 
   /* Keeps a long season's match list from dominating the page. */
@@ -643,13 +649,13 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.07em;
-    color: rgba(255, 255, 255, 0.42);
+    color: rgba(255, 255, 255, 0.62);
     margin-top: 0.125rem;
   }
 
   .empty-text {
     font-size: 0.875rem;
-    color: rgba(255, 255, 255, 0.45);
+    color: rgba(255, 255, 255, 0.64);
     text-align: center;
     padding: 2rem 0;
   }
@@ -667,7 +673,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.07em;
-    color: rgba(255, 255, 255, 0.42);
+    color: rgba(255, 255, 255, 0.62);
     padding: 0.5rem 0.625rem;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     white-space: nowrap;
@@ -703,7 +709,7 @@
   }
 
   .team-cell:hover {
-    color: var(--hover);
+    color: var(--accent-text);
   }
 
   .cell-logo {
@@ -714,7 +720,7 @@
   }
 
   .muted {
-    color: rgba(255, 255, 255, 0.35);
+    color: rgba(255, 255, 255, 0.56);
   }
 
   /* Match list */
@@ -830,12 +836,12 @@
 
   .match-vs {
     font-size: 0.6875rem;
-    color: rgba(255, 255, 255, 0.35);
+    color: rgba(255, 255, 255, 0.56);
   }
 
   .match-date {
     font-size: 0.6875rem;
-    color: rgba(255, 255, 255, 0.4);
+    color: rgba(255, 255, 255, 0.6);
     white-space: nowrap;
     text-align: right;
   }
@@ -891,9 +897,16 @@
     white-space: nowrap;
   }
 
+  .team-card-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    margin-top: 0.0625rem;
+  }
+
   .team-card-tag {
     font-size: 0.6875rem;
-    color: rgba(255, 255, 255, 0.42);
+    color: rgba(255, 255, 255, 0.62);
   }
 
   @media (max-width: 640px) {

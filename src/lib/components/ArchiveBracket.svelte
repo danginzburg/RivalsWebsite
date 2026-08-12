@@ -116,7 +116,7 @@
         class:tbd={!teamId}
       >
         {#if seed != null}
-          <span class="team-seed">{seed}</span>
+          <span class="team-seed" title="Seed {seed}">{seed}</span>
         {/if}
         {#if teamLogo(teamId)}
           <img src={teamLogo(teamId) ?? ''} alt="" class="team-logo" />
@@ -143,7 +143,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.09em;
-    color: rgba(255, 255, 255, 0.4);
+    color: rgba(255, 255, 255, 0.6);
     margin-bottom: 0.625rem;
   }
 
@@ -231,7 +231,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.07em;
-    color: rgba(255, 255, 255, 0.42);
+    color: rgba(255, 255, 255, 0.62);
   }
 
   .match-card.gf .match-label {
@@ -260,7 +260,7 @@
   }
 
   .team-row.tbd .team-name {
-    color: rgba(255, 255, 255, 0.28);
+    color: rgba(255, 255, 255, 0.5);
     font-style: italic;
   }
 
@@ -286,7 +286,7 @@
     font-size: 0.5625rem;
     font-weight: 700;
     text-align: center;
-    color: rgba(255, 255, 255, 0.38);
+    color: rgba(255, 255, 255, 0.58);
     font-variant-numeric: tabular-nums;
   }
 

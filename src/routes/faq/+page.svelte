@@ -78,7 +78,7 @@
   }
 
   .faq-search::placeholder {
-    color: rgba(255, 255, 255, 0.35);
+    color: rgba(255, 255, 255, 0.56);
   }
 
   .faq-search:focus {
@@ -95,7 +95,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: rgba(255, 255, 255, 0.45);
+    color: rgba(255, 255, 255, 0.64);
     margin-bottom: 0.625rem;
     padding-bottom: 0.5rem;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
@@ -142,7 +142,7 @@
   .faq-chevron {
     display: flex;
     align-items: center;
-    color: rgba(255, 255, 255, 0.4);
+    color: rgba(255, 255, 255, 0.6);
     transition: transform 0.2s;
     flex-shrink: 0;
     margin-top: 1px;
@@ -150,7 +150,7 @@
 
   .faq-chevron-open {
     transform: rotate(90deg);
-    color: var(--hover);
+    color: var(--accent-text);
   }
 
   .faq-answer {

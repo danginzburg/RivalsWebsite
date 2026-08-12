@@ -51,9 +51,6 @@
     typeFilter ? entries.filter((e) => e.entry_type === typeFilter) : entries
   )
 
-  const inputStyle =
-    'border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);'
-
   function stateFor(entry: HallOfFameEntry): HallOfFameFormState {
     return (
       editForm[entry.id] ?? {
@@ -82,7 +79,7 @@
 
 <div class="grid grid-cols-1 gap-4">
   <!-- Create -->
-  <section class="rounded-md border p-3" style="border-color: rgba(255,255,255,0.12);">
+  <section class="admin-bordered p-3">
     <div
       class="mb-3 text-sm font-semibold tracking-wide uppercase"
       style="color: rgba(255,255,255,0.8);"
@@ -90,7 +87,7 @@
       Add Entry
     </div>
 
-    <div class="grid grid-cols-1 gap-2 md:grid-cols-4">
+    <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
       <div>
         <div class="mb-1 text-xs font-semibold" style="color: rgba(255,255,255,0.68);">Type</div>
         <CustomSelect
@@ -104,26 +101,23 @@
       </div>
       <input
         value={createForm.title}
-        class="rounded-md border px-3 py-2 text-sm md:col-span-3"
-        style={inputStyle}
+        class="admin-input md:col-span-3"
         placeholder="Title (e.g. Most Kills in a Map)"
         oninput={(e) => onCreateFormChange({ title: (e.currentTarget as HTMLInputElement).value })}
       />
     </div>
 
-    <div class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-4">
+    <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
       <input
         value={createForm.statValue}
-        class="rounded-md border px-3 py-2 text-sm"
-        style={inputStyle}
+        class="admin-input"
         placeholder="Stat value (42)"
         oninput={(e) =>
           onCreateFormChange({ statValue: (e.currentTarget as HTMLInputElement).value })}
       />
       <input
         value={createForm.statLabel}
-        class="rounded-md border px-3 py-2 text-sm"
-        style={inputStyle}
+        class="admin-input"
         placeholder="Stat label (kills)"
         oninput={(e) =>
           onCreateFormChange({ statLabel: (e.currentTarget as HTMLInputElement).value })}
@@ -148,11 +142,10 @@
       </div>
     </div>
 
-    <div class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-3">
+    <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
       <input
         value={createForm.playerName}
-        class="rounded-md border px-3 py-2 text-sm"
-        style={inputStyle}
+        class="admin-input"
         placeholder="Or type a name (unclaimed player)"
         oninput={(e) =>
           onCreateFormChange({ playerName: (e.currentTarget as HTMLInputElement).value })}
@@ -168,8 +161,7 @@
       </div>
       <input
         value={createForm.mediaUrl}
-        class="rounded-md border px-3 py-2 text-sm"
-        style={inputStyle}
+        class="admin-input"
         placeholder="Clip URL (optional)"
         oninput={(e) =>
           onCreateFormChange({ mediaUrl: (e.currentTarget as HTMLInputElement).value })}
@@ -179,8 +171,7 @@
     <textarea
       rows="2"
       value={createForm.description}
-      class="mt-2 w-full rounded-md border px-3 py-2 text-sm leading-5"
-      style={inputStyle}
+      class="admin-input mt-2 leading-5"
       placeholder="Description (optional)"
       oninput={(e) =>
         onCreateFormChange({ description: (e.currentTarget as HTMLTextAreaElement).value })}
@@ -198,8 +189,7 @@
       </label>
       <button
         type="button"
-        class="rounded-md px-3 py-2 text-sm font-semibold"
-        style="background: rgba(74,222,128,0.18); color: #86efac;"
+        class="admin-btn admin-btn-go text-sm"
         onclick={onCreate}
         disabled={isCreating}
       >
@@ -209,7 +199,7 @@
   </section>
 
   <!-- List -->
-  <section class="rounded-md border p-3" style="border-color: rgba(255,255,255,0.12);">
+  <section class="admin-bordered p-3">
     <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
       <div
         class="text-sm font-semibold tracking-wide uppercase"
@@ -281,7 +271,7 @@
 
             {#if isExpanded}
               <div class="px-3 pb-3">
-                <div class="grid grid-cols-1 gap-2 md:grid-cols-4">
+                <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
                   <div>
                     <div class="mb-1 text-xs font-semibold" style="color: rgba(255,255,255,0.68);">
                       Type
@@ -301,8 +291,7 @@
                     Title
                     <input
                       value={state.title}
-                      class="mt-1 w-full rounded-md border px-2 py-1 text-sm"
-                      style={inputStyle}
+                      class="admin-input mt-1"
                       oninput={(e) =>
                         onEditFormChange(entry.id, {
                           title: (e.currentTarget as HTMLInputElement).value,
@@ -311,13 +300,12 @@
                   </label>
                 </div>
 
-                <div class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-4">
+                <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
                   <label class="text-xs" style="color: rgba(255,255,255,0.82);">
                     Stat Value
                     <input
                       value={state.statValue}
-                      class="mt-1 w-full rounded-md border px-2 py-1 text-sm"
-                      style={inputStyle}
+                      class="admin-input mt-1"
                       oninput={(e) =>
                         onEditFormChange(entry.id, {
                           statValue: (e.currentTarget as HTMLInputElement).value,
@@ -328,8 +316,7 @@
                     Stat Label
                     <input
                       value={state.statLabel}
-                      class="mt-1 w-full rounded-md border px-2 py-1 text-sm"
-                      style={inputStyle}
+                      class="admin-input mt-1"
                       oninput={(e) =>
                         onEditFormChange(entry.id, {
                           statLabel: (e.currentTarget as HTMLInputElement).value,
@@ -362,13 +349,12 @@
                   </label>
                 </div>
 
-                <div class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-4">
+                <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
                   <label class="text-xs" style="color: rgba(255,255,255,0.82);">
                     Name (unclaimed)
                     <input
                       value={state.playerName}
-                      class="mt-1 w-full rounded-md border px-2 py-1 text-sm"
-                      style={inputStyle}
+                      class="admin-input mt-1"
                       oninput={(e) =>
                         onEditFormChange(entry.id, {
                           playerName: (e.currentTarget as HTMLInputElement).value,
@@ -391,8 +377,7 @@
                     Clip URL
                     <input
                       value={state.mediaUrl}
-                      class="mt-1 w-full rounded-md border px-2 py-1 text-sm"
-                      style={inputStyle}
+                      class="admin-input mt-1"
                       oninput={(e) =>
                         onEditFormChange(entry.id, {
                           mediaUrl: (e.currentTarget as HTMLInputElement).value,
@@ -404,8 +389,7 @@
                     <input
                       type="number"
                       value={state.sortOrder}
-                      class="mt-1 w-full rounded-md border px-2 py-1 text-sm"
-                      style={inputStyle}
+                      class="admin-input mt-1"
                       oninput={(e) =>
                         onEditFormChange(entry.id, {
                           sortOrder: (e.currentTarget as HTMLInputElement).value,
@@ -419,8 +403,7 @@
                   <textarea
                     rows="2"
                     value={state.description}
-                    class="mt-1 w-full rounded-md border px-3 py-2 text-sm leading-5"
-                    style={inputStyle}
+                    class="admin-input mt-1 leading-5"
                     oninput={(e) =>
                       onEditFormChange(entry.id, {
                         description: (e.currentTarget as HTMLTextAreaElement).value,
@@ -446,8 +429,7 @@
                   <div class="flex gap-2">
                     <button
                       type="button"
-                      class="rounded-md px-3 py-2 text-xs font-semibold"
-                      style="background: rgba(248,113,113,0.2); color: #f87171;"
+                      class="admin-btn admin-btn-sm admin-btn-danger"
                       disabled={processingEntryId === entry.id}
                       onclick={() => onDelete(entry.id, entry.title)}
                     >
@@ -455,8 +437,7 @@
                     </button>
                     <button
                       type="button"
-                      class="rounded-md px-3 py-2 text-xs font-semibold"
-                      style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+                      class="admin-btn admin-btn-sm admin-btn-info"
                       disabled={processingEntryId === entry.id}
                       onclick={() => onSave(entry.id)}
                     >

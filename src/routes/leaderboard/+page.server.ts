@@ -2,6 +2,7 @@ import { supabaseAdmin } from '$lib/supabase/admin'
 import { safeNumber } from '$lib/server/parse'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
 import { publicDataCache } from '$lib/server/cache'
+import { getActiveSeasonSeeds } from '$lib/server/seasons/seeds'
 
 type TeamRel = {
   id: string
@@ -115,8 +116,12 @@ async function loadStandings() {
     return a.name.localeCompare(b.name)
   })
 
+  // Seeds come from the active season's bracket, matching the team list.
+  const seeds = await getActiveSeasonSeeds()
+
   return {
     rows,
+    seeds,
     batch: batch
       ? {
           display_name:
@@ -173,6 +178,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
 
   return {
     rows: standings.rows,
+    seeds: standings.seeds,
     batch: standings.batch,
     myTeam,
     viewer: { isAdmin: locals.user?.role === 'admin' },

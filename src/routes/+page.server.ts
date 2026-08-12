@@ -2,6 +2,8 @@ import { supabaseAdmin } from '$lib/supabase/admin'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
 import type { MatchStreamRow } from '$lib/server/db-rows'
 import { isUnreachableError } from '$lib/server/supabase/unreachable'
+import { getStandingsRanksForSeasons } from '$lib/server/leaderboard/ranks'
+import { loadRecentComments } from '$lib/server/comments/recent'
 
 export const load = async ({ locals }: { locals: App.Locals }) => {
   const isAdmin = locals.user?.role === 'admin'
@@ -10,6 +12,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     .select(
       `
       id,
+      season_id,
       status,
       approval_status,
       best_of,
@@ -73,8 +76,17 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
       : null,
   }))
 
+  // Ranks span every season represented in the feed, so a historical match
+  // still shows the standings from its own season.
+  const [seeds, recentComments] = await Promise.all([
+    getStandingsRanksForSeasons((matches ?? []).map((m) => m.season_id)),
+    loadRecentComments(8),
+  ])
+
   return {
     matches: normalized,
+    seeds,
+    recentComments,
     loadFailed,
     unreachable,
     viewer: { isAdmin },

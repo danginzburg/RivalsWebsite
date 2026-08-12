@@ -59,12 +59,13 @@
   const getInitialSeasons = () => data.seasons || []
   const getInitialApprovedTeams = () => data.approvedTeams || []
   const getInitialMatches = () => data.matches || []
+  const getInitialSeasonId = () => data.activeSeasonId ?? ''
 
   let users = $state<AdminUser[]>(getInitialUsers())
   let seasons = $state<AdminSeason[]>(getInitialSeasons())
   let approvedTeams = $state<ApprovedTeamEntry[]>(getInitialApprovedTeams() as ApprovedTeamEntry[])
   let matches = $state<AdminMatch[]>(getInitialMatches())
-  let adminMatchSeasonId = $state<string>(data.activeSeasonId ?? '')
+  let adminMatchSeasonId = $state<string>(getInitialSeasonId())
   let matchSearchQuery = $state('')
   let showCompletedAdminMatches = $state(false)
   let createSeasonCode = $state('')
@@ -446,6 +447,64 @@
       errorMessage = err instanceof Error ? err.message : 'Tracker lookup failed'
     } finally {
       trackerLookupSignupId = null
+    }
+  }
+
+  type BulkImportReport = {
+    processed: number
+    updated: number
+    skipped: number
+    failed: number
+    stoppedEarly: boolean
+    remaining: number
+    rows: Array<{ id: string; name: string; outcome: string; detail: string }>
+  }
+
+  let bulkImportRunning = $state(false)
+  let bulkImportReport = $state<BulkImportReport | null>(null)
+
+  /**
+   * Fill ranks and tracker scores for the whole filtered list in one pass.
+   * The server paces the third-party requests and works to a time budget, so a
+   * run that stops early is continued by simply pressing the button again.
+   */
+  async function runSignupBulkImport(source: 'riot' | 'tracker' | 'both', overwrite: boolean) {
+    const what =
+      source === 'riot'
+        ? 'ranks from Riot'
+        : source === 'tracker'
+          ? 'tracker.gg scores'
+          : 'ranks and tracker.gg scores'
+    const scope = signupStatusFilter === 'all' ? '' : `${signupStatusFilter} `
+    const warning = overwrite ? '\n\nExisting values will be replaced.' : ''
+    if (!window.confirm(`Fetch ${what} for the ${scope}signups?${warning}`)) return
+
+    bulkImportRunning = true
+    bulkImportReport = null
+    errorMessage = null
+    successMessage = null
+    try {
+      const result = await adminJsonRequest<{ report: BulkImportReport }>(
+        '/api/admin/signups/bulk-import',
+        {
+          method: 'POST',
+          body: { source, overwrite, status: signupStatusFilter },
+          fallbackMessage: 'Bulk import failed',
+        }
+      )
+
+      const report = result.report
+      bulkImportReport = report
+      successMessage =
+        `Bulk import: ${report.updated} updated, ${report.skipped} skipped, ${report.failed} failed.` +
+        (report.stoppedEarly
+          ? ` Ran out of time with ${report.remaining} left — run it again to continue.`
+          : '')
+      await loadSignups()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Bulk import failed'
+    } finally {
+      bulkImportRunning = false
     }
   }
 
@@ -1791,6 +1850,48 @@
     }
   }
 
+  /**
+   * Starters drive the expected lineup shown on a match page before stats are
+   * imported, so this is a plain toggle — no confirmation, and the roster is
+   * patched locally rather than reloading the whole dashboard.
+   */
+  async function toggleTeamPlayerStarter(
+    teamId: string,
+    membershipId: number | null,
+    isStarter: boolean
+  ) {
+    if (membershipId === null) {
+      errorMessage = 'This membership predates starter tracking and cannot be toggled.'
+      return
+    }
+
+    processingTeamId = teamId
+    errorMessage = null
+    successMessage = null
+
+    try {
+      await adminJsonRequest('/api/admin/teams/manage', {
+        method: 'PATCH',
+        body: { action: 'toggle_starter', membershipId, isStarter },
+        fallbackMessage: 'Failed to update starter status',
+      })
+
+      approvedTeams = approvedTeams.map((team) => {
+        if (team.id !== teamId) return team
+        return {
+          ...team,
+          roster: (team.roster ?? []).map((player) =>
+            player.membership_id === membershipId ? { ...player, is_starter: isStarter } : player
+          ),
+        }
+      })
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to update starter status'
+    } finally {
+      processingTeamId = null
+    }
+  }
+
   function cancelActionConfirmation() {
     showActionConfirmation = false
     pendingActionConfirmation = null
@@ -1927,6 +2028,7 @@
         onAddPlayerChange={updateAddPlayerForm}
         onAddPlayer={addPlayerToTeam}
         onRemovePlayer={removeApprovedTeamPlayer}
+        onToggleStarter={toggleTeamPlayerStarter}
         onRemoveTeam={removeApprovedTeam}
       />
     {/if}
@@ -2131,6 +2233,10 @@
         onFetchRiotRank={fetchRiotRank}
         {trackerLookupSignupId}
         onFetchTrackerScore={fetchTrackerScore}
+        {bulkImportRunning}
+        {bulkImportReport}
+        onBulkImport={runSignupBulkImport}
+        onDismissBulkReport={() => (bulkImportReport = null)}
         onSave={(signupId) => saveSignup(signupId)}
         onSetStatus={(signupId, status) => saveSignup(signupId, status)}
         onDelete={deleteSignup}
@@ -2143,7 +2249,7 @@
     <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
       <div
         class="w-full max-w-md rounded-lg border p-6 text-center"
-        style="border-color: rgba(255, 255, 255, 0.2); background: var(--secondary-background);"
+        style="border-color: rgba(255, 255, 255, 0.45); background: var(--secondary-background);"
       >
         <h3 class="mb-3 text-xl font-bold" style="color: var(--title);">Confirm Role Change</h3>
         <p class="mb-5 text-sm" style="color: var(--text);">
@@ -2160,7 +2266,7 @@
           <button
             type="button"
             class="rounded-md border px-4 py-2"
-            style="border-color: rgba(255,255,255,0.2); color: var(--text);"
+            style="border-color: rgba(255,255,255,0.45); color: var(--text);"
             onclick={cancelRoleChange}
             disabled={isUpdatingRole}
           >

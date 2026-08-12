@@ -24,6 +24,13 @@
   --accent: #5e3472ff;
   --hover: #784391ff;
   --active: #5e3472ff;
+
+  /*
+   * --hover works as a surface but measures 1.94:1 as text on these
+   * backgrounds, far below the 4.5:1 WCAG AA floor. Use --accent-text for
+   * any purple *text* or icon; keep --hover for fills and borders.
+   */
+  --accent-text: #c084fc;
 }
 
 body {
@@ -144,4 +151,384 @@ nav {
   .responsive-title {
     @apply text-xl;
   }
+}
+
+/* ===========================================
+   ADMIN + IMPORT UI
+   One vocabulary for every admin surface: the dashboard tabs, the tab bodies
+   and the standalone import pages. These pages were built out of repeated
+   inline styles, which drifted apart over time — anything reused more than
+   once lives here instead.
+   =========================================== */
+
+:root {
+  --admin-line: rgba(255, 255, 255, 0.12);
+  --admin-line-strong: rgba(255, 255, 255, 0.2);
+  --admin-surface: rgba(0, 0, 0, 0.22);
+  --admin-surface-raised: rgba(255, 255, 255, 0.04);
+  --admin-field: rgba(0, 0, 0, 0.3);
+  --admin-muted: rgba(255, 255, 255, 0.62);
+  --admin-label: rgba(255, 255, 255, 0.8);
+  --admin-radius: 0.75rem;
+}
+
+/* --- Cards & sections --- */
+
+.admin-card {
+  border: 1px solid var(--admin-line);
+  border-radius: var(--admin-radius);
+  background: var(--admin-surface);
+}
+
+.admin-card-pad {
+  @apply p-3 sm:p-4;
+}
+
+/* Nested block inside a card — one step lighter so the hierarchy reads. */
+.admin-subcard {
+  border: 1px solid var(--admin-line);
+  border-radius: 0.625rem;
+  background: var(--admin-surface-raised);
+}
+
+/* Just the outline: for blocks that group without wanting a fill. */
+.admin-bordered {
+  border: 1px solid var(--admin-line);
+  border-radius: 0.625rem;
+}
+
+/* A single separating rule — table rows and section splits, not a box. */
+.admin-divide {
+  border-color: var(--admin-line);
+}
+
+/* Neutral inline note — status text that is neither good nor bad news. */
+.admin-note {
+  @apply rounded-lg px-3 py-2 text-sm;
+  border: 1px solid var(--admin-line);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}
+
+.admin-section-title {
+  @apply text-xs font-bold tracking-[0.08em] uppercase;
+  color: var(--admin-label);
+}
+
+.admin-hint {
+  @apply text-xs;
+  color: var(--admin-muted);
+}
+
+/* File drop target on the import pages. */
+.admin-dropzone {
+  @apply flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl px-4 py-7 text-center text-sm font-semibold sm:flex-row sm:py-6;
+  border: 1px dashed rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.admin-dropzone:hover {
+  border-color: var(--hover);
+  background: rgba(120, 67, 145, 0.12);
+}
+
+/* Larger drop *region* (the whole card accepts a drag, not just a strip). */
+.admin-dropzone-region {
+  @apply p-4 sm:p-6;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.admin-dropzone-active {
+  border-color: rgba(59, 130, 246, 0.6);
+  background: rgba(59, 130, 246, 0.08);
+}
+
+/* Big-number summary tile used by the import previews. */
+.admin-stat {
+  @apply rounded-xl p-4;
+  border: 1px solid var(--admin-line);
+  background: var(--admin-surface);
+}
+
+.admin-stat-label {
+  @apply flex items-center gap-2 text-xs font-bold tracking-[0.06em] uppercase;
+  color: var(--admin-muted);
+}
+
+.admin-stat-value {
+  @apply mt-1.5 text-3xl font-bold;
+  color: var(--title);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Import page header: title block plus a way back to the dashboard. */
+.admin-import-head {
+  @apply mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between;
+}
+
+.admin-back-link {
+  @apply inline-flex flex-shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold;
+  border: 1px solid var(--admin-line);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.admin-back-link:hover {
+  border-color: var(--admin-line-strong);
+  color: var(--text);
+}
+
+.admin-import-title {
+  @apply text-2xl font-bold sm:text-3xl;
+  color: var(--title);
+  line-height: 1.15;
+}
+
+/* Small caps label above a field; used instead of a wrapping <label> text. */
+.admin-field-label {
+  @apply mb-1 text-[0.6875rem] font-bold tracking-[0.07em] uppercase;
+  color: var(--admin-muted);
+}
+
+/* --- Form controls --- */
+
+.admin-label {
+  @apply flex flex-col gap-1 text-xs font-semibold;
+  color: var(--admin-label);
+}
+
+/*
+ * 16px on phones: anything smaller makes iOS Safari zoom the viewport on
+ * focus, which leaves the admin panels scrolled sideways.
+ */
+.admin-input,
+.admin-textarea {
+  @apply w-full rounded-lg border px-3 py-2 text-base sm:text-sm;
+  border-color: var(--admin-line-strong);
+  background: var(--admin-field);
+  color: var(--text);
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+
+.admin-input::placeholder,
+.admin-textarea::placeholder {
+  color: rgba(255, 255, 255, 0.42);
+}
+
+.admin-input:focus,
+.admin-textarea:focus {
+  outline: none;
+  border-color: var(--hover);
+  box-shadow: 0 0 0 3px rgba(120, 67, 145, 0.35);
+}
+
+.admin-input:disabled,
+.admin-textarea:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.admin-textarea {
+  @apply font-mono leading-relaxed;
+  resize: vertical;
+}
+
+.admin-file {
+  @apply w-full rounded-lg border px-3 py-2 text-sm;
+  border-color: var(--admin-line-strong);
+  background: var(--admin-field);
+  color: var(--text);
+}
+
+.admin-file::file-selector-button {
+  @apply mr-3 cursor-pointer rounded-md border-0 px-3 py-1 text-xs font-semibold;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+}
+
+.admin-file::file-selector-button:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+/* --- Buttons --- */
+
+.admin-btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold whitespace-nowrap;
+  /* Comfortable thumb target; the desktop look is unchanged. */
+  min-height: 2.375rem;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s,
+    opacity 0.15s;
+}
+
+.admin-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.admin-btn-sm {
+  @apply px-2.5 py-1.5 text-xs;
+  min-height: 2rem;
+}
+
+.admin-btn-primary {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.admin-btn-primary:hover:not(:disabled) {
+  background: var(--tertiary-background);
+}
+
+.admin-btn-neutral {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--admin-line);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.admin-btn-neutral:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.15);
+  color: var(--text);
+}
+
+.admin-btn-go {
+  background: rgba(74, 222, 128, 0.16);
+  border-color: rgba(74, 222, 128, 0.32);
+  color: #86efac;
+}
+
+.admin-btn-go:hover:not(:disabled) {
+  background: rgba(74, 222, 128, 0.26);
+}
+
+.admin-btn-info {
+  background: rgba(59, 130, 246, 0.18);
+  border-color: rgba(59, 130, 246, 0.32);
+  color: #93c5fd;
+}
+
+.admin-btn-info:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.28);
+}
+
+.admin-btn-warn {
+  background: rgba(234, 179, 8, 0.16);
+  border-color: rgba(234, 179, 8, 0.32);
+  color: #fcd34d;
+}
+
+.admin-btn-warn:hover:not(:disabled) {
+  background: rgba(234, 179, 8, 0.26);
+}
+
+.admin-btn-accent {
+  background: rgba(168, 85, 247, 0.18);
+  border-color: rgba(168, 85, 247, 0.32);
+  color: #d8b4fe;
+}
+
+.admin-btn-accent:hover:not(:disabled) {
+  background: rgba(168, 85, 247, 0.28);
+}
+
+.admin-btn-danger {
+  background: rgba(248, 113, 113, 0.16);
+  border-color: rgba(248, 113, 113, 0.32);
+  color: #fca5a5;
+}
+
+.admin-btn-danger:hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.26);
+}
+
+/* --- Badges, pills, toggles --- */
+
+.admin-pill {
+  @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wide uppercase;
+  background: rgba(255, 255, 255, 0.09);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.admin-toggle {
+  @apply inline-flex items-center rounded-md px-2 py-1 text-[11px] font-semibold whitespace-nowrap;
+  border: 1px solid var(--admin-line);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s;
+}
+
+.admin-toggle:hover:not(:disabled) {
+  border-color: var(--admin-line-strong);
+  color: var(--text);
+}
+
+.admin-toggle-on {
+  background: rgba(250, 204, 21, 0.18);
+  border-color: rgba(250, 204, 21, 0.4);
+  color: #fde68a;
+}
+
+.admin-toggle:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* --- Rows & layout helpers --- */
+
+.admin-row {
+  @apply flex flex-wrap items-center justify-between gap-2 rounded-lg px-2.5 py-2;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.admin-toolbar {
+  @apply mb-3 flex flex-col gap-2 md:flex-row md:items-center;
+}
+
+.admin-grid-2 {
+  @apply grid grid-cols-1 gap-3 md:grid-cols-2;
+}
+
+.admin-grid-3 {
+  @apply grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3;
+}
+
+/* --- Alerts --- */
+
+.admin-alert {
+  @apply rounded-lg px-3 py-2 text-sm font-medium;
+  border: 1px solid transparent;
+}
+
+.admin-alert-error {
+  background: rgba(244, 63, 94, 0.14);
+  border-color: rgba(244, 63, 94, 0.32);
+  color: #fda4af;
+}
+
+.admin-alert-success {
+  background: rgba(74, 222, 128, 0.14);
+  border-color: rgba(74, 222, 128, 0.32);
+  color: #86efac;
+}
+
+.admin-alert-warn {
+  background: rgba(234, 179, 8, 0.12);
+  border-color: rgba(234, 179, 8, 0.3);
+  color: #fde68a;
 }

@@ -41,7 +41,7 @@
 
     {#if seasons.length === 0}
       <div class="empty-state">
-        <CalendarClock size={40} style="color: rgba(255,255,255,0.25);" />
+        <CalendarClock size={40} style="color: rgba(255,255,255,0.48);" />
         <p class="empty-title">No seasons yet</p>
         <p class="empty-text">Once a season is created it will appear here.</p>
       </div>
@@ -173,7 +173,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    color: rgba(255, 255, 255, 0.3);
+    color: rgba(255, 255, 255, 0.52);
     background: rgba(255, 255, 255, 0.05);
   }
 
@@ -194,7 +194,7 @@
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--hover);
+    color: var(--accent-text);
     background: rgba(120, 67, 145, 0.16);
     padding: 0.1875rem 0.4375rem;
     border-radius: 0.25rem;
@@ -222,7 +222,7 @@
 
   .season-dates {
     font-size: 0.75rem;
-    color: rgba(255, 255, 255, 0.45);
+    color: rgba(255, 255, 255, 0.64);
     margin-top: 0.1875rem;
   }
 
@@ -252,7 +252,7 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: rgba(255, 255, 255, 0.4);
+    color: rgba(255, 255, 255, 0.6);
   }
 
   .result-logo {
@@ -291,17 +291,17 @@
   }
 
   .stat-accent {
-    color: var(--hover);
+    color: var(--accent-text);
     font-weight: 600;
   }
 
   :global(.season-arrow) {
-    color: rgba(255, 255, 255, 0.25);
+    color: rgba(255, 255, 255, 0.48);
     flex-shrink: 0;
   }
 
   .season-card:hover :global(.season-arrow) {
-    color: var(--hover);
+    color: var(--accent-text);
   }
 
   .empty-state {

@@ -214,7 +214,7 @@
                 name="riot_id_base"
                 bind:value={riotIdBaseValue}
                 class="w-full flex-1 rounded-md border px-3 py-2 text-sm"
-                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                style="border-color: rgba(255,255,255,0.45); background: rgba(0,0,0,0.25); color: var(--text);"
                 placeholder={base ? `Example: ${base}` : 'Example: Ginzburg'}
                 autocomplete="off"
               />
@@ -253,7 +253,7 @@
                 class="rounded-md border px-3 py-2 text-xs"
                 style={hideWeeks
                   ? 'border-color: rgba(59,130,246,0.5); background: rgba(59,130,246,0.18); color: #93c5fd;'
-                  : 'border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: rgba(255,255,255,0.72);'}
+                  : 'border-color: rgba(255,255,255,0.45); background: rgba(0,0,0,0.25); color: rgba(255,255,255,0.72);'}
                 onclick={() => (hideWeeks = !hideWeeks)}
               >
                 Hide Weeks

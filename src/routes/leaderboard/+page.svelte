@@ -4,6 +4,7 @@
   import PageHeading from '$lib/components/PageHeading.svelte'
   import AdminEditLink from '$lib/components/AdminEditLink.svelte'
   import { Trophy, Search, ChevronRight } from 'lucide-svelte'
+  import TeamSeed from '$lib/components/TeamSeed.svelte'
   import { resolve } from '$app/paths'
 
   let { data }: PageProps = $props()
@@ -11,6 +12,7 @@
   const rows = $derived(data.rows ?? [])
   const batch = $derived(data.batch ?? null)
   const myTeam = $derived(data.myTeam ?? null)
+  const seeds = $derived((data.seeds ?? {}) as Record<string, number>)
   const isAdmin = $derived(data.viewer?.isAdmin ?? false)
 
   type Row = (typeof rows)[number]
@@ -102,7 +104,7 @@
 
     {#if rows.length === 0}
       <div class="empty-state">
-        <Trophy size={40} style="color: rgba(255,255,255,0.25);" />
+        <Trophy size={40} style="color: rgba(255,255,255,0.48);" />
         <p class="empty-title">No teams yet</p>
         <p class="empty-text">Approved teams and their standings will appear here.</p>
       </div>
@@ -150,6 +152,7 @@
                         {#if row.tag}
                           <span class="team-tag">[{String(row.tag).toUpperCase()}]</span>
                         {/if}
+                        <TeamSeed seed={seeds[row.id] ?? null} label="Playoff seed" />
                       </span>
                     </a>
                   </td>
@@ -191,9 +194,12 @@
                 {/if}
                 <div class="team-card-body">
                   <div class="team-card-name">{row.name}</div>
-                  {#if row.tag}
-                    <div class="team-card-tag">[{String(row.tag).toUpperCase()}]</div>
-                  {/if}
+                  <div class="team-card-meta">
+                    {#if row.tag}
+                      <span class="team-card-tag">[{String(row.tag).toUpperCase()}]</span>
+                    {/if}
+                    <TeamSeed seed={seeds[row.id] ?? null} label="Playoff seed" />
+                  </div>
                 </div>
               </a>
             {/each}
@@ -247,7 +253,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: var(--hover);
+    color: var(--accent-text);
   }
 
   .my-team-name {
@@ -265,13 +271,13 @@
 
   .my-team-role {
     font-size: 0.6875rem;
-    color: rgba(255, 255, 255, 0.45);
+    color: rgba(255, 255, 255, 0.64);
     text-transform: capitalize;
     margin-top: 0.125rem;
   }
 
   :global(.my-team-arrow) {
-    color: rgba(255, 255, 255, 0.3);
+    color: rgba(255, 255, 255, 0.52);
     flex-shrink: 0;
   }
 
@@ -297,7 +303,7 @@
     top: 50%;
     left: 0.625rem;
     transform: translateY(-50%);
-    color: rgba(255, 255, 255, 0.3);
+    color: rgba(255, 255, 255, 0.52);
     pointer-events: none;
     display: flex;
   }
@@ -313,7 +319,7 @@
   }
 
   .search-input::placeholder {
-    color: rgba(255, 255, 255, 0.32);
+    color: rgba(255, 255, 255, 0.54);
   }
 
   .search-input:focus {
@@ -323,11 +329,11 @@
 
   .batch-note {
     font-size: 0.6875rem;
-    color: rgba(255, 255, 255, 0.42);
+    color: rgba(255, 255, 255, 0.62);
   }
 
   .batch-date {
-    color: rgba(255, 255, 255, 0.3);
+    color: rgba(255, 255, 255, 0.52);
   }
 
   /* Standings table */
@@ -351,7 +357,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.07em;
-    color: rgba(255, 255, 255, 0.4);
+    color: rgba(255, 255, 255, 0.6);
     padding: 0.75rem 0.625rem;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     white-space: nowrap;
@@ -399,7 +405,7 @@
   }
 
   .muted {
-    color: rgba(255, 255, 255, 0.45);
+    color: rgba(255, 255, 255, 0.64);
   }
 
   .rank-badge {
@@ -446,12 +452,12 @@
   }
 
   .team-cell:hover .team-name {
-    color: var(--hover);
+    color: var(--accent-text);
   }
 
   .team-tag {
     font-size: 0.6875rem;
-    color: rgba(255, 255, 255, 0.42);
+    color: rgba(255, 255, 255, 0.62);
     flex-shrink: 0;
   }
 
@@ -472,7 +478,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: rgba(255, 255, 255, 0.45);
+    color: rgba(255, 255, 255, 0.64);
     margin-bottom: 0.875rem;
     padding-bottom: 0.5rem;
     border-bottom: 1px solid rgba(255, 255, 255, 0.07);
@@ -534,9 +540,16 @@
     white-space: nowrap;
   }
 
+  .team-card-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    margin-top: 0.0625rem;
+  }
+
   .team-card-tag {
     font-size: 0.6875rem;
-    color: rgba(255, 255, 255, 0.42);
+    color: rgba(255, 255, 255, 0.62);
   }
 
   /* Empty */

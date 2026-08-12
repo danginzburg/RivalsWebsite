@@ -40,7 +40,7 @@
     border-radius: 50%;
     background: rgba(94, 52, 114, 0.18);
     border: 2px solid rgba(120, 67, 145, 0.35);
-    color: var(--hover);
+    color: var(--accent-text);
     margin-bottom: 0.5rem;
   }
 

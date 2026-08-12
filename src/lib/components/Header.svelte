@@ -54,7 +54,7 @@
     { href: '/leaderboard', label: 'Leaderboard', icon: Trophy },
     ...(hasActivePickem ? [{ href: '/pickems' as NavHref, label: "Pick'ems", icon: Target }] : []),
     { href: '/events', label: 'Events', icon: CalendarClock },
-    { href: '/hall-of-fame', label: 'Hall of Fame', icon: Award },
+    // { href: '/hall-of-fame', label: 'Hall of Fame', icon: Award },
     { href: '/stats', label: 'Stats', icon: BarChart3 },
     { href: '/team-balance', label: 'Calculator', icon: Calculator },
     { href: '/rulebook', label: 'Rulebook', icon: BookOpen },
@@ -110,7 +110,9 @@
       onmouseleave={() => (isBrandHovered = false)}
     >
       <img src={rivalsLogo} alt="Rivals logo" class="brand-logo" />
-      <span class="brand-name" style={isBrandHovered ? 'color: var(--hover);' : ''}>Rivals</span>
+      <span class="brand-name" style={isBrandHovered ? 'color: var(--accent-text);' : ''}
+        >Rivals</span
+      >
     </a>
 
     <!-- Desktop navigation -->

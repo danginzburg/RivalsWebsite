@@ -14,7 +14,7 @@
   import { resolve } from '$app/paths'
 
   import type { AdminTabId } from '$lib/admin/types'
-  import type { Snippet } from 'svelte'
+  import type { ComponentType, Snippet } from 'svelte'
 
   interface Props {
     activeTab: AdminTabId
@@ -46,164 +46,101 @@
     onRefresh,
     children,
   }: Props = $props()
+
+  /*
+   * The tab strip used to be nine hand-written buttons that drifted apart
+   * whenever one was edited. Driving it from data keeps every tab identical
+   * and makes the count badges consistent.
+   */
+  type Tab = {
+    id: AdminTabId
+    label: string
+    icon: ComponentType
+    count: number
+    /** Counts that mean "needs attention" are hidden when they are zero. */
+    hideZero?: boolean
+  }
+
+  const tabs = $derived<Tab[]>([
+    { id: 'users', label: 'Users', icon: UserCog, count: counts.users },
+    { id: 'teams', label: 'Teams', icon: ShieldCheck, count: counts.teams },
+    { id: 'matches', label: 'Matches', icon: CalendarDays, count: counts.matches },
+    { id: 'seasons', label: 'Seasons', icon: Layers3, count: counts.seasons },
+    { id: 'accolades', label: 'Accolades', icon: Shield, count: counts.accolades },
+    { id: 'hall-of-fame', label: 'HOF', icon: Award, count: counts.hallOfFame },
+    { id: 'moderation', label: 'Moderation', icon: Flag, count: counts.moderation, hideZero: true },
+    { id: 'signups', label: 'Signups', icon: ClipboardList, count: counts.signups, hideZero: true },
+  ])
+
+  const imports = [
+    { href: '/admin/leaderboard-import', label: 'Leaderboard', variant: 'admin-btn-warn' },
+    { href: '/admin/matches-import', label: 'Matches', variant: 'admin-btn-accent' },
+    { href: '/admin/stats-import', label: 'Stats', variant: 'admin-btn-info' },
+  ] as const
 </script>
 
-<div class="flex justify-center py-6">
+<div class="admin-page">
   <div class="page-content">
-    <div class="mb-4 flex flex-wrap justify-end gap-2">
-      <a
-        href={resolve('/admin/leaderboard-import')}
-        class="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold"
-        style="background: rgba(234,179,8,0.18); color: #fcd34d;"
-      >
-        <Upload size={16} />
-        Leaderboard Import
-      </a>
-      <a
-        href={resolve('/admin/matches-import')}
-        class="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold"
-        style="background: rgba(168,85,247,0.18); color: #d8b4fe;"
-      >
-        <Upload size={16} />
-        Match Import
-      </a>
-      <a
-        href={resolve('/admin/stats-import')}
-        class="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold"
-        style="background: rgba(59,130,246,0.2); color: #93c5fd;"
-      >
-        <Upload size={16} />
-        Stats Import
-      </a>
-    </div>
-    <div class="mb-8 flex flex-col items-center">
-      <h1 class="responsive-title mb-2 text-center">Admin Dashboard</h1>
-      <p class="responsive-text text-center" style="color: var(--text);">
-        Manage everything from one place
-      </p>
-    </div>
+    <header class="admin-masthead">
+      <div class="min-w-0">
+        <p class="admin-eyebrow">Control panel</p>
+        <h1 class="admin-title">Admin Dashboard</h1>
+      </div>
 
-    <div class="info-card info-card-surface p-0">
-      <!-- Tabs stay on one line and scroll horizontally rather than wrapping. -->
-      <div
-        class="admin-tabs flex overflow-x-auto border-b"
-        style="border-color: rgba(255, 255, 255, 0.12);"
-      >
+      <div class="admin-masthead-actions">
+        <!-- Import links read as one group so they are not mistaken for tabs. -->
+        <div class="admin-import-group">
+          <span class="admin-import-label"><Upload size={14} /> Import</span>
+          {#each imports as item (item.href)}
+            <a href={resolve(item.href)} class="admin-btn admin-btn-sm {item.variant}">
+              {item.label}
+            </a>
+          {/each}
+        </div>
         <button
           type="button"
-          class="flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-sm whitespace-nowrap sm:px-4"
-          style={activeTab === 'users'
-            ? 'border-color: var(--accent); color: var(--text); background: rgba(255, 255, 255, 0.05);'
-            : 'border-color: transparent; color: rgba(255,255,255,0.7);'}
-          onclick={() => onTabChange('users')}
-        >
-          <UserCog size={18} />
-          <span>Users ({counts.users})</span>
-        </button>
-        <button
-          type="button"
-          class="flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-sm whitespace-nowrap sm:px-4"
-          style={activeTab === 'teams'
-            ? 'border-color: var(--accent); color: var(--text); background: rgba(255, 255, 255, 0.05);'
-            : 'border-color: transparent; color: rgba(255,255,255,0.7);'}
-          onclick={() => onTabChange('teams')}
-        >
-          <ShieldCheck size={18} />
-          <span>Teams ({counts.teams})</span>
-        </button>
-        <button
-          type="button"
-          class="flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-sm whitespace-nowrap sm:px-4"
-          style={activeTab === 'matches'
-            ? 'border-color: var(--accent); color: var(--text); background: rgba(255, 255, 255, 0.05);'
-            : 'border-color: transparent; color: rgba(255,255,255,0.7);'}
-          onclick={() => onTabChange('matches')}
-        >
-          <CalendarDays size={18} />
-          <span>Matches ({counts.matches})</span>
-        </button>
-        <button
-          type="button"
-          class="flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-sm whitespace-nowrap sm:px-4"
-          style={activeTab === 'seasons'
-            ? 'border-color: var(--accent); color: var(--text); background: rgba(255, 255, 255, 0.05);'
-            : 'border-color: transparent; color: rgba(255,255,255,0.7);'}
-          onclick={() => onTabChange('seasons')}
-        >
-          <Layers3 size={18} />
-          <span>Seasons ({counts.seasons})</span>
-        </button>
-        <button
-          type="button"
-          class="flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-sm whitespace-nowrap sm:px-4"
-          style={activeTab === 'accolades'
-            ? 'border-color: var(--accent); color: var(--text); background: rgba(255, 255, 255, 0.05);'
-            : 'border-color: transparent; color: rgba(255,255,255,0.7);'}
-          onclick={() => onTabChange('accolades')}
-        >
-          <Shield size={18} />
-          <span>Accolades ({counts.accolades})</span>
-        </button>
-        <button
-          type="button"
-          class="flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-sm whitespace-nowrap sm:px-4"
-          style={activeTab === 'hall-of-fame'
-            ? 'border-color: var(--accent); color: var(--text); background: rgba(255, 255, 255, 0.05);'
-            : 'border-color: transparent; color: rgba(255,255,255,0.7);'}
-          onclick={() => onTabChange('hall-of-fame')}
-        >
-          <Award size={18} />
-          <span>HOF ({counts.hallOfFame})</span>
-        </button>
-        <button
-          type="button"
-          class="flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-sm whitespace-nowrap sm:px-4"
-          style={activeTab === 'moderation'
-            ? 'border-color: var(--accent); color: var(--text); background: rgba(255, 255, 255, 0.05);'
-            : 'border-color: transparent; color: rgba(255,255,255,0.7);'}
-          onclick={() => onTabChange('moderation')}
-        >
-          <Flag size={18} />
-          <span>Moderation{counts.moderation > 0 ? ` (${counts.moderation})` : ''}</span>
-        </button>
-        <button
-          type="button"
-          class="flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-sm whitespace-nowrap sm:px-4"
-          style={activeTab === 'signups'
-            ? 'border-color: var(--accent); color: var(--text); background: rgba(255, 255, 255, 0.05);'
-            : 'border-color: transparent; color: rgba(255,255,255,0.7);'}
-          onclick={() => onTabChange('signups')}
-        >
-          <ClipboardList size={18} />
-          <span>Signups{counts.signups > 0 ? ` (${counts.signups})` : ''}</span>
-        </button>
-        <button
-          type="button"
-          class="ml-auto px-3 py-3 text-sm sm:px-4"
-          style="color: var(--text);"
+          class="admin-btn admin-btn-neutral admin-refresh"
           onclick={onRefresh}
           disabled={isLoading}
           title="Refresh data"
+          aria-label="Refresh data"
         >
-          <RefreshCw size={18} class={isLoading ? 'animate-spin' : ''} />
+          <RefreshCw size={16} class={isLoading ? 'animate-spin' : ''} />
+          <span class="admin-refresh-text">Refresh</span>
         </button>
+      </div>
+    </header>
+
+    <div class="admin-panel">
+      <!-- Tabs stay on one line and scroll horizontally rather than wrapping. -->
+      <div class="admin-tabs" role="tablist">
+        {#each tabs as tab (tab.id)}
+          {@const Icon = tab.icon}
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab.id}
+            class="admin-tab"
+            class:admin-tab-active={activeTab === tab.id}
+            onclick={() => onTabChange(tab.id)}
+          >
+            <Icon size={17} />
+            <span>{tab.label}</span>
+            {#if !tab.hideZero || tab.count > 0}
+              <span class="admin-tab-count">{tab.count}</span>
+            {/if}
+          </button>
+        {/each}
       </div>
 
       {#if errorMessage}
-        <div class="px-4 py-3 text-sm" style="color: #fda4af; background: rgba(244, 63, 94, 0.15);">
-          {errorMessage}
-        </div>
+        <div class="admin-banner admin-banner-error">{errorMessage}</div>
       {/if}
       {#if successMessage}
-        <div
-          class="px-4 py-3 text-sm"
-          style="color: #4ade80; background: rgba(74, 222, 128, 0.15);"
-        >
-          {successMessage}
-        </div>
+        <div class="admin-banner admin-banner-success">{successMessage}</div>
       {/if}
 
-      <div class="p-3 sm:p-4">
+      <div class="admin-panel-body">
         {@render children()}
       </div>
     </div>
@@ -211,8 +148,89 @@
 </div>
 
 <style>
-  /* Keep the tab strip scrollable without a visible scrollbar eating height. */
+  .admin-page {
+    display: flex;
+    justify-content: center;
+    padding: 1.5rem 0 2.5rem;
+  }
+
+  /* Masthead */
+  .admin-masthead {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+  }
+
+  .admin-eyebrow {
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent-text);
+  }
+
+  .admin-title {
+    font-size: 1.875rem;
+    font-weight: 700;
+    line-height: 1.15;
+    color: var(--title);
+  }
+
+  .admin-masthead-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .admin-import-group {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.3125rem 0.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0.625rem;
+    background: rgba(0, 0, 0, 0.22);
+  }
+
+  .admin-import-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3125rem;
+    padding-right: 0.375rem;
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.55);
+    white-space: nowrap;
+  }
+
+  .admin-refresh-text {
+    display: none;
+  }
+
+  /* Panel */
+  .admin-panel {
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 1rem;
+    background: rgba(0, 0, 0, 0.3);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+    overflow: hidden;
+  }
+
+  /*
+   * Scrollable strip rather than a wrapping block: nine tabs stacked into
+   * three rows pushed the actual content below the fold on a phone.
+   */
   .admin-tabs {
+    display: flex;
+    overflow-x: auto;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(0, 0, 0, 0.2);
     scrollbar-width: thin;
     scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
     -webkit-overflow-scrolling: touch;
@@ -225,5 +243,101 @@
   .admin-tabs::-webkit-scrollbar-thumb {
     background: rgba(255, 255, 255, 0.15);
     border-radius: 3px;
+  }
+
+  .admin-tab {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 0.4375rem;
+    padding: 0.75rem 0.875rem;
+    border: none;
+    border-bottom: 2px solid transparent;
+    background: none;
+    color: rgba(255, 255, 255, 0.62);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      color 0.15s,
+      background 0.15s,
+      border-color 0.15s;
+  }
+
+  .admin-tab:hover {
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .admin-tab-active {
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.06);
+    border-bottom-color: var(--hover);
+  }
+
+  .admin-tab-count {
+    padding: 0.0625rem 0.375rem;
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.625rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .admin-tab-active .admin-tab-count {
+    background: var(--hover);
+    color: var(--text);
+  }
+
+  .admin-banner {
+    padding: 0.75rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+  }
+
+  .admin-banner-error {
+    background: rgba(244, 63, 94, 0.16);
+    color: #fda4af;
+  }
+
+  .admin-banner-success {
+    background: rgba(74, 222, 128, 0.16);
+    color: #86efac;
+  }
+
+  .admin-panel-body {
+    padding: 0.875rem;
+  }
+
+  @media (min-width: 640px) {
+    .admin-title {
+      font-size: 2.25rem;
+    }
+
+    .admin-panel-body {
+      padding: 1.25rem;
+    }
+
+    .admin-refresh-text {
+      display: inline;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .admin-page {
+      padding: 1rem 0 2rem;
+    }
+
+    /* Actions get their own full-width row instead of squeezing the title. */
+    .admin-masthead-actions {
+      width: 100%;
+    }
+
+    .admin-import-group {
+      flex: 1;
+      justify-content: space-between;
+    }
   }
 </style>

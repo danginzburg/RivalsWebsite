@@ -10,6 +10,7 @@ import {
   parseEntityType,
   type CommentEntityType,
 } from '$lib/server/comments'
+import { invalidateRecentComments } from '$lib/server/comments/recent'
 
 /** Load the full profile including ban fields. */
 async function loadCommenter(user: App.Locals['user']) {
@@ -88,6 +89,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     throw error(500, 'Failed to post comment')
   }
 
+  invalidateRecentComments()
+
   const comments = await loadCommentThread(entityType, entityId, {
     includeReportCounts: profile.role === 'admin',
   })
@@ -122,6 +125,8 @@ export const PATCH: RequestHandler = async ({ request, locals }) => {
     .eq('id', id)
 
   if (updateError) throw error(500, 'Failed to update comment')
+
+  invalidateRecentComments()
 
   const comments = await loadCommentThread(
     existing.entity_type as CommentEntityType,
@@ -162,6 +167,8 @@ export const DELETE: RequestHandler = async ({ url, locals }) => {
     .eq('id', id)
 
   if (deleteError) throw error(500, 'Failed to delete comment')
+
+  invalidateRecentComments()
 
   // Deleting resolves any open reports against the comment.
   await supabaseAdmin

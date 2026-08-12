@@ -2,6 +2,12 @@
 -- This intentionally excludes generated rows like "All Time (NA)" by only selecting
 -- batch display names shaped like "Season N (NA)" or "Season N Playoffs (NA)".
 --
+-- CAUTION: matching on display name is fragile. Season 4's post-season batches were
+-- named "Season 4 Playoffs [NA]" and "Season 4 Play-ins [NA]" — square brackets, so
+-- they do NOT match here and are silently dropped. Prefer the explicit UUID list in
+-- `supabase/queries/set_all_time_na_source_batches.sql` for anything authoritative;
+-- treat this query as exploratory only.
+--
 -- If you want to materialize a generated batch (delete + insert rows) using
 -- metadata.source_season_batches, use `supabase/queries/refresh_generated_rivals_group_stats_batch.sql`.
 with selected_batches as (

@@ -1,6 +1,7 @@
 <script lang="ts">
   import PageContainer from '$lib/components/PageContainer.svelte'
-  import { Upload, Loader2, AlertTriangle, CheckCircle2, Layers3 } from 'lucide-svelte'
+  import { Upload, Loader2, AlertTriangle, CheckCircle2, Layers3, ArrowLeft } from 'lucide-svelte'
+  import { resolve } from '$app/paths'
 
   import type { PageProps } from './$types'
 
@@ -416,23 +417,23 @@
 </script>
 
 <PageContainer>
-  <div class="flex justify-center px-4 py-8">
-    <div class="w-full max-w-6xl space-y-6">
-      <div class="flex items-center gap-3">
-        <div class="min-w-0 space-y-2">
-          <h1 class="responsive-title">Match Import</h1>
-          <p class="text-sm" style="color: rgba(255,255,255,0.78);">
+  <div class="flex justify-center py-6 sm:py-8">
+    <div class="w-full max-w-6xl space-y-5">
+      <header class="admin-import-head">
+        <div class="min-w-0">
+          <h1 class="admin-import-title">Match Import</h1>
+          <p class="admin-hint mt-1">
             Upload all maps from a BO3/BO5 series together, or record a no-show forfeit without
             player stats. Series CSV import can override the official winner (e.g. rule violation)
             while keeping played map scores.
           </p>
         </div>
-      </div>
+        <a href={resolve('/admin')} class="admin-back-link">
+          <ArrowLeft size={14} /> Admin
+        </a>
+      </header>
 
-      <section
-        class="rounded-lg border p-4"
-        style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
-      >
+      <section class="admin-card admin-card-pad">
         <div class="mb-4 flex flex-wrap gap-4 text-sm" style="color: var(--text);">
           <label class="inline-flex cursor-pointer items-center gap-2">
             <input type="radio" bind:group={importMode} value="series_csv" />
@@ -451,11 +452,7 @@
                 class="mb-1 block text-xs font-semibold uppercase"
                 style="color: rgba(255,255,255,0.7);">Team A</span
               >
-              <select
-                bind:value={ffTeamAId}
-                class="w-full rounded-md border px-3 py-2"
-                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-              >
+              <select bind:value={ffTeamAId} class="admin-input">
                 <option value="">Select team…</option>
                 {#each data.teams ?? [] as team (team.id)}
                   <option value={team.id}>{team.name}{team.tag ? ` [${team.tag}]` : ''}</option>
@@ -467,11 +464,7 @@
                 class="mb-1 block text-xs font-semibold uppercase"
                 style="color: rgba(255,255,255,0.7);">Team B</span
               >
-              <select
-                bind:value={ffTeamBId}
-                class="w-full rounded-md border px-3 py-2"
-                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-              >
+              <select bind:value={ffTeamBId} class="admin-input">
                 <option value="">Select team…</option>
                 {#each data.teams ?? [] as team (team.id)}
                   <option value={team.id}>{team.name}{team.tag ? ` [${team.tag}]` : ''}</option>
@@ -486,8 +479,7 @@
               <input
                 bind:value={ffScheduledAt}
                 placeholder="DD/MM/YYYY or ISO date"
-                class="w-full rounded-md border px-3 py-2"
-                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                class="admin-input"
               />
             </label>
             <label class="block text-sm md:col-span-2" style="color: var(--text);">
@@ -495,11 +487,7 @@
                 class="mb-1 block text-xs font-semibold uppercase"
                 style="color: rgba(255,255,255,0.7);">Winner</span
               >
-              <select
-                bind:value={ffWinnerTeamId}
-                class="w-full rounded-md border px-3 py-2"
-                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-              >
+              <select bind:value={ffWinnerTeamId} class="admin-input">
                 <option value="">Select winner…</option>
                 {#if ffTeamAId}
                   <option value={ffTeamAId}
@@ -518,37 +506,21 @@
                 class="mb-1 block text-xs font-semibold uppercase"
                 style="color: rgba(255,255,255,0.7);">Score (team A)</span
               >
-              <input
-                type="number"
-                min="0"
-                bind:value={ffTeamAScore}
-                class="w-full rounded-md border px-3 py-2"
-                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-              />
+              <input type="number" min="0" bind:value={ffTeamAScore} class="admin-input" />
             </label>
             <label class="block text-sm" style="color: var(--text);">
               <span
                 class="mb-1 block text-xs font-semibold uppercase"
                 style="color: rgba(255,255,255,0.7);">Score (team B)</span
               >
-              <input
-                type="number"
-                min="0"
-                bind:value={ffTeamBScore}
-                class="w-full rounded-md border px-3 py-2"
-                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-              />
+              <input type="number" min="0" bind:value={ffTeamBScore} class="admin-input" />
             </label>
             <label class="block text-sm md:col-span-2" style="color: var(--text);">
               <span
                 class="mb-1 block text-xs font-semibold uppercase"
                 style="color: rgba(255,255,255,0.7);">Best of</span
               >
-              <select
-                bind:value={ffBestOf}
-                class="w-full max-w-xs rounded-md border px-3 py-2"
-                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-              >
+              <select bind:value={ffBestOf} class="admin-input max-w-xs">
                 <option value={1}>1</option>
                 <option value={3}>3</option>
                 <option value={5}>5</option>
@@ -557,10 +529,7 @@
             </label>
           </div>
         {:else}
-          <label
-            class="flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed px-4 py-6 text-sm font-semibold"
-            style="border-color: rgba(255,255,255,0.18); color: var(--text);"
-          >
+          <label class="admin-dropzone">
             <Upload size={16} />
             <span>{fileName || 'Choose one or more map CSVs'}</span>
             <input
@@ -576,92 +545,61 @@
           </label>
         {/if}
 
-        <label class="mt-4 block text-sm" style="color: var(--text);">
-          <div
-            class="mb-1 text-xs font-semibold tracking-wide uppercase"
-            style="color: rgba(255,255,255,0.7);"
-          >
-            Display Name
-          </div>
-          <input
-            bind:value={displayName}
-            class="w-full rounded-md border px-3 py-2"
-            style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-            placeholder="Series Import"
-          />
+        <label class="mt-4 block">
+          <div class="admin-field-label">Display Name</div>
+          <input bind:value={displayName} class="admin-input" placeholder="Series Import" />
         </label>
 
         {#if parseError}
-          <div
-            class="mt-3 rounded-md border p-3 text-sm"
-            style="border-color: rgba(248,113,113,0.35); background: rgba(248,113,113,0.08); color: #fecaca;"
-          >
+          <div class="admin-alert admin-alert-error mt-3">
             {parseError}
           </div>
         {/if}
         {#if submitMessage}
-          <div
-            class="mt-3 rounded-md border p-3 text-sm"
-            style="border-color: rgba(255,255,255,0.12); background: rgba(255,255,255,0.06); color: var(--text);"
-          >
+          <div class="admin-note mt-3">
             {submitMessage}
           </div>
         {/if}
       </section>
 
       {#if importMode === 'series_csv'}
-        <section class="grid grid-cols-1 gap-4 md:grid-cols-4">
-          <div
-            class="rounded-lg border p-4"
-            style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
-          >
-            <div class="flex items-center gap-2 text-sm font-semibold" style="color: var(--text);">
+        <section class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div class="admin-stat">
+            <div class="admin-stat-label">
               <Layers3 size={16} /> Maps
             </div>
-            <div class="mt-2 text-3xl font-bold" style="color: var(--title);">
+            <div class="admin-stat-value">
               {seriesSummary.mapCount}
             </div>
           </div>
-          <div
-            class="rounded-lg border p-4"
-            style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
-          >
-            <div class="flex items-center gap-2 text-sm font-semibold" style="color: var(--text);">
+          <div class="admin-stat">
+            <div class="admin-stat-label">
               <CheckCircle2 size={16} /> Matched Players
             </div>
-            <div class="mt-2 text-3xl font-bold" style="color: #86efac;">
+            <div class="admin-stat-value" style="color: #86efac;">
               {seriesSummary.matchedPlayers}
             </div>
           </div>
-          <div
-            class="rounded-lg border p-4"
-            style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
-          >
-            <div class="flex items-center gap-2 text-sm font-semibold" style="color: var(--text);">
+          <div class="admin-stat">
+            <div class="admin-stat-label">
               <AlertTriangle size={16} /> Unmatched Players
             </div>
-            <div class="mt-2 text-3xl font-bold" style="color: #fca5a5;">
+            <div class="admin-stat-value" style="color: #fca5a5;">
               {seriesSummary.unmatchedPlayers}
             </div>
           </div>
-          <div
-            class="rounded-lg border p-4"
-            style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
-          >
-            <div class="flex items-center gap-2 text-sm font-semibold" style="color: var(--text);">
+          <div class="admin-stat">
+            <div class="admin-stat-label">
               <CheckCircle2 size={16} /> Teams Matched
             </div>
-            <div class="mt-2 text-3xl font-bold" style="color: var(--title);">
+            <div class="admin-stat-value">
               {seriesSummary.teamsMatched}/2
             </div>
           </div>
         </section>
       {/if}
 
-      <section
-        class="rounded-lg border p-4"
-        style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
-      >
+      <section class="admin-card admin-card-pad">
         <div class="mb-3 flex items-center justify-between gap-3">
           <div>
             <div class="text-sm font-semibold" style="color: var(--text);">
@@ -677,8 +615,7 @@
           </div>
           <button
             type="button"
-            class="rounded-md px-3 py-2 text-sm font-semibold"
-            style="background: rgba(59,130,246,0.18); color: #93c5fd;"
+            class="admin-btn admin-btn-info text-sm"
             onclick={submitImport}
             disabled={isSubmitting ||
               (importMode === 'series_csv' && seriesMaps.length === 0) ||
@@ -693,10 +630,7 @@
 
         {#if importMode === 'series_csv' && seriesSummary.first}
           <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
-            <div
-              class="rounded-md border p-3"
-              style="border-color: rgba(255,255,255,0.10); background: rgba(255,255,255,0.04);"
-            >
+            <div class="admin-subcard rounded-md border p-3">
               <div
                 class="text-xs font-semibold tracking-wide uppercase"
                 style="color: rgba(255,255,255,0.7);"
@@ -707,10 +641,7 @@
                 {seriesSummary.first.teamAName} vs {seriesSummary.first.teamBName}
               </div>
             </div>
-            <div
-              class="rounded-md border p-3"
-              style="border-color: rgba(255,255,255,0.10); background: rgba(255,255,255,0.04);"
-            >
+            <div class="admin-subcard rounded-md border p-3">
               <div
                 class="text-xs font-semibold tracking-wide uppercase"
                 style="color: rgba(255,255,255,0.7);"
@@ -721,10 +652,7 @@
                 {seriesSummary.seriesWinsA}-{seriesSummary.seriesWinsB}
               </div>
             </div>
-            <div
-              class="rounded-md border p-3"
-              style="border-color: rgba(255,255,255,0.10); background: rgba(255,255,255,0.04);"
-            >
+            <div class="admin-subcard rounded-md border p-3">
               <div
                 class="text-xs font-semibold tracking-wide uppercase"
                 style="color: rgba(255,255,255,0.7);"
@@ -738,10 +666,7 @@
           </div>
 
           {#if seriesSummary.teamsMatched === 2}
-            <div
-              class="mt-4 space-y-2 rounded-md border p-3"
-              style="border-color: rgba(251,191,36,0.35); background: rgba(251,191,36,0.06);"
-            >
+            <div class="admin-alert admin-alert-warn mt-4 space-y-2">
               <div class="text-sm font-semibold" style="color: var(--text);">
                 Official series winner
               </div>
@@ -760,11 +685,7 @@
                   class="mb-1 block text-xs font-semibold uppercase"
                   style="color: rgba(255,255,255,0.7);">Series winner</span
                 >
-                <select
-                  bind:value={officialWinnerSide}
-                  class="w-full max-w-md rounded-md border px-3 py-2"
-                  style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-                >
+                <select bind:value={officialWinnerSide} class="admin-input max-w-md">
                   <option value="map">Same as map result</option>
                   <option value="a">{seriesSummary.first.teamAName} (footer team A)</option>
                   <option value="b">{seriesSummary.first.teamBName} (footer team B)</option>
@@ -778,8 +699,7 @@
                   >
                   <input
                     bind:value={forfeitReason}
-                    class="w-full rounded-md border px-3 py-2"
-                    style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                    class="admin-input"
                     placeholder="e.g. Rule violation — series awarded to opponent"
                   />
                 </label>
@@ -789,10 +709,7 @@
 
           <div class="mt-4 space-y-3">
             {#each seriesMaps as map, index (map.sourceFilename + ':' + index)}
-              <div
-                class="rounded-md border p-3"
-                style="border-color: rgba(255,255,255,0.10); background: rgba(255,255,255,0.04);"
-              >
+              <div class="admin-subcard rounded-md border p-3">
                 <div class="flex flex-wrap items-center justify-between gap-2">
                   <div class="font-semibold" style="color: var(--text);">
                     Map {index + 1}: {map.mapName || '—'}
@@ -811,7 +728,7 @@
                     >
                     <textarea
                       class="mt-1 w-full rounded-md border px-2 py-1.5 text-sm"
-                      style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.2); color: var(--text);"
+                      style="border-color: rgba(255,255,255,0.45); background: rgba(0,0,0,0.2); color: var(--text);"
                       rows="2"
                       placeholder="Shown on the public match page for this map"
                       value={mapNoteByOrder[String(index + 1)] ?? ''}

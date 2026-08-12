@@ -89,6 +89,7 @@ export type TeamQueueEntry = {
     profile_id: string
     player_name?: string | null
     role: string
+    is_starter?: boolean
     riot_id_base: string | null
     display_name: string | null
     email: string | null
@@ -111,6 +112,7 @@ export type ApprovedTeamEntry = TeamQueueEntry & {
     membership_id?: number | null
     profile_id: string
     role: string
+    is_starter?: boolean
     riot_id_base: string | null
     display_name: string | null
     email: string | null

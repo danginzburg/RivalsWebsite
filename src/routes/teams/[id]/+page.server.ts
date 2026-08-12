@@ -1,6 +1,7 @@
 import { error } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
+import { getSeasonSeeds } from '$lib/server/seasons/seeds'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -30,6 +31,7 @@ type StatsBatchRow = {
   id: string
   season_id?: string | null
   import_kind?: string | null
+  display_name?: string | null
 }
 
 export const load = async ({ params, locals }: { params: { id: string }; locals: App.Locals }) => {
@@ -41,7 +43,7 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
 
   const { data: team, error: teamError } = await supabaseAdmin
     .from('teams')
-    .select('id, name, tag, logo_path, approval_status, status, metadata, created_at')
+    .select('id, name, tag, logo_path, approval_status, status, metadata, created_at, season_id')
     .eq('id', teamId)
     .maybeSingle()
 
@@ -97,8 +99,8 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
       team_a_score,
       team_b_score,
       winner_team_id,
-      team_a:teams!matches_team_a_id_fkey (id, name, tag),
-      team_b:teams!matches_team_b_id_fkey (id, name, tag)
+      team_a:teams!matches_team_a_id_fkey (id, name, tag, logo_path),
+      team_b:teams!matches_team_b_id_fkey (id, name, tag, logo_path)
     `
     )
     .eq('status', 'completed')
@@ -119,8 +121,8 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
       team_b_id,
       team_a_score,
       team_b_score,
-      team_a:teams!matches_team_a_id_fkey (id, name, tag),
-      team_b:teams!matches_team_b_id_fkey (id, name, tag)
+      team_a:teams!matches_team_a_id_fkey (id, name, tag, logo_path),
+      team_b:teams!matches_team_b_id_fkey (id, name, tag, logo_path)
     `
     )
     .in('status', ['scheduled', 'live'])
@@ -155,32 +157,77 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
 
   const { data: statsBatches } = await supabaseAdmin
     .from('stat_import_batches')
-    .select('id, season_id, import_kind, created_at, metadata')
+    .select('id, season_id, import_kind, display_name, created_at, metadata')
     .filter('metadata->>import_type', 'eq', 'rivals_group_stats')
     .eq('status', 'applied')
     .order('created_at', { ascending: false })
     .limit(50)
 
-  const currentSeasonStatsBatchId = activeSeason?.id
-    ? (((statsBatches ?? []) as StatsBatchRow[]).find(
-        (batch) => batch.import_kind === 'aggregate' && batch.season_id === activeSeason.id
-      )?.id ?? null)
-    : null
+  // Aggregate imports are not reliably tagged with a season — in practice every
+  // row carries season_id null — so a season match cannot be required or the
+  // roster would never show a stat. Prefer a tagged batch when one exists.
+  const aggregateBatches = ((statsBatches ?? []) as StatsBatchRow[]).filter(
+    (batch) => batch.import_kind === 'aggregate'
+  )
+  const taggedBatch = activeSeason?.id
+    ? aggregateBatches.find((batch) => batch.season_id === activeSeason.id)
+    : undefined
 
-  const { data: rosterStats } =
-    currentSeasonStatsBatchId && profileIds.length > 0
+  // Otherwise pick the import that covers the most of this roster. Recency
+  // alone picks whichever sub-event was imported last (a playoff-only file, say),
+  // which leaves most of the roster blank.
+  const candidateIds = taggedBatch
+    ? [taggedBatch.id]
+    : aggregateBatches.slice(0, 12).map((batch) => batch.id)
+
+  const { data: candidateStats } =
+    candidateIds.length > 0 && profileIds.length > 0
       ? await supabaseAdmin
           .from('rivals_group_stats')
-          .select('profile_id, player_name, acs, kd, adr, games')
-          .eq('import_batch_id', currentSeasonStatsBatchId)
+          .select('import_batch_id, profile_id, player_name, acs, kd, adr, games')
+          .in('import_batch_id', candidateIds)
           .in('profile_id', profileIds)
-          .order('acs', { ascending: false })
       : { data: [] }
 
+  const rowsByBatch = new Map<string, RosterStatRow[]>()
+  for (const row of (candidateStats ?? []) as Array<RosterStatRow & { import_batch_id: string }>) {
+    const list = rowsByBatch.get(row.import_batch_id)
+    if (list) list.push(row)
+    else rowsByBatch.set(row.import_batch_id, [row])
+  }
+
+  // `candidateIds` is newest-first, so a tie resolves to the more recent import.
+  let currentSeasonStatsBatchId: string | null = null
+  let bestCoverage = 0
+  for (const id of candidateIds) {
+    const coverage = rowsByBatch.get(id)?.length ?? 0
+    if (coverage > bestCoverage) {
+      bestCoverage = coverage
+      currentSeasonStatsBatchId = id
+    }
+  }
+
   const statsByProfileId = new Map<string, RosterStatRow>()
-  for (const row of (rosterStats ?? []) as RosterStatRow[]) {
+  for (const row of rowsByBatch.get(currentSeasonStatsBatchId ?? '') ?? []) {
     if (row.profile_id) statsByProfileId.set(row.profile_id, row)
   }
+
+  const statsBatch = aggregateBatches.find((batch) => batch.id === currentSeasonStatsBatchId)
+
+  // Seed comes from the bracket of the season this team belongs to.
+  const teamSeeds = await getSeasonSeeds((team as { season_id?: string | null }).season_id)
+
+  type MatchTeamRel = { id: string; name: string; tag: string | null; logo_path?: string | null }
+
+  /** Flatten the embedded team rows and resolve their logo URLs. */
+  const withTeamLogos = <T extends { team_a?: unknown; team_b?: unknown }>(rows: T[]) =>
+    rows.map((row) => {
+      const side = (value: unknown) => {
+        const rel = (Array.isArray(value) ? value[0] : value) as MatchTeamRel | null | undefined
+        return rel ? { ...rel, logo_url: getTeamLogoUrl(rel) } : null
+      }
+      return { ...row, team_a: side(row.team_a), team_b: side(row.team_b) }
+    })
 
   return {
     team: {
@@ -193,13 +240,17 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
       about: team.metadata?.about ?? null,
       created_at: team.created_at,
     },
+    seed: teamSeeds[team.id] ?? null,
     roster: roster.map((player) => ({
       ...player,
       stats: statsByProfileId.get(player.profile_id ?? '') ?? null,
     })),
-    matchHistory: matchHistory ?? [],
-    upcomingMatches: upcomingMatches ?? [],
+    seeds: teamSeeds,
+    matchHistory: withTeamLogos(matchHistory ?? []),
+    upcomingMatches: withTeamLogos(upcomingMatches ?? []),
     activeSeason: activeSeason ?? null,
+    /** Which import the roster numbers came from, so the page can say so. */
+    statsBatchName: statsBatch?.display_name ?? null,
     leaderboard: leaderboardEntry
       ? {
           ...leaderboardEntry,

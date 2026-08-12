@@ -80,9 +80,6 @@
     onRemoveSeasonLogo,
   }: Props = $props()
 
-  const inputStyle =
-    'border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);'
-
   let expandedPickemSeasonId = $state<string | null>(null)
   let expandedResultsSeasonId = $state<string | null>(null)
 
@@ -249,7 +246,7 @@
 </script>
 
 <div class="grid grid-cols-1 gap-4">
-  <section class="rounded-md border p-3" style="border-color: rgba(255,255,255,0.12);">
+  <section class="admin-bordered p-3">
     <div
       class="mb-3 text-sm font-semibold tracking-wide uppercase"
       style="color: rgba(255,255,255,0.8);"
@@ -260,30 +257,26 @@
       <input
         bind:value={createSeasonCode}
         oninput={(e) => onCreateSeasonCodeChange((e.currentTarget as HTMLInputElement).value)}
-        class="rounded-md border px-3 py-2 text-sm"
-        style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+        class="admin-input"
         placeholder="Code (e.g. S1)"
       />
       <input
         bind:value={createSeasonName}
         oninput={(e) => onCreateSeasonNameChange((e.currentTarget as HTMLInputElement).value)}
-        class="rounded-md border px-3 py-2 text-sm xl:col-span-2"
-        style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+        class="admin-input xl:col-span-2"
         placeholder="Season name"
       />
       <input
         type="date"
         bind:value={createSeasonStartsOn}
         oninput={(e) => onCreateSeasonStartsOnChange((e.currentTarget as HTMLInputElement).value)}
-        class="rounded-md border px-3 py-2 text-sm"
-        style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+        class="admin-input"
       />
       <input
         type="date"
         bind:value={createSeasonEndsOn}
         oninput={(e) => onCreateSeasonEndsOnChange((e.currentTarget as HTMLInputElement).value)}
-        class="rounded-md border px-3 py-2 text-sm"
-        style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+        class="admin-input"
       />
     </div>
     <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
@@ -298,8 +291,7 @@
       </label>
       <button
         type="button"
-        class="rounded-md px-3 py-2 text-sm font-semibold"
-        style="background: rgba(74,222,128,0.18); color: #86efac;"
+        class="admin-btn admin-btn-go text-sm"
         onclick={onCreateSeason}
         disabled={isCreatingSeason}
       >
@@ -308,7 +300,7 @@
     </div>
   </section>
 
-  <section class="rounded-md border p-3" style="border-color: rgba(255,255,255,0.12);">
+  <section class="admin-bordered p-3">
     <div
       class="mb-3 text-sm font-semibold tracking-wide uppercase"
       style="color: rgba(255,255,255,0.8);"
@@ -352,7 +344,7 @@
                 {:else}
                   <div
                     class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded text-[9px] font-bold"
-                    style="background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.35);"
+                    style="background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.56);"
                   >
                     {season.code?.slice(0, 3).toUpperCase() ?? '—'}
                   </div>
@@ -376,8 +368,7 @@
                     ...state,
                     code: (e.currentTarget as HTMLInputElement).value,
                   })}
-                class="rounded-md border px-3 py-2 text-sm"
-                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                class="admin-input"
               />
               <input
                 value={state.name}
@@ -386,8 +377,7 @@
                     ...state,
                     name: (e.currentTarget as HTMLInputElement).value,
                   })}
-                class="rounded-md border px-3 py-2 text-sm xl:col-span-2"
-                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                class="admin-input xl:col-span-2"
               />
               <input
                 type="date"
@@ -397,8 +387,7 @@
                     ...state,
                     startsOn: (e.currentTarget as HTMLInputElement).value,
                   })}
-                class="rounded-md border px-3 py-2 text-sm"
-                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                class="admin-input"
               />
               <input
                 type="date"
@@ -408,8 +397,7 @@
                     ...state,
                     endsOn: (e.currentTarget as HTMLInputElement).value,
                   })}
-                class="rounded-md border px-3 py-2 text-sm"
-                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                class="admin-input"
               />
             </div>
             <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
@@ -430,8 +418,7 @@
               </label>
               <button
                 type="button"
-                class="rounded-md px-3 py-2 text-sm font-semibold"
-                style="background: rgba(59,130,246,0.18); color: #93c5fd;"
+                class="admin-btn admin-btn-info text-sm"
                 onclick={() => onSaveSeason(season.id)}
               >
                 Save Season
@@ -470,7 +457,7 @@
 
               {#if isResultsExpanded}
                 <div class="px-3 pb-3">
-                  <div class="grid grid-cols-1 gap-2 md:grid-cols-3">
+                  <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                     <label class="text-xs" style="color: rgba(255,255,255,0.82);">
                       Champion
                       <div class="mt-1">
@@ -529,10 +516,7 @@
                     </div>
                   </label>
 
-                  <div
-                    class="mt-2 rounded-md border p-2"
-                    style="border-color: rgba(255,255,255,0.10);"
-                  >
+                  <div class="admin-bordered mt-2 p-2">
                     <div class="mb-2 text-xs font-semibold" style="color: rgba(255,255,255,0.82);">
                       Season Logo
                     </div>
@@ -547,7 +531,7 @@
                       {:else}
                         <div
                           class="flex h-12 w-12 items-center justify-center rounded text-[10px]"
-                          style="background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.35);"
+                          style="background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.56);"
                         >
                           None
                         </div>
@@ -555,8 +539,7 @@
                       <input
                         type="file"
                         accept="image/*"
-                        class="flex-1 rounded-md border px-2 py-1 text-xs"
-                        style={inputStyle}
+                        class="admin-input flex-1"
                         disabled={logoUploadingSeasonId === season.id}
                         onchange={(e) => {
                           const file = (e.currentTarget as HTMLInputElement).files?.[0] ?? null
@@ -567,8 +550,7 @@
                       {#if season.logo_url}
                         <button
                           type="button"
-                          class="rounded px-2 py-1 text-xs font-semibold"
-                          style="background: rgba(248,113,113,0.18); color: #f87171;"
+                          class="admin-btn admin-btn-sm admin-btn-danger"
                           disabled={logoUploadingSeasonId === season.id}
                           onclick={() => onRemoveSeasonLogo(season.id, season.name)}
                         >
@@ -588,8 +570,7 @@
                     <textarea
                       rows="3"
                       value={state.summary}
-                      class="mt-1 w-full rounded-md border px-3 py-2 text-sm leading-5"
-                      style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                      class="admin-input mt-1 leading-5"
                       placeholder="A short recap shown on the season card and detail page."
                       oninput={(e) =>
                         onSeasonEditChange(season.id, {
@@ -602,8 +583,7 @@
                   <div class="mt-2 flex justify-end">
                     <button
                       type="button"
-                      class="rounded-md px-3 py-2 text-xs font-semibold"
-                      style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+                      class="admin-btn admin-btn-sm admin-btn-info"
                       onclick={() => onSaveSeason(season.id)}
                     >
                       Save Results
@@ -669,7 +649,7 @@
                       </label>
                     </div>
 
-                    <div class="grid grid-cols-1 gap-2 md:grid-cols-3">
+                    <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                       <CustomSelect
                         options={pickemStatusOptions}
                         value={pickem.status}
@@ -687,12 +667,11 @@
                           updatePlayoffConfig(season.id, {
                             lock_at: (e.currentTarget as HTMLInputElement).value || null,
                           })}
-                        class="rounded-md border px-3 py-2 text-sm md:col-span-2"
-                        style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                        class="admin-input md:col-span-2"
                       />
                     </div>
 
-                    <div class="mt-3 grid grid-cols-1 gap-2 md:grid-cols-4">
+                    <div class="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
                       {#each [1, 2, 3, 4, 5, 6, 7, 8] as seed (seed)}
                         <div>
                           <div
@@ -719,7 +698,7 @@
                       >
                         QF Matchups
                       </div>
-                      <div class="grid grid-cols-1 gap-2 md:grid-cols-4">
+                      <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
                         {#each pickem.matchups as mu (mu.matchId)}
                           <div
                             class="rounded-md border p-2"
@@ -835,16 +814,14 @@
                     <div class="mt-3 flex flex-wrap justify-end gap-2">
                       <button
                         type="button"
-                        class="rounded-md px-3 py-2 text-sm font-semibold"
-                        style="background: rgba(59,130,246,0.18); color: #93c5fd;"
+                        class="admin-btn admin-btn-info text-sm"
                         onclick={() => onSavePlayoffPickem(season.id, pickem)}
                       >
                         Save Pick'em
                       </button>
                       <button
                         type="button"
-                        class="rounded-md px-3 py-2 text-sm font-semibold"
-                        style="background: rgba(245,158,11,0.18); color: #fcd34d;"
+                        class="admin-btn admin-btn-warn text-sm"
                         onclick={() => onScorePlayoffPickem(season.id)}
                       >
                         Score Pick'em

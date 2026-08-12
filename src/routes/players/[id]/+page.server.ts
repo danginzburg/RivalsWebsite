@@ -43,7 +43,13 @@ type StatRow = {
 
 type NormalizedStatRow = StatRow & { batch: StatBatchInfo }
 
-type TeamLite = { id: string; name: string; tag?: string | null }
+type TeamLite = {
+  id: string
+  name: string
+  tag?: string | null
+  logo_path?: string | null
+  logo_url?: string | null
+}
 
 type MatchRel = {
   id: string
@@ -465,8 +471,8 @@ export const load = async ({
         team_a_score,
         team_b_score,
         winner_team_id,
-        team_a:teams!matches_team_a_id_fkey (id, name, tag),
-        team_b:teams!matches_team_b_id_fkey (id, name, tag)
+        team_a:teams!matches_team_a_id_fkey (id, name, tag, logo_path),
+        team_b:teams!matches_team_b_id_fkey (id, name, tag, logo_path)
       )
     `
 
@@ -593,7 +599,12 @@ export const load = async ({
           : matchRel?.team_b_id === perspectiveTeamId
             ? matchRel?.team_a
             : null
-      const opponent = Array.isArray(rawOpponent) ? (rawOpponent[0] ?? null) : (rawOpponent ?? null)
+      const opponentRel = Array.isArray(rawOpponent)
+        ? (rawOpponent[0] ?? null)
+        : (rawOpponent ?? null)
+      const opponent = opponentRel
+        ? { ...opponentRel, logo_url: getTeamLogoUrl(opponentRel) }
+        : null
       const score =
         matchRel?.team_a_id === perspectiveTeamId
           ? { us: Number(matchRel?.team_a_score ?? 0), them: Number(matchRel?.team_b_score ?? 0) }

@@ -412,7 +412,7 @@
   }
 
   .composer-input::placeholder {
-    color: rgba(255, 255, 255, 0.32);
+    color: rgba(255, 255, 255, 0.54);
   }
 
   .composer-input:focus {
@@ -430,7 +430,7 @@
 
   .char-count {
     font-size: 0.6875rem;
-    color: rgba(255, 255, 255, 0.35);
+    color: rgba(255, 255, 255, 0.56);
     font-variant-numeric: tabular-nums;
     margin-right: auto;
   }
@@ -474,7 +474,7 @@
   }
 
   .signin-prompt a {
-    color: var(--hover);
+    color: var(--accent-text);
     font-weight: 600;
     text-decoration: none;
   }
@@ -521,7 +521,7 @@
   }
 
   a.comment-author:hover {
-    color: var(--hover);
+    color: var(--accent-text);
   }
 
   .role-badge {
@@ -549,7 +549,7 @@
   .comment-time,
   .edited {
     font-size: 0.6875rem;
-    color: rgba(255, 255, 255, 0.35);
+    color: rgba(255, 255, 255, 0.56);
   }
 
   .edited {
@@ -567,7 +567,7 @@
   .deleted {
     font-size: 0.8125rem;
     font-style: italic;
-    color: rgba(255, 255, 255, 0.3);
+    color: rgba(255, 255, 255, 0.52);
   }
 
   .comment-actions {
@@ -586,13 +586,13 @@
     padding: 0;
     font-size: 0.6875rem;
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.4);
+    color: rgba(255, 255, 255, 0.6);
     cursor: pointer;
     transition: color 0.15s;
   }
 
   .action:hover:not(:disabled) {
-    color: var(--hover);
+    color: var(--accent-text);
   }
 
   .action:disabled {
@@ -614,7 +614,7 @@
 
   .empty {
     font-size: 0.875rem;
-    color: rgba(255, 255, 255, 0.4);
+    color: rgba(255, 255, 255, 0.6);
     text-align: center;
     padding: 2rem 0;
   }

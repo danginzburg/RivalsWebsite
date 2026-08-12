@@ -4,6 +4,7 @@ import { average, sum, weightedAverage } from '$lib/server/math'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
 import { loadCommentThread } from '$lib/server/comments'
 import { getViewerProfileId } from '$lib/server/auth/viewer'
+import { getSeasonStandingsRanks } from '$lib/server/leaderboard/ranks'
 
 function normalizePlayerKey(
   teamId: string | null | undefined,
@@ -29,6 +30,7 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
     .select(
       `
       id,
+      season_id,
       status,
       approval_status,
       best_of,
@@ -281,10 +283,12 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
   }
 
   const comments = await loadCommentThread('match', matchId, { includeReportCounts: isAdmin })
+  const seeds = await getSeasonStandingsRanks((match as { season_id?: string | null }).season_id)
 
   return {
     viewer: { isAdmin, profileId: viewerProfileId },
     comments,
+    seeds,
     match: {
       ...match,
       team_a: match.team_a

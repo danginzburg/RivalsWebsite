@@ -17,9 +17,11 @@ function normalizeSort(value: string | null): string {
     'games',
     'games_won',
     'games_lost',
+    'win_pct',
     'rounds',
     'rounds_won',
     'rounds_lost',
+    'round_win_pct',
     'acs',
     'kd',
     'kast_pct',
@@ -63,7 +65,9 @@ export const load: PageServerLoad = async ({ fetch, url, locals }) => {
   const initialDir = normalizeDir(url.searchParams.get('dir'), initialSort)
   // Toggles ride in the URL because changing batch is a full navigation,
   // which would otherwise reset them.
-  const initialHideWeeks = url.searchParams.get('hideWeeks') === '1'
+  // Weeks are hidden unless explicitly switched off, so the batch list opens
+  // on the season aggregates most visitors are after.
+  const initialHideWeeks = url.searchParams.get('hideWeeks') !== '0'
   const initialRankSort = url.searchParams.get('rankSort') === '1'
   const initialDisregardTier = url.searchParams.get('ignoreTier') === '1'
 

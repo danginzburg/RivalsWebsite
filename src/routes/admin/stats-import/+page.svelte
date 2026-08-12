@@ -49,14 +49,9 @@
 
 <div class="flex justify-center px-4 pb-10">
   <div class="w-full max-w-6xl">
-    <section
-      class="mt-6 rounded-lg border p-4"
-      style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
-    >
-      <div class="mb-2 text-sm font-semibold" style="color: rgba(255,255,255,0.9);">
-        Batch Ordering
-      </div>
-      <div class="text-xs" style="color: rgba(255,255,255,0.7);">
+    <section class="admin-card admin-card-pad mt-6">
+      <div class="admin-section-title">Batch Ordering</div>
+      <div class="admin-hint mt-1">
         Set a numeric order to control how batches appear in dropdowns. Lower numbers appear first.
         Leave blank to fall back to the default ordering.
       </div>
@@ -65,7 +60,7 @@
         <div class="mt-3 text-sm" style="color: rgba(255,255,255,0.85);">{message}</div>
       {/if}
 
-      <div class="mt-4 overflow-x-auto">
+      <div class="table-scroll mt-4">
         <table class="min-w-full text-left text-sm">
           <thead>
             <tr class="text-xs tracking-wide uppercase" style="color: rgba(255,255,255,0.75);">
@@ -80,11 +75,10 @@
           </thead>
           <tbody>
             {#each batches as b (b.id)}
-              <tr class="border-t" style="border-color: rgba(255,255,255,0.10);">
+              <tr class="admin-divide border-t">
                 <td class="px-3 py-2">
                   <input
-                    class="w-24 rounded-md border px-2 py-1 text-sm"
-                    style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                    class="admin-input w-24"
                     placeholder="(auto)"
                     bind:value={orderById[b.id]}
                   />
@@ -110,8 +104,7 @@
                 <td class="px-3 py-2">
                   <button
                     type="button"
-                    class="inline-flex items-center gap-2 rounded-md px-2 py-1 text-xs font-semibold"
-                    style="background: rgba(59,130,246,0.16); color: #93c5fd;"
+                    class="admin-btn admin-btn-sm admin-btn-info"
                     onclick={() => saveOrder(b.id)}
                     disabled={savingId === b.id}
                   >

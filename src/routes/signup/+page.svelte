@@ -123,7 +123,7 @@
 
       {#if isLocked}
         <div class="locked-panel">
-          <Lock size={18} style="color: rgba(255,255,255,0.4); flex-shrink: 0;" />
+          <Lock size={18} style="color: rgba(255,255,255,0.6); flex-shrink: 0;" />
           <div>
             <div class="locked-title">Your signup is locked</div>
             <p class="locked-text">
@@ -275,7 +275,7 @@
           <div class="rating-note">
             <Info
               size={14}
-              style="flex-shrink: 0; margin-top: 2px; color: rgba(255,255,255,0.4);"
+              style="flex-shrink: 0; margin-top: 2px; color: rgba(255,255,255,0.6);"
             />
             <p>
               Your rank and rating are set by an admin after reviewing your tracker — you don't
@@ -342,7 +342,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: rgba(255, 255, 255, 0.45);
+    color: rgba(255, 255, 255, 0.64);
     margin-bottom: 0.875rem;
     padding-bottom: 0.5rem;
     border-bottom: 1px solid rgba(255, 255, 255, 0.07);
@@ -386,7 +386,7 @@
   }
 
   .input::placeholder {
-    color: rgba(255, 255, 255, 0.3);
+    color: rgba(255, 255, 255, 0.52);
   }
 
   .input:focus {
@@ -400,7 +400,7 @@
 
   .field-hint {
     font-size: 0.6875rem;
-    color: rgba(255, 255, 255, 0.4);
+    color: rgba(255, 255, 255, 0.6);
     line-height: 1.45;
   }
 
@@ -412,7 +412,7 @@
   }
 
   .riot-hash {
-    color: rgba(255, 255, 255, 0.35);
+    color: rgba(255, 255, 255, 0.56);
     font-size: 0.9375rem;
     flex-shrink: 0;
   }
@@ -464,7 +464,7 @@
     padding: 0;
     font-size: 0.75rem;
     font-weight: 600;
-    color: var(--hover);
+    color: var(--accent-text);
     cursor: pointer;
   }
 
@@ -522,7 +522,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.07em;
-    color: rgba(255, 255, 255, 0.42);
+    color: rgba(255, 255, 255, 0.62);
   }
 
   .assigned-value {
@@ -577,7 +577,7 @@
 
   .summary dt {
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.45);
+    color: rgba(255, 255, 255, 0.64);
   }
 
   .summary dd {
@@ -586,7 +586,7 @@
   }
 
   .summary-tag {
-    color: rgba(255, 255, 255, 0.45);
+    color: rgba(255, 255, 255, 0.64);
   }
 
   .summary-links {

@@ -2,6 +2,7 @@
   import { tick, untrack } from 'svelte'
   import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
+  import PageHeading from '$lib/components/PageHeading.svelte'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
   import { BarChart3, Search } from 'lucide-svelte'
   import { SvelteMap, SvelteURLSearchParams } from 'svelte/reactivity'
@@ -14,8 +15,36 @@
 
   const batchId = $derived(data.batchId as string | null)
   const batch = $derived(data.batch)
-  const rows = $derived(data.rows ?? [])
   const batches = $derived(data.batches ?? [])
+
+  /**
+   * Win rates are not stored — they are a ratio of columns that are. Deriving
+   * them here keeps them sortable and filterable like any other stat.
+   * `rounds` can be null on older imports, so fall back to won + lost.
+   */
+  function ratePct(won: unknown, total: unknown, ...fallbackParts: unknown[]): number | null {
+    const w = Number(won)
+    if (!Number.isFinite(w)) return null
+
+    let t = Number(total)
+    if (!Number.isFinite(t) || t <= 0) {
+      t = fallbackParts.reduce<number>((sum, part) => {
+        const v = Number(part)
+        return sum + (Number.isFinite(v) ? v : 0)
+      }, 0)
+    }
+    if (!Number.isFinite(t) || t <= 0) return null
+
+    return (w / t) * 100
+  }
+
+  const rows = $derived(
+    (data.rows ?? []).map((row: Record<string, unknown>) => ({
+      ...row,
+      win_pct: ratePct(row.games_won, row.games, row.games_won, row.games_lost),
+      round_win_pct: ratePct(row.rounds_won, row.rounds, row.rounds_won, row.rounds_lost),
+    }))
+  )
   const viewer = $derived(
     (data.viewer ?? null) as { profileId: string; displayName: string | null } | null
   )
@@ -86,8 +115,9 @@
     else params.delete('dir')
 
     // Toggles survive the full navigation that changing batch performs.
-    if (hideWeeks) params.set('hideWeeks', '1')
-    else params.delete('hideWeeks')
+    // Hiding weeks is the default, so only the off state needs recording.
+    if (hideWeeks) params.delete('hideWeeks')
+    else params.set('hideWeeks', '0')
 
     if (rankSort) params.set('rankSort', '1')
     else params.delete('rankSort')
@@ -132,7 +162,7 @@
     if (mg > 0) params.set('minGames', String(mg))
     if (sortKey) params.set('sort', sortKey)
     if (sortDir) params.set('dir', sortDir)
-    if (hideWeeks) params.set('hideWeeks', '1')
+    if (!hideWeeks) params.set('hideWeeks', '0')
     if (rankSort) params.set('rankSort', '1')
     if (disregardTier) params.set('ignoreTier', '1')
 
@@ -149,6 +179,7 @@
   }
 
   function fmt(n: unknown, digits = 1) {
+    if (n === null || n === undefined || n === '') return '—'
     const v = Number(n)
     if (!Number.isFinite(v)) return '—'
     return v.toFixed(digits)
@@ -217,9 +248,11 @@
     { key: 'games', label: 'Games', digits: 0 },
     { key: 'games_won', label: 'W', digits: 0 },
     { key: 'games_lost', label: 'L', digits: 0 },
+    { key: 'win_pct', label: 'Win%', digits: 1 },
     { key: 'rounds', label: 'Rounds', digits: 0 },
     { key: 'rounds_won', label: 'RW', digits: 0 },
     { key: 'rounds_lost', label: 'RL', digits: 0 },
+    { key: 'round_win_pct', label: 'RWin%', digits: 1 },
     { key: 'acs', label: 'ACS', digits: 0 },
     { key: 'kd', label: 'K/D', digits: 2 },
     { key: 'kast_pct', label: 'KAST%', digits: 1 },
@@ -244,7 +277,17 @@
     { key: 'defuses_per_game', label: 'Defuses/G', digits: 2 },
   ]
 
-  const defaultVisible = new Set(['agents', 'games', 'acs', 'kd', 'adr', 'kast_pct', 'hs_pct'])
+  const defaultVisible = new Set([
+    'agents',
+    'games',
+    'win_pct',
+    'round_win_pct',
+    'acs',
+    'kd',
+    'adr',
+    'kast_pct',
+    'hs_pct',
+  ])
   let visibleColumns = $state<string[]>(Array.from(defaultVisible))
 
   $effect(() => {
@@ -381,10 +424,27 @@
 
   const hasAnyWeeks = $derived(batches.some((b) => isWeekBatch(b)))
 
+  /** Batch name, week label when present, and the visible player count. */
+  const batchSubtitle = $derived.by(() => {
+    const parts: string[] = []
+    if (batch?.display_name) {
+      parts.push(String(batch.display_name))
+      if (batch.import_kind === 'weekly' && batch.week_label) parts.push(String(batch.week_label))
+    } else if (batchId) {
+      parts.push(String(batchId))
+    } else {
+      parts.push('No imports yet')
+    }
+    parts.push(`${sortedRows.length} players`)
+    return parts.join(' · ')
+  })
+
   const batchOptions = $derived.by(() => {
     const opts: Array<{ label: string; value: string }> = [{ label: 'Latest', value: '' }]
     for (const b of batches) {
-      if (hideWeeks && isWeekBatch(b)) continue
+      // The batch actually being viewed always stays listed, otherwise the
+      // select would show a blank value after landing on a week via URL.
+      if (hideWeeks && isWeekBatch(b) && b.id !== selectedBatchId) continue
       const label = `${b.display_name}${b.import_kind === 'weekly' && b.week_label ? ` (${b.week_label})` : ''}`
       opts.push({ label, value: b.id })
     }
@@ -396,46 +456,7 @@
   <div class="stats-viewport">
     <div class="stats-shell page-content">
       <div class="stats-head">
-        <div class="stats-title-block">
-          <BarChart3 size={22} style="color: var(--hover); flex-shrink: 0;" />
-          <div class="min-w-0">
-            <h1 class="stats-title">Player Stats</h1>
-            <p class="stats-subtitle">
-              {#if batch?.display_name}
-                {batch.display_name}
-                {#if batch.import_kind === 'weekly' && batch.week_label}
-                  <span class="stats-subtitle-dim"> · {batch.week_label}</span>
-                {/if}
-              {:else if batchId}
-                {batchId}
-              {:else}
-                No imports yet
-              {/if}
-              <span class="stats-subtitle-dim"> · {sortedRows.length} players</span>
-            </p>
-          </div>
-        </div>
-
-        <div class="batch-picker">
-          {#if hasAnyWeeks}
-            <button
-              type="button"
-              class="chip"
-              class:chip-on={hideWeeks}
-              onclick={() => (hideWeeks = !hideWeeks)}
-            >
-              Hide weeks
-            </button>
-          {/if}
-          <div class="batch-select">
-            <CustomSelect
-              options={batchOptions}
-              value={selectedBatchId ?? ''}
-              compact={true}
-              onSelect={(value) => (window.location.href = qp({ batchId: value || null }))}
-            />
-          </div>
-        </div>
+        <PageHeading title="Player Stats" subtitle={batchSubtitle} icon={BarChart3} />
       </div>
 
       <!-- Filters -->
@@ -486,6 +507,29 @@
               </button>
             {/if}
           {/if}
+        </div>
+
+        <!-- Batch picker sits on the same row as the search, but pushed to the
+             far right: it navigates, so it should not read as another filter. -->
+        <div class="batch-picker">
+          {#if hasAnyWeeks}
+            <button
+              type="button"
+              class="chip"
+              class:chip-on={hideWeeks}
+              onclick={() => (hideWeeks = !hideWeeks)}
+            >
+              Hide weeks
+            </button>
+          {/if}
+          <div class="batch-select">
+            <CustomSelect
+              options={batchOptions}
+              value={selectedBatchId ?? ''}
+              compact={true}
+              onSelect={(value) => (window.location.href = qp({ batchId: value || null }))}
+            />
+          </div>
         </div>
       </div>
 
@@ -539,7 +583,7 @@
 
       {#if sortedRows.length === 0}
         <div class="empty-state">
-          <BarChart3 size={36} style="color: rgba(255,255,255,0.25);" />
+          <BarChart3 size={36} style="color: rgba(255,255,255,0.48);" />
           <p class="empty-text">No players match the current filters.</p>
         </div>
       {:else}
@@ -696,49 +740,30 @@
     min-height: 0;
   }
 
-  /* Header */
+  /*
+   * Header — PageHeading provides the title block. Its own `mb-5` would stack
+   * on top of this wrapper's margin, so the wrapper owns the gap outright.
+   */
   .stats-head {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 1rem;
-    flex-wrap: wrap;
     margin-bottom: 0.875rem;
-  }
-
-  .stats-title-block {
-    display: flex;
-    align-items: center;
-    gap: 0.625rem;
-    min-width: 0;
-  }
-
-  .stats-title {
-    font-size: 1.375rem;
-    font-weight: 700;
-    color: var(--title);
-    line-height: 1.2;
-  }
-
-  .stats-subtitle {
-    font-size: 0.75rem;
-    color: rgba(255, 255, 255, 0.55);
-    margin-top: 0.125rem;
-  }
-
-  .stats-subtitle-dim {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  .batch-picker {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
     flex-shrink: 0;
   }
 
+  .stats-head :global(.page-header) {
+    margin-bottom: 0;
+  }
+
+  /* Pushed hard right: the picker navigates, so it is not one more filter. */
+  .batch-picker {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    flex-shrink: 0;
+    margin-left: auto;
+  }
+
   .batch-select {
-    min-width: 14rem;
+    min-width: 12rem;
   }
 
   /* Toolbar */
@@ -762,7 +787,7 @@
     top: 50%;
     left: 0.625rem;
     transform: translateY(-50%);
-    color: rgba(255, 255, 255, 0.3);
+    color: rgba(255, 255, 255, 0.52);
     pointer-events: none;
     display: flex;
   }
@@ -778,7 +803,7 @@
   }
 
   .search-input::placeholder {
-    color: rgba(255, 255, 255, 0.32);
+    color: rgba(255, 255, 255, 0.54);
   }
 
   .search-input:focus {
@@ -804,7 +829,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: rgba(255, 255, 255, 0.45);
+    color: rgba(255, 255, 255, 0.64);
     white-space: nowrap;
   }
 
@@ -849,7 +874,7 @@
 
   .chip:hover {
     color: var(--text);
-    border-color: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.45);
   }
 
   .chip-on {
@@ -913,7 +938,7 @@
 
   .columns-chevron {
     font-size: 0.5625rem;
-    color: rgba(255, 255, 255, 0.4);
+    color: rgba(255, 255, 255, 0.6);
     transition: transform 0.15s;
   }
 
@@ -926,7 +951,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.07em;
-    color: rgba(255, 255, 255, 0.45);
+    color: rgba(255, 255, 255, 0.64);
   }
 
   .columns-count {
@@ -1003,7 +1028,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.07em;
-    color: rgba(255, 255, 255, 0.42);
+    color: rgba(255, 255, 255, 0.62);
   }
 
   .stats-table tbody tr {
@@ -1055,7 +1080,7 @@
 
   .col-index {
     width: 3rem;
-    color: rgba(255, 255, 255, 0.4);
+    color: rgba(255, 255, 255, 0.6);
   }
 
   .col-rank {
@@ -1086,7 +1111,7 @@
   }
 
   .player-link:hover {
-    color: var(--hover);
+    color: var(--accent-text);
   }
 
   .player-link-unclaimed {
@@ -1096,7 +1121,7 @@
   }
 
   .dash {
-    color: rgba(255, 255, 255, 0.25);
+    color: rgba(255, 255, 255, 0.48);
   }
 
   .rank-icon {
@@ -1169,9 +1194,15 @@
       gap: 0.625rem;
     }
 
-    .batch-picker,
-    .batch-select {
+    /* No room to sit beside the filters — take the full row instead. */
+    .batch-picker {
       width: 100%;
+      min-width: 0;
+      margin-left: 0;
+    }
+
+    .batch-select {
+      flex: 1;
       min-width: 0;
     }
 

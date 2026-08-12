@@ -40,7 +40,7 @@
 
     {#if isEmpty}
       <div class="empty-state">
-        <Award size={40} style="color: rgba(255,255,255,0.25);" />
+        <Award size={40} style="color: rgba(255,255,255,0.48);" />
         <p class="empty-title">Nothing enshrined yet</p>
         <p class="empty-text">
           Season champions appear here automatically once a winner is set on a season. Records and
@@ -246,13 +246,13 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: rgba(255, 255, 255, 0.42);
+    color: rgba(255, 255, 255, 0.62);
     text-decoration: none;
     margin-bottom: 0.5rem;
   }
 
   .champion-season:hover {
-    color: var(--hover);
+    color: var(--accent-text);
   }
 
   .champion-team {
@@ -332,7 +332,7 @@
     font-size: 0.5625rem;
     font-weight: 700;
     letter-spacing: 0.07em;
-    color: rgba(255, 255, 255, 0.35);
+    color: rgba(255, 255, 255, 0.56);
     flex-shrink: 0;
   }
 
@@ -353,7 +353,7 @@
 
   .record-unit {
     font-size: 0.75rem;
-    color: rgba(255, 255, 255, 0.45);
+    color: rgba(255, 255, 255, 0.64);
   }
 
   .record-holder {
@@ -365,7 +365,7 @@
   }
 
   a.record-holder:hover {
-    color: var(--hover);
+    color: var(--accent-text);
   }
 
   .record-holder-plain {
@@ -404,7 +404,7 @@
   }
 
   .award-sep {
-    color: rgba(255, 255, 255, 0.25);
+    color: rgba(255, 255, 255, 0.48);
     margin: 0 0.25rem;
   }
 
@@ -429,7 +429,7 @@
     font-size: 0.5625rem;
     font-weight: 700;
     letter-spacing: 0.07em;
-    color: rgba(255, 255, 255, 0.35);
+    color: rgba(255, 255, 255, 0.56);
     flex-shrink: 0;
     padding-top: 0.1875rem;
   }
@@ -465,7 +465,7 @@
     font-size: 0.5625rem;
     font-weight: 700;
     letter-spacing: 0.07em;
-    color: rgba(255, 255, 255, 0.35);
+    color: rgba(255, 255, 255, 0.56);
     flex-shrink: 0;
   }
 
@@ -481,7 +481,7 @@
   }
 
   .moment-holder a:hover {
-    color: var(--hover);
+    color: var(--accent-text);
   }
 
   .moment-desc {

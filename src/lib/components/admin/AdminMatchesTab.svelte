@@ -133,7 +133,7 @@
 </script>
 
 <div class="grid grid-cols-1 gap-4">
-  <section class="rounded-md border p-3" style="border-color: rgba(255,255,255,0.12);">
+  <section class="admin-bordered p-3">
     <div class="mb-1 flex items-center gap-2">
       <h3
         class="text-sm font-semibold tracking-wide uppercase"
@@ -149,7 +149,7 @@
         — backfilling a past season.{/if}
     </p>
 
-    <div class="grid grid-cols-1 gap-2 md:grid-cols-5">
+    <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
       <div class="md:col-span-2">
         <CustomSelect
           options={approvedTeamOptions}
@@ -182,13 +182,12 @@
       </div>
     </div>
 
-    <div class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-5">
+    <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
       <div class="md:col-span-4">
         <input
           type="datetime-local"
           bind:value={createMatchScheduledAt}
-          class="w-full rounded-md border px-3 py-2 text-sm"
-          style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+          class="admin-input"
           placeholder="Scheduled (local time)"
           disabled={isCreatingMatch}
           aria-label="Scheduled at (local time)"
@@ -202,8 +201,7 @@
       <div class="md:col-span-1">
         <button
           type="button"
-          class="w-full rounded-md px-3 py-2 text-sm font-semibold"
-          style="background: rgba(74,222,128,0.2); color: #4ade80;"
+          class="admin-btn admin-btn-go w-full text-sm"
           onclick={onCreateMatch}
           disabled={isCreatingMatch}
         >
@@ -213,7 +211,7 @@
     </div>
   </section>
 
-  <section class="rounded-md border p-3" style="border-color: rgba(255,255,255,0.12);">
+  <section class="admin-bordered p-3">
     <div class="mb-3 flex items-center gap-2">
       <h3
         class="text-sm font-semibold tracking-wide uppercase"
@@ -288,10 +286,7 @@
             isPrimary: !(match.streams?.length > 0),
           }}
           {@const maps = matchMapsCache[match.id] ?? []}
-          <article
-            class="rounded-md border p-3"
-            style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
-          >
+          <article class="admin-card p-3">
             <button
               type="button"
               class="flex w-full flex-wrap items-center justify-between gap-2 text-left"
@@ -329,13 +324,12 @@
             </button>
 
             {#if expandedAdminMatchId === match.id}
-              <div class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-4">
+              <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 <input
                   type="number"
                   min="0"
                   value={state.teamAScore}
-                  class="rounded-md border px-2 py-1"
-                  style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                  class="admin-input"
                   placeholder="Team A score"
                   oninput={(e) =>
                     onUpdateFinalizeForm(match.id, {
@@ -346,8 +340,7 @@
                   type="number"
                   min="0"
                   value={state.teamBScore}
-                  class="rounded-md border px-2 py-1"
-                  style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                  class="admin-input"
                   placeholder="Team B score"
                   oninput={(e) =>
                     onUpdateFinalizeForm(match.id, {
@@ -370,16 +363,14 @@
                 <div class="flex gap-2">
                   <button
                     type="button"
-                    class="rounded px-2 py-1 text-xs"
-                    style="background: rgba(74,222,128,0.2); color: #4ade80;"
+                    class="admin-btn admin-btn-sm admin-btn-go"
                     onclick={() => onFinalizeMatch(match)}
                   >
                     Finalize
                   </button>
                   <button
                     type="button"
-                    class="rounded px-2 py-1 text-xs"
-                    style="background: rgba(248,113,113,0.2); color: #f87171;"
+                    class="admin-btn admin-btn-sm admin-btn-danger"
                     onclick={() => onCancelMatch(match)}
                   >
                     Cancel
@@ -387,7 +378,7 @@
                 </div>
               </div>
 
-              <div class="mt-3 rounded-md border p-3" style="border-color: rgba(255,255,255,0.10);">
+              <div class="admin-bordered mt-3 p-3">
                 <div
                   class="mb-2 text-[11px] font-semibold tracking-wide uppercase"
                   style="color: rgba(255,255,255,0.7);"
@@ -436,8 +427,7 @@
                     <input
                       type="datetime-local"
                       value={editState.scheduledAt}
-                      class="mt-1 w-full rounded-md border px-2 py-1 text-sm"
-                      style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                      class="admin-input mt-1"
                       oninput={(e) =>
                         onUpdateMatchEditForm(match.id, {
                           scheduledAt: (e.currentTarget as HTMLInputElement).value,
@@ -448,8 +438,7 @@
                     Designation
                     <input
                       value={editState.designation}
-                      class="mt-1 w-full rounded-md border px-2 py-1 text-sm"
-                      style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                      class="admin-input mt-1"
                       placeholder="e.g. Grand Finals, Upper Bracket QF, Week 3"
                       oninput={(e) =>
                         onUpdateMatchEditForm(match.id, {
@@ -463,8 +452,7 @@
                       type="number"
                       min="0"
                       value={editState.teamAScore}
-                      class="mt-1 w-full rounded-md border px-2 py-1 text-sm"
-                      style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                      class="admin-input mt-1"
                       oninput={(e) =>
                         onUpdateMatchEditForm(match.id, {
                           teamAScore: (e.currentTarget as HTMLInputElement).value,
@@ -477,8 +465,7 @@
                       type="number"
                       min="0"
                       value={editState.teamBScore}
-                      class="mt-1 w-full rounded-md border px-2 py-1 text-sm"
-                      style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                      class="admin-input mt-1"
                       oninput={(e) =>
                         onUpdateMatchEditForm(match.id, {
                           teamBScore: (e.currentTarget as HTMLInputElement).value,
@@ -512,16 +499,14 @@
                 <div class="mt-3 flex flex-wrap justify-end gap-2">
                   <button
                     type="button"
-                    class="rounded px-2 py-1 text-xs font-semibold"
-                    style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+                    class="admin-btn admin-btn-sm admin-btn-info"
                     onclick={() => onSaveMatchEdits(match.id, match)}
                   >
                     Save Match
                   </button>
                   <button
                     type="button"
-                    class="rounded px-2 py-1 text-xs font-semibold"
-                    style="background: rgba(248,113,113,0.2); color: #fca5a5;"
+                    class="admin-btn admin-btn-sm admin-btn-danger"
                     onclick={() => onDeleteMatch(match.id, match)}
                   >
                     Delete Match
@@ -529,7 +514,7 @@
                 </div>
               </div>
 
-              <div class="mt-3 rounded-md border p-3" style="border-color: rgba(255,255,255,0.10);">
+              <div class="admin-bordered mt-3 p-3">
                 <div
                   class="mb-2 text-[11px] font-semibold tracking-wide uppercase"
                   style="color: rgba(255,255,255,0.7);"
@@ -573,7 +558,7 @@
                 {/if}
               </div>
 
-              <div class="mt-3 rounded-md border p-3" style="border-color: rgba(255,255,255,0.10);">
+              <div class="admin-bordered mt-3 p-3">
                 <div
                   class="mb-2 text-[11px] font-semibold tracking-wide uppercase"
                   style="color: rgba(255,255,255,0.7);"
@@ -583,8 +568,7 @@
                 <textarea
                   rows="5"
                   value={editState.mapVetoes}
-                  class="w-full rounded-md border px-3 py-2 text-sm leading-5"
-                  style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                  class="admin-input leading-5"
                   placeholder="One line per veto item
 Ban: Team A - Haven
 Pick: Team B - Lotus
@@ -600,8 +584,7 @@ Decider: Pearl"
                   </div>
                   <button
                     type="button"
-                    class="rounded px-3 py-2 text-xs font-semibold"
-                    style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+                    class="admin-btn admin-btn-sm admin-btn-info"
                     onclick={() => onSaveMatchEdits(match.id, match)}
                   >
                     Save Vetoes
@@ -609,7 +592,7 @@ Decider: Pearl"
                 </div>
               </div>
 
-              <div class="mt-3 rounded-md border p-3" style="border-color: rgba(255,255,255,0.10);">
+              <div class="admin-bordered mt-3 p-3">
                 <div
                   class="mb-2 text-[11px] font-semibold tracking-wide uppercase"
                   style="color: rgba(255,255,255,0.7);"
@@ -625,10 +608,7 @@ Decider: Pearl"
                         status: stream.status,
                         isPrimary: stream.is_primary,
                       }}
-                      <div
-                        class="rounded-md border px-2 py-2 text-xs"
-                        style="border-color: rgba(255,255,255,0.10); background: rgba(255,255,255,0.04);"
-                      >
+                      <div class="admin-subcard rounded-md border px-2 py-2 text-xs">
                         <div class="min-w-0">
                           <div style="color: var(--text);">
                             {stream.metadata?.display_name || stream.platform}
@@ -638,11 +618,10 @@ Decider: Pearl"
                             {stream.stream_url}
                           </div>
                         </div>
-                        <div class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-4">
+                        <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
                           <div class="md:col-span-2">
                             <input
-                              class="w-full rounded-md border px-3 py-2 text-sm"
-                              style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                              class="admin-input"
                               value={existingState.displayName}
                               placeholder="Display name"
                               oninput={(e) =>
@@ -652,7 +631,7 @@ Decider: Pearl"
                             />
                           </div>
                         </div>
-                        <div class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-4">
+                        <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
                           <div>
                             <CustomSelect
                               options={streamPlatformOptions}
@@ -665,8 +644,7 @@ Decider: Pearl"
                           </div>
                           <div class="md:col-span-2">
                             <input
-                              class="w-full rounded-md border px-3 py-2 text-sm"
-                              style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                              class="admin-input"
                               value={existingState.streamUrl}
                               oninput={(e) =>
                                 onUpdateExistingStreamForm(stream.id, {
@@ -703,16 +681,14 @@ Decider: Pearl"
                           <div class="flex gap-2">
                             <button
                               type="button"
-                              class="rounded px-2 py-1 text-[11px] font-semibold"
-                              style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+                              class="admin-btn admin-btn-sm admin-btn-info"
                               onclick={() => onSaveExistingMatchStream(match.id, stream.id)}
                             >
                               Save
                             </button>
                             <button
                               type="button"
-                              class="rounded px-2 py-1 text-[11px] font-semibold"
-                              style="background: rgba(248,113,113,0.2); color: #fca5a5;"
+                              class="admin-btn admin-btn-sm admin-btn-danger"
                               onclick={() =>
                                 onRemoveMatchStream(
                                   match.id,
@@ -729,11 +705,10 @@ Decider: Pearl"
                   </div>
                 {/if}
 
-                <div class="grid grid-cols-1 gap-2 md:grid-cols-4">
+                <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
                   <div class="md:col-span-2">
                     <input
-                      class="w-full rounded-md border px-3 py-2 text-sm"
-                      style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                      class="admin-input"
                       value={streamState.displayName}
                       placeholder="Display name"
                       oninput={(e) =>
@@ -743,7 +718,7 @@ Decider: Pearl"
                     />
                   </div>
                 </div>
-                <div class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-4">
+                <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
                   <div>
                     <CustomSelect
                       options={streamPlatformOptions}
@@ -755,8 +730,7 @@ Decider: Pearl"
                   </div>
                   <div class="md:col-span-2">
                     <input
-                      class="w-full rounded-md border px-3 py-2 text-sm"
-                      style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                      class="admin-input"
                       value={streamState.streamUrl}
                       placeholder="Input stream link here"
                       oninput={(e) =>
@@ -792,15 +766,14 @@ Decider: Pearl"
                 <div class="mt-2 flex justify-end">
                   <button
                     type="button"
-                    class="rounded px-2 py-1 text-xs font-semibold"
-                    style="background: rgba(34,197,94,0.2); color: #86efac;"
+                    class="admin-btn admin-btn-sm admin-btn-go"
                     onclick={() => onAddMatchStream(match.id)}
                   >
                     Add Stream
                   </button>
                 </div>
 
-                <div class="mt-4 border-t pt-4" style="border-color: rgba(255,255,255,0.10);">
+                <div class="admin-divide mt-4 border-t pt-4">
                   <div
                     class="mb-2 text-[11px] font-semibold tracking-wide uppercase"
                     style="color: rgba(255,255,255,0.7);"
@@ -809,8 +782,7 @@ Decider: Pearl"
                   </div>
                   <div class="flex flex-col gap-2 md:flex-row">
                     <input
-                      class="w-full flex-1 rounded-md border px-3 py-2 text-sm"
-                      style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                      class="admin-input flex-1"
                       value={vodForm[match.id] ?? ''}
                       placeholder="https://youtube.com/watch?..."
                       oninput={(e) =>
@@ -818,8 +790,7 @@ Decider: Pearl"
                     />
                     <button
                       type="button"
-                      class="rounded px-3 py-2 text-xs font-semibold"
-                      style="background: rgba(234,179,8,0.18); color: #fcd34d;"
+                      class="admin-btn admin-btn-sm admin-btn-warn"
                       onclick={() => onSaveMatchEdits(match.id, match)}
                     >
                       Save VOD
@@ -834,15 +805,13 @@ Decider: Pearl"
               <div class="mt-2 flex flex-wrap gap-2">
                 <a
                   href={resolve(`/matches/${match.id}`)}
-                  class="rounded px-2 py-1 text-xs font-semibold"
-                  style="background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.85);"
+                  class="admin-btn admin-btn-sm admin-btn-neutral"
                 >
                   Open Match Page
                 </a>
                 <a
                   href={resolve(`/admin/matches/${match.id}/stats-import`)}
-                  class="rounded px-2 py-1 text-xs font-semibold"
-                  style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+                  class="admin-btn admin-btn-sm admin-btn-info"
                 >
                   Import Map Stats
                 </a>

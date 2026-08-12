@@ -2,8 +2,12 @@
   import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import AdminEditLink from '$lib/components/AdminEditLink.svelte'
-  import { AlertTriangle } from 'lucide-svelte'
+  import PageHeading from '$lib/components/PageHeading.svelte'
+  import { AlertTriangle, Calendar, ChevronDown } from 'lucide-svelte'
+  import TeamSeed from '$lib/components/TeamSeed.svelte'
+  import RecentActivity from '$lib/components/RecentActivity.svelte'
   import { resolve } from '$app/paths'
+  import { untrack } from 'svelte'
 
   let { data }: PageProps = $props()
   const matches = $derived(data.matches ?? [])
@@ -119,6 +123,15 @@
     return (value as { logo_url?: string }).logo_url ?? null
   }
 
+  /** Standings position for a team, from its own season's leaderboard. */
+  const seeds = $derived((data.seeds ?? {}) as Record<string, number>)
+
+  function teamSeed(value: unknown): number | null {
+    if (!value) return null
+    const team = (Array.isArray(value) ? value[0] : value) as { id?: string } | undefined
+    return team?.id ? (seeds[team.id] ?? null) : null
+  }
+
   function formatLocal(value: string | null | undefined) {
     if (!value) return 'Date TBD'
     const date = new Date(value)
@@ -131,22 +144,41 @@
     { id: 'upcoming' as const, label: 'Upcoming', count: upcomingCount },
     { id: 'completed' as const, label: 'Completed', count: completedCount },
   ])
+
+  const recentComments = $derived(data.recentComments ?? [])
+
+  /**
+   * Match cards are tall, so on narrow screens the list is trimmed to keep the
+   * discussion feed below it reachable. The cut is made in CSS rather than by
+   * slicing the array, so the desktop layout keeps the full list without
+   * needing a media query in JS.
+   */
+  const MOBILE_MATCH_LIMIT = 5
+  let showAllOnMobile = $state(false)
+  const hiddenOnMobile = $derived(Math.max(0, filteredMatches.length - MOBILE_MATCH_LIMIT))
+
+  // Changing the filter gives a different list, so collapse it again.
+  $effect(() => {
+    activeTab
+    searchQuery
+    untrack(() => (showAllOnMobile = false))
+  })
 </script>
 
 <PageContainer>
   <div class="matches-feed">
     <div class="matches-feed-inner">
-      <div class="feed-header">
-        <div>
-          <h1 class="feed-title">Matches</h1>
-          <p class="feed-subtitle">Upcoming, live, and completed matches.</p>
-        </div>
-        <div class="feed-header-actions">
+      <PageHeading
+        title="Matches"
+        subtitle="Upcoming, live, and completed matches."
+        icon={Calendar}
+      >
+        {#snippet actions()}
           {#if isAdmin}
             <AdminEditLink href="/admin?tab=matches" label="Manage Matches" />
           {/if}
-        </div>
-      </div>
+        {/snippet}
+      </PageHeading>
 
       <!-- Tab bar -->
       <div class="tab-bar">
@@ -172,96 +204,115 @@
         </div>
       </div>
 
-      <!-- Match list -->
-      {#if loadFailed}
-        <!-- Never show "no matches" for a failed load; that reads as an empty
+      <div class="feed-layout">
+        <aside class="feed-aside">
+          <RecentActivity comments={recentComments} />
+        </aside>
+
+        <div class="feed-main">
+          <!-- Match list -->
+          {#if loadFailed}
+            <!-- Never show "no matches" for a failed load; that reads as an empty
              league rather than a temporary outage. -->
-        <div class="error-state">
-          <AlertTriangle size={22} />
-          <div>
-            <p class="error-title">
-              {unreachable ? "Couldn't reach the server" : 'Failed to load matches'}
-            </p>
-            <p class="error-text">
-              {unreachable
-                ? 'The connection timed out. This is usually temporary — try again in a moment.'
-                : 'Something went wrong loading the schedule.'}
-            </p>
-          </div>
-          <button type="button" class="retry-btn" onclick={() => location.reload()}> Retry </button>
-        </div>
-      {:else if filteredMatches.length === 0}
-        <div class="empty-state">
-          <p>
-            {#if matches.length === 0}
-              No matches available yet.
-            {:else}
-              No matches match the current filters.
-            {/if}
-          </p>
-        </div>
-      {:else}
-        <div class="match-list">
-          {#each filteredMatches as match (match.id)}
-            <a href={resolve(`/matches/${match.id}`)} class="match-card">
-              {#if match.designation}
-                <div class="designation">{match.designation}</div>
-              {/if}
-              <div class="match-teams">
-                <div class="match-team">
-                  {#if teamLogo(match.team_a)}
-                    <img
-                      src={teamLogo(match.team_a)}
-                      alt="{teamName(match.team_a)} logo"
-                      class="team-logo"
-                    />
-                  {:else}
-                    <div class="team-logo-placeholder"></div>
-                  {/if}
-                  <strong class="team-name">{teamName(match.team_a)}</strong>
-                </div>
-
-                {#if match.status === 'completed'}
-                  <div class="match-score">
-                    <span
-                      class="score-num"
-                      class:score-winner={match.team_a_score > match.team_b_score}
-                      >{match.team_a_score}</span
-                    >
-                    <span class="score-sep">–</span>
-                    <span
-                      class="score-num"
-                      class:score-winner={match.team_b_score > match.team_a_score}
-                      >{match.team_b_score}</span
-                    >
-                  </div>
+            <div class="error-state">
+              <AlertTriangle size={22} />
+              <div>
+                <p class="error-title">
+                  {unreachable ? "Couldn't reach the server" : 'Failed to load matches'}
+                </p>
+                <p class="error-text">
+                  {unreachable
+                    ? 'The connection timed out. This is usually temporary — try again in a moment.'
+                    : 'Something went wrong loading the schedule.'}
+                </p>
+              </div>
+              <button type="button" class="retry-btn" onclick={() => location.reload()}>
+                Retry
+              </button>
+            </div>
+          {:else if filteredMatches.length === 0}
+            <div class="empty-state">
+              <p>
+                {#if matches.length === 0}
+                  No matches available yet.
                 {:else}
-                  <span class="match-vs">vs</span>
+                  No matches match the current filters.
                 {/if}
-
-                <div class="match-team match-team-right">
-                  <strong class="team-name">{teamName(match.team_b)}</strong>
-                  {#if teamLogo(match.team_b)}
-                    <img
-                      src={teamLogo(match.team_b)}
-                      alt="{teamName(match.team_b)} logo"
-                      class="team-logo"
-                    />
-                  {:else}
-                    <div class="team-logo-placeholder"></div>
+              </p>
+            </div>
+          {:else}
+            <div class="match-list" class:match-list-collapsed={!showAllOnMobile}>
+              {#each filteredMatches as match (match.id)}
+                <a href={resolve(`/matches/${match.id}`)} class="match-card">
+                  {#if match.designation}
+                    <div class="designation">{match.designation}</div>
                   {/if}
-                </div>
-              </div>
+                  <div class="match-teams">
+                    <div class="match-team">
+                      <TeamSeed seed={teamSeed(match.team_a)} label="Leaderboard rank" />
+                      {#if teamLogo(match.team_a)}
+                        <img
+                          src={teamLogo(match.team_a)}
+                          alt="{teamName(match.team_a)} logo"
+                          class="team-logo"
+                        />
+                      {:else}
+                        <div class="team-logo-placeholder"></div>
+                      {/if}
+                      <strong class="team-name">{teamName(match.team_a)}</strong>
+                    </div>
 
-              <div class="match-meta">
-                <span class="match-format">BO{match.best_of}</span>
-                <span class="meta-dot">·</span>
-                <span>{formatLocal(match.scheduled_at)}</span>
-              </div>
-            </a>
-          {/each}
+                    {#if match.status === 'completed'}
+                      <div class="match-score">
+                        <span
+                          class="score-num"
+                          class:score-winner={match.team_a_score > match.team_b_score}
+                          >{match.team_a_score}</span
+                        >
+                        <span class="score-sep">–</span>
+                        <span
+                          class="score-num"
+                          class:score-winner={match.team_b_score > match.team_a_score}
+                          >{match.team_b_score}</span
+                        >
+                      </div>
+                    {:else}
+                      <span class="match-vs">vs</span>
+                    {/if}
+
+                    <div class="match-team match-team-right">
+                      <strong class="team-name">{teamName(match.team_b)}</strong>
+                      {#if teamLogo(match.team_b)}
+                        <img
+                          src={teamLogo(match.team_b)}
+                          alt="{teamName(match.team_b)} logo"
+                          class="team-logo"
+                        />
+                      {:else}
+                        <div class="team-logo-placeholder"></div>
+                      {/if}
+                      <TeamSeed seed={teamSeed(match.team_b)} label="Leaderboard rank" />
+                    </div>
+                  </div>
+
+                  <div class="match-meta">
+                    <span class="match-format">BO{match.best_of}</span>
+                    <span class="meta-dot">·</span>
+                    <span>{formatLocal(match.scheduled_at)}</span>
+                  </div>
+                </a>
+              {/each}
+            </div>
+
+            {#if !showAllOnMobile && hiddenOnMobile > 0}
+              <button type="button" class="show-more" onclick={() => (showAllOnMobile = true)}>
+                <span>Show {hiddenOnMobile} more {hiddenOnMobile === 1 ? 'match' : 'matches'}</span>
+                <ChevronDown size={15} />
+              </button>
+            {/if}
+          {/if}
         </div>
-      {/if}
+      </div>
     </div>
   </div>
 </PageContainer>
@@ -277,31 +328,6 @@
   .matches-feed-inner {
     width: 100%;
     max-width: 80rem;
-  }
-
-  .feed-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    margin-bottom: 1.25rem;
-  }
-
-  .feed-title {
-    font-size: 1.75rem;
-    font-weight: 700;
-    color: var(--title);
-    line-height: 1.2;
-  }
-
-  .feed-subtitle {
-    font-size: 0.875rem;
-    color: rgba(255, 255, 255, 0.6);
-    margin-top: 0.125rem;
-  }
-
-  .feed-header-actions {
-    flex-shrink: 0;
   }
 
   /* Tab bar */
@@ -401,7 +427,7 @@
   }
 
   .search-input::placeholder {
-    color: rgba(255, 255, 255, 0.35);
+    color: rgba(255, 255, 255, 0.56);
   }
 
   .search-input:focus {
@@ -409,11 +435,51 @@
     border-color: var(--hover);
   }
 
+  /* Feed layout: discussion pinned on the left, matches filling the rest. */
+  .feed-layout {
+    display: grid;
+    grid-template-columns: 20rem minmax(0, 1fr);
+    gap: 1.5rem;
+    align-items: start;
+  }
+
+  .feed-main {
+    min-width: 0;
+  }
+
+  .feed-aside {
+    position: sticky;
+    top: 4.5rem;
+    min-width: 0;
+  }
+
   /* Match list */
   .match-list {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
+  }
+
+  .show-more {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    width: 100%;
+    margin-top: 0.5rem;
+    padding: 0.625rem 1rem;
+    border-radius: 0.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(0, 0, 0, 0.2);
+    color: rgba(255, 255, 255, 0.75);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .show-more:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text);
   }
 
   .match-card {
@@ -494,7 +560,7 @@
   .match-vs {
     font-size: 0.75rem;
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.4);
+    color: rgba(255, 255, 255, 0.6);
     text-transform: uppercase;
     letter-spacing: 0.05em;
     flex-shrink: 0;
@@ -520,7 +586,7 @@
 
   .score-sep {
     font-size: 0.875rem;
-    color: rgba(255, 255, 255, 0.3);
+    color: rgba(255, 255, 255, 0.52);
   }
 
   .match-meta {
@@ -594,14 +660,40 @@
     border: 1px solid rgba(255, 255, 255, 0.06);
   }
 
+  /* The sidebar stops fitting well before the phone breakpoint. */
+  @media (max-width: 1024px) {
+    .feed-layout {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 1.25rem;
+    }
+
+    /* Stacked, the matches come first and the discussion sits underneath. */
+    .feed-aside {
+      position: static;
+      order: 1;
+    }
+
+    .feed-main {
+      order: 0;
+    }
+  }
+
+  /* Narrow screens: trim the match list so the discussion feed stays reachable. */
+  @media (max-width: 900px) {
+    /* Keep in step with MOBILE_MATCH_LIMIT: n + (limit + 1). */
+    .match-list-collapsed > :nth-child(n + 6) {
+      display: none;
+    }
+
+    .show-more {
+      display: flex;
+    }
+  }
+
   /* Mobile */
   @media (max-width: 640px) {
     .matches-feed {
       padding: 1rem 0.75rem;
-    }
-
-    .feed-title {
-      font-size: 1.375rem;
     }
 
     .tab-bar {

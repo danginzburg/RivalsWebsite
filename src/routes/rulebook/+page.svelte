@@ -1,7 +1,8 @@
 <script lang="ts">
   import PageContainer from '$lib/components/PageContainer.svelte'
+  import PageHeading from '$lib/components/PageHeading.svelte'
   import { BookOpen } from 'lucide-svelte'
-  import { RULEBOOK_SECTIONS, RULEBOOK_UPDATED, type RulebookSection } from '$lib/content/rulebook'
+  import { RULEBOOK_SECTIONS, RULEBOOK_UPDATED } from '$lib/content/rulebook'
 
   let activeId = $state<string>(RULEBOOK_SECTIONS[0]?.id ?? '')
   let search = $state('')
@@ -59,32 +60,32 @@
     <!-- Table of contents -->
     <aside class="toc">
       <div class="toc-sticky">
-        <div class="toc-label">Contents</div>
-        <nav class="toc-nav">
-          {#each RULEBOOK_SECTIONS as section (section.id)}
-            <button
-              type="button"
-              class="toc-link"
-              class:toc-link-active={activeId === section.id}
-              onclick={() => scrollTo(section.id)}
-            >
-              {section.title}
-            </button>
-          {/each}
-        </nav>
+        <div class="toc-card">
+          <div class="toc-head">
+            <span class="toc-label">Contents</span>
+            <span class="toc-count">{RULEBOOK_SECTIONS.length}</span>
+          </div>
+          <nav class="toc-nav">
+            {#each RULEBOOK_SECTIONS as section, index (section.id)}
+              <button
+                type="button"
+                class="toc-link"
+                class:toc-link-active={activeId === section.id}
+                onclick={() => scrollTo(section.id)}
+              >
+                <span class="toc-num">{index + 1}</span>
+                <span class="toc-text">{section.title}</span>
+              </button>
+            {/each}
+          </nav>
+        </div>
       </div>
     </aside>
 
     <!-- Content -->
     <div class="rulebook-body">
       <div class="rulebook-header">
-        <div class="flex items-center gap-3">
-          <BookOpen size={32} style="color: var(--text); flex-shrink: 0;" />
-          <div>
-            <h1 class="rulebook-title">Rulebook</h1>
-            <p class="rulebook-updated">Last updated {RULEBOOK_UPDATED}</p>
-          </div>
-        </div>
+        <PageHeading title="Rulebook" subtitle="Last updated {RULEBOOK_UPDATED}" icon={BookOpen} />
       </div>
 
       <input bind:value={search} class="rulebook-search" placeholder="Search the rulebook..." />
@@ -124,70 +125,120 @@
     padding: 1.5rem 0 4rem;
   }
 
-  /* Table of contents */
+  /*
+   * Table of contents — a raised card rather than a bare list. On a long
+   * rulebook the nav is the primary way in, so it needs to read as a control
+   * panel and not as more page text.
+   */
   .toc-sticky {
     position: sticky;
     top: 5rem;
+  }
+
+  .toc-card {
+    border-radius: 0.875rem;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(0, 0, 0, 0.3);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+    overflow: hidden;
+  }
+
+  .toc-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.625rem 0.875rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    background: linear-gradient(180deg, rgba(120, 67, 145, 0.35), rgba(120, 67, 145, 0.12));
   }
 
   .toc-label {
     font-size: 0.6875rem;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.09em;
-    color: rgba(255, 255, 255, 0.4);
-    margin-bottom: 0.75rem;
+    letter-spacing: 0.11em;
+    color: var(--text);
+  }
+
+  .toc-count {
+    padding: 0.0625rem 0.4375rem;
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.14);
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 0.625rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
   }
 
   .toc-nav {
     display: flex;
     flex-direction: column;
-    gap: 0.125rem;
-    border-left: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 0.375rem;
+    gap: 0.0625rem;
   }
 
   .toc-link {
-    padding: 0.375rem 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4375rem 0.5rem;
+    border-radius: 0.4375rem;
     background: transparent;
     border: none;
-    border-left: 2px solid transparent;
-    margin-left: -1px;
-    color: rgba(255, 255, 255, 0.5);
+    color: rgba(255, 255, 255, 0.62);
     font-size: 0.8125rem;
     text-align: left;
     cursor: pointer;
     transition:
       color 0.15s,
-      border-color 0.15s;
-    line-height: 1.4;
+      background 0.15s;
+    line-height: 1.35;
+  }
+
+  /* Step numbers give the list a spine the eye can track down. */
+  .toc-num {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.25rem;
+    height: 1.25rem;
+    border-radius: 0.3125rem;
+    background: rgba(255, 255, 255, 0.07);
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 0.625rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    transition:
+      background 0.15s,
+      color 0.15s;
   }
 
   .toc-link:hover {
-    color: rgba(255, 255, 255, 0.85);
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .toc-link:hover .toc-num {
+    background: rgba(255, 255, 255, 0.14);
+    color: var(--text);
   }
 
   .toc-link-active {
     color: var(--text);
-    border-left-color: var(--hover);
+    background: var(--accent);
     font-weight: 600;
+  }
+
+  .toc-link-active .toc-num {
+    background: var(--hover);
+    color: var(--text);
   }
 
   /* Content */
   .rulebook-header {
     margin-bottom: 1.25rem;
-  }
-
-  .rulebook-title {
-    font-size: 1.75rem;
-    font-weight: 700;
-    color: var(--title);
-    line-height: 1.2;
-  }
-
-  .rulebook-updated {
-    font-size: 0.8125rem;
-    color: rgba(255, 255, 255, 0.45);
-    margin-top: 0.125rem;
   }
 
   .rulebook-search {
@@ -203,7 +254,7 @@
   }
 
   .rulebook-search::placeholder {
-    color: rgba(255, 255, 255, 0.35);
+    color: rgba(255, 255, 255, 0.56);
   }
 
   .rulebook-search:focus {
@@ -283,33 +334,30 @@
       position: static;
     }
 
+    /* Same card, laid out as a horizontal scroller of chips. */
     .toc-nav {
       flex-direction: row;
       overflow-x: auto;
       -webkit-overflow-scrolling: touch;
-      border-left: none;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-      padding-bottom: 0.25rem;
       gap: 0.25rem;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+    }
+
+    .toc-nav::-webkit-scrollbar {
+      height: 3px;
+    }
+
+    .toc-nav::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 3px;
     }
 
     .toc-link {
+      flex-shrink: 0;
       white-space: nowrap;
-      border-left: none;
-      border-bottom: 2px solid transparent;
-      margin-left: 0;
-      margin-bottom: -1px;
       font-size: 0.75rem;
-      padding: 0.375rem 0.625rem;
-    }
-
-    .toc-link-active {
-      border-left-color: transparent;
-      border-bottom-color: var(--hover);
-    }
-
-    .rulebook-title {
-      font-size: 1.375rem;
+      padding: 0.375rem 0.5rem;
     }
 
     .rule-para,

@@ -15,7 +15,7 @@
   <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
     <div
       class="w-full max-w-md rounded-lg border p-6 text-center"
-      style="border-color: rgba(255, 255, 255, 0.2); background: var(--secondary-background);"
+      style="border-color: rgba(255, 255, 255, 0.45); background: var(--secondary-background);"
     >
       <h3 class="mb-3 text-xl font-bold" style="color: var(--title);">
         {title}
@@ -27,7 +27,7 @@
         <button
           type="button"
           class="rounded-md border px-4 py-2"
-          style="border-color: rgba(255,255,255,0.2); color: var(--text);"
+          style="border-color: rgba(255,255,255,0.45); color: var(--text);"
           onclick={onCancel}
         >
           Cancel

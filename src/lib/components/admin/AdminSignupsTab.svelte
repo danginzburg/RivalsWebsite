@@ -8,6 +8,16 @@
   } from '$lib/signups/formula'
   import type { PlayerSignup, SignupEditState } from '$lib/admin/types'
 
+  type BulkImportReport = {
+    processed: number
+    updated: number
+    skipped: number
+    failed: number
+    stoppedEarly: boolean
+    remaining: number
+    rows: Array<{ id: string; name: string; outcome: string; detail: string }>
+  }
+
   interface Props {
     signups: PlayerSignup[]
     signupsLoaded: boolean
@@ -22,6 +32,10 @@
     /** Signup whose tracker.gg lookup is in flight, or null. */
     trackerLookupSignupId?: string | null
     onFetchTrackerScore: (signupId: string) => void
+    bulkImportRunning?: boolean
+    bulkImportReport?: BulkImportReport | null
+    onBulkImport: (source: 'riot' | 'tracker' | 'both', overwrite: boolean) => void
+    onDismissBulkReport: () => void
     onSave: (signupId: string) => void
     onSetStatus: (signupId: string, status: 'pending' | 'approved' | 'rejected') => void
     onDelete: (signupId: string, name: string) => void
@@ -39,12 +53,23 @@
     onFetchRiotRank,
     trackerLookupSignupId = null,
     onFetchTrackerScore,
+    bulkImportRunning = false,
+    bulkImportReport = null,
+    onBulkImport,
+    onDismissBulkReport,
     onSave,
     onSetStatus,
     onDelete,
   }: Props = $props()
 
   let expandedId = $state<string | null>(null)
+  let bulkOverwrite = $state(false)
+
+  function outcomeStyle(outcome: string) {
+    if (outcome === 'updated') return 'background: rgba(74,222,128,0.16); color: #86efac;'
+    if (outcome === 'failed') return 'background: rgba(248,113,113,0.16); color: #fca5a5;'
+    return 'background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.6);'
+  }
 
   const statusFilterOptions = [
     { value: 'pending', label: 'Pending' },
@@ -54,9 +79,6 @@
   ]
 
   const rankOptions = [{ value: '', label: '— None —' }, ...SIGNUP_RANK_OPTIONS]
-
-  const inputStyle =
-    'border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);'
 
   function stateFor(signup: PlayerSignup): SignupEditState {
     return (
@@ -98,7 +120,7 @@
   }
 </script>
 
-<section class="rounded-md border p-3" style="border-color: rgba(255,255,255,0.12);">
+<section class="admin-bordered p-3">
   <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
     <div
       class="text-sm font-semibold tracking-wide uppercase"
@@ -116,6 +138,106 @@
       />
     </div>
   </div>
+
+  <!-- Bulk import: one pass over the filtered list instead of row-by-row. -->
+  <div
+    class="mb-3 rounded-md p-3"
+    style="background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.10);"
+  >
+    <div class="flex flex-wrap items-center gap-2">
+      <span
+        class="text-[10px] font-bold tracking-wide uppercase"
+        style="color: rgba(255,255,255,0.6);"
+      >
+        Bulk fill
+      </span>
+      <button
+        type="button"
+        class="admin-btn admin-btn-sm admin-btn-info"
+        disabled={bulkImportRunning}
+        title="Fetch current and peak rank from Riot for every signup in this filter"
+        onclick={() => onBulkImport('riot', bulkOverwrite)}
+      >
+        Ranks from Riot
+      </button>
+      <button
+        type="button"
+        class="admin-btn admin-btn-sm admin-btn-accent"
+        disabled={bulkImportRunning}
+        title="Read tracker.gg scores for every signup in this filter"
+        onclick={() => onBulkImport('tracker', bulkOverwrite)}
+      >
+        Tracker scores
+      </button>
+      <button
+        type="button"
+        class="admin-btn admin-btn-sm admin-btn-accent"
+        disabled={bulkImportRunning}
+        title="Fetch ranks and tracker scores in one pass"
+        onclick={() => onBulkImport('both', bulkOverwrite)}
+      >
+        Both
+      </button>
+
+      <label class="ml-auto flex items-center gap-2 text-xs" style="color: rgba(255,255,255,0.72);">
+        <input type="checkbox" bind:checked={bulkOverwrite} disabled={bulkImportRunning} />
+        Overwrite existing values
+      </label>
+    </div>
+
+    <p class="mt-2 text-[11px]" style="color: rgba(255,255,255,0.6);">
+      {#if bulkImportRunning}
+        Running — requests are paced, so this takes a while. Leave this tab open.
+      {:else}
+        Applies to the <strong style="color: rgba(255,255,255,0.82);">{statusFilter}</strong> filter and
+        saves directly. Rows that already have values are skipped unless overwrite is on, and a manual
+        override is never touched.
+      {/if}
+    </p>
+  </div>
+
+  {#if bulkImportReport}
+    <div
+      class="mb-3 rounded-md p-3"
+      style="background: rgba(120,67,145,0.08); border: 1px solid rgba(120,67,145,0.28);"
+    >
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <span class="text-xs font-semibold" style="color: rgba(255,255,255,0.85);">
+          {bulkImportReport.updated} updated · {bulkImportReport.skipped} skipped · {bulkImportReport.failed}
+          failed
+          {#if bulkImportReport.stoppedEarly}
+            <span style="color: #fcd34d;">
+              · stopped with {bulkImportReport.remaining} left, run again to continue
+            </span>
+          {/if}
+        </span>
+        <button
+          type="button"
+          class="admin-btn admin-btn-sm admin-btn-neutral"
+          onclick={onDismissBulkReport}
+        >
+          Dismiss
+        </button>
+      </div>
+
+      {#if bulkImportReport.rows.length > 0}
+        <ul class="mt-2 max-h-56 overflow-y-auto text-[11px]">
+          {#each bulkImportReport.rows as row (row.id)}
+            <li class="flex flex-wrap items-baseline gap-2 py-0.5">
+              <span
+                class="rounded px-1.5 py-0.5 text-[10px] font-bold uppercase"
+                style={outcomeStyle(row.outcome)}
+              >
+                {row.outcome}
+              </span>
+              <span style="color: rgba(255,255,255,0.82);">{row.name}</span>
+              <span style="color: rgba(255,255,255,0.6);">{row.detail}</span>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </div>
+  {/if}
 
   {#if !signupsLoaded}
     <div class="py-10 text-center text-sm" style="color: rgba(255,255,255,0.72);">
@@ -190,7 +312,7 @@
                     >
                   </span>
                 {/if}
-                <span style="color: rgba(255,255,255,0.4);">
+                <span style="color: rgba(255,255,255,0.6);">
                   Submitted {new Date(signup.created_at).toLocaleDateString()}
                 </span>
               </div>
@@ -198,16 +320,17 @@
               {#if (signup.tracker_links ?? []).length > 0}
                 <div class="mb-3 flex flex-wrap gap-2">
                   {#each signup.tracker_links as link (link.url)}
-                    <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+                    <!-- eslint-disable svelte/no-navigation-without-resolve -->
+                    <!-- External tracker URLs, not app routes -->
                     <a
                       href={link.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      class="rounded px-2 py-1 text-xs"
-                      style="background: rgba(59,130,246,0.14); color: #93c5fd;"
+                      class="admin-btn admin-btn-sm admin-btn-info"
                     >
                       {link.label} ↗
                     </a>
+                    <!-- eslint-enable svelte/no-navigation-without-resolve -->
                   {/each}
                 </div>
               {/if}
@@ -218,8 +341,7 @@
                   Display Name
                   <input
                     value={state.displayName}
-                    class="mt-1 w-full rounded-md border px-2 py-1 text-sm"
-                    style={inputStyle}
+                    class="admin-input mt-1"
                     oninput={(e) =>
                       onEditChange(signup.id, {
                         displayName: (e.currentTarget as HTMLInputElement).value,
@@ -230,8 +352,7 @@
                   Discord
                   <input
                     value={state.discordHandle}
-                    class="mt-1 w-full rounded-md border px-2 py-1 text-sm"
-                    style={inputStyle}
+                    class="admin-input mt-1"
                     oninput={(e) =>
                       onEditChange(signup.id, {
                         discordHandle: (e.currentTarget as HTMLInputElement).value,
@@ -244,8 +365,7 @@
               <div class="mt-3 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  class="rounded px-3 py-1.5 text-xs font-semibold"
-                  style="background: rgba(59,130,246,0.18); color: #93c5fd;"
+                  class="admin-btn admin-btn-sm admin-btn-info"
                   disabled={riotLookupSignupId === signup.id || !signup.riot_tag}
                   title={signup.riot_tag
                     ? `Look up ${signup.display_name}#${signup.riot_tag}`
@@ -256,8 +376,7 @@
                 </button>
                 <button
                   type="button"
-                  class="rounded px-3 py-1.5 text-xs font-semibold"
-                  style="background: rgba(168,85,247,0.18); color: #d8b4fe;"
+                  class="admin-btn admin-btn-sm admin-btn-accent"
                   disabled={trackerLookupSignupId === signup.id || !signup.riot_tag}
                   title={signup.riot_tag
                     ? 'Read the tracker.gg performance score for current and peak'
@@ -269,7 +388,7 @@
                     : 'Fetch tracker score'}
                 </button>
                 {#if signup.riot_tag}
-                  <span class="text-[11px]" style="color: rgba(255,255,255,0.45);">
+                  <span class="text-[11px]" style="color: rgba(255,255,255,0.64);">
                     {signup.display_name}#{signup.riot_tag}
                   </span>
                 {:else}
@@ -279,7 +398,7 @@
                 {/if}
               </div>
 
-              <div class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-4">
+              <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 <label class="text-xs" style="color: rgba(255,255,255,0.82);">
                   Current Rank (C)
                   <div class="mt-1">
@@ -311,8 +430,7 @@
                     step="any"
                     min="0"
                     value={state.trackerCurrentScore}
-                    class="mt-1 w-full rounded-md border px-2 py-1 text-sm"
-                    style={inputStyle}
+                    class="admin-input mt-1"
                     placeholder="Blank = 0"
                     oninput={(e) =>
                       onEditChange(signup.id, {
@@ -327,8 +445,7 @@
                     step="any"
                     min="0"
                     value={state.trackerPeakScore}
-                    class="mt-1 w-full rounded-md border px-2 py-1 text-sm"
-                    style={inputStyle}
+                    class="admin-input mt-1"
                     placeholder="Blank = 0"
                     oninput={(e) =>
                       onEditChange(signup.id, {
@@ -359,7 +476,7 @@
                 </div>
                 <div
                   class="mt-1 flex flex-wrap gap-3 text-[11px]"
-                  style="color: rgba(255,255,255,0.45); font-variant-numeric: tabular-nums;"
+                  style="color: rgba(255,255,255,0.64); font-variant-numeric: tabular-nums;"
                 >
                   <span>0.575C = {preview.currentTerm.toFixed(2)}</span>
                   <span>0.425P = {preview.peakTerm.toFixed(2)}</span>
@@ -374,15 +491,14 @@
                     type="number"
                     step="any"
                     value={state.manualValueOverride}
-                    class="mt-1 w-full rounded-md border px-2 py-1 text-sm md:max-w-[12rem]"
-                    style={inputStyle}
+                    class="admin-input mt-1 md:max-w-[12rem]"
                     placeholder="Leave blank to use the formula"
                     oninput={(e) =>
                       onEditChange(signup.id, {
                         manualValueOverride: (e.currentTarget as HTMLInputElement).value,
                       })}
                   />
-                  <span class="mt-1 block text-[11px]" style="color: rgba(255,255,255,0.4);">
+                  <span class="mt-1 block text-[11px]" style="color: rgba(255,255,255,0.6);">
                     Overrides the formula for the team calculator.
                   </span>
                 </label>
@@ -393,8 +509,7 @@
                 <textarea
                   rows="2"
                   value={state.adminNotes}
-                  class="mt-1 w-full rounded-md border px-3 py-2 text-sm leading-5"
-                  style={inputStyle}
+                  class="admin-input mt-1 leading-5"
                   placeholder="Visible to the player on their signup page."
                   oninput={(e) =>
                     onEditChange(signup.id, {
@@ -406,8 +521,7 @@
               <div class="mt-3 flex flex-wrap items-center justify-between gap-2">
                 <button
                   type="button"
-                  class="rounded px-3 py-1.5 text-xs font-semibold"
-                  style="background: rgba(248,113,113,0.2); color: #f87171;"
+                  class="admin-btn admin-btn-sm admin-btn-danger"
                   disabled={processingSignupId === signup.id}
                   onclick={() => onDelete(signup.id, signup.display_name ?? signup.profile.name)}
                 >
@@ -416,8 +530,7 @@
                 <div class="flex flex-wrap gap-2">
                   <button
                     type="button"
-                    class="rounded px-3 py-1.5 text-xs font-semibold"
-                    style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+                    class="admin-btn admin-btn-sm admin-btn-info"
                     disabled={processingSignupId === signup.id}
                     onclick={() => onSave(signup.id)}
                   >
@@ -426,8 +539,7 @@
                   {#if signup.status !== 'rejected'}
                     <button
                       type="button"
-                      class="rounded px-3 py-1.5 text-xs font-semibold"
-                      style="background: rgba(248,113,113,0.16); color: #fca5a5;"
+                      class="admin-btn admin-btn-sm admin-btn-danger"
                       disabled={processingSignupId === signup.id}
                       onclick={() => onSetStatus(signup.id, 'rejected')}
                     >
@@ -437,8 +549,7 @@
                   {#if signup.status !== 'approved'}
                     <button
                       type="button"
-                      class="rounded px-3 py-1.5 text-xs font-semibold"
-                      style="background: rgba(74,222,128,0.18); color: #86efac;"
+                      class="admin-btn admin-btn-sm admin-btn-go"
                       disabled={processingSignupId === signup.id}
                       onclick={() => onSetStatus(signup.id, 'approved')}
                     >
