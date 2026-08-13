@@ -152,6 +152,14 @@
     display: flex;
     justify-content: center;
     padding: 1.5rem 0 2.5rem;
+    /*
+     * `.page-container` is a column flex with `items-center`, so a child that
+     * does not claim a width is shrink-to-fit — this page sized itself to its
+     * widest content (~1000px) and the container's `overflow-x: hidden` then
+     * clipped it. On a phone that hid roughly two thirds of the dashboard with
+     * no way to scroll to it.
+     */
+    width: 100%;
   }
 
   /* Masthead */
@@ -186,14 +194,26 @@
     gap: 0.5rem;
   }
 
+  /*
+   * Hidden below the tablet breakpoint, matching AdminEditLink: every import
+   * screen behind these is a management task for a large display, and the group
+   * took most of the masthead on a phone. Shown from 768px up.
+   */
   .admin-import-group {
-    display: flex;
+    display: none;
     align-items: center;
     gap: 0.375rem;
+    min-width: 0;
     padding: 0.3125rem 0.5rem;
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 0.625rem;
     background: rgba(0, 0, 0, 0.22);
+  }
+
+  @media (min-width: 768px) {
+    .admin-import-group {
+      display: flex;
+    }
   }
 
   .admin-import-label {
@@ -307,8 +327,15 @@
     color: #86efac;
   }
 
+  /*
+   * `body` sets a background but no color, so anything that does not name its
+   * own colour inherits the UA default — black on a near-black panel. Tabs that
+   * style every string explicitly looked fine; plain table cells and headings
+   * disappeared. Setting it once here covers every tab.
+   */
   .admin-panel-body {
     padding: 0.875rem;
+    color: var(--text);
   }
 
   @media (min-width: 640px) {
@@ -333,11 +360,6 @@
     /* Actions get their own full-width row instead of squeezing the title. */
     .admin-masthead-actions {
       width: 100%;
-    }
-
-    .admin-import-group {
-      flex: 1;
-      justify-content: space-between;
     }
   }
 </style>

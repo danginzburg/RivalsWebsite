@@ -704,6 +704,14 @@
     .tab-bar-inner {
       overflow-x: auto;
       -webkit-overflow-scrolling: touch;
+      /*
+       * `.tab-bar` still carries `flex-wrap: wrap`, and a wrapping column flex
+       * sizes its line to the widest item rather than to the container — so the
+       * strip stretched to its content width and ran past the page padding
+       * instead of scrolling. Pin it to the container and let it scroll.
+       */
+      min-width: 0;
+      max-width: 100%;
     }
 
     .tab-item {

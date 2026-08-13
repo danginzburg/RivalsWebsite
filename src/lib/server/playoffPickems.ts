@@ -3,7 +3,6 @@ import { error } from '@sveltejs/kit'
 import {
   PLAYOFF_MATCH_IDS,
   PLAYOFF_PICKEM_KIND,
-  buildPlayoffBracketSlots,
   isPlayoffPickemLocked,
   normalizePlayoffPickemConfig,
   normalizePlayoffPickemPayload,

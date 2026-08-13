@@ -2,7 +2,7 @@
   import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import AdminEditLink from '$lib/components/AdminEditLink.svelte'
-  import { Trophy, Users, CalendarDays, History } from 'lucide-svelte'
+  import { Users, CalendarDays, History } from 'lucide-svelte'
   import TeamSeed from '$lib/components/TeamSeed.svelte'
   import { resolve } from '$app/paths'
 
@@ -16,6 +16,16 @@
   const leaderboard = $derived(data.leaderboard ?? null)
   const activeSeason = $derived(data.activeSeason ?? null)
   const seeds = $derived((data.seeds ?? {}) as Record<string, number>)
+
+  const statsSources = $derived(data.statsSources ?? [])
+  /** Label for where the roster numbers come from, e.g. "Season 4 · 4 events". */
+  const statsSourceLabel = $derived.by(() => {
+    if (statsSources.length === 0) return null
+    if (statsSources.length === 1) return statsSources[0]
+    const season = data.statsSeasonName
+    const events = `${statsSources.length} events`
+    return season ? `${season} · ${events}` : events
+  })
 
   function formatLocal(value: string | null | undefined) {
     if (!value) return 'Date TBD'
@@ -171,8 +181,8 @@
       <header class="card-head">
         <Users size={15} />
         <h2 class="card-title">Roster</h2>
-        {#if data.statsBatchName}
-          <span class="card-source">{data.statsBatchName}</span>
+        {#if statsSourceLabel}
+          <span class="card-source" title={statsSources.join(' · ')}>{statsSourceLabel}</span>
         {/if}
         <span class="card-count">{roster.length}</span>
       </header>

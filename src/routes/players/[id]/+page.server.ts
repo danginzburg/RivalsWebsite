@@ -33,6 +33,119 @@ type TeamRel = {
   approval_status?: string | null
 }
 
+type SeasonRel = {
+  id: string
+  name?: string | null
+  code?: string | null
+  starts_on?: string | null
+}
+
+type MembershipTeamRel = TeamRel & {
+  season_id?: string | null
+  seasons?: SeasonRel | SeasonRel[] | null
+}
+
+type TeamHistoryRow = {
+  /** Team id doubles as the key — one row per team, however many stints. */
+  team: { id: string; name: string; tag: string | null; logo_url: string | null }
+  season: { name: string; code: string | null } | null
+  role: string | null
+  /** Still on the roster — drives the "Current" marker. */
+  is_current: boolean
+  joined_at: string | null
+  /** Sort key: when this team's season began, empty for an unassigned team. */
+  season_started_on: string
+}
+
+/**
+ * Every team this player has been rostered on, newest season first.
+ *
+ * Unapproved teams are left out: their team pages 404 for ordinary visitors, so
+ * a row for one would be a dead link.
+ *
+ * Rosters carry duplicate rows for the same player and team — a re-add writes a
+ * second membership rather than reviving the first — so stints are collapsed to
+ * one row per team. A genuine move between two teams still shows as two rows.
+ */
+async function loadTeamHistory(profileId: string): Promise<TeamHistoryRow[]> {
+  // `seasons` has three FKs back to `teams` (season_id, winner, runner-up), so
+  // the embed has to name the one it means or PostgREST refuses the query.
+  const { data, error: historyError } = await supabaseAdmin
+    .from('team_memberships')
+    .select(
+      `
+      id,
+      role,
+      is_active,
+      joined_at,
+      left_at,
+      teams (
+        id, name, tag, logo_path, approval_status, season_id,
+        seasons!teams_season_id_fkey (id, name, code, starts_on)
+      )
+    `
+    )
+    .eq('profile_id', profileId)
+    .order('joined_at', { ascending: false, nullsFirst: false })
+
+  if (historyError) {
+    console.error('Failed to load team history:', historyError)
+    return []
+  }
+
+  type Row = {
+    id: number
+    role?: string | null
+    is_active?: boolean | null
+    joined_at?: string | null
+    left_at?: string | null
+    teams?: MembershipTeamRel | MembershipTeamRel[] | null
+  }
+
+  const byTeam = new Map<string, TeamHistoryRow>()
+  for (const row of (data ?? []) as Row[]) {
+    const team = Array.isArray(row.teams) ? row.teams[0] : row.teams
+    if (!team || team.approval_status !== 'approved') continue
+
+    const seasonRel = Array.isArray(team.seasons) ? team.seasons[0] : team.seasons
+    const isCurrent = Boolean(row.is_active) && !row.left_at
+    const existing = byTeam.get(team.id)
+
+    if (existing) {
+      // Merge the stints: earliest join, and current if any stint is open.
+      existing.is_current ||= isCurrent
+      if (row.joined_at && (!existing.joined_at || row.joined_at < existing.joined_at)) {
+        existing.joined_at = row.joined_at
+      }
+      // An open stint's role is the one worth showing.
+      if (isCurrent && row.role) existing.role = row.role
+      continue
+    }
+
+    byTeam.set(team.id, {
+      team: {
+        id: team.id,
+        name: team.name,
+        tag: team.tag ?? null,
+        logo_url: getTeamLogoUrl(team),
+      },
+      season: seasonRel ? { name: seasonRel.name ?? 'Season', code: seasonRel.code ?? null } : null,
+      role: row.role ?? null,
+      is_current: isCurrent,
+      joined_at: row.joined_at ?? null,
+      season_started_on: seasonRel?.starts_on ?? '',
+    })
+  }
+
+  // Newest season first; within a season, the most recent roster first.
+  return [...byTeam.values()].sort((a, b) => {
+    if (a.season_started_on !== b.season_started_on) {
+      return b.season_started_on.localeCompare(a.season_started_on)
+    }
+    return (b.joined_at ?? '').localeCompare(a.joined_at ?? '')
+  })
+}
+
 type StatBatchInfo = Partial<NormalizedRivalsGroupStatBatch> & { id: string; display_name: string }
 
 type StatRow = {
@@ -268,19 +381,32 @@ export const load = async ({
     }
   }
 
-  const { data: membership } = await supabaseAdmin
-    .from('team_memberships')
-    .select(
-      `
+  // Current roster spot, every past roster spot, and the aggregate stat rows
+  // all key off the profile alone, so they go out together.
+  const [{ data: membership }, teamHistory, { data: statsRows }] = await Promise.all([
+    supabaseAdmin
+      .from('team_memberships')
+      .select(
+        `
       team_id,
       role,
       teams (id, name, tag, logo_path, approval_status)
     `
-    )
-    .eq('profile_id', profileId)
-    .eq('is_active', true)
-    .is('left_at', null)
-    .maybeSingle()
+      )
+      .eq('profile_id', profileId)
+      .eq('is_active', true)
+      .is('left_at', null)
+      .maybeSingle(),
+    loadTeamHistory(profileId),
+    supabaseAdmin
+      .from('rivals_group_stats')
+      .select(
+        'id, player_name, profile_id, agents, games, games_won, games_lost, rounds, rounds_won, rounds_lost, acs, kd, kast_pct, adr, kills, deaths, assists, fk, fd, hs_pct, econ_rating, kpg, kpr, dpg, dpr, apg, apr, fkpg, fdpg, plants, plants_per_game, defuses, defuses_per_game, league_rank, import_batch_id, imported_at'
+      )
+      .eq('profile_id', profileId)
+      .order('imported_at', { ascending: false })
+      .limit(200),
+  ])
 
   const membershipTeams = (membership as { teams?: TeamRel | TeamRel[] | null } | null)?.teams
   const teamRel = membership
@@ -299,15 +425,6 @@ export const load = async ({
           role: membership?.role ?? null,
         }
       : null
-
-  const { data: statsRows } = await supabaseAdmin
-    .from('rivals_group_stats')
-    .select(
-      'id, player_name, profile_id, agents, games, games_won, games_lost, rounds, rounds_won, rounds_lost, acs, kd, kast_pct, adr, kills, deaths, assists, fk, fd, hs_pct, econ_rating, kpg, kpr, dpg, dpr, apg, apr, fkpg, fdpg, plants, plants_per_game, defuses, defuses_per_game, league_rank, import_batch_id, imported_at'
-    )
-    .eq('profile_id', profileId)
-    .order('imported_at', { ascending: false })
-    .limit(200)
 
   const possibleUnmatchedNames = Array.from(
     new Set(
@@ -704,10 +821,12 @@ export const load = async ({
     }
   }
 
-  const viewerProfileId = await getViewerProfileId(locals.user)
-  const playerComments = await loadCommentThread('player', profileId, {
-    includeReportCounts: locals.user?.role === 'admin',
-  })
+  const [viewerProfileId, playerComments] = await Promise.all([
+    getViewerProfileId(locals.user),
+    loadCommentThread('player', profileId, {
+      includeReportCounts: locals.user?.role === 'admin',
+    }),
+  ])
 
   return {
     player: {
@@ -730,6 +849,7 @@ export const load = async ({
     },
     bestRank,
     activeTeam,
+    teamHistory,
     accolades: playerAccolades,
     viewer: {
       canEditRiotIdBase,

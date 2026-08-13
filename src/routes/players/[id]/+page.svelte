@@ -43,6 +43,7 @@
     hideWeeks ? allBatchOptions.filter((b) => !isWeekBatch(b)) : allBatchOptions
   )
   const matchHistory = $derived((data.matchHistory ?? []) as any[])
+  const teamHistory = $derived(data.teamHistory ?? [])
   const mapStats = $derived(
     (data.mapStats ?? []) as Array<{
       key: string
@@ -163,12 +164,6 @@
 
   function navToBatch(batchId: string) {
     window.location.href = `/players/${player.profile_id}?batchId=${encodeURIComponent(batchId)}`
-  }
-
-  function formatLocal(value: string | null | undefined) {
-    if (!value) return 'Date TBD'
-    const date = new Date(value)
-    return date.toLocaleString(undefined, { timeZoneName: 'short' })
   }
 
   function teamName(value: unknown) {
@@ -306,7 +301,7 @@
               {#if activeTeam}
                 <a
                   href={resolve(`/teams/${activeTeam.id}`)}
-                  class="inline-flex items-center gap-2 rounded-md px-1 py-1 transition-colors hover:bg-white/5"
+                  class="identity-team inline-flex items-center gap-2 rounded-md px-1 py-1 transition-colors hover:bg-white/5"
                   style="color: var(--text);"
                 >
                   <span class="font-medium" style="color: rgba(255,255,255,0.88);"
@@ -318,8 +313,9 @@
                     >
                   {/if}
                   {#if activeTeam.role}
-                    <span class="text-sm capitalize" style="color: rgba(255,255,255,0.52);"
-                      >{activeTeam.role}</span
+                    <span
+                      class="identity-role text-sm capitalize"
+                      style="color: rgba(255,255,255,0.52);">{activeTeam.role}</span
                     >
                   {/if}
                 </a>
@@ -579,6 +575,48 @@
         {/if}
       </section>
 
+      <section class="card">
+        <header class="card-head">
+          <h2 class="card-title">Team History</h2>
+          {#if teamHistory.length > 0}
+            <span class="card-count">{teamHistory.length}</span>
+          {/if}
+        </header>
+
+        {#if teamHistory.length === 0}
+          <p class="card-empty">Not rostered on a team yet.</p>
+        {:else}
+          <div class="team-rows">
+            {#each teamHistory as entry (entry.team.id)}
+              <a href={resolve(`/teams/${entry.team.id}`)} class="team-row">
+                {#if entry.team.logo_url}
+                  <img src={entry.team.logo_url} alt="" class="row-logo" />
+                {:else}
+                  <span class="row-logo row-logo-empty"></span>
+                {/if}
+
+                <span class="team-row-name">
+                  {entry.team.name}
+                  {#if entry.team.tag}
+                    <span class="team-row-tag">{entry.team.tag}</span>
+                  {/if}
+                </span>
+
+                {#if entry.role && entry.role !== 'player'}
+                  <span class="team-row-role">{entry.role}</span>
+                {/if}
+
+                <span class="team-row-season">{entry.season?.name ?? 'Unassigned season'}</span>
+
+                <span class="team-row-status" class:team-row-current={entry.is_current}>
+                  {entry.is_current ? 'Current' : 'Former'}
+                </span>
+              </a>
+            {/each}
+          </div>
+        {/if}
+      </section>
+
       <CommentThread
         entityType="player"
         entityId={player.profile_id}
@@ -593,7 +631,12 @@
 <style>
   .player-page {
     width: 100%;
-    max-width: 80rem;
+    /*
+     * The widest thing here is a stat table that needs ~510px; at 80rem the
+     * columns were stretched across a third more space than they had content
+     * for. 64rem still clears everything without truncation.
+     */
+    max-width: 64rem;
     margin: 0 auto;
     padding: 1.5rem 1rem 3rem;
   }
@@ -851,7 +894,7 @@
     background: rgba(255, 255, 255, 0.03);
   }
 
-  .col-left {
+  .data-table .col-left {
     text-align: left;
   }
 
@@ -951,6 +994,98 @@
     transition: color 0.15s;
   }
 
+  /* Team history — same row rhythm as the match list above it. */
+  .team-rows {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .team-row {
+    display: flex;
+    align-items: center;
+    /*
+     * Wraps rather than overflowing: logo, name, role, season and status do
+     * not share one line on a phone, and the status was the item pushed off
+     * the right edge.
+     */
+    flex-wrap: wrap;
+    gap: 0.6875rem;
+    padding: 0.625rem 1rem;
+    text-decoration: none;
+    color: var(--text);
+    transition: background 0.15s;
+  }
+
+  .team-row + .team-row {
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .team-row:hover {
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .team-row:hover .team-row-name {
+    color: var(--accent-text);
+  }
+
+  .team-row-name {
+    /*
+     * Small basis on purpose: flex wraps before it shrinks, so a generous basis
+     * would push the status onto a second line while there was still room to
+     * ellipsize the name instead.
+     */
+    flex: 1 1 4rem;
+    min-width: 0;
+    font-size: 0.875rem;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transition: color 0.15s;
+  }
+
+  .team-row-tag {
+    margin-left: 0.375rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .team-row-role {
+    flex-shrink: 0;
+    padding: 0.0625rem 0.375rem;
+    border-radius: 0.25rem;
+    background: rgba(255, 255, 255, 0.08);
+    font-size: 0.625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: rgba(255, 255, 255, 0.7);
+  }
+
+  .team-row-season {
+    flex-shrink: 0;
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  .team-row-status {
+    flex-shrink: 0;
+    /* Stays hard right whether it shares the first line or wraps below. */
+    margin-left: auto;
+    min-width: 3.75rem;
+    text-align: right;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: rgba(255, 255, 255, 0.4);
+  }
+
+  .team-row-current {
+    color: #4ade80;
+  }
+
   .row-agents {
     display: flex;
     gap: 0.1875rem;
@@ -1024,6 +1159,16 @@
     align-items: center;
     gap: 0.375rem;
     margin-top: 0.5rem;
+  }
+
+  /*
+   * Team name, tag and role sit on one line until they cannot. Without this the
+   * chip refuses to shrink below its content and spills past the hero on a
+   * phone — "Virtuous.Proletariat [VP] player" is wider than the column.
+   */
+  .identity-team {
+    min-width: 0;
+    flex-wrap: wrap;
   }
 
   /* Short and centred so it separates without crowding the text above. */
@@ -1109,6 +1254,17 @@
 
     .row-kda {
       display: inline;
+    }
+
+    /*
+     * The role reads as filler next to the team name, and the divider is a
+     * separator for a line that no longer has room to be one line. Dropping
+     * both is what lets the header and each history row stay on one line.
+     */
+    .identity-role,
+    .identity-divider,
+    .team-row-role {
+      display: none;
     }
   }
 </style>

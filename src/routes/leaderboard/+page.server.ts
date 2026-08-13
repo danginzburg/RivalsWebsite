@@ -51,20 +51,25 @@ export type StandingsRow = {
  * page remains a complete roster of the league.
  */
 async function loadStandings() {
-  const { data: batch } = await supabaseAdmin
-    .from('stat_import_batches')
-    .select('id, display_name, source_filename, created_at, metadata')
-    .filter('metadata->>import_type', 'eq', 'leaderboard_entries')
-    .eq('status', 'applied')
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-
-  const { data: teams } = await supabaseAdmin
-    .from('teams')
-    .select('id, name, tag, logo_path, metadata')
-    .eq('approval_status', 'approved')
-    .order('name', { ascending: true })
+  // The batch, the team directory and the bracket seeds are independent of one
+  // another; only the entries query needs to wait on them.
+  const [{ data: batch }, { data: teams }, seeds] = await Promise.all([
+    supabaseAdmin
+      .from('stat_import_batches')
+      .select('id, display_name, source_filename, created_at, metadata')
+      .filter('metadata->>import_type', 'eq', 'leaderboard_entries')
+      .eq('status', 'applied')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabaseAdmin
+      .from('teams')
+      .select('id, name, tag, logo_path, metadata')
+      .eq('approval_status', 'approved')
+      .order('name', { ascending: true }),
+    // Seeds come from the active season's bracket, matching the team list.
+    getActiveSeasonSeeds(),
+  ])
 
   const teamIds = (teams ?? []).map((t) => t.id)
 
@@ -115,9 +120,6 @@ async function loadStandings() {
     if (ar !== br) return ar - br
     return a.name.localeCompare(b.name)
   })
-
-  // Seeds come from the active season's bracket, matching the team list.
-  const seeds = await getActiveSeasonSeeds()
 
   return {
     rows,

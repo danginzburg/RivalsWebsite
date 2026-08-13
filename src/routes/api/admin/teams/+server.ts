@@ -2,7 +2,6 @@ import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { logAdminAction } from '$lib/server/audit/admin-actions'
-import { errorMessage } from '$lib/server/errors'
 import { resolveTargetSeasonId } from '$lib/server/seasons/resolve'
 
 type RosterProfileRow = {

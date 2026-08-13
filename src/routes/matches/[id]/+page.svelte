@@ -1181,8 +1181,8 @@
     background: rgba(255, 255, 255, 0.03);
   }
 
-  .col-player,
-  .col-agent {
+  .stat-table .col-player,
+  .stat-table .col-agent {
     text-align: left;
   }
 
@@ -1255,6 +1255,8 @@
 
     .sb-row {
       gap: 0.625rem;
+      /* A name that wraps to two lines must not shove its logo out of line. */
+      align-items: start;
     }
 
     .sb-team {
@@ -1267,11 +1269,17 @@
       flex-direction: column;
     }
 
-    /* Both sides stack, so neither needs the mirrored order. */
+    /*
+     * Both sides stack, so neither needs the mirrored order. Wrapping lets the
+     * rank chip drop below a long name instead of taking width from it — each
+     * side only gets ~107px here.
+     */
     .sb-name-block,
     .sb-team-b .sb-name-block {
       flex-direction: row;
       justify-content: center;
+      flex-wrap: wrap;
+      max-width: 100%;
     }
 
     .sb-logo {
@@ -1282,6 +1290,13 @@
     .sb-name {
       font-size: 0.875rem;
       white-space: normal;
+      /*
+       * As a flex item the name would otherwise refuse to shrink below its
+       * longest word, pushing the whole block past the side it sits in — a
+       * single-word name like "Perc30FishStick" is wider than the column.
+       */
+      min-width: 0;
+      overflow-wrap: break-word;
     }
 
     .sb-num {
