@@ -20,6 +20,18 @@ export function isValidRiotBase(value: string): boolean {
   return value.length >= 3 && value.length <= 24
 }
 
+/**
+ * Riot tagline — the part after '#'. Riot allows 3-5 alphanumeric characters.
+ * Returns null when absent or malformed so callers can reject explicitly.
+ */
+export function normalizeRiotTag(value: unknown): string | null {
+  const raw = String(value ?? '')
+    .trim()
+    .replace(/^#/, '')
+  if (!/^[A-Za-z0-9]{3,5}$/.test(raw)) return null
+  return raw.toUpperCase()
+}
+
 /** Admin PATCH: empty or null Riot base is allowed (clear / omit). */
 export function isValidRiotBaseLenient(value: string | null): boolean {
   if (!value) return true

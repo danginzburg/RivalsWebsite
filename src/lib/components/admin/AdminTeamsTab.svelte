@@ -20,6 +20,7 @@
       display_name?: string | null
       email?: string | null
       role: string
+      is_starter?: boolean
     }>
   }
 
@@ -43,6 +44,9 @@
     addPlayerForm: Record<string, AddState>
     teamEditForm: Record<string, EditState>
     processingTeamId: string | null
+    matchSeasonOptions: Array<{ value: string; label: string }>
+    adminMatchSeasonId: string
+    onMatchSeasonChange: (value: string) => void
     onTeamsSearchChange: (value: string) => void
     onCreateTeamNameChange: (value: string) => void
     onCreateTeamTagChange: (value: string) => void
@@ -60,6 +64,7 @@
       riotId: string,
       role: string
     ) => void
+    onToggleStarter: (teamId: string, membershipId: number | null, isStarter: boolean) => void
     onRemoveTeam: (teamId: string, teamName: string) => void
   }
 
@@ -72,6 +77,9 @@
     addPlayerForm,
     teamEditForm,
     processingTeamId,
+    matchSeasonOptions,
+    adminMatchSeasonId,
+    onMatchSeasonChange,
     onTeamsSearchChange,
     onCreateTeamNameChange,
     onCreateTeamTagChange,
@@ -83,27 +91,68 @@
     onAddPlayerChange,
     onAddPlayer,
     onRemovePlayer,
+    onToggleStarter,
     onRemoveTeam,
   }: Props = $props()
 
   let createTeamLogoInput: HTMLInputElement | null = null
+
+  function starterCount(team: TeamRecord) {
+    return (team.roster ?? []).filter((player) => player.is_starter).length
+  }
+
+  /**
+   * New teams land in whichever season is being viewed, so the form says which
+   * one that is rather than leaving it implicit.
+   */
+  const selectedSeason = $derived(
+    matchSeasonOptions.find((option) => option.value === adminMatchSeasonId)
+  )
+  const targetSeasonLabel = $derived(
+    !adminMatchSeasonId
+      ? 'the active season'
+      : adminMatchSeasonId === '__none__'
+        ? 'no season'
+        : (selectedSeason?.label ?? 'the selected season')
+  )
+  const targetSeasonIsPast = $derived(
+    Boolean(adminMatchSeasonId) &&
+      adminMatchSeasonId !== '__none__' &&
+      !(selectedSeason?.label ?? '').includes('Active')
+  )
 </script>
 
-<input
-  bind:value={teamsSearch}
-  placeholder="Search teams by name, tag, captain"
-  class="mb-3 w-full rounded-md border px-3 py-2 text-sm"
-  style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-  oninput={(e) => onTeamsSearchChange((e.currentTarget as HTMLInputElement).value)}
-/>
+<div class="mb-3 flex flex-col gap-2 md:flex-row md:items-center">
+  <div class="md:max-w-xs">
+    <CustomSelect
+      options={matchSeasonOptions}
+      value={adminMatchSeasonId}
+      compact={true}
+      placeholder="Filter by season"
+      onSelect={onMatchSeasonChange}
+    />
+  </div>
+  <input
+    bind:value={teamsSearch}
+    placeholder="Search teams by name, tag, captain"
+    class="admin-input"
+    oninput={(e) => onTeamsSearchChange((e.currentTarget as HTMLInputElement).value)}
+  />
+</div>
 
-<div class="mb-6 rounded-md border p-3" style="border-color: rgba(255,255,255,0.12);">
+<div class="admin-bordered mb-6 p-3">
   <h3
-    class="mb-3 text-sm font-semibold tracking-wide uppercase"
+    class="mb-1 text-sm font-semibold tracking-wide uppercase"
     style="color: rgba(255,255,255,0.8);"
   >
     Create Team
   </h3>
+  <p class="mb-3 text-xs" style="color: rgba(255,255,255,0.55);">
+    Filed under <strong style="color: {targetSeasonIsPast ? '#fcd34d' : 'rgba(255,255,255,0.8)'};"
+      >{targetSeasonLabel}</strong
+    >{#if targetSeasonIsPast}
+      — backfilling a past season.{/if}
+  </p>
 
   <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
     <label class="flex flex-col gap-1 text-sm" style="color: var(--text);">
@@ -113,8 +162,7 @@
         required
         minlength="2"
         maxlength="48"
-        class="rounded-md border px-3 py-2"
-        style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+        class="admin-input"
         placeholder="Team name"
         oninput={(e) => onCreateTeamNameChange((e.currentTarget as HTMLInputElement).value)}
       />
@@ -126,8 +174,7 @@
         required
         maxlength="4"
         minlength="2"
-        class="rounded-md border px-3 py-2"
-        style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+        class="admin-input"
         placeholder="TCR"
         oninput={(e) => onCreateTeamTagChange((e.currentTarget as HTMLInputElement).value)}
       />
@@ -139,8 +186,7 @@
         type="file"
         accept="image/*"
         required
-        class="rounded-md border px-3 py-2 text-sm"
-        style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+        class="admin-file"
         oninput={(e) =>
           onCreateTeamLogoInput(
             (e.currentTarget as HTMLInputElement).files?.[0] ?? null,
@@ -153,8 +199,7 @@
   <div class="mt-3 flex justify-end">
     <button
       type="button"
-      class="rounded-md px-3 py-2 text-xs font-semibold"
-      style="background: rgba(74,222,128,0.2); color: #4ade80;"
+      class="admin-btn admin-btn-sm admin-btn-go"
       onclick={onCreateTeam}
       disabled={isCreatingTeam}
     >
@@ -163,7 +208,7 @@
   </div>
 </div>
 
-<div class="rounded-md border p-3" style="border-color: rgba(255,255,255,0.12);">
+<div class="admin-bordered p-3">
   <h3
     class="mb-3 text-sm font-semibold tracking-wide uppercase"
     style="color: rgba(255,255,255,0.8);"
@@ -183,10 +228,7 @@
           tag: team.tag ?? '',
           status: 'active',
         }}
-        <article
-          class="rounded-lg border p-3"
-          style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
-        >
+        <article class="admin-card p-3">
           <div class="mb-2 flex items-center gap-3">
             {#if team.logo_url}
               <img src={team.logo_url} alt="Team logo" class="h-10 w-10 rounded object-contain" />
@@ -212,7 +254,7 @@
             <div>Captain: {profileLabel(team.captain_profile)}</div>
           </div>
 
-          <div class="mt-3 rounded-md border p-3" style="border-color: rgba(255,255,255,0.12);">
+          <div class="admin-bordered mt-3 p-3">
             <div
               class="mb-2 text-[11px] font-semibold tracking-wide uppercase"
               style="color: rgba(255,255,255,0.7);"
@@ -224,8 +266,7 @@
                 Name
                 <input
                   value={editState.name}
-                  class="mt-1 w-full rounded-md border px-2 py-1 text-sm"
-                  style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                  class="admin-input mt-1"
                   oninput={(e) =>
                     onTeamEditChange(team.id, {
                       name: (e.currentTarget as HTMLInputElement).value,
@@ -236,8 +277,7 @@
                 Tag
                 <input
                   value={editState.tag}
-                  class="mt-1 w-full rounded-md border px-2 py-1 text-sm"
-                  style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                  class="admin-input mt-1"
                   oninput={(e) =>
                     onTeamEditChange(team.id, {
                       tag: (e.currentTarget as HTMLInputElement).value,
@@ -261,8 +301,7 @@
                 <input
                   type="file"
                   accept="image/*"
-                  class="mt-1 w-full rounded-md border px-2 py-1 text-sm"
-                  style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                  class="admin-file mt-1"
                   oninput={(e) =>
                     onTeamLogoChange(
                       team.id,
@@ -274,8 +313,7 @@
             <div class="mt-2 flex justify-end">
               <button
                 type="button"
-                class="rounded px-2 py-1 text-xs font-semibold"
-                style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+                class="admin-btn admin-btn-sm admin-btn-info"
                 disabled={processingTeamId === team.id}
                 onclick={() => onSaveTeam(team.id, team.name)}
               >
@@ -285,20 +323,21 @@
           </div>
 
           {#if (team.roster ?? []).length > 0}
-            <div class="mt-3 rounded-md border p-2" style="border-color: rgba(255,255,255,0.12);">
+            <div class="admin-bordered mt-3 p-2">
               <div
-                class="mb-2 text-[11px] font-semibold tracking-wide uppercase"
+                class="mb-2 flex items-center gap-2 text-[11px] font-semibold tracking-wide uppercase"
                 style="color: rgba(255,255,255,0.7);"
               >
-                Team Players
+                <span>Team Players</span>
+                <span class="admin-pill">{starterCount(team)} starters</span>
               </div>
               <div class="flex flex-col gap-1">
                 {#each team.roster ?? [] as player (player.membership_id ?? `${team.id}-${player.profile_id}`)}
                   <div
-                    class="flex items-center justify-between gap-2 rounded px-2 py-1"
+                    class="flex flex-wrap items-center justify-between gap-2 rounded px-2 py-1.5"
                     style="background: rgba(255,255,255,0.05);"
                   >
-                    <div class="min-w-0 text-xs" style="color: var(--text);">
+                    <div class="min-w-0 flex-1 text-xs" style="color: var(--text);">
                       <span class="font-semibold"
                         >{player.riot_id_base ??
                           player.player_name ??
@@ -316,33 +355,55 @@
                         </span>
                       {/if}
                     </div>
-                    <button
-                      type="button"
-                      class="rounded px-2 py-1 text-[11px] font-semibold"
-                      style="background: rgba(248,113,113,0.2); color: #f87171;"
-                      disabled={processingTeamId === team.id}
-                      onclick={() =>
-                        onRemovePlayer(
-                          team.id,
-                          player.membership_id ?? null,
-                          player.profile_id,
-                          player.riot_id_base ??
-                            player.player_name ??
-                            player.display_name ??
-                            player.email ??
-                            'User',
-                          player.role
-                        )}
-                    >
-                      Remove
-                    </button>
+                    <div class="flex flex-shrink-0 items-center gap-1.5">
+                      <!-- Starters feed the expected lineup on match pages
+                           before any stats are imported. -->
+                      <button
+                        type="button"
+                        class="admin-toggle"
+                        class:admin-toggle-on={player.is_starter}
+                        disabled={processingTeamId === team.id || player.membership_id == null}
+                        title={player.membership_id == null
+                          ? 'Membership predates starter tracking'
+                          : player.is_starter
+                            ? 'Remove starter designation'
+                            : 'Mark as starter'}
+                        onclick={() =>
+                          onToggleStarter(
+                            team.id,
+                            player.membership_id ?? null,
+                            !player.is_starter
+                          )}
+                      >
+                        {player.is_starter ? '★ Starter' : '☆ Starter'}
+                      </button>
+                      <button
+                        type="button"
+                        class="admin-btn admin-btn-sm admin-btn-danger"
+                        disabled={processingTeamId === team.id}
+                        onclick={() =>
+                          onRemovePlayer(
+                            team.id,
+                            player.membership_id ?? null,
+                            player.profile_id,
+                            player.riot_id_base ??
+                              player.player_name ??
+                              player.display_name ??
+                              player.email ??
+                              'User',
+                            player.role
+                          )}
+                      >
+                        Remove
+                      </button>
+                    </div>
                   </div>
                 {/each}
               </div>
             </div>
           {/if}
 
-          <div class="mt-3 rounded-md border p-2" style="border-color: rgba(255,255,255,0.12);">
+          <div class="admin-bordered mt-3 p-2">
             <div
               class="mb-2 text-[11px] font-semibold tracking-wide uppercase"
               style="color: rgba(255,255,255,0.7);"
@@ -350,12 +411,11 @@
               Add Player
             </div>
 
-            <div class="grid grid-cols-1 gap-2 md:grid-cols-3">
+            <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
               <div class="md:col-span-2">
                 <input
                   value={addState.playerName}
-                  class="w-full rounded-md border px-3 py-2 text-sm"
-                  style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                  class="admin-input"
                   placeholder="Enter player name as it should appear"
                   oninput={(e) =>
                     onAddPlayerChange(team.id, {
@@ -376,8 +436,7 @@
             <div class="mt-2 flex justify-end">
               <button
                 type="button"
-                class="rounded px-2 py-1 text-xs font-semibold"
-                style="background: rgba(74,222,128,0.2); color: #4ade80;"
+                class="admin-btn admin-btn-sm admin-btn-go"
                 onclick={() => onAddPlayer(team.id)}
               >
                 Add
@@ -388,18 +447,13 @@
           <div class="mt-3 flex justify-end gap-2">
             <button
               type="button"
-              class="rounded-md px-3 py-2 text-xs font-semibold"
-              style="background: rgba(248,113,113,0.2); color: #f87171;"
+              class="admin-btn admin-btn-sm admin-btn-danger"
               disabled={processingTeamId === team.id}
               onclick={() => onRemoveTeam(team.id, team.name)}
             >
               Remove Team
             </button>
-            <a
-              href={resolve(`/teams/${team.id}`)}
-              class="rounded-md px-3 py-2 text-xs font-semibold"
-              style="background: rgba(59,130,246,0.2); color: #93c5fd;"
-            >
+            <a href={resolve(`/teams/${team.id}`)} class="admin-btn admin-btn-sm admin-btn-info">
               Open Team Page
             </a>
           </div>

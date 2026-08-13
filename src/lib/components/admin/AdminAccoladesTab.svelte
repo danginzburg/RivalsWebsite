@@ -87,18 +87,17 @@
 </script>
 
 <div class="grid grid-cols-1 gap-4">
-  <section class="rounded-md border p-3" style="border-color: rgba(255,255,255,0.12);">
+  <section class="admin-bordered p-3">
     <h3
       class="mb-3 text-sm font-semibold tracking-wide uppercase"
       style="color: rgba(255,255,255,0.8);"
     >
       Create Accolade
     </h3>
-    <div class="grid grid-cols-1 gap-2 md:grid-cols-4">
+    <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
       <input
         value={createAccoladeName}
-        class="rounded-md border px-3 py-2 text-sm"
-        style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+        class="admin-input"
         placeholder="Accolade name"
         oninput={(e) => onCreateAccoladeNameChange((e.currentTarget as HTMLInputElement).value)}
       />
@@ -112,15 +111,13 @@
       <input
         type="file"
         accept="image/*"
-        class="rounded-md border px-3 py-2 text-sm"
-        style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+        class="admin-file"
         oninput={(e) =>
           onCreateAccoladeLogoInput((e.currentTarget as HTMLInputElement).files?.[0] ?? null)}
       />
       <button
         type="button"
-        class="rounded-md px-3 py-2 text-sm font-semibold"
-        style="background: rgba(74,222,128,0.2); color: #4ade80;"
+        class="admin-btn admin-btn-go text-sm"
         onclick={onCreateAccolade}
         disabled={isCreatingAccolade}
       >
@@ -129,7 +126,7 @@
     </div>
   </section>
 
-  <section class="rounded-md border p-3" style="border-color: rgba(255,255,255,0.12);">
+  <section class="admin-bordered p-3">
     <h3
       class="mb-3 text-sm font-semibold tracking-wide uppercase"
       style="color: rgba(255,255,255,0.8);"
@@ -161,8 +158,7 @@
                   {#if editingAccoladeId === accolade.id}
                     <input
                       value={editAccoladeName}
-                      class="rounded-md border px-2 py-1 text-sm"
-                      style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                      class="admin-input"
                       oninput={(e) =>
                         onEditAccoladeNameChange((e.currentTarget as HTMLInputElement).value)}
                     />
@@ -182,34 +178,30 @@
                 {#if editingAccoladeId === accolade.id}
                   <button
                     type="button"
-                    class="rounded px-2 py-1 text-xs font-semibold"
-                    style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+                    class="admin-btn admin-btn-sm admin-btn-info"
                     onclick={() => onRenameAccolade(accolade.id)}>Save</button
                   >
                   <button
                     type="button"
-                    class="rounded px-2 py-1 text-xs font-semibold"
-                    style="background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.82);"
+                    class="admin-btn admin-btn-sm admin-btn-neutral"
                     onclick={onCancelEditAccolade}>Cancel</button
                   >
                 {:else}
                   <button
                     type="button"
-                    class="rounded px-2 py-1 text-xs font-semibold"
-                    style="background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.82);"
+                    class="admin-btn admin-btn-sm admin-btn-neutral"
                     onclick={() => onEditAccolade(accolade)}>Rename</button
                   >
                   <button
                     type="button"
-                    class="rounded px-2 py-1 text-xs font-semibold"
-                    style="background: rgba(248,113,113,0.18); color: #fca5a5;"
+                    class="admin-btn admin-btn-sm admin-btn-danger"
                     onclick={() => onDeleteAccolade(accolade.id)}>Delete</button
                   >
                 {/if}
               </div>
             </div>
 
-            <div class="mt-3 grid grid-cols-1 gap-2 md:grid-cols-4">
+            <div class="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
               <CustomSelect
                 options={iconKeyOptions}
                 value={accolade.icon_key ?? ''}
@@ -220,8 +212,7 @@
               <input
                 type="file"
                 accept="image/*"
-                class="rounded-md border px-3 py-2 text-xs"
-                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                class="admin-file"
                 oninput={(e) => {
                   const file = (e.currentTarget as HTMLInputElement).files?.[0]
                   if (file) onUpdateAccoladeLogo(accolade.id, file)
@@ -229,16 +220,14 @@
               />
               <input
                 value={accoladeAssignProfileId[accolade.id] ?? ''}
-                class="rounded-md border px-3 py-2 text-sm"
-                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                class="admin-input"
                 placeholder="Player name"
                 oninput={(e) =>
                   onAssignProfileChange(accolade.id, (e.currentTarget as HTMLInputElement).value)}
               />
               <input
                 value={accoladeAssignContext[accolade.id] ?? ''}
-                class="rounded-md border px-3 py-2 text-sm"
-                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                class="admin-input"
                 placeholder="Context"
                 oninput={(e) =>
                   onAssignContextChange(accolade.id, (e.currentTarget as HTMLInputElement).value)}
@@ -254,8 +243,7 @@
               </div>
               <button
                 type="button"
-                class="rounded px-3 py-2 text-xs font-semibold"
-                style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+                class="admin-btn admin-btn-sm admin-btn-info"
                 onclick={() => onAssignAccolade(accolade.id)}
               >
                 Assign

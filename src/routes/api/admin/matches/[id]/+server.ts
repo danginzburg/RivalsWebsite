@@ -8,6 +8,7 @@ import {
 } from '$lib/server/matches/lifecycle'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { logAdminAction } from '$lib/server/audit/admin-actions'
+import { resolveTargetSeasonId } from '$lib/server/seasons/resolve'
 
 function normalizeOptional(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -62,6 +63,10 @@ export const PATCH: RequestHandler = async ({ locals, request, params }) => {
         winnerTeamId: normalizeOptional(body.winnerTeamId),
         youtubeVodUrl: normalizeOptional(body.youtubeVodUrl),
         mapVetoes: parseMapVetoes(body.mapVetoes),
+        designation: normalizeOptional(body.designation),
+        // Absent leaves the season alone; present re-files the match.
+        seasonId:
+          body.seasonId === undefined ? undefined : await resolveTargetSeasonId(body.seasonId),
       })
       return json({ success: true, match: updated })
     }

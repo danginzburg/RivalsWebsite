@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
-  import { Upload, Swords } from 'lucide-svelte'
+  import { Upload, Swords, ArrowLeft } from 'lucide-svelte'
   import { resolve } from '$app/paths'
 
   let { data }: PageProps = $props()
@@ -36,31 +36,24 @@
 </script>
 
 <PageContainer>
-  <div class="flex justify-center px-4 py-8">
+  <div class="flex justify-center py-6 sm:py-8">
     <div class="w-full max-w-4xl">
-      <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <div class="flex items-center gap-3">
-          <Swords size={36} style="color: var(--text);" />
-          <div>
-            <h1 class="responsive-title">Import Map Stats</h1>
-            <p class="text-sm" style="color: rgba(255,255,255,0.72);">
+      <header class="admin-import-head">
+        <div class="flex min-w-0 items-center gap-3">
+          <Swords size={30} style="color: rgba(255,255,255,0.72); flex-shrink: 0;" />
+          <div class="min-w-0">
+            <h1 class="admin-import-title">Import Map Stats</h1>
+            <p class="admin-hint mt-1">
               {teamName(match.team_a)} vs {teamName(match.team_b)} • Match {match.id}
             </p>
           </div>
         </div>
-        <a
-          href={resolve('/admin')}
-          class="rounded-md px-3 py-2 text-xs font-semibold"
-          style="background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.85);"
-        >
-          Back to Admin
+        <a href={resolve('/admin')} class="admin-back-link">
+          <ArrowLeft size={14} /> Admin
         </a>
-      </div>
+      </header>
 
-      <section
-        class="rounded-md border p-4"
-        style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
-      >
+      <section class="admin-card admin-card-pad">
         <h2
           class="mb-3 text-sm font-semibold tracking-wide uppercase"
           style="color: rgba(255,255,255,0.8);"
@@ -69,10 +62,7 @@
         </h2>
 
         {#if clientError}
-          <div
-            class="mb-3 rounded-md border p-3 text-sm"
-            style="border-color: rgba(248,113,113,0.35); background: rgba(248,113,113,0.08); color: #fecaca;"
-          >
+          <div class="admin-alert admin-alert-error mb-3">
             {clientError}
           </div>
         {/if}
@@ -93,8 +83,7 @@
                 type="number"
                 min="1"
                 bind:value={mapOrder}
-                class="w-full rounded-md border px-3 py-2 text-sm"
-                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                class="admin-input"
               />
             </div>
             <div>
@@ -110,8 +99,7 @@
                 name="mapName"
                 type="text"
                 bind:value={mapName}
-                class="w-full rounded-md border px-3 py-2 text-sm"
-                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                class="admin-input"
                 placeholder="Ascent, Haven, ..."
               />
             </div>
@@ -129,8 +117,7 @@
                 type="number"
                 min="0"
                 bind:value={teamARounds}
-                class="w-full rounded-md border px-3 py-2 text-sm"
-                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                class="admin-input"
               />
             </div>
             <div>
@@ -147,8 +134,7 @@
                 type="number"
                 min="0"
                 bind:value={teamBRounds}
-                class="w-full rounded-md border px-3 py-2 text-sm"
-                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                class="admin-input"
               />
             </div>
           </div>
@@ -166,8 +152,7 @@
               name="csv"
               type="file"
               accept=".csv,text/csv"
-              class="w-full rounded-md border px-3 py-2 text-sm"
-              style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+              class="admin-file"
               oninput={handleFileInput}
               required
             />
@@ -176,8 +161,7 @@
           <button
             type="submit"
             formaction="?/importMap"
-            class="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold"
-            style="background: rgba(74,222,128,0.2); color: #4ade80;"
+            class="admin-btn admin-btn-go text-sm"
             disabled={!file}
           >
             <Upload size={16} />
@@ -186,10 +170,7 @@
         </form>
       </section>
 
-      <section
-        class="mt-4 rounded-md border p-4"
-        style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
-      >
+      <section class="admin-card admin-card-pad mt-4">
         <h2
           class="mb-3 text-sm font-semibold tracking-wide uppercase"
           style="color: rgba(255,255,255,0.8);"
@@ -202,10 +183,7 @@
         {:else}
           <div class="flex flex-col gap-2">
             {#each existingMaps as m (m.id)}
-              <div
-                class="rounded-md border p-3 text-sm"
-                style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.18); color: var(--text);"
-              >
+              <div class="admin-subcard p-3 text-sm">
                 <strong>Map {m.map_order}</strong>
                 {#if m.map_name}
                   <span class="opacity-80"> • {m.map_name}</span>

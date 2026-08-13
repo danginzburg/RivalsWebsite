@@ -2,7 +2,8 @@
   // Extracted from /add-stats to live under /admin.
   import PageContainer from '$lib/components/PageContainer.svelte'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
-  import { Upload, FileSpreadsheet, Loader2, Trash2 } from 'lucide-svelte'
+  import { FileSpreadsheet, Loader2, Trash2, ArrowLeft } from 'lucide-svelte'
+  import { resolve } from '$app/paths'
   import { SvelteMap } from 'svelte/reactivity'
 
   import type { PageData } from '../../../routes/admin/stats-import/$types'
@@ -422,21 +423,21 @@
 </script>
 
 <PageContainer>
-  <div class="flex justify-center px-4 py-8">
+  <div class="flex justify-center py-6 sm:py-8">
     <div class="w-full max-w-6xl">
-      <div class="mb-8 flex flex-col items-center">
-        <Upload size={48} class="mb-4" style="color: var(--text);" />
-        <h1 class="responsive-title mb-2 text-center">Stats Import</h1>
-        <p class="responsive-text mb-6 text-center" style="color: var(--text);">
-          Upload a weekly or aggregate stats CSV.
-        </p>
-      </div>
+      <header class="admin-import-head">
+        <div class="min-w-0">
+          <h1 class="admin-import-title">Stats Import</h1>
+          <p class="admin-hint mt-1">Upload a weekly or aggregate stats CSV.</p>
+        </div>
+        <a href={resolve('/admin')} class="admin-back-link">
+          <ArrowLeft size={14} /> Admin
+        </a>
+      </header>
 
       <div
-        class="rounded-lg border p-6"
-        style={isDragOver
-          ? 'border-color: rgba(59,130,246,0.6); background: rgba(59,130,246,0.08);'
-          : 'border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);'}
+        class="admin-card admin-dropzone-region"
+        class:admin-dropzone-active={isDragOver}
         role="region"
         aria-label="CSV upload dropzone"
         ondragover={(e) => {
@@ -446,15 +447,10 @@
         ondragleave={() => (isDragOver = false)}
         ondrop={handleDrop}
       >
-        <div class="flex flex-col items-center text-center">
-          <FileSpreadsheet size={42} class="mb-3" style="color: var(--text);" />
-          <p class="text-sm" style="color: rgba(255,255,255,0.78);">
-            Drag and drop a CSV, or click to select.
-          </p>
-          <label
-            class="mt-4 cursor-pointer rounded-md px-4 py-2 text-sm font-semibold"
-            style="background: rgba(59,130,246,0.2); color: #93c5fd;"
-          >
+        <div class="flex flex-col items-center gap-3 py-6 text-center">
+          <FileSpreadsheet size={38} style="color: rgba(255,255,255,0.72);" />
+          <p class="admin-hint">Drag and drop a CSV, or click to select.</p>
+          <label class="admin-btn admin-btn-info cursor-pointer">
             Choose File
             <input type="file" accept=".csv" class="hidden" onchange={handleFileInput} />
           </label>
@@ -462,10 +458,7 @@
       </div>
 
       {#if parseError}
-        <div
-          class="mt-4 rounded-md border p-3 text-sm"
-          style="border-color: rgba(248,113,113,0.35); background: rgba(248,113,113,0.08); color: #fecaca;"
-        >
+        <div class="admin-alert admin-alert-error mt-4">
           {parseError}
         </div>
       {/if}
@@ -483,8 +476,7 @@
 
       {#if parsedRows.length > 0 && stats}
         <div
-          class="mt-6 mb-6 grid grid-cols-1 gap-3 rounded-lg border p-4 md:grid-cols-3"
-          style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.18);"
+          class="admin-card mt-6 mb-6 grid grid-cols-1 gap-3 rounded-lg border p-4 sm:grid-cols-2 lg:grid-cols-3"
         >
           <div>
             <div
@@ -494,8 +486,7 @@
               Display Name
             </div>
             <input
-              class="w-full rounded-md border px-3 py-2 text-sm"
-              style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+              class="admin-input"
               placeholder="Week 1, Aggregate, ..."
               bind:value={displayName}
             />
@@ -522,8 +513,7 @@
               Week Label
             </div>
             <input
-              class="w-full rounded-md border px-3 py-2 text-sm"
-              style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+              class="admin-input"
               placeholder="Week 1"
               list="week-label-suggestions"
               bind:value={weekLabel}
@@ -542,8 +532,7 @@
         <div class="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            class="rounded-md px-3 py-2 text-xs font-semibold"
-            style="background: rgba(74,222,128,0.2); color: #4ade80;"
+            class="admin-btn admin-btn-sm admin-btn-go"
             onclick={submitStats}
             disabled={isSubmitting}
           >
@@ -555,12 +544,7 @@
             {/if}
           </button>
 
-          <button
-            type="button"
-            class="rounded-md px-3 py-2 text-xs font-semibold"
-            style="background: rgba(248,113,113,0.2); color: #f87171;"
-            onclick={clearData}
-          >
+          <button type="button" class="admin-btn admin-btn-sm admin-btn-danger" onclick={clearData}>
             <Trash2 class="mr-2 inline h-4 w-4" />
             Clear
           </button>
@@ -570,10 +554,7 @@
           </div>
         </div>
 
-        <div
-          class="mt-4 overflow-x-auto rounded-md border"
-          style="border-color: rgba(255,255,255,0.12);"
-        >
+        <div class="admin-bordered table-scroll mt-4">
           <table class="min-w-full text-left text-sm">
             <thead>
               <tr class="text-xs tracking-wide uppercase" style="color: rgba(255,255,255,0.75);">
@@ -587,7 +568,7 @@
             </thead>
             <tbody>
               {#each parsedRows as row (row.player_name)}
-                <tr class="border-t" style="border-color: rgba(255,255,255,0.10);">
+                <tr class="admin-divide border-t">
                   <td class="px-3 py-2 font-semibold" style="color: var(--text);"
                     >{row.player_name}</td
                   >

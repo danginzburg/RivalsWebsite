@@ -94,13 +94,21 @@ export async function adminFormRequest<T>(
   return payload as T
 }
 
-export async function fetchAdminDashboardData(): Promise<{
+export async function fetchAdminDashboardData(options?: { seasonId?: string | null }): Promise<{
   users: AdminUser[]
   seasons: AdminSeason[]
   queue: TeamQueueEntry[]
   approved: TeamQueueEntry[]
   matches: AdminMatch[]
 }> {
+  const matchesUrl = options?.seasonId
+    ? `/api/admin/matches?seasonId=${encodeURIComponent(options.seasonId)}`
+    : '/api/admin/matches'
+
+  const teamsUrl = options?.seasonId
+    ? `/api/admin/teams?seasonId=${encodeURIComponent(options.seasonId)}`
+    : '/api/admin/teams'
+
   const [usersResult, seasonsResult, teamsResult, matchesResult] = await Promise.all([
     adminJsonRequest<DashboardUsersResult>('/api/admin/users', {
       fallbackMessage: 'Failed to fetch users',
@@ -108,10 +116,10 @@ export async function fetchAdminDashboardData(): Promise<{
     adminJsonRequest<DashboardSeasonsResult>('/api/admin/seasons', {
       fallbackMessage: 'Failed to fetch seasons',
     }),
-    adminJsonRequest<DashboardTeamsResult>('/api/admin/teams', {
+    adminJsonRequest<DashboardTeamsResult>(teamsUrl, {
       fallbackMessage: 'Failed to fetch teams',
     }),
-    adminJsonRequest<DashboardMatchesResult>('/api/admin/matches', {
+    adminJsonRequest<DashboardMatchesResult>(matchesUrl, {
       fallbackMessage: 'Failed to fetch matches',
     }),
   ])

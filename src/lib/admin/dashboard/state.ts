@@ -27,7 +27,7 @@ type FetchAdapter = {
       includeHttpStatusInError?: boolean
     }
   ): Promise<T>
-  fetchDashboardData(): Promise<DashboardData>
+  fetchDashboardData(options?: { seasonId?: string | null }): Promise<DashboardData>
 }
 
 export type DashboardStatusSink = {
@@ -38,12 +38,12 @@ export type DashboardStatusSink = {
 }
 
 export function createAdminDashboardState({ fetchAdapter }: { fetchAdapter: FetchAdapter }) {
-  async function refresh(sink: DashboardStatusSink) {
+  async function refresh(sink: DashboardStatusSink & { seasonId?: string | null }) {
     sink.setLoading(true)
     sink.setError(null)
     sink.setSuccess(null)
     try {
-      sink.replaceData(await fetchAdapter.fetchDashboardData())
+      sink.replaceData(await fetchAdapter.fetchDashboardData({ seasonId: sink.seasonId }))
     } catch (err) {
       sink.setError(err instanceof Error ? err.message : 'Failed to refresh data')
     } finally {
@@ -52,7 +52,7 @@ export function createAdminDashboardState({ fetchAdapter }: { fetchAdapter: Fetc
   }
 
   return {
-    async refresh(sink: DashboardStatusSink) {
+    async refresh(sink: DashboardStatusSink & { seasonId?: string | null }) {
       await refresh(sink)
     },
 
@@ -91,6 +91,8 @@ export function createAdminDashboardState({ fetchAdapter }: { fetchAdapter: Fetc
       teamBId: string
       bestOf: BestOfValue
       scheduledAt: string
+      /** Omitted files the match under the active season. */
+      seasonId?: string
     }) {
       if (!input.teamAId || !input.teamBId) return { error: 'Select both teams' }
       if (input.teamAId === input.teamBId) return { error: 'Teams must be different' }
@@ -102,6 +104,7 @@ export function createAdminDashboardState({ fetchAdapter }: { fetchAdapter: Fetc
           teamBId: input.teamBId,
           bestOf: Number(input.bestOf),
           scheduledAt: input.scheduledAt || null,
+          ...(input.seasonId ? { seasonId: input.seasonId } : {}),
         },
         fallbackMessage: 'Failed to create match',
       })
@@ -151,6 +154,7 @@ export function createAdminDashboardState({ fetchAdapter }: { fetchAdapter: Fetc
           winnerTeamId: state.winnerTeamId || null,
           youtubeVodUrl: vodUrl || null,
           mapVetoes: state.mapVetoes || '',
+          designation: state.designation || null,
         },
         fallbackMessage: 'Failed to update match',
       })

@@ -16,6 +16,9 @@
   import AdminTeamsTab from '$lib/components/admin/AdminTeamsTab.svelte'
   import AdminUsersTab from '$lib/components/admin/AdminUsersTab.svelte'
   import AdminAccoladesTab from '$lib/components/admin/AdminAccoladesTab.svelte'
+  import AdminHallOfFameTab from '$lib/components/admin/AdminHallOfFameTab.svelte'
+  import AdminModerationTab from '$lib/components/admin/AdminModerationTab.svelte'
+  import AdminSignupsTab from '$lib/components/admin/AdminSignupsTab.svelte'
   import AdminActionConfirmationModal from '$lib/components/admin/AdminActionConfirmationModal.svelte'
   import type {
     ApprovedTeamEntry,
@@ -25,11 +28,16 @@
     AdminTabId,
     AdminUser,
     BestOfValue,
+    CommentReport,
+    HallOfFameEntry,
+    HallOfFameFormState,
     MatchEditState,
     MatchStreamFormState,
     PendingActionConfirmation,
     PendingRoleChange,
+    PlayerSignup,
     SeasonEditState,
+    SignupEditState,
     TeamEditState,
   } from '$lib/admin/types'
   import type { PageData, PageProps } from './$types'
@@ -51,11 +59,13 @@
   const getInitialSeasons = () => data.seasons || []
   const getInitialApprovedTeams = () => data.approvedTeams || []
   const getInitialMatches = () => data.matches || []
+  const getInitialSeasonId = () => data.activeSeasonId ?? ''
 
   let users = $state<AdminUser[]>(getInitialUsers())
   let seasons = $state<AdminSeason[]>(getInitialSeasons())
   let approvedTeams = $state<ApprovedTeamEntry[]>(getInitialApprovedTeams() as ApprovedTeamEntry[])
   let matches = $state<AdminMatch[]>(getInitialMatches())
+  let adminMatchSeasonId = $state<string>(getInitialSeasonId())
   let matchSearchQuery = $state('')
   let showCompletedAdminMatches = $state(false)
   let createSeasonCode = $state('')
@@ -67,6 +77,18 @@
   let seasonEditForm = $state<Record<string, SeasonEditState>>({})
 
   const approvedTeamOptions = $derived(buildApprovedTeamOptions(approvedTeams ?? []))
+
+  const matchSeasonOptions = $derived.by(() => {
+    const opts: Array<{ value: string; label: string }> = [{ value: '', label: 'All seasons' }]
+    for (const s of seasons) {
+      opts.push({
+        value: s.id,
+        label: `${s.name}${s.is_active ? ' (Active)' : ''}`,
+      })
+    }
+    opts.push({ value: '__none__', label: 'No season' })
+    return opts
+  })
 
   let createMatchTeamAId = $state('')
   let createMatchTeamBId = $state('')
@@ -106,6 +128,538 @@
   let editingAccoladeId = $state<string | null>(null)
   let editAccoladeName = $state('')
   let accoladeLogoStatus = $state<Record<string, 'uploading' | 'done' | null>>({})
+
+  // ---- Hall of Fame ----
+  const blankHallOfFameForm = (): HallOfFameFormState => ({
+    entryType: 'record',
+    title: '',
+    description: '',
+    statValue: '',
+    statLabel: '',
+    mediaUrl: '',
+    playerName: '',
+    profileId: '',
+    teamId: '',
+    seasonId: '',
+    isPublished: true,
+    sortOrder: '0',
+  })
+
+  let hallOfFameEntries = $state<HallOfFameEntry[]>([])
+  let hallOfFameLoaded = $state(false)
+  let hallOfFameCreateForm = $state<HallOfFameFormState>(blankHallOfFameForm())
+  let hallOfFameEditForm = $state<Record<string, HallOfFameFormState>>({})
+  let isCreatingHallOfFameEntry = $state(false)
+  let processingHallOfFameId = $state<string | null>(null)
+
+  /** Options shared by the create and edit forms. Blank entry clears the field. */
+  const hofTeamOptions = $derived([
+    { value: '', label: '— None —' },
+    ...(approvedTeams ?? []).map((t) => ({
+      value: t.id,
+      label: t.name + (t.tag ? ` (${t.tag})` : ''),
+    })),
+  ])
+
+  const hofPlayerOptions = $derived([
+    { value: '', label: '— None —' },
+    ...(users ?? []).map((u) => ({
+      value: u.id,
+      label: u.riot_id_base ?? u.display_name ?? u.email ?? 'Player',
+    })),
+  ])
+
+  const hofSeasonOptions = $derived([
+    { value: '', label: '— None —' },
+    ...(seasons ?? []).map((s) => ({ value: s.id, label: `${s.code} — ${s.name}` })),
+  ])
+
+  async function loadHallOfFame() {
+    try {
+      const result = await adminJsonRequest<{ entries?: HallOfFameEntry[] }>(
+        '/api/admin/hall-of-fame',
+        { fallbackMessage: 'Failed to load hall of fame entries' }
+      )
+      hallOfFameEntries = result.entries ?? []
+      hallOfFameLoaded = true
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to load hall of fame entries'
+    }
+  }
+
+  /** Map a form state onto the API request body. */
+  function hallOfFameBody(state: HallOfFameFormState) {
+    return {
+      entryType: state.entryType,
+      title: state.title,
+      description: state.description || null,
+      statValue: state.statValue || null,
+      statLabel: state.statLabel || null,
+      mediaUrl: state.mediaUrl || null,
+      playerName: state.playerName || null,
+      profileId: state.profileId || null,
+      teamId: state.teamId || null,
+      seasonId: state.seasonId || null,
+      isPublished: state.isPublished,
+      sortOrder: Number(state.sortOrder) || 0,
+    }
+  }
+
+  async function createHallOfFameEntry() {
+    if (!hallOfFameCreateForm.title.trim()) {
+      errorMessage = 'Title is required'
+      return
+    }
+
+    isCreatingHallOfFameEntry = true
+    errorMessage = null
+    successMessage = null
+    try {
+      await adminJsonRequest('/api/admin/hall-of-fame', {
+        method: 'POST',
+        body: hallOfFameBody(hallOfFameCreateForm),
+        fallbackMessage: 'Failed to create entry',
+      })
+      successMessage = 'Entry added.'
+      hallOfFameCreateForm = blankHallOfFameForm()
+      await loadHallOfFame()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to create entry'
+    } finally {
+      isCreatingHallOfFameEntry = false
+    }
+  }
+
+  async function saveHallOfFameEntry(entryId: string) {
+    const state = hallOfFameEditForm[entryId]
+    if (!state) return
+
+    processingHallOfFameId = entryId
+    errorMessage = null
+    successMessage = null
+    try {
+      await adminJsonRequest('/api/admin/hall-of-fame', {
+        method: 'PATCH',
+        body: { id: entryId, ...hallOfFameBody(state) },
+        fallbackMessage: 'Failed to update entry',
+      })
+      successMessage = 'Entry updated.'
+      await loadHallOfFame()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to update entry'
+    } finally {
+      processingHallOfFameId = null
+    }
+  }
+
+  async function deleteHallOfFameEntry(entryId: string, title: string) {
+    if (!window.confirm(`Delete "${title}" from the Hall of Fame?`)) return
+
+    processingHallOfFameId = entryId
+    errorMessage = null
+    successMessage = null
+    try {
+      await adminJsonRequest(`/api/admin/hall-of-fame?id=${encodeURIComponent(entryId)}`, {
+        method: 'DELETE',
+        fallbackMessage: 'Failed to delete entry',
+      })
+      successMessage = 'Entry deleted.'
+      await loadHallOfFame()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to delete entry'
+    } finally {
+      processingHallOfFameId = null
+    }
+  }
+
+  // ---- Player signups ----
+  let playerSignups = $state<PlayerSignup[]>([])
+  let signupsLoaded = $state(false)
+  let signupStatusFilter = $state('pending')
+  let signupEditForm = $state<Record<string, SignupEditState>>({})
+  let processingSignupId = $state<string | null>(null)
+
+  const pendingSignupCount = $derived(playerSignups.filter((s) => s.status === 'pending').length)
+
+  async function loadSignups() {
+    try {
+      const result = await adminJsonRequest<{ signups?: PlayerSignup[] }>(
+        `/api/admin/signups?status=${encodeURIComponent(signupStatusFilter)}`,
+        { fallbackMessage: 'Failed to load signups' }
+      )
+      playerSignups = result.signups ?? []
+      signupsLoaded = true
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to load signups'
+    }
+  }
+
+  function signupStateFor(signupId: string): SignupEditState | null {
+    const existing = signupEditForm[signupId]
+    if (existing) return existing
+
+    const signup = playerSignups.find((s) => s.id === signupId)
+    if (!signup) return null
+
+    return {
+      displayName: signup.display_name ?? '',
+      discordHandle: signup.discord_handle ?? '',
+      currentRank: signup.current_rank ?? '',
+      peakRank: signup.peak_rank ?? '',
+      trackerCurrentScore:
+        signup.tracker_current_score != null ? String(signup.tracker_current_score) : '',
+      trackerPeakScore: signup.tracker_peak_score != null ? String(signup.tracker_peak_score) : '',
+      manualValueOverride:
+        signup.manual_value_override != null ? String(signup.manual_value_override) : '',
+      adminNotes: signup.admin_notes ?? '',
+    }
+  }
+
+  function updateSignupEditForm(signupId: string, patch: Partial<SignupEditState>) {
+    const current = signupStateFor(signupId)
+    if (!current) return
+    signupEditForm = { ...signupEditForm, [signupId]: { ...current, ...patch } }
+  }
+
+  /** Blank numeric fields are sent as null so the API clears them. */
+  function signupBody(state: SignupEditState) {
+    return {
+      displayName: state.displayName || null,
+      discordHandle: state.discordHandle || null,
+      currentRank: state.currentRank || null,
+      peakRank: state.peakRank || null,
+      trackerCurrentScore: state.trackerCurrentScore === '' ? null : state.trackerCurrentScore,
+      trackerPeakScore: state.trackerPeakScore === '' ? null : state.trackerPeakScore,
+      manualValueOverride: state.manualValueOverride === '' ? null : state.manualValueOverride,
+      adminNotes: state.adminNotes || null,
+    }
+  }
+
+  let riotLookupSignupId = $state<string | null>(null)
+
+  /**
+   * Look the player up against the Riot API and fill the rank fields.
+   * Only touches ranks — tracker scores are not exposed by that API, and any
+   * manual override the admin has set is left alone.
+   */
+  async function fetchRiotRank(signupId: string) {
+    const signup = playerSignups.find((s) => s.id === signupId)
+    if (!signup) return
+
+    const name = signup.display_name?.trim()
+    const tag = signup.riot_tag?.trim()
+    if (!name || !tag) {
+      errorMessage = 'This signup has no Riot tagline, so it cannot be looked up.'
+      return
+    }
+
+    riotLookupSignupId = signupId
+    errorMessage = null
+    successMessage = null
+    try {
+      const result = await adminJsonRequest<{
+        account: { name: string; tag: string; region: string | null }
+        rank: {
+          currentTier: string | null
+          currentRank: string | null
+          peakTier: string | null
+          peakRank: string | null
+        } | null
+      }>(`/api/admin/riot-lookup?riotId=${encodeURIComponent(`${name}#${tag}`)}`, {
+        fallbackMessage: 'Riot lookup failed',
+      })
+
+      if (!result.rank) {
+        successMessage = `${result.account.name}#${result.account.tag} verified, but has no competitive rank on record.`
+        return
+      }
+
+      const patch: Partial<SignupEditState> = {}
+      if (result.rank.currentRank) patch.currentRank = result.rank.currentRank
+      if (result.rank.peakRank) patch.peakRank = result.rank.peakRank
+
+      if (Object.keys(patch).length === 0) {
+        successMessage = `${result.account.name}#${result.account.tag} verified, but their tier (${result.rank.currentTier ?? 'unknown'}) does not map to a league rank.`
+        return
+      }
+
+      updateSignupEditForm(signupId, patch)
+      successMessage = `Filled from Riot: ${result.rank.currentRank ?? '—'} current, ${result.rank.peakRank ?? '—'} peak. Save to apply.`
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Riot lookup failed'
+    } finally {
+      riotLookupSignupId = null
+    }
+  }
+
+  let trackerLookupSignupId = $state<string | null>(null)
+
+  /**
+   * Read the player's tracker.gg score and fill Tc/Tp.
+   * Leaves ranks and any manual override untouched.
+   */
+  async function fetchTrackerScore(signupId: string) {
+    const signup = playerSignups.find((s) => s.id === signupId)
+    if (!signup) return
+
+    const name = signup.display_name?.trim()
+    const tag = signup.riot_tag?.trim()
+    if (!name || !tag) {
+      errorMessage = 'This signup has no Riot tagline, so it cannot be looked up.'
+      return
+    }
+
+    trackerLookupSignupId = signupId
+    errorMessage = null
+    successMessage = null
+    try {
+      const result = await adminJsonRequest<{
+        current: { act: string; score: number } | null
+        peak: { act: string; score: number } | null
+        peakSource: 'peak-rank-act' | 'highest-score' | null
+        peakRank: string | null
+        warning: string | null
+      }>(`/api/admin/tracker-lookup?riotId=${encodeURIComponent(`${name}#${tag}`)}`, {
+        fallbackMessage: 'Tracker lookup failed',
+      })
+
+      const patch: Partial<SignupEditState> = {}
+      if (result.current) patch.trackerCurrentScore = String(result.current.score)
+      if (result.peak) patch.trackerPeakScore = String(result.peak.score)
+
+      if (Object.keys(patch).length === 0) {
+        errorMessage = 'No tracker scores found for that profile.'
+        return
+      }
+
+      updateSignupEditForm(signupId, patch)
+
+      // Say where the peak came from — the act they peaked in, or a fallback.
+      const peakNote =
+        result.peakSource === 'peak-rank-act'
+          ? `Tp ${result.peak?.score} from ${result.peak?.act}, the act they peaked at ${result.peakRank ?? 'their best rank'}`
+          : `Tp ${result.peak?.score ?? '—'} (${result.peak?.act ?? '—'}, highest recent act)`
+
+      successMessage =
+        `Filled from tracker.gg: Tc ${result.current?.score ?? '—'} (${result.current?.act}), ${peakNote}. Save to apply.` +
+        (result.warning ? ` ${result.warning}` : '')
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Tracker lookup failed'
+    } finally {
+      trackerLookupSignupId = null
+    }
+  }
+
+  type BulkImportReport = {
+    processed: number
+    updated: number
+    skipped: number
+    failed: number
+    stoppedEarly: boolean
+    remaining: number
+    rows: Array<{ id: string; name: string; outcome: string; detail: string }>
+  }
+
+  let bulkImportRunning = $state(false)
+  let bulkImportReport = $state<BulkImportReport | null>(null)
+
+  /**
+   * Fill ranks and tracker scores for the whole filtered list in one pass.
+   * The server paces the third-party requests and works to a time budget, so a
+   * run that stops early is continued by simply pressing the button again.
+   */
+  async function runSignupBulkImport(source: 'riot' | 'tracker' | 'both', overwrite: boolean) {
+    const what =
+      source === 'riot'
+        ? 'ranks from Riot'
+        : source === 'tracker'
+          ? 'tracker.gg scores'
+          : 'ranks and tracker.gg scores'
+    const scope = signupStatusFilter === 'all' ? '' : `${signupStatusFilter} `
+    const warning = overwrite ? '\n\nExisting values will be replaced.' : ''
+    if (!window.confirm(`Fetch ${what} for the ${scope}signups?${warning}`)) return
+
+    bulkImportRunning = true
+    bulkImportReport = null
+    errorMessage = null
+    successMessage = null
+    try {
+      const result = await adminJsonRequest<{ report: BulkImportReport }>(
+        '/api/admin/signups/bulk-import',
+        {
+          method: 'POST',
+          body: { source, overwrite, status: signupStatusFilter },
+          fallbackMessage: 'Bulk import failed',
+        }
+      )
+
+      const report = result.report
+      bulkImportReport = report
+      successMessage =
+        `Bulk import: ${report.updated} updated, ${report.skipped} skipped, ${report.failed} failed.` +
+        (report.stoppedEarly
+          ? ` Ran out of time with ${report.remaining} left — run it again to continue.`
+          : '')
+      await loadSignups()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Bulk import failed'
+    } finally {
+      bulkImportRunning = false
+    }
+  }
+
+  async function saveSignup(signupId: string, status?: 'pending' | 'approved' | 'rejected') {
+    const state = signupStateFor(signupId)
+    if (!state) return
+
+    processingSignupId = signupId
+    errorMessage = null
+    successMessage = null
+    try {
+      await adminJsonRequest('/api/admin/signups', {
+        method: 'PATCH',
+        body: { id: signupId, ...signupBody(state), ...(status ? { status } : {}) },
+        fallbackMessage: 'Failed to update signup',
+      })
+      successMessage = status ? `Signup ${status}.` : 'Signup updated.'
+      await loadSignups()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to update signup'
+    } finally {
+      processingSignupId = null
+    }
+  }
+
+  async function deleteSignup(signupId: string, name: string) {
+    if (!window.confirm(`Delete the signup for ${name}?`)) return
+
+    processingSignupId = signupId
+    errorMessage = null
+    successMessage = null
+    try {
+      await adminJsonRequest(`/api/admin/signups?id=${encodeURIComponent(signupId)}`, {
+        method: 'DELETE',
+        fallbackMessage: 'Failed to delete signup',
+      })
+      successMessage = 'Signup deleted.'
+      await loadSignups()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to delete signup'
+    } finally {
+      processingSignupId = null
+    }
+  }
+
+  // ---- Comment moderation ----
+  let commentReports = $state<CommentReport[]>([])
+  let commentReportsLoaded = $state(false)
+  let commentReportStatusFilter = $state('pending')
+  let processingReportId = $state<string | null>(null)
+
+  /** Pending count drives the badge on the Moderation tab. */
+  const pendingReportCount = $derived(commentReports.filter((r) => r.status === 'pending').length)
+
+  async function loadCommentReports() {
+    try {
+      const result = await adminJsonRequest<{ reports?: CommentReport[] }>(
+        `/api/admin/comment-reports?status=${encodeURIComponent(commentReportStatusFilter)}`,
+        { fallbackMessage: 'Failed to load reports' }
+      )
+      commentReports = result.reports ?? []
+      commentReportsLoaded = true
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to load reports'
+    }
+  }
+
+  async function moderationAction(
+    reportId: string | null,
+    body: Record<string, unknown>,
+    successText: string
+  ) {
+    processingReportId = reportId
+    errorMessage = null
+    successMessage = null
+    try {
+      await adminJsonRequest('/api/admin/comment-reports', {
+        method: 'PATCH',
+        body,
+        fallbackMessage: 'Moderation action failed',
+      })
+      successMessage = successText
+      await loadCommentReports()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Moderation action failed'
+    } finally {
+      processingReportId = null
+    }
+  }
+
+  function resolveReport(reportId: string) {
+    return moderationAction(reportId, { action: 'resolve', reportId }, 'Report resolved.')
+  }
+
+  function dismissReport(reportId: string) {
+    return moderationAction(reportId, { action: 'dismiss', reportId }, 'Report dismissed.')
+  }
+
+  function deleteReportedComment(commentId: string, reportId: string) {
+    if (!window.confirm('Delete this comment? Replies to it will remain.')) return
+    return moderationAction(reportId, { action: 'delete_comment', commentId }, 'Comment deleted.')
+  }
+
+  function banFromCommenting(profileId: string, name: string) {
+    const input = window.prompt(
+      `Ban ${name} from commenting.\n\nEnter the number of days, or leave blank for a permanent ban.`,
+      '7'
+    )
+    if (input === null) return
+
+    const days = input.trim() === '' ? 0 : Number(input)
+    if (input.trim() !== '' && (!Number.isFinite(days) || days < 0)) {
+      errorMessage = 'Enter a positive number of days, or leave it blank for permanent.'
+      return
+    }
+
+    const reason = window.prompt('Reason shown to the user (optional):') ?? null
+    return moderationAction(
+      null,
+      { action: 'ban', profileId, days, reason },
+      days > 0 ? `${name} banned for ${days} day(s).` : `${name} banned permanently.`
+    )
+  }
+
+  function unbanFromCommenting(profileId: string, name: string) {
+    if (!window.confirm(`Lift the commenting ban on ${name}?`)) return
+    return moderationAction(null, { action: 'unban', profileId }, `Ban lifted for ${name}.`)
+  }
+
+  function updateHallOfFameEditForm(entryId: string, patch: Partial<HallOfFameFormState>) {
+    const entry = hallOfFameEntries.find((e) => e.id === entryId)
+    const current =
+      hallOfFameEditForm[entryId] ??
+      (entry
+        ? {
+            entryType: entry.entry_type,
+            title: entry.title,
+            description: entry.description ?? '',
+            statValue: entry.stat_value ?? '',
+            statLabel: entry.stat_label ?? '',
+            mediaUrl: entry.media_url ?? '',
+            playerName: entry.player_name ?? '',
+            profileId: entry.profile_id ?? '',
+            teamId: entry.team_id ?? '',
+            seasonId: entry.season_id ?? '',
+            isPublished: entry.is_published,
+            sortOrder: String(entry.sort_order ?? 0),
+          }
+        : blankHallOfFameForm())
+
+    hallOfFameEditForm = {
+      ...hallOfFameEditForm,
+      [entryId]: { ...current, ...patch },
+    }
+  }
 
   const filteredAdminMatches = $derived(
     filterAdminMatches(matches ?? [], matchSearchQuery, showCompletedAdminMatches)
@@ -460,6 +1014,7 @@
         teamBScore: '0',
         winnerTeamId: '',
         mapVetoes: '',
+        designation: '',
       } as const)
     matchEditForm = {
       ...matchEditForm,
@@ -485,6 +1040,7 @@
         mapVetoes: Array.isArray(match.metadata?.map_vetoes)
           ? match.metadata.map_vetoes.join('\n')
           : '',
+        designation: (match.metadata?.designation as string | undefined) ?? '',
       }
     }
     const keys = Object.keys(next)
@@ -562,6 +1118,11 @@
         startsOn: season.starts_on ?? '',
         endsOn: season.ends_on ?? '',
         isActive: Boolean(season.is_active),
+        summary: season.summary ?? '',
+        winnerTeamId: season.winner_team_id ?? '',
+        runnerUpTeamId: season.runner_up_team_id ?? '',
+        mvpProfileId: season.mvp_profile_id ?? '',
+        finalLeaderboardBatchId: season.final_leaderboard_batch_id ?? '',
       }
     }
     const keys = Object.keys(next)
@@ -620,6 +1181,7 @@
 
   async function refreshData() {
     await dashboardState.refresh({
+      seasonId: adminMatchSeasonId || undefined,
       setLoading: (value) => (isLoading = value),
       setError: (message) => (errorMessage = message),
       setSuccess: (message) => (successMessage = message),
@@ -630,6 +1192,11 @@
         matches = dashboardData.matches
       },
     })
+  }
+
+  async function onMatchSeasonChange(seasonId: string) {
+    adminMatchSeasonId = seasonId
+    await refreshData()
   }
 
   async function finalizeMatch(match: AdminMatch) {
@@ -699,6 +1266,9 @@
         teamBId: createMatchTeamBId,
         bestOf: createMatchBestOf,
         scheduledAt: createMatchScheduledAt,
+        // New rows land in whichever season is being viewed, so filtering to a
+        // past season is how you backfill its history.
+        seasonId: adminMatchSeasonId || undefined,
       })
       if (result.error) {
         errorMessage = result.error
@@ -730,6 +1300,9 @@
       form.set('name', createTeamName)
       form.set('tag', createTeamTag)
       if (createTeamLogoFile) form.set('logo', createTeamLogoFile)
+      // Matches the season currently being viewed, so a past season can be
+      // populated with the teams that played in it.
+      if (adminMatchSeasonId) form.set('seasonId', adminMatchSeasonId)
 
       await adminFormRequest('/api/admin/teams', {
         method: 'POST',
@@ -955,6 +1528,11 @@
           startsOn: state.startsOn || null,
           endsOn: state.endsOn || null,
           isActive: Boolean(state.isActive),
+          summary: state.summary || null,
+          winnerTeamId: state.winnerTeamId || null,
+          runnerUpTeamId: state.runnerUpTeamId || null,
+          mvpProfileId: state.mvpProfileId || null,
+          finalLeaderboardBatchId: state.finalLeaderboardBatchId || null,
         },
         fallbackMessage: 'Failed to update season',
       })
@@ -962,6 +1540,53 @@
       await refreshData()
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Failed to update season'
+    }
+  }
+
+  let logoUploadingSeasonId = $state<string | null>(null)
+
+  async function uploadSeasonLogo(seasonId: string, file: File) {
+    logoUploadingSeasonId = seasonId
+    errorMessage = null
+    successMessage = null
+    try {
+      const form = new FormData()
+      form.set('seasonId', seasonId)
+      form.set('logo', file)
+
+      await adminFormRequest('/api/admin/seasons/logo', {
+        method: 'POST',
+        body: form,
+        fallbackMessage: 'Failed to upload season logo',
+        includeHttpStatusInError: true,
+      })
+
+      successMessage = 'Season logo updated.'
+      await refreshData()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to upload season logo'
+    } finally {
+      logoUploadingSeasonId = null
+    }
+  }
+
+  async function removeSeasonLogo(seasonId: string, seasonName: string) {
+    if (!window.confirm(`Remove the logo for ${seasonName}?`)) return
+
+    logoUploadingSeasonId = seasonId
+    errorMessage = null
+    successMessage = null
+    try {
+      await adminJsonRequest(`/api/admin/seasons/logo?seasonId=${encodeURIComponent(seasonId)}`, {
+        method: 'DELETE',
+        fallbackMessage: 'Failed to remove season logo',
+      })
+      successMessage = 'Season logo removed.'
+      await refreshData()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to remove season logo'
+    } finally {
+      logoUploadingSeasonId = null
     }
   }
 
@@ -1225,6 +1850,48 @@
     }
   }
 
+  /**
+   * Starters drive the expected lineup shown on a match page before stats are
+   * imported, so this is a plain toggle — no confirmation, and the roster is
+   * patched locally rather than reloading the whole dashboard.
+   */
+  async function toggleTeamPlayerStarter(
+    teamId: string,
+    membershipId: number | null,
+    isStarter: boolean
+  ) {
+    if (membershipId === null) {
+      errorMessage = 'This membership predates starter tracking and cannot be toggled.'
+      return
+    }
+
+    processingTeamId = teamId
+    errorMessage = null
+    successMessage = null
+
+    try {
+      await adminJsonRequest('/api/admin/teams/manage', {
+        method: 'PATCH',
+        body: { action: 'toggle_starter', membershipId, isStarter },
+        fallbackMessage: 'Failed to update starter status',
+      })
+
+      approvedTeams = approvedTeams.map((team) => {
+        if (team.id !== teamId) return team
+        return {
+          ...team,
+          roster: (team.roster ?? []).map((player) =>
+            player.membership_id === membershipId ? { ...player, is_starter: isStarter } : player
+          ),
+        }
+      })
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to update starter status'
+    } finally {
+      processingTeamId = null
+    }
+  }
+
   function cancelActionConfirmation() {
     showActionConfirmation = false
     pendingActionConfirmation = null
@@ -1297,6 +1964,9 @@
       matches: matches.length,
       seasons: seasons.length,
       accolades: accolades.length,
+      hallOfFame: hallOfFameEntries.length,
+      moderation: pendingReportCount,
+      signups: pendingSignupCount,
     }}
     {isLoading}
     {errorMessage}
@@ -1304,6 +1974,9 @@
     onTabChange={(tab) => {
       activeTab = tab
       if (tab === 'accolades' && !accoladesLoaded) loadAccolades()
+      if (tab === 'hall-of-fame' && !hallOfFameLoaded) loadHallOfFame()
+      if (tab === 'moderation' && !commentReportsLoaded) loadCommentReports()
+      if (tab === 'signups' && !signupsLoaded) loadSignups()
     }}
     onRefresh={refreshData}
   >
@@ -1334,6 +2007,9 @@
         {addPlayerForm}
         {teamEditForm}
         {processingTeamId}
+        {matchSeasonOptions}
+        {adminMatchSeasonId}
+        {onMatchSeasonChange}
         onTeamsSearchChange={(value) => (teamsSearch = value)}
         onCreateTeamNameChange={(value) => (createTeamName = value)}
         onCreateTeamTagChange={(value) => (createTeamTag = value)}
@@ -1352,6 +2028,7 @@
         onAddPlayerChange={updateAddPlayerForm}
         onAddPlayer={addPlayerToTeam}
         onRemovePlayer={removeApprovedTeamPlayer}
+        onToggleStarter={toggleTeamPlayerStarter}
         onRemoveTeam={removeApprovedTeam}
       />
     {/if}
@@ -1377,6 +2054,9 @@
         {vodForm}
         {matchMapsCache}
         {matchMapsLoading}
+        {matchSeasonOptions}
+        {adminMatchSeasonId}
+        {onMatchSeasonChange}
         onCreateMatchTeamAIdChange={(value) => (createMatchTeamAId = value)}
         onCreateMatchTeamBIdChange={(value) => (createMatchTeamBId = value)}
         onCreateMatchBestOfChange={(value) => (createMatchBestOf = value as BestOfValue)}
@@ -1426,6 +2106,8 @@
         {seasons}
         {approvedTeams}
         {matches}
+        players={users}
+        leaderboardBatches={data.leaderboardBatches ?? []}
         {createSeasonCode}
         {createSeasonName}
         {createSeasonStartsOn}
@@ -1447,6 +2129,9 @@
         onSaveSeason={saveSeason}
         onSavePlayoffPickem={savePlayoffPickem}
         onScorePlayoffPickem={scorePlayoffPickem}
+        {logoUploadingSeasonId}
+        onUploadSeasonLogo={uploadSeasonLogo}
+        onRemoveSeasonLogo={removeSeasonLogo}
       />
     {/if}
 
@@ -1493,6 +2178,70 @@
         onUnassignAccolade={unassignAccolade}
       />
     {/if}
+
+    {#if activeTab === 'hall-of-fame'}
+      <AdminHallOfFameTab
+        entries={hallOfFameEntries}
+        entriesLoaded={hallOfFameLoaded}
+        createForm={hallOfFameCreateForm}
+        editForm={hallOfFameEditForm}
+        teamOptions={hofTeamOptions}
+        playerOptions={hofPlayerOptions}
+        seasonOptions={hofSeasonOptions}
+        processingEntryId={processingHallOfFameId}
+        isCreating={isCreatingHallOfFameEntry}
+        onCreateFormChange={(patch) =>
+          (hallOfFameCreateForm = { ...hallOfFameCreateForm, ...patch })}
+        onEditFormChange={updateHallOfFameEditForm}
+        onCreate={createHallOfFameEntry}
+        onSave={saveHallOfFameEntry}
+        onDelete={deleteHallOfFameEntry}
+      />
+    {/if}
+
+    {#if activeTab === 'moderation'}
+      <AdminModerationTab
+        reports={commentReports}
+        reportsLoaded={commentReportsLoaded}
+        statusFilter={commentReportStatusFilter}
+        {processingReportId}
+        onStatusFilterChange={(value) => {
+          commentReportStatusFilter = value
+          loadCommentReports()
+        }}
+        onResolve={resolveReport}
+        onDismiss={dismissReport}
+        onDeleteComment={deleteReportedComment}
+        onBanUser={banFromCommenting}
+        onUnbanUser={unbanFromCommenting}
+      />
+    {/if}
+
+    {#if activeTab === 'signups'}
+      <AdminSignupsTab
+        signups={playerSignups}
+        {signupsLoaded}
+        statusFilter={signupStatusFilter}
+        editForm={signupEditForm}
+        {processingSignupId}
+        onStatusFilterChange={(value) => {
+          signupStatusFilter = value
+          loadSignups()
+        }}
+        onEditChange={updateSignupEditForm}
+        {riotLookupSignupId}
+        onFetchRiotRank={fetchRiotRank}
+        {trackerLookupSignupId}
+        onFetchTrackerScore={fetchTrackerScore}
+        {bulkImportRunning}
+        {bulkImportReport}
+        onBulkImport={runSignupBulkImport}
+        onDismissBulkReport={() => (bulkImportReport = null)}
+        onSave={(signupId) => saveSignup(signupId)}
+        onSetStatus={(signupId, status) => saveSignup(signupId, status)}
+        onDelete={deleteSignup}
+      />
+    {/if}
   </AdminDashboardShell>
 
   <!-- Role Change Confirmation Modal -->
@@ -1500,7 +2249,7 @@
     <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
       <div
         class="w-full max-w-md rounded-lg border p-6 text-center"
-        style="border-color: rgba(255, 255, 255, 0.2); background: var(--secondary-background);"
+        style="border-color: rgba(255, 255, 255, 0.45); background: var(--secondary-background);"
       >
         <h3 class="mb-3 text-xl font-bold" style="color: var(--title);">Confirm Role Change</h3>
         <p class="mb-5 text-sm" style="color: var(--text);">
@@ -1517,7 +2266,7 @@
           <button
             type="button"
             class="rounded-md border px-4 py-2"
-            style="border-color: rgba(255,255,255,0.2); color: var(--text);"
+            style="border-color: rgba(255,255,255,0.45); color: var(--text);"
             onclick={cancelRoleChange}
             disabled={isUpdatingRole}
           >

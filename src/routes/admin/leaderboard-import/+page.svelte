@@ -2,7 +2,8 @@
   import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
-  import { Upload, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-svelte'
+  import { Upload, CheckCircle2, AlertTriangle, Loader2, ArrowLeft } from 'lucide-svelte'
+  import { resolve } from '$app/paths'
   import { SvelteMap } from 'svelte/reactivity'
 
   let { data }: PageProps = $props()
@@ -176,29 +177,24 @@
 </script>
 
 <PageContainer>
-  <div class="flex justify-center px-4 py-8">
-    <div class="w-full max-w-6xl space-y-6">
-      <div class="flex items-center gap-3">
-        <div>
-          <h1 class="responsive-title">Leaderboard Import</h1>
-          <p class="text-sm" style="color: rgba(255,255,255,0.72);">
+  <div class="flex justify-center py-6 sm:py-8">
+    <div class="w-full max-w-6xl space-y-5">
+      <header class="admin-import-head">
+        <div class="min-w-0">
+          <h1 class="admin-import-title">Leaderboard Import</h1>
+          <p class="admin-hint mt-1">
             Upload standings by team tag. The newest import becomes the public leaderboard.
           </p>
         </div>
-      </div>
+        <a href={resolve('/admin')} class="admin-back-link">
+          <ArrowLeft size={14} /> Admin
+        </a>
+      </header>
 
-      <section
-        class="rounded-lg border p-4"
-        style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
-      >
-        <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
+      <section class="admin-card admin-card-pad">
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div>
-            <div
-              class="mb-1 text-xs font-semibold uppercase"
-              style="color: rgba(255,255,255,0.72);"
-            >
-              Season
-            </div>
+            <div class="admin-field-label">Season</div>
             {#if seasonOptions.length > 0}
               <CustomSelect
                 options={[{ value: '', label: 'No season' }, ...seasonOptions]}
@@ -206,61 +202,24 @@
                 onSelect={(value) => (seasonId = value)}
               />
             {:else}
-              <div
-                class="rounded-md border px-3 py-2 text-sm"
-                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: rgba(255,255,255,0.72);"
-              >
-                No seasons found. Import will be saved without a season.
-              </div>
+              <div class="admin-note">No seasons found. Import will be saved without a season.</div>
             {/if}
           </div>
-          <label class="text-sm" style="color: var(--text);">
-            <div
-              class="mb-1 text-xs font-semibold uppercase"
-              style="color: rgba(255,255,255,0.72);"
-            >
-              Split
-            </div>
-            <input
-              bind:value={split}
-              class="w-full rounded-md border px-3 py-2"
-              style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-            />
+          <label class="block">
+            <div class="admin-field-label">Split</div>
+            <input bind:value={split} class="admin-input" />
           </label>
-          <label class="text-sm" style="color: var(--text);">
-            <div
-              class="mb-1 text-xs font-semibold uppercase"
-              style="color: rgba(255,255,255,0.72);"
-            >
-              As Of Date
-            </div>
-            <input
-              type="date"
-              bind:value={asOfDate}
-              class="w-full rounded-md border px-3 py-2"
-              style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-            />
+          <label class="block">
+            <div class="admin-field-label">As Of Date</div>
+            <input type="date" bind:value={asOfDate} class="admin-input" />
           </label>
-          <label class="text-sm" style="color: var(--text);">
-            <div
-              class="mb-1 text-xs font-semibold uppercase"
-              style="color: rgba(255,255,255,0.72);"
-            >
-              Display Name
-            </div>
-            <input
-              bind:value={displayName}
-              class="w-full rounded-md border px-3 py-2"
-              style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-              placeholder="Leaderboard Import"
-            />
+          <label class="block">
+            <div class="admin-field-label">Display Name</div>
+            <input bind:value={displayName} class="admin-input" placeholder="Leaderboard Import" />
           </label>
         </div>
 
-        <label
-          class="mt-4 flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed px-4 py-6 text-sm font-semibold"
-          style="border-color: rgba(255,255,255,0.18); color: var(--text);"
-        >
+        <label class="admin-dropzone mt-4">
           <Upload size={16} />
           <span>{fileName || 'Choose leaderboard CSV'}</span>
           <input
@@ -275,79 +234,51 @@
         </label>
 
         {#if parseError}
-          <div
-            class="mt-3 rounded-md border p-3 text-sm"
-            style="border-color: rgba(248,113,113,0.35); background: rgba(248,113,113,0.08); color: #fecaca;"
-          >
+          <div class="admin-alert admin-alert-error mt-3">
             {parseError}
           </div>
         {/if}
 
         {#if submitMessage}
-          <div
-            class="mt-3 rounded-md border p-3 text-sm"
-            style="border-color: rgba(255,255,255,0.12); background: rgba(255,255,255,0.06); color: var(--text);"
-          >
+          <div class="admin-note mt-3">
             {submitMessage}
           </div>
         {/if}
 
         {#if unmatchedTeams.length > 0}
-          <div
-            class="mt-3 rounded-md border p-3 text-sm"
-            style="border-color: rgba(250,204,21,0.35); background: rgba(250,204,21,0.08); color: #fde68a;"
-          >
+          <div class="admin-alert admin-alert-warn mt-3">
             Skipped unmatched tags: {unmatchedTeams.join(', ')}
           </div>
         {/if}
       </section>
 
-      <section class="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <div
-          class="rounded-lg border p-4"
-          style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
-        >
-          <div class="flex items-center gap-2 text-sm font-semibold" style="color: var(--text);">
-            <CheckCircle2 size={16} /> Parsed Rows
-          </div>
-          <div class="mt-2 text-3xl font-bold" style="color: var(--title);">{stats.total}</div>
+      <section class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div class="admin-stat">
+          <div class="admin-stat-label"><CheckCircle2 size={14} /> Parsed Rows</div>
+          <div class="admin-stat-value">{stats.total}</div>
         </div>
-        <div
-          class="rounded-lg border p-4"
-          style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
-        >
-          <div class="flex items-center gap-2 text-sm font-semibold" style="color: var(--text);">
-            <CheckCircle2 size={16} /> Matched Tags
-          </div>
-          <div class="mt-2 text-3xl font-bold" style="color: #86efac;">{stats.matched}</div>
+        <div class="admin-stat">
+          <div class="admin-stat-label"><CheckCircle2 size={14} /> Matched Tags</div>
+          <div class="admin-stat-value" style="color: #86efac;">{stats.matched}</div>
         </div>
-        <div
-          class="rounded-lg border p-4"
-          style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
-        >
-          <div class="flex items-center gap-2 text-sm font-semibold" style="color: var(--text);">
-            <AlertTriangle size={16} /> Unmatched Tags
-          </div>
-          <div class="mt-2 text-3xl font-bold" style="color: #fca5a5;">{stats.unmatched}</div>
+        <div class="admin-stat">
+          <div class="admin-stat-label"><AlertTriangle size={14} /> Unmatched Tags</div>
+          <div class="admin-stat-value" style="color: #fca5a5;">{stats.unmatched}</div>
         </div>
       </section>
 
-      <section
-        class="rounded-lg border p-4"
-        style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
-      >
-        <div class="mb-3 flex items-center justify-between gap-3">
-          <div>
-            <div class="text-sm font-semibold" style="color: var(--text);">Preview</div>
-            <div class="text-xs" style="color: rgba(255,255,255,0.7);">
+      <section class="admin-card admin-card-pad">
+        <div class="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div class="min-w-0">
+            <div class="admin-section-title">Preview</div>
+            <div class="admin-hint mt-1">
               Rows import in their current order as ranks. Unmatched tags will be skipped instead of
               blocking the import.
             </div>
           </div>
           <button
             type="button"
-            class="rounded-md px-3 py-2 text-sm font-semibold"
-            style="background: rgba(59,130,246,0.18); color: #93c5fd;"
+            class="admin-btn admin-btn-info flex-shrink-0"
             onclick={submitImport}
             disabled={isSubmitting || parsedRows.length === 0}
           >
@@ -364,7 +295,7 @@
         {#if parsedRows.length === 0}
           <div class="text-sm" style="color: rgba(255,255,255,0.72);">No CSV parsed yet.</div>
         {:else}
-          <div class="overflow-x-auto">
+          <div class="table-scroll">
             <table class="min-w-full text-left text-sm">
               <thead>
                 <tr class="text-xs uppercase" style="color: rgba(255,255,255,0.75);">
@@ -379,7 +310,7 @@
               </thead>
               <tbody>
                 {#each parsedRows as row, index (index)}
-                  <tr class="border-t" style="border-color: rgba(255,255,255,0.10);">
+                  <tr class="admin-divide border-t">
                     <td class="px-3 py-2">{index + 1}</td>
                     <td class="px-3 py-2 font-semibold" style="color: var(--text);">{row.team}</td>
                     <td class="px-3 py-2">{row.points}</td>

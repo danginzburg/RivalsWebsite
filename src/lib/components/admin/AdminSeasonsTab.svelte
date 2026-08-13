@@ -17,6 +17,15 @@
     seasons: AdminSeason[]
     approvedTeams: ApprovedTeamEntry[]
     matches: AdminMatch[]
+    /** Candidates for the season MVP picker. */
+    players?: Array<{
+      id: string
+      display_name: string | null
+      riot_id_base: string | null
+      email: string | null
+    }>
+    /** Leaderboard imports that can be pinned as a season's final standings. */
+    leaderboardBatches?: Array<{ id: string; label: string }>
     createSeasonCode: string
     createSeasonName: string
     createSeasonStartsOn: string
@@ -37,12 +46,18 @@
       config: ReturnType<typeof normalizePlayoffPickemConfig>
     ) => void
     onScorePlayoffPickem: (seasonId: string) => void
+    /** Season id whose logo is mid-upload, or null. */
+    logoUploadingSeasonId?: string | null
+    onUploadSeasonLogo: (seasonId: string, file: File) => void
+    onRemoveSeasonLogo: (seasonId: string, seasonName: string) => void
   }
 
   let {
     seasons,
     approvedTeams,
     matches,
+    players = [],
+    leaderboardBatches = [],
     createSeasonCode,
     createSeasonName,
     createSeasonStartsOn,
@@ -60,7 +75,35 @@
     onSaveSeason,
     onSavePlayoffPickem,
     onScorePlayoffPickem,
+    logoUploadingSeasonId = null,
+    onUploadSeasonLogo,
+    onRemoveSeasonLogo,
   }: Props = $props()
+
+  let expandedPickemSeasonId = $state<string | null>(null)
+  let expandedResultsSeasonId = $state<string | null>(null)
+
+  /** Blank option lets an admin clear a previously-set result. */
+  const teamPickerOptions = $derived([
+    { value: '', label: '— None —' },
+    ...approvedTeams.map((t) => ({
+      value: t.id,
+      label: t.name + (t.tag ? ` (${t.tag})` : ''),
+    })),
+  ])
+
+  const playerPickerOptions = $derived([
+    { value: '', label: '— None —' },
+    ...(players ?? []).map((p) => ({
+      value: p.id,
+      label: p.riot_id_base ?? p.display_name ?? p.email ?? 'Player',
+    })),
+  ])
+
+  const leaderboardBatchOptions = $derived([
+    { value: '', label: '— Use latest import —' },
+    ...(leaderboardBatches ?? []).map((b) => ({ value: b.id, label: b.label })),
+  ])
 
   let playoffConfigForm = $state<Record<string, ReturnType<typeof normalizePlayoffPickemConfig>>>(
     {}
@@ -203,7 +246,7 @@
 </script>
 
 <div class="grid grid-cols-1 gap-4">
-  <section class="rounded-md border p-3" style="border-color: rgba(255,255,255,0.12);">
+  <section class="admin-bordered p-3">
     <div
       class="mb-3 text-sm font-semibold tracking-wide uppercase"
       style="color: rgba(255,255,255,0.8);"
@@ -214,30 +257,26 @@
       <input
         bind:value={createSeasonCode}
         oninput={(e) => onCreateSeasonCodeChange((e.currentTarget as HTMLInputElement).value)}
-        class="rounded-md border px-3 py-2 text-sm"
-        style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+        class="admin-input"
         placeholder="Code (e.g. S1)"
       />
       <input
         bind:value={createSeasonName}
         oninput={(e) => onCreateSeasonNameChange((e.currentTarget as HTMLInputElement).value)}
-        class="rounded-md border px-3 py-2 text-sm xl:col-span-2"
-        style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+        class="admin-input xl:col-span-2"
         placeholder="Season name"
       />
       <input
         type="date"
         bind:value={createSeasonStartsOn}
         oninput={(e) => onCreateSeasonStartsOnChange((e.currentTarget as HTMLInputElement).value)}
-        class="rounded-md border px-3 py-2 text-sm"
-        style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+        class="admin-input"
       />
       <input
         type="date"
         bind:value={createSeasonEndsOn}
         oninput={(e) => onCreateSeasonEndsOnChange((e.currentTarget as HTMLInputElement).value)}
-        class="rounded-md border px-3 py-2 text-sm"
-        style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+        class="admin-input"
       />
     </div>
     <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
@@ -252,8 +291,7 @@
       </label>
       <button
         type="button"
-        class="rounded-md px-3 py-2 text-sm font-semibold"
-        style="background: rgba(74,222,128,0.18); color: #86efac;"
+        class="admin-btn admin-btn-go text-sm"
         onclick={onCreateSeason}
         disabled={isCreatingSeason}
       >
@@ -262,7 +300,7 @@
     </div>
   </section>
 
-  <section class="rounded-md border p-3" style="border-color: rgba(255,255,255,0.12);">
+  <section class="admin-bordered p-3">
     <div
       class="mb-3 text-sm font-semibold tracking-wide uppercase"
       style="color: rgba(255,255,255,0.8);"
@@ -283,13 +321,36 @@
             startsOn: season.starts_on ?? '',
             endsOn: season.ends_on ?? '',
             isActive: Boolean(season.is_active),
+            summary: season.summary ?? '',
+            winnerTeamId: season.winner_team_id ?? '',
+            runnerUpTeamId: season.runner_up_team_id ?? '',
+            mvpProfileId: season.mvp_profile_id ?? '',
+            finalLeaderboardBatchId: season.final_leaderboard_batch_id ?? '',
           }}
+          {@const isResultsExpanded = expandedResultsSeasonId === season.id}
           <article
             class="rounded-md border p-3"
             style="border-color: rgba(255,255,255,0.10); background: rgba(0,0,0,0.18);"
           >
             <div class="mb-2 flex items-center justify-between gap-2">
-              <div class="font-semibold" style="color: var(--text);">{season.name}</div>
+              <div class="flex min-w-0 items-center gap-2">
+                {#if season.logo_url}
+                  <img
+                    src={season.logo_url}
+                    alt="{season.name} logo"
+                    class="h-8 w-8 flex-shrink-0 rounded object-contain"
+                    style="background: rgba(255,255,255,0.04);"
+                  />
+                {:else}
+                  <div
+                    class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded text-[9px] font-bold"
+                    style="background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.56);"
+                  >
+                    {season.code?.slice(0, 3).toUpperCase() ?? '—'}
+                  </div>
+                {/if}
+                <div class="truncate font-semibold" style="color: var(--text);">{season.name}</div>
+              </div>
               {#if season.is_active}
                 <span
                   class="rounded-full px-2 py-1 text-xs font-bold"
@@ -307,8 +368,7 @@
                     ...state,
                     code: (e.currentTarget as HTMLInputElement).value,
                   })}
-                class="rounded-md border px-3 py-2 text-sm"
-                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                class="admin-input"
               />
               <input
                 value={state.name}
@@ -317,8 +377,7 @@
                     ...state,
                     name: (e.currentTarget as HTMLInputElement).value,
                   })}
-                class="rounded-md border px-3 py-2 text-sm xl:col-span-2"
-                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                class="admin-input xl:col-span-2"
               />
               <input
                 type="date"
@@ -328,8 +387,7 @@
                     ...state,
                     startsOn: (e.currentTarget as HTMLInputElement).value,
                   })}
-                class="rounded-md border px-3 py-2 text-sm"
-                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                class="admin-input"
               />
               <input
                 type="date"
@@ -339,8 +397,7 @@
                     ...state,
                     endsOn: (e.currentTarget as HTMLInputElement).value,
                   })}
-                class="rounded-md border px-3 py-2 text-sm"
-                style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                class="admin-input"
               />
             </div>
             <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
@@ -361,223 +418,417 @@
               </label>
               <button
                 type="button"
-                class="rounded-md px-3 py-2 text-sm font-semibold"
-                style="background: rgba(59,130,246,0.18); color: #93c5fd;"
+                class="admin-btn admin-btn-info text-sm"
                 onclick={() => onSaveSeason(season.id)}
               >
                 Save Season
               </button>
             </div>
 
-            {#if true}
-              {@const pickem = playoffConfigForm[season.id] ?? normalizePlayoffPickemConfig(null)}
-              <div
-                class="mt-4 rounded-md border p-3"
-                style="border-color: rgba(255,255,255,0.10); background: rgba(255,255,255,0.035);"
+            <!-- Season results — feeds /events and the Hall of Fame -->
+            <div
+              class="mt-3 rounded-md border"
+              style="border-color: rgba(255,255,255,0.10); background: rgba(255,255,255,0.03);"
+            >
+              <button
+                type="button"
+                class="flex w-full items-center gap-2 p-3"
+                style="cursor: pointer;"
+                onclick={() => (expandedResultsSeasonId = isResultsExpanded ? null : season.id)}
               >
-                <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <div class="text-sm font-semibold" style="color: var(--text);">
-                      Playoff Pick'em
-                    </div>
-                    <div class="text-xs" style="color: rgba(255,255,255,0.62);">
-                      8-team double elimination bracket
-                    </div>
+                <span
+                  class="inline-block text-xs"
+                  style="color: rgba(255,255,255,0.5); transform: rotate({isResultsExpanded
+                    ? '90deg'
+                    : '0deg'});">▶</span
+                >
+                <div class="text-left">
+                  <div class="text-sm font-semibold" style="color: var(--text);">
+                    Season Results
                   </div>
-                  <label
-                    class="inline-flex items-center gap-2 text-sm"
-                    style="color: rgba(255,255,255,0.82);"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={pickem.enabled}
-                      onchange={(e) =>
-                        updatePlayoffConfig(season.id, {
-                          enabled: (e.currentTarget as HTMLInputElement).checked,
-                        })}
-                    />
-                    Enabled
-                  </label>
+                  <div class="text-xs" style="color: rgba(255,255,255,0.62);">
+                    Champion, MVP, and summary shown on the Events page
+                    {#if season.winner_team_id}
+                      <span style="color: #fcd34d;"> · Champion set</span>
+                    {/if}
+                  </div>
                 </div>
+              </button>
 
-                <div class="grid grid-cols-1 gap-2 md:grid-cols-3">
-                  <CustomSelect
-                    options={pickemStatusOptions}
-                    value={pickem.status}
-                    compact={true}
-                    placeholder="Status"
-                    onSelect={(value) =>
-                      updatePlayoffConfig(season.id, {
-                        status: value as typeof pickem.status,
-                      })}
-                  />
-                  <input
-                    type="datetime-local"
-                    value={pickem.lock_at ? pickem.lock_at.slice(0, 16) : ''}
-                    oninput={(e) =>
-                      updatePlayoffConfig(season.id, {
-                        lock_at: (e.currentTarget as HTMLInputElement).value || null,
-                      })}
-                    class="rounded-md border px-3 py-2 text-sm md:col-span-2"
-                    style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
-                  />
-                </div>
-
-                <div class="mt-3 grid grid-cols-1 gap-2 md:grid-cols-4">
-                  {#each [1, 2, 3, 4, 5, 6, 7, 8] as seed (seed)}
-                    <div>
-                      <div
-                        class="mb-1 text-xs font-semibold"
-                        style="color: rgba(255,255,255,0.68);"
-                      >
-                        Seed {seed}
+              {#if isResultsExpanded}
+                <div class="px-3 pb-3">
+                  <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    <label class="text-xs" style="color: rgba(255,255,255,0.82);">
+                      Champion
+                      <div class="mt-1">
+                        <CustomSelect
+                          options={teamPickerOptions}
+                          value={state.winnerTeamId}
+                          compact={true}
+                          placeholder="No champion set"
+                          onSelect={(value) =>
+                            onSeasonEditChange(season.id, { ...state, winnerTeamId: value })}
+                        />
                       </div>
+                    </label>
+                    <label class="text-xs" style="color: rgba(255,255,255,0.82);">
+                      Runner-up
+                      <div class="mt-1">
+                        <CustomSelect
+                          options={teamPickerOptions}
+                          value={state.runnerUpTeamId}
+                          compact={true}
+                          placeholder="No runner-up set"
+                          onSelect={(value) =>
+                            onSeasonEditChange(season.id, { ...state, runnerUpTeamId: value })}
+                        />
+                      </div>
+                    </label>
+                    <label class="text-xs" style="color: rgba(255,255,255,0.82);">
+                      MVP
+                      <div class="mt-1">
+                        <CustomSelect
+                          options={playerPickerOptions}
+                          value={state.mvpProfileId}
+                          compact={true}
+                          placeholder="No MVP set"
+                          onSelect={(value) =>
+                            onSeasonEditChange(season.id, { ...state, mvpProfileId: value })}
+                        />
+                      </div>
+                    </label>
+                  </div>
+
+                  <label class="mt-2 block text-xs" style="color: rgba(255,255,255,0.82);">
+                    Final Standings Snapshot
+                    <div class="mt-1">
                       <CustomSelect
-                        options={approvedTeamOptions}
-                        value={pickem.seeds.find((entry) => entry.seed === seed)?.teamId ?? ''}
+                        options={leaderboardBatchOptions}
+                        value={state.finalLeaderboardBatchId}
                         compact={true}
-                        placeholder="Select team"
-                        onSelect={(value) => updateSeed(season.id, seed, value)}
+                        placeholder="Use latest leaderboard import"
+                        onSelect={(value) =>
+                          onSeasonEditChange(season.id, {
+                            ...state,
+                            finalLeaderboardBatchId: value,
+                          })}
                       />
                     </div>
-                  {/each}
-                </div>
+                  </label>
 
-                <div class="mt-3">
-                  <div
-                    class="mb-2 text-xs font-semibold tracking-wide uppercase"
-                    style="color: rgba(255,255,255,0.68);"
-                  >
-                    QF Matchups
-                  </div>
-                  <div class="grid grid-cols-1 gap-2 md:grid-cols-4">
-                    {#each pickem.matchups as mu (mu.matchId)}
-                      <div
-                        class="rounded-md border p-2"
-                        style="border-color: rgba(255,255,255,0.08); background: rgba(0,0,0,0.15);"
-                      >
+                  <div class="admin-bordered mt-2 p-2">
+                    <div class="mb-2 text-xs font-semibold" style="color: rgba(255,255,255,0.82);">
+                      Season Logo
+                    </div>
+                    <div class="flex flex-wrap items-center gap-3">
+                      {#if season.logo_url}
+                        <img
+                          src={season.logo_url}
+                          alt="{season.name} logo"
+                          class="h-12 w-12 rounded object-contain"
+                          style="background: rgba(255,255,255,0.04);"
+                        />
+                      {:else}
                         <div
-                          class="mb-1 text-xs font-semibold"
-                          style="color: rgba(255,255,255,0.58);"
+                          class="flex h-12 w-12 items-center justify-center rounded text-[10px]"
+                          style="background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.56);"
                         >
-                          {mu.matchId.replace('ub_qf_', 'QF ')}
+                          None
                         </div>
-                        <div class="grid grid-cols-2 gap-1">
-                          <CustomSelect
-                            options={seedOptions}
-                            value={String(mu.seedA)}
-                            compact={true}
-                            placeholder="Seed A"
-                            onSelect={(value) =>
-                              updateMatchup(season.id, mu.matchId, 'seedA', value)}
-                          />
-                          <CustomSelect
-                            options={seedOptions}
-                            value={String(mu.seedB)}
-                            compact={true}
-                            placeholder="Seed B"
-                            onSelect={(value) =>
-                              updateMatchup(season.id, mu.matchId, 'seedB', value)}
-                          />
-                        </div>
+                      {/if}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        class="admin-input flex-1"
+                        disabled={logoUploadingSeasonId === season.id}
+                        onchange={(e) => {
+                          const file = (e.currentTarget as HTMLInputElement).files?.[0] ?? null
+                          if (file) onUploadSeasonLogo(season.id, file)
+                          ;(e.currentTarget as HTMLInputElement).value = ''
+                        }}
+                      />
+                      {#if season.logo_url}
+                        <button
+                          type="button"
+                          class="admin-btn admin-btn-sm admin-btn-danger"
+                          disabled={logoUploadingSeasonId === season.id}
+                          onclick={() => onRemoveSeasonLogo(season.id, season.name)}
+                        >
+                          Remove
+                        </button>
+                      {/if}
+                    </div>
+                    {#if logoUploadingSeasonId === season.id}
+                      <div class="mt-1 text-[11px]" style="color: rgba(255,255,255,0.5);">
+                        Uploading...
                       </div>
-                    {/each}
+                    {/if}
+                  </div>
+
+                  <label class="mt-2 block text-xs" style="color: rgba(255,255,255,0.82);">
+                    Summary
+                    <textarea
+                      rows="3"
+                      value={state.summary}
+                      class="admin-input mt-1 leading-5"
+                      placeholder="A short recap shown on the season card and detail page."
+                      oninput={(e) =>
+                        onSeasonEditChange(season.id, {
+                          ...state,
+                          summary: (e.currentTarget as HTMLTextAreaElement).value,
+                        })}
+                    ></textarea>
+                  </label>
+
+                  <div class="mt-2 flex justify-end">
+                    <button
+                      type="button"
+                      class="admin-btn admin-btn-sm admin-btn-info"
+                      onclick={() => onSaveSeason(season.id)}
+                    >
+                      Save Results
+                    </button>
                   </div>
                 </div>
+              {/if}
+            </div>
 
-                <div class="mt-3">
-                  <div
-                    class="mb-2 text-xs font-semibold tracking-wide uppercase"
-                    style="color: rgba(255,255,255,0.68);"
-                  >
-                    Resolved Matches (already concluded, no points)
+            {#if true}
+              {@const pickem = playoffConfigForm[season.id] ?? normalizePlayoffPickemConfig(null)}
+              {@const isPickemExpanded = expandedPickemSeasonId === season.id}
+              <div
+                class="mt-4 rounded-md border"
+                style="border-color: rgba(255,255,255,0.10); background: rgba(255,255,255,0.035);"
+              >
+                <button
+                  type="button"
+                  class="flex w-full flex-wrap items-center justify-between gap-3 p-3"
+                  style="cursor: pointer;"
+                  onclick={() => (expandedPickemSeasonId = isPickemExpanded ? null : season.id)}
+                >
+                  <div class="flex items-center gap-2">
+                    <span
+                      class="inline-block text-xs transition-transform"
+                      style="color: rgba(255,255,255,0.5); transform: rotate({isPickemExpanded
+                        ? '90deg'
+                        : '0deg'});">▶</span
+                    >
+                    <div class="text-left">
+                      <div class="text-sm font-semibold" style="color: var(--text);">
+                        Playoff Pick'em
+                      </div>
+                      <div class="text-xs" style="color: rgba(255,255,255,0.62);">
+                        8-team double elimination bracket
+                        {#if pickem.enabled}
+                          <span style="color: #86efac;"> · Enabled</span>
+                        {/if}
+                        {#if pickem.status && pickem.status !== 'draft'}
+                          <span style="color: rgba(255,255,255,0.5);"> · {pickem.status}</span>
+                        {/if}
+                      </div>
+                    </div>
                   </div>
-                  <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
-                    {#each bracketMatchOptions as opt (opt.value)}
-                      {@const isChecked = pickem.resolved_matches.some(
-                        (r) => r.matchId === opt.value
-                      )}
-                      {@const resolved = pickem.resolved_matches.find(
-                        (r) => r.matchId === opt.value
-                      )}
-                      <div
-                        class="flex items-center gap-2 rounded-md border p-2"
-                        style="border-color: rgba(255,255,255,0.08); background: {isChecked
-                          ? 'rgba(239,68,68,0.08)'
-                          : 'rgba(0,0,0,0.15)'};"
+                </button>
+
+                {#if isPickemExpanded}
+                  <div class="px-3 pb-3">
+                    <div class="mb-3 flex flex-wrap items-center justify-end gap-3">
+                      <label
+                        class="inline-flex items-center gap-2 text-sm"
+                        style="color: rgba(255,255,255,0.82);"
                       >
                         <input
                           type="checkbox"
-                          checked={isChecked}
+                          checked={pickem.enabled}
                           onchange={(e) =>
-                            toggleResolvedMatch(
-                              season.id,
-                              opt.value,
-                              (e.currentTarget as HTMLInputElement).checked
-                            )}
-                          class="accent-red-500"
+                            updatePlayoffConfig(season.id, {
+                              enabled: (e.currentTarget as HTMLInputElement).checked,
+                            })}
                         />
-                        <span
-                          class="min-w-[5rem] text-xs font-semibold"
-                          style="color: rgba(255,255,255,0.6);"
-                        >
-                          {opt.label}
-                        </span>
-                        {#if isChecked}
-                          <div class="flex-1">
-                            <CustomSelect
-                              options={resolvedTeamOptions(season.id, opt.value as PlayoffMatchId)}
-                              value={resolved?.winnerId ?? ''}
-                              compact={true}
-                              placeholder="Select winner"
-                              onSelect={(value) =>
-                                updateResolvedWinner(season.id, opt.value, value)}
-                            />
-                          </div>
-                        {/if}
-                      </div>
-                    {/each}
-                  </div>
-                </div>
+                        Enabled
+                      </label>
+                    </div>
 
-                <div class="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
-                  {#each pickem.match_links as link (link.matchId)}
-                    <div>
-                      <div
-                        class="mb-1 text-xs font-semibold"
-                        style="color: rgba(255,255,255,0.68);"
-                      >
-                        {link.matchId}
-                      </div>
+                    <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                       <CustomSelect
-                        options={matchOptions(matches)}
-                        value={link.actualMatchId ?? ''}
+                        options={pickemStatusOptions}
+                        value={pickem.status}
                         compact={true}
-                        placeholder="No linked match"
-                        onSelect={(value) => updateMatchLink(season.id, link.matchId, value)}
+                        placeholder="Status"
+                        onSelect={(value) =>
+                          updatePlayoffConfig(season.id, {
+                            status: value as typeof pickem.status,
+                          })}
+                      />
+                      <input
+                        type="datetime-local"
+                        value={pickem.lock_at ? pickem.lock_at.slice(0, 16) : ''}
+                        oninput={(e) =>
+                          updatePlayoffConfig(season.id, {
+                            lock_at: (e.currentTarget as HTMLInputElement).value || null,
+                          })}
+                        class="admin-input md:col-span-2"
                       />
                     </div>
-                  {/each}
-                </div>
 
-                <div class="mt-3 flex flex-wrap justify-end gap-2">
-                  <button
-                    type="button"
-                    class="rounded-md px-3 py-2 text-sm font-semibold"
-                    style="background: rgba(59,130,246,0.18); color: #93c5fd;"
-                    onclick={() => onSavePlayoffPickem(season.id, pickem)}
-                  >
-                    Save Pick'em
-                  </button>
-                  <button
-                    type="button"
-                    class="rounded-md px-3 py-2 text-sm font-semibold"
-                    style="background: rgba(245,158,11,0.18); color: #fcd34d;"
-                    onclick={() => onScorePlayoffPickem(season.id)}
-                  >
-                    Score Pick'em
-                  </button>
-                </div>
+                    <div class="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                      {#each [1, 2, 3, 4, 5, 6, 7, 8] as seed (seed)}
+                        <div>
+                          <div
+                            class="mb-1 text-xs font-semibold"
+                            style="color: rgba(255,255,255,0.68);"
+                          >
+                            Seed {seed}
+                          </div>
+                          <CustomSelect
+                            options={approvedTeamOptions}
+                            value={pickem.seeds.find((entry) => entry.seed === seed)?.teamId ?? ''}
+                            compact={true}
+                            placeholder="Select team"
+                            onSelect={(value) => updateSeed(season.id, seed, value)}
+                          />
+                        </div>
+                      {/each}
+                    </div>
+
+                    <div class="mt-3">
+                      <div
+                        class="mb-2 text-xs font-semibold tracking-wide uppercase"
+                        style="color: rgba(255,255,255,0.68);"
+                      >
+                        QF Matchups
+                      </div>
+                      <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                        {#each pickem.matchups as mu (mu.matchId)}
+                          <div
+                            class="rounded-md border p-2"
+                            style="border-color: rgba(255,255,255,0.08); background: rgba(0,0,0,0.15);"
+                          >
+                            <div
+                              class="mb-1 text-xs font-semibold"
+                              style="color: rgba(255,255,255,0.58);"
+                            >
+                              {mu.matchId.replace('ub_qf_', 'QF ')}
+                            </div>
+                            <div class="grid grid-cols-2 gap-1">
+                              <CustomSelect
+                                options={seedOptions}
+                                value={String(mu.seedA)}
+                                compact={true}
+                                placeholder="Seed A"
+                                onSelect={(value) =>
+                                  updateMatchup(season.id, mu.matchId, 'seedA', value)}
+                              />
+                              <CustomSelect
+                                options={seedOptions}
+                                value={String(mu.seedB)}
+                                compact={true}
+                                placeholder="Seed B"
+                                onSelect={(value) =>
+                                  updateMatchup(season.id, mu.matchId, 'seedB', value)}
+                              />
+                            </div>
+                          </div>
+                        {/each}
+                      </div>
+                    </div>
+
+                    <div class="mt-3">
+                      <div
+                        class="mb-2 text-xs font-semibold tracking-wide uppercase"
+                        style="color: rgba(255,255,255,0.68);"
+                      >
+                        Resolved Matches (already concluded, no points)
+                      </div>
+                      <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
+                        {#each bracketMatchOptions as opt (opt.value)}
+                          {@const isChecked = pickem.resolved_matches.some(
+                            (r) => r.matchId === opt.value
+                          )}
+                          {@const resolved = pickem.resolved_matches.find(
+                            (r) => r.matchId === opt.value
+                          )}
+                          <div
+                            class="flex items-center gap-2 rounded-md border p-2"
+                            style="border-color: rgba(255,255,255,0.08); background: {isChecked
+                              ? 'rgba(239,68,68,0.08)'
+                              : 'rgba(0,0,0,0.15)'};"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onchange={(e) =>
+                                toggleResolvedMatch(
+                                  season.id,
+                                  opt.value,
+                                  (e.currentTarget as HTMLInputElement).checked
+                                )}
+                              class="accent-red-500"
+                            />
+                            <span
+                              class="min-w-[5rem] text-xs font-semibold"
+                              style="color: rgba(255,255,255,0.6);"
+                            >
+                              {opt.label}
+                            </span>
+                            {#if isChecked}
+                              <div class="flex-1">
+                                <CustomSelect
+                                  options={resolvedTeamOptions(
+                                    season.id,
+                                    opt.value as PlayoffMatchId
+                                  )}
+                                  value={resolved?.winnerId ?? ''}
+                                  compact={true}
+                                  placeholder="Select winner"
+                                  onSelect={(value) =>
+                                    updateResolvedWinner(season.id, opt.value, value)}
+                                />
+                              </div>
+                            {/if}
+                          </div>
+                        {/each}
+                      </div>
+                    </div>
+
+                    <div class="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+                      {#each pickem.match_links as link (link.matchId)}
+                        <div>
+                          <div
+                            class="mb-1 text-xs font-semibold"
+                            style="color: rgba(255,255,255,0.68);"
+                          >
+                            {link.matchId}
+                          </div>
+                          <CustomSelect
+                            options={matchOptions(matches)}
+                            value={link.actualMatchId ?? ''}
+                            compact={true}
+                            placeholder="No linked match"
+                            onSelect={(value) => updateMatchLink(season.id, link.matchId, value)}
+                          />
+                        </div>
+                      {/each}
+                    </div>
+
+                    <div class="mt-3 flex flex-wrap justify-end gap-2">
+                      <button
+                        type="button"
+                        class="admin-btn admin-btn-info text-sm"
+                        onclick={() => onSavePlayoffPickem(season.id, pickem)}
+                      >
+                        Save Pick'em
+                      </button>
+                      <button
+                        type="button"
+                        class="admin-btn admin-btn-warn text-sm"
+                        onclick={() => onScorePlayoffPickem(season.id)}
+                      >
+                        Score Pick'em
+                      </button>
+                    </div>
+                  </div>
+                {/if}
               </div>
             {/if}
           </article>

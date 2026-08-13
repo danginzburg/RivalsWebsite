@@ -63,12 +63,23 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
 
   const userInfo = await userInfoResponse.json()
 
+  // Auth0 namespaces the connection in the subject, e.g. "oauth2|discord|123".
+  // When the user signed in through Discord, their Discord username is the
+  // nickname claim — carry it so forms can pre-fill it.
+  const isDiscordLogin = String(userInfo.sub ?? '')
+    .toLowerCase()
+    .includes('discord')
+  const discordUsername = isDiscordLogin
+    ? ((userInfo.nickname || userInfo.preferred_username || userInfo.name) ?? undefined)
+    : undefined
+
   // Set session cookie
   await setSessionCookie(cookies, {
     sub: userInfo.sub,
     email: userInfo.email,
     name: userInfo.name || userInfo.nickname,
     picture: userInfo.picture,
+    discord_username: discordUsername,
     access_token: tokens.access_token,
     id_token: tokens.id_token,
     refresh_token: tokens.refresh_token,

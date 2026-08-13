@@ -6,6 +6,7 @@ import { normalizeRiotBaseNullable, isValidRiotBaseLenient } from '$lib/server/r
 import { queryProfilesWithOptionalRiotIdBase } from '$lib/server/supabase/profiles'
 import { claimRelinkAfterProfileUpdate } from '$lib/server/players/claim-relink'
 import { rematchPlayerMatchMapStatsForBase } from '$lib/server/imports/matching'
+import { invalidateProfileRole } from '$lib/server/cache'
 
 type AdminUserRow = {
   id: string
@@ -103,6 +104,17 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
   if (updateError) {
     console.error('Error updating user role:', updateError)
     throw error(500, 'Failed to update user role')
+  }
+
+  // hooks.server.ts caches the role by auth0_sub — drop it so the change
+  // takes effect on the user's next request rather than after the TTL.
+  if (newRole) {
+    const { data: updatedProfile } = await supabaseAdmin
+      .from('profiles')
+      .select('auth0_sub')
+      .eq('id', userId)
+      .maybeSingle()
+    invalidateProfileRole(updatedProfile?.auth0_sub)
   }
 
   if ('riotIdBase' in body && riotIdBase) {

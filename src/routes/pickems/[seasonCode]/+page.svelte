@@ -4,6 +4,7 @@
   import { resolve } from '$app/paths'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
+  import pickemMedal from '$lib/assets/accolades/pickem_medal.svg'
   import {
     buildPlayoffBracketSlots,
     normalizePlayoffPickemPayload,
@@ -45,6 +46,19 @@
   const isViewingOwn = $derived(
     !isViewingResults && (!selectedSubmission || selectedSubmission.id === data.mySubmission?.id)
   )
+
+  /*
+   * The medal only means something once every match has been scored — before
+   * that the top of the leaderboard is just whoever is ahead so far. A tie at
+   * the top has no single champion, so nothing is awarded: one rule, so the
+   * banner and the row medal can never disagree.
+   */
+  const isScored = $derived(data.config.status === 'scored')
+  const champion = $derived.by(() => {
+    if (!isScored) return null
+    const leaders = data.leaderboard.filter((entry) => entry.rank === 1)
+    return leaders.length === 1 ? leaders[0] : null
+  })
 
   const resolvedIds = $derived(new Set(data.config.resolved_matches?.map((r) => r.matchId) ?? []))
   const actualWinners = $derived(
@@ -97,6 +111,15 @@
 
   function teamLogo(teamId: string | null) {
     return teamId ? (teamById.get(teamId)?.logo_url ?? null) : null
+  }
+
+  /** Playoff seed for a team, from the bracket config. */
+  const seedByTeamId = $derived(
+    new Map((data.config.seeds ?? []).map((entry) => [entry.teamId, entry.seed]))
+  )
+
+  function teamSeed(teamId: string | null): number | null {
+    return teamId ? (seedByTeamId.get(teamId) ?? null) : null
   }
 
   function pickResult(matchId: PlayoffMatchId): 'correct' | 'wrong' | 'no-pick' | null {
@@ -160,7 +183,7 @@
       <!-- Header -->
       <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p class="text-xs font-bold tracking-wide uppercase" style="color: var(--hover);">
+          <p class="text-xs font-bold tracking-wide uppercase" style="color: var(--accent-text);">
             {data.season.name}
           </p>
           <h1 class="responsive-title mt-1">Playoff Pick'em</h1>
@@ -313,8 +336,17 @@
           <p class="text-xs" style="color: rgba(255,255,255,0.5);">
             {data.submissions.length} bracket{data.submissions.length !== 1 ? 's' : ''}
           </p>
+          {#if champion}
+            <div class="lb-winner">
+              <img src={pickemMedal} alt="" class="lb-winner-medal" />
+              <div class="min-w-0">
+                <div class="lb-winner-label">Pick'em Champion</div>
+                <div class="lb-winner-name">{champion.user.name}</div>
+              </div>
+            </div>
+          {/if}
           {#if data.leaderboard.length === 0}
-            <div class="mt-2 text-sm" style="color: rgba(255,255,255,0.45);">
+            <div class="mt-2 text-sm" style="color: rgba(255,255,255,0.64);">
               No submissions yet.
             </div>
           {:else}
@@ -326,7 +358,11 @@
                   class:lb-active={selectedSubmissionId === entry.id}
                   onclick={() => (selectedSubmissionId = entry.id)}
                 >
-                  <span class="lb-rank">#{entry.rank}</span>
+                  {#if champion?.id === entry.id}
+                    <img src={pickemMedal} alt="Pick'em Champion" class="lb-medal" />
+                  {:else}
+                    <span class="lb-rank">#{entry.rank}</span>
+                  {/if}
                   <span class="lb-name">{entry.user.name}</span>
                   <span class="lb-score">{entry.score}</span>
                 </button>
@@ -363,19 +399,43 @@
       {/if}
     </div>
     {#each [slot.teamAId, slot.teamBId] as teamId, index (`${slot.id}-${index}`)}
+      {@const isPick = !isViewingResults && slot.winnerId === teamId}
+      {@const isWinner = isDecided && teamId === (actualWinners[slot.id] ?? null)}
+      {@const seed = teamSeed(teamId)}
       <button
         type="button"
         class="team-btn"
-        class:picked={slot.winnerId === teamId}
         class:tbd={!teamId}
-        class:actual-winner={isDecided && teamId === (actualWinners[slot.id] ?? null)}
+        class:pick-pending={isPick && result === null}
+        class:pick-hit={isPick && result === 'correct'}
+        class:pick-miss={isPick && result === 'wrong'}
+        class:won={isWinner && !isViewingResults}
+        class:won-result={isWinner && isViewingResults}
         disabled={isResolved || !data.viewer.canEdit || !isViewingOwn || !teamId}
         onclick={() => chooseWinner(slot.id, teamId)}
       >
+        {#if seed != null}
+          <span class="team-seed" title="Seed {seed}">{seed}</span>
+        {/if}
         {#if teamLogo(teamId)}
           <img src={teamLogo(teamId) ?? ''} alt="" class="team-logo" />
         {/if}
         <span class="team-name">{teamLabel(teamId)}</span>
+        <!-- Outcome markers: the pick carries right/wrong, the winner is
+             stated separately so a correct-looking colour never lands on a
+             team the viewer did not pick. -->
+        {#if isPick && result === 'correct'}
+          <span class="team-mark mark-hit" title="Your pick — correct">✓</span>
+        {:else if isPick && result === 'wrong'}
+          <span class="team-mark mark-miss" title="Your pick — wrong">✕</span>
+        {:else if isPick}
+          <span class="team-mark mark-pick" title="Your pick">●</span>
+        {/if}
+        {#if isWinner && isViewingResults}
+          <span class="team-mark mark-hit" title="Won this match">✓</span>
+        {:else if isWinner && !isPick}
+          <span class="team-mark mark-won" title="Won this match">W</span>
+        {/if}
       </button>
     {/each}
   </article>
@@ -515,7 +575,7 @@
     font-size: 0.5625rem;
     font-weight: 800;
     text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.4);
+    color: rgba(255, 255, 255, 0.6);
     flex-shrink: 0;
   }
 
@@ -534,9 +594,86 @@
     color: #fda4af;
   }
 
-  .team-btn.actual-winner {
-    border-color: rgba(74, 222, 128, 0.5);
-    background: rgba(74, 222, 128, 0.12);
+  /*
+   * On a *pick* bracket, colour means one thing only: how YOUR pick did.
+   * Green = your pick was right, red = your pick was wrong, purple = pending.
+   * The team that actually won is marked neutrally there, because green on a
+   * team you did not pick reads as "correct" and contradicts the Wrong label.
+   */
+  .team-btn.won {
+    border-color: rgba(255, 255, 255, 0.5);
+    background: rgba(255, 255, 255, 0.07);
+  }
+
+  /*
+   * The Actual Bracket view has no picks to contradict, so the winner gets
+   * plain "this team won" green.
+   */
+  .team-btn.won-result {
+    border-color: rgba(74, 222, 128, 0.55);
+    background: rgba(74, 222, 128, 0.16);
+    box-shadow: 0 0 0 1px rgba(74, 222, 128, 0.35);
+  }
+
+  .team-btn.won-result .team-name {
+    color: #bbf7d0;
+    font-weight: 700;
+  }
+
+  .team-btn.pick-hit {
+    border-color: rgba(74, 222, 128, 0.55);
+    background: rgba(74, 222, 128, 0.16);
+    box-shadow: 0 0 0 1px rgba(74, 222, 128, 0.35);
+  }
+
+  .team-btn.pick-miss {
+    border-color: rgba(244, 63, 94, 0.5);
+    background: rgba(244, 63, 94, 0.14);
+    box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.3);
+  }
+
+  /* Marker chips sit at the end of the row. */
+  .team-mark {
+    margin-left: auto;
+    flex-shrink: 0;
+    font-size: 0.5625rem;
+    font-weight: 800;
+    line-height: 1;
+  }
+
+  .mark-hit {
+    color: #4ade80;
+  }
+
+  .mark-miss {
+    color: #fb7185;
+  }
+
+  .mark-pick {
+    color: #c084fc;
+    font-size: 0.5rem;
+  }
+
+  .mark-won {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0.875rem;
+    padding: 0.0625rem 0.1875rem;
+    border-radius: 0.1875rem;
+    background: rgba(255, 255, 255, 0.14);
+    color: rgba(255, 255, 255, 0.75);
+  }
+
+  /* Seed number, shown before the logo. */
+  .team-seed {
+    flex-shrink: 0;
+    min-width: 0.875rem;
+    font-size: 0.5625rem;
+    font-weight: 700;
+    text-align: center;
+    color: rgba(255, 255, 255, 0.58);
+    font-variant-numeric: tabular-nums;
   }
 
   .match-header {
@@ -545,7 +682,7 @@
     gap: 0.3rem;
     font-size: 0.625rem;
     font-weight: 700;
-    color: rgba(255, 255, 255, 0.4);
+    color: rgba(255, 255, 255, 0.6);
     margin-bottom: 0.2rem;
   }
 
@@ -558,7 +695,7 @@
   }
 
   .pts {
-    color: var(--hover);
+    color: var(--accent-text);
     font-weight: 800;
     flex-shrink: 0;
   }
@@ -589,7 +726,7 @@
     background: rgba(120, 67, 145, 0.18);
   }
 
-  .team-btn.picked {
+  .team-btn.pick-pending {
     border-color: var(--hover);
     background: rgba(120, 67, 145, 0.3);
     box-shadow: 0 0 0 1px var(--hover);
@@ -600,7 +737,7 @@
     background: rgba(168, 85, 247, 0.25);
   }
 
-  .match-card.gf .team-btn.picked {
+  .match-card.gf .team-btn.pick-pending {
     border-color: #c084fc;
     background: rgba(168, 85, 247, 0.35);
     box-shadow: 0 0 0 1px #c084fc;
@@ -658,6 +795,47 @@
     margin-bottom: 0.3rem;
   }
 
+  /* Champion callout — only rendered once the bracket is fully scored. */
+  .lb-winner {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    margin-top: 0.625rem;
+    padding: 0.5rem 0.625rem;
+    border-radius: 0.5rem;
+    border: 1px solid rgba(250, 204, 21, 0.3);
+    background: linear-gradient(135deg, rgba(120, 67, 145, 0.35), rgba(250, 204, 21, 0.1));
+  }
+
+  .lb-winner-medal {
+    width: 1.75rem;
+    height: 1.75rem;
+    flex-shrink: 0;
+  }
+
+  .lb-winner-label {
+    font-size: 0.5625rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #fde68a;
+  }
+
+  .lb-winner-name {
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .lb-medal {
+    width: 1.25rem;
+    height: 1.25rem;
+    justify-self: center;
+  }
+
   .lb-list {
     display: flex;
     flex-direction: column;
@@ -694,7 +872,7 @@
   .lb-rank {
     font-size: 0.75rem;
     font-weight: 800;
-    color: rgba(255, 255, 255, 0.45);
+    color: rgba(255, 255, 255, 0.64);
   }
 
   .lb-name {
@@ -709,7 +887,7 @@
   .lb-score {
     font-size: 0.75rem;
     font-weight: 800;
-    color: var(--hover);
+    color: var(--accent-text);
   }
 
   /* Override PageContainer padding for wider bracket */

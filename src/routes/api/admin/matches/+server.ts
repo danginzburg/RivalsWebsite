@@ -2,6 +2,7 @@ import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import type { MatchStreamRow } from '$lib/server/db-rows'
+import { resolveTargetSeasonId } from '$lib/server/seasons/resolve'
 
 function normalizeOptional(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -21,14 +22,15 @@ function parseScheduledAt(value: unknown): string | null {
   return d.toISOString()
 }
 
-export const GET: RequestHandler = async ({ locals }) => {
+export const GET: RequestHandler = async ({ locals, url }) => {
   await requireAdmin(locals.user)
 
-  const { data: matches, error: matchesError } = await supabaseAdmin
-    .from('matches')
-    .select(
-      `
+  const seasonId = url.searchParams.get('seasonId')
+
+  let query = supabaseAdmin.from('matches').select(
+    `
       id,
+      season_id,
       status,
       approval_status,
       best_of,
@@ -43,8 +45,17 @@ export const GET: RequestHandler = async ({ locals }) => {
       team_a:teams!matches_team_a_id_fkey (id, name, tag),
       team_b:teams!matches_team_b_id_fkey (id, name, tag)
     `
-    )
-    .order('created_at', { ascending: false })
+  )
+
+  if (seasonId === '__none__') {
+    query = query.is('season_id', null)
+  } else if (seasonId) {
+    query = query.eq('season_id', seasonId)
+  }
+
+  const { data: matches, error: matchesError } = await query.order('created_at', {
+    ascending: false,
+  })
 
   if (matchesError) throw error(500, 'Failed to load matches')
 
@@ -75,6 +86,7 @@ export const GET: RequestHandler = async ({ locals }) => {
       ...match,
       streams: streamsByMatch[match.id] ?? [],
       vod_url: match.metadata?.youtube_vod_url ?? null,
+      designation: match.metadata?.designation ?? null,
     })),
   })
 }
@@ -107,6 +119,10 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     throw error(400, 'Both teams must be approved')
   }
 
+  // Defaults to the active season, but an explicit id lets an admin backfill
+  // results for a past season.
+  const targetSeasonId = await resolveTargetSeasonId(body.seasonId)
+
   const now = new Date().toISOString()
   const { data: created, error: createError } = await supabaseAdmin
     .from('matches')
@@ -120,10 +136,12 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       submitted_by_profile_id: admin.id,
       approved_by_profile_id: admin.id,
       approved_at: now,
+      season_id: targetSeasonId,
     })
     .select(
       `
       id,
+      season_id,
       status,
       approval_status,
       best_of,

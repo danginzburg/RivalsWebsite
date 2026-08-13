@@ -15,6 +15,8 @@ import {
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
 import { rematchPlayerMatchMapStatsForBase } from '$lib/server/imports/matching'
 import { rankValue } from '$lib/ranks/ranks'
+import { loadCommentThread } from '$lib/server/comments'
+import { getViewerProfileId } from '$lib/server/auth/viewer'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -31,6 +33,119 @@ type TeamRel = {
   approval_status?: string | null
 }
 
+type SeasonRel = {
+  id: string
+  name?: string | null
+  code?: string | null
+  starts_on?: string | null
+}
+
+type MembershipTeamRel = TeamRel & {
+  season_id?: string | null
+  seasons?: SeasonRel | SeasonRel[] | null
+}
+
+type TeamHistoryRow = {
+  /** Team id doubles as the key — one row per team, however many stints. */
+  team: { id: string; name: string; tag: string | null; logo_url: string | null }
+  season: { name: string; code: string | null } | null
+  role: string | null
+  /** Still on the roster — drives the "Current" marker. */
+  is_current: boolean
+  joined_at: string | null
+  /** Sort key: when this team's season began, empty for an unassigned team. */
+  season_started_on: string
+}
+
+/**
+ * Every team this player has been rostered on, newest season first.
+ *
+ * Unapproved teams are left out: their team pages 404 for ordinary visitors, so
+ * a row for one would be a dead link.
+ *
+ * Rosters carry duplicate rows for the same player and team — a re-add writes a
+ * second membership rather than reviving the first — so stints are collapsed to
+ * one row per team. A genuine move between two teams still shows as two rows.
+ */
+async function loadTeamHistory(profileId: string): Promise<TeamHistoryRow[]> {
+  // `seasons` has three FKs back to `teams` (season_id, winner, runner-up), so
+  // the embed has to name the one it means or PostgREST refuses the query.
+  const { data, error: historyError } = await supabaseAdmin
+    .from('team_memberships')
+    .select(
+      `
+      id,
+      role,
+      is_active,
+      joined_at,
+      left_at,
+      teams (
+        id, name, tag, logo_path, approval_status, season_id,
+        seasons!teams_season_id_fkey (id, name, code, starts_on)
+      )
+    `
+    )
+    .eq('profile_id', profileId)
+    .order('joined_at', { ascending: false, nullsFirst: false })
+
+  if (historyError) {
+    console.error('Failed to load team history:', historyError)
+    return []
+  }
+
+  type Row = {
+    id: number
+    role?: string | null
+    is_active?: boolean | null
+    joined_at?: string | null
+    left_at?: string | null
+    teams?: MembershipTeamRel | MembershipTeamRel[] | null
+  }
+
+  const byTeam = new Map<string, TeamHistoryRow>()
+  for (const row of (data ?? []) as Row[]) {
+    const team = Array.isArray(row.teams) ? row.teams[0] : row.teams
+    if (!team || team.approval_status !== 'approved') continue
+
+    const seasonRel = Array.isArray(team.seasons) ? team.seasons[0] : team.seasons
+    const isCurrent = Boolean(row.is_active) && !row.left_at
+    const existing = byTeam.get(team.id)
+
+    if (existing) {
+      // Merge the stints: earliest join, and current if any stint is open.
+      existing.is_current ||= isCurrent
+      if (row.joined_at && (!existing.joined_at || row.joined_at < existing.joined_at)) {
+        existing.joined_at = row.joined_at
+      }
+      // An open stint's role is the one worth showing.
+      if (isCurrent && row.role) existing.role = row.role
+      continue
+    }
+
+    byTeam.set(team.id, {
+      team: {
+        id: team.id,
+        name: team.name,
+        tag: team.tag ?? null,
+        logo_url: getTeamLogoUrl(team),
+      },
+      season: seasonRel ? { name: seasonRel.name ?? 'Season', code: seasonRel.code ?? null } : null,
+      role: row.role ?? null,
+      is_current: isCurrent,
+      joined_at: row.joined_at ?? null,
+      season_started_on: seasonRel?.starts_on ?? '',
+    })
+  }
+
+  // Newest season first; within a season, the most recent roster first.
+  return [...byTeam.values()].sort((a, b) => {
+    if (a.season_started_on !== b.season_started_on) {
+      return b.season_started_on.localeCompare(a.season_started_on)
+    }
+    return (b.joined_at ?? '').localeCompare(a.joined_at ?? '')
+  })
+}
+
 type StatBatchInfo = Partial<NormalizedRivalsGroupStatBatch> & { id: string; display_name: string }
 
 type StatRow = {
@@ -41,7 +156,13 @@ type StatRow = {
 
 type NormalizedStatRow = StatRow & { batch: StatBatchInfo }
 
-type TeamLite = { id: string; name: string; tag?: string | null }
+type TeamLite = {
+  id: string
+  name: string
+  tag?: string | null
+  logo_path?: string | null
+  logo_url?: string | null
+}
 
 type MatchRel = {
   id: string
@@ -96,6 +217,8 @@ type AggregatedStatEntry = {
   key: string
   maps_played: number
   maps_won: number
+  /** Maps with a determinable winner — the denominator behind win_pct. */
+  maps_decided: number
   win_pct: number | null
   rounds: number
   acs: number | null
@@ -140,22 +263,38 @@ function didWinMap(row: PerMapStatRow): boolean | null {
   if (!mm || !row.team_id) return null
   const match = Array.isArray(mm.matches) ? mm.matches[0] : mm.matches
   if (!match) return null
+
+  // The player's team must be one of the two sides. Without this guard a row
+  // whose team_id matches neither (a re-linked roster, a bad import) falls
+  // through to the team-B branch and is scored against the wrong side.
+  const isTeamA = row.team_id === match.team_a_id
+  const isTeamB = row.team_id === match.team_b_id
+  if (!isTeamA && !isTeamB) return null
+
   const aRounds = mm.team_a_rounds ?? 0
   const bRounds = mm.team_b_rounds ?? 0
   if (aRounds === bRounds) return null
-  const isTeamA = row.team_id === match.team_a_id
+
   return isTeamA ? aRounds > bRounds : bRounds > aRounds
 }
 
 function aggregateStats(rows: PerMapStatRow[]): Omit<AggregatedStatEntry, 'key'> {
   const totalKills = sum(rows.map((r) => r.kills))
   const totalDeaths = sum(rows.map((r) => r.deaths))
-  const wins = rows.filter((r) => didWinMap(r) === true)
-  const decided = rows.filter((r) => didWinMap(r) !== null)
+
+  // Evaluate each row once — didWinMap walks joined rows and was previously
+  // called twice per row per aggregate.
+  const outcomes = rows.map(didWinMap)
+  const wins = outcomes.filter((o) => o === true).length
+  // Maps with no determinable result are excluded from the percentage rather
+  // than counted as losses, so `maps_decided` is the honest denominator.
+  const decided = outcomes.filter((o) => o !== null).length
+
   return {
     maps_played: rows.length,
-    maps_won: wins.length,
-    win_pct: decided.length > 0 ? (wins.length / decided.length) * 100 : null,
+    maps_won: wins,
+    maps_decided: decided,
+    win_pct: decided > 0 ? (wins / decided) * 100 : null,
     rounds: sum(rows.map((r) => r.rounds)),
     acs: average(rows.map((r) => r.acs)),
     kills: totalKills,
@@ -208,7 +347,9 @@ export const load = async ({
 
   const { data: profileRel, error: profileError } = await supabaseAdmin
     .from('profiles')
-    .select('id, auth0_sub, role, display_name, email, riot_id_base, stats_player_name, created_at')
+    .select(
+      'id, auth0_sub, role, display_name, email, riot_id_base, stats_player_name, created_at, discord_handle, tracker_links'
+    )
     .eq('id', profileId)
     .maybeSingle()
 
@@ -240,19 +381,32 @@ export const load = async ({
     }
   }
 
-  const { data: membership } = await supabaseAdmin
-    .from('team_memberships')
-    .select(
-      `
+  // Current roster spot, every past roster spot, and the aggregate stat rows
+  // all key off the profile alone, so they go out together.
+  const [{ data: membership }, teamHistory, { data: statsRows }] = await Promise.all([
+    supabaseAdmin
+      .from('team_memberships')
+      .select(
+        `
       team_id,
       role,
       teams (id, name, tag, logo_path, approval_status)
     `
-    )
-    .eq('profile_id', profileId)
-    .eq('is_active', true)
-    .is('left_at', null)
-    .maybeSingle()
+      )
+      .eq('profile_id', profileId)
+      .eq('is_active', true)
+      .is('left_at', null)
+      .maybeSingle(),
+    loadTeamHistory(profileId),
+    supabaseAdmin
+      .from('rivals_group_stats')
+      .select(
+        'id, player_name, profile_id, agents, games, games_won, games_lost, rounds, rounds_won, rounds_lost, acs, kd, kast_pct, adr, kills, deaths, assists, fk, fd, hs_pct, econ_rating, kpg, kpr, dpg, dpr, apg, apr, fkpg, fdpg, plants, plants_per_game, defuses, defuses_per_game, league_rank, import_batch_id, imported_at'
+      )
+      .eq('profile_id', profileId)
+      .order('imported_at', { ascending: false })
+      .limit(200),
+  ])
 
   const membershipTeams = (membership as { teams?: TeamRel | TeamRel[] | null } | null)?.teams
   const teamRel = membership
@@ -271,15 +425,6 @@ export const load = async ({
           role: membership?.role ?? null,
         }
       : null
-
-  const { data: statsRows } = await supabaseAdmin
-    .from('rivals_group_stats')
-    .select(
-      'id, player_name, profile_id, agents, games, games_won, games_lost, rounds, rounds_won, rounds_lost, acs, kd, kast_pct, adr, kills, deaths, assists, fk, fd, hs_pct, econ_rating, kpg, kpr, dpg, dpr, apg, apr, fkpg, fdpg, plants, plants_per_game, defuses, defuses_per_game, league_rank, import_batch_id, imported_at'
-    )
-    .eq('profile_id', profileId)
-    .order('imported_at', { ascending: false })
-    .limit(200)
 
   const possibleUnmatchedNames = Array.from(
     new Set(
@@ -443,8 +588,8 @@ export const load = async ({
         team_a_score,
         team_b_score,
         winner_team_id,
-        team_a:teams!matches_team_a_id_fkey (id, name, tag),
-        team_b:teams!matches_team_b_id_fkey (id, name, tag)
+        team_a:teams!matches_team_a_id_fkey (id, name, tag, logo_path),
+        team_b:teams!matches_team_b_id_fkey (id, name, tag, logo_path)
       )
     `
 
@@ -571,7 +716,12 @@ export const load = async ({
           : matchRel?.team_b_id === perspectiveTeamId
             ? matchRel?.team_a
             : null
-      const opponent = Array.isArray(rawOpponent) ? (rawOpponent[0] ?? null) : (rawOpponent ?? null)
+      const opponentRel = Array.isArray(rawOpponent)
+        ? (rawOpponent[0] ?? null)
+        : (rawOpponent ?? null)
+      const opponent = opponentRel
+        ? { ...opponentRel, logo_url: getTeamLogoUrl(opponentRel) }
+        : null
       const score =
         matchRel?.team_a_id === perspectiveTeamId
           ? { us: Number(matchRel?.team_a_score ?? 0), them: Number(matchRel?.team_b_score ?? 0) }
@@ -671,6 +821,13 @@ export const load = async ({
     }
   }
 
+  const [viewerProfileId, playerComments] = await Promise.all([
+    getViewerProfileId(locals.user),
+    loadCommentThread('player', profileId, {
+      includeReportCounts: locals.user?.role === 'admin',
+    }),
+  ])
+
   return {
     player: {
       profile_id: profileId,
@@ -681,17 +838,25 @@ export const load = async ({
       rank_label: null,
       rank_value: null,
       pronouns: null,
-      tracker_links: null,
+      // Published from an approved signup; empty until then.
+      discord_handle: (profileRel as { discord_handle?: string | null }).discord_handle ?? null,
+      tracker_links: ((
+        profileRel as { tracker_links?: Array<{ label: string; url: string }> | null }
+      ).tracker_links ?? []) as Array<{ label: string; url: string }>,
       display_name: profileRel?.display_name ?? null,
       email: profileRel?.email ?? null,
       created_at: profileRel?.created_at ?? null,
     },
     bestRank,
     activeTeam,
+    teamHistory,
     accolades: playerAccolades,
     viewer: {
       canEditRiotIdBase,
+      profileId: viewerProfileId,
+      isAdmin: locals.user?.role === 'admin',
     },
+    comments: playerComments,
     stats: {
       rows: normalizedStats,
       selected,

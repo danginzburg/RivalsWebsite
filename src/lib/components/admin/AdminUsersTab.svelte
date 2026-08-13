@@ -43,16 +43,12 @@
   <input
     bind:value={usersSearch}
     placeholder="Search users by Discord, email, role"
-    class="mb-3 w-full rounded-md border px-3 py-2 text-sm"
-    style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+    class="admin-input mb-3"
     oninput={(e) => onUsersSearchChange((e.currentTarget as HTMLInputElement).value)}
   />
   <div class="space-y-3 md:hidden">
     {#each displayedUsers as user (user.id)}
-      <article
-        class="rounded-lg border p-3"
-        style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
-      >
+      <article class="admin-card p-3">
         <div class="mb-2 font-semibold" style="color: var(--title);">
           {user.display_name || '—'}
         </div>
@@ -71,8 +67,7 @@
             Riot ID
             <input
               value={userRiotIdForm[user.id] ?? ''}
-              class="mt-1 w-full rounded-md border px-3 py-2 text-sm"
-              style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+              class="admin-input mt-1"
               placeholder="Riot ID base"
               oninput={(e) =>
                 onUserRiotIdInput(user.id, (e.currentTarget as HTMLInputElement).value)}
@@ -80,8 +75,7 @@
           </label>
           <button
             type="button"
-            class="rounded px-3 py-2 text-xs font-semibold"
-            style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+            class="admin-btn admin-btn-sm admin-btn-info"
             onclick={() => onRequestUserRiotIdSave(user.id, user.display_name || '—')}
           >
             Save
@@ -128,16 +122,14 @@
               <div class="flex items-center gap-2">
                 <input
                   value={userRiotIdForm[user.id] ?? ''}
-                  class="w-full max-w-[220px] rounded-md border px-3 py-2 text-sm"
-                  style="border-color: rgba(255,255,255,0.2); background: rgba(0,0,0,0.25); color: var(--text);"
+                  class="admin-input max-w-[220px]"
                   placeholder="Riot ID base"
                   oninput={(e) =>
                     onUserRiotIdInput(user.id, (e.currentTarget as HTMLInputElement).value)}
                 />
                 <button
                   type="button"
-                  class="rounded px-3 py-2 text-xs font-semibold"
-                  style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+                  class="admin-btn admin-btn-sm admin-btn-info"
                   onclick={() => onRequestUserRiotIdSave(user.id, user.display_name || '—')}
                 >
                   Save
