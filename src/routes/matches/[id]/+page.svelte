@@ -3,6 +3,7 @@
   import PageContainer from '$lib/components/PageContainer.svelte'
   import AdminEditLink from '$lib/components/AdminEditLink.svelte'
   import CommentThread from '$lib/components/CommentThread.svelte'
+  import MatchPerformance from '$lib/components/MatchPerformance.svelte'
   import TeamSeed from '$lib/components/TeamSeed.svelte'
   import { BarChart3, CalendarDays, RadioTower, Video, AlertTriangle } from 'lucide-svelte'
   import { SvelteMap } from 'svelte/reactivity'
@@ -530,6 +531,18 @@
               {@render statTable(teamName(match.team_a), teamAStats)}
               {@render statTable(teamName(match.team_b), teamBStats)}
             </div>
+
+            <!-- Follows the same map/total tab as the scoreboard above, so the
+                 two never disagree about which map is being looked at. -->
+            <MatchPerformance
+              rows={(activeStats?.rows ?? []) as never}
+              teamAId={match.team_a_id}
+              teamAName={teamName(match.team_a)}
+              teamBName={teamName(match.team_b)}
+              scopeLabel={activeStats?.isTotal
+                ? 'Series total'
+                : `${activeStats?.label ?? ''}${activeStats?.subLabel ? ` · ${activeStats.subLabel}` : ''}`}
+            />
           {/if}
         </div>
       {/if}

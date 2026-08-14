@@ -191,7 +191,8 @@ export const load = async ({
   })
 
   // Final standings: use the pinned batch when set, otherwise the newest
-  // leaderboard import so in-progress seasons still show a table.
+  // leaderboard import *belonging to this season* so in-progress seasons still
+  // show a table.
   let leaderboard: Array<{
     rank: number
     points: number
@@ -203,18 +204,39 @@ export const load = async ({
 
   let batchId = season.final_leaderboard_batch_id as string | null
   if (!batchId) {
-    const { data: latestBatch } = await supabaseAdmin
-      .from('stat_import_batches')
-      .select('id, display_name, metadata')
-      .filter('metadata->>import_type', 'eq', 'leaderboard_entries')
-      .eq('status', 'applied')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-    batchId = latestBatch?.id ?? null
-    leaderboardLabel = latestBatch
-      ? (latestBatch.metadata?.display_name ?? latestBatch.display_name ?? 'Latest standings')
-      : null
+    /**
+     * Which batches are this season's is decided by the season of the teams in
+     * them, not by `stat_import_batches.season_id` — that column is NULL on the
+     * Google Sheets imports, which are the most recent standings we have. It is
+     * also not enough to just take the newest batch overall: doing that showed
+     * Season 4's table on every event page, because every leaderboard import in
+     * the database so far belongs to Season 4.
+     */
+    const { data: seasonEntries } = await supabaseAdmin
+      .from('leaderboard_entries')
+      .select('import_batch_id, teams:teams!leaderboard_entries_team_id_fkey!inner (season_id)')
+      .eq('teams.season_id', season.id)
+      .not('import_batch_id', 'is', null)
+
+    const candidateIds = Array.from(
+      new Set((seasonEntries ?? []).map((entry) => entry.import_batch_id as string))
+    )
+
+    if (candidateIds.length > 0) {
+      const { data: latestBatch } = await supabaseAdmin
+        .from('stat_import_batches')
+        .select('id, display_name, metadata')
+        .in('id', candidateIds)
+        .filter('metadata->>import_type', 'eq', 'leaderboard_entries')
+        .eq('status', 'applied')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      batchId = latestBatch?.id ?? null
+      leaderboardLabel = latestBatch
+        ? (latestBatch.metadata?.display_name ?? latestBatch.display_name ?? 'Latest standings')
+        : null
+    }
   } else {
     const { data: pinnedBatch } = await supabaseAdmin
       .from('stat_import_batches')
@@ -259,6 +281,7 @@ export const load = async ({
   const viewerProfileId = await getViewerProfileId(locals.user)
   const comments = await loadCommentThread('season', season.id, {
     includeReportCounts: isAdmin,
+    viewerProfileId,
   })
 
   const winner = firstRel(season.winner as TeamRel | TeamRel[] | null)

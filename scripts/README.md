@@ -30,5 +30,27 @@ Requires a `.env` file at the repo root with `SUPABASE_URL` and `SUPABASE_SERVIC
    invoking the admin API route handlers directly. Supports `--replace-batch` to delete the most
    recent `rivals_group_stats` import batch before inserting (useful on retry).
 
-All scripts accept `--admin <profileId>` to pick which admin profile/auth identity to act as,
-instead of auto-selecting the first `role = 'admin'` profile with an `auth0_sub` set.
+All the `sheets:*` scripts accept `--admin <profileId>` to pick which admin profile/auth identity
+to act as, instead of auto-selecting the first `role = 'admin'` profile with an `auth0_sub` set.
+
+## Filling signup ranks and tracker scores
+
+`npm run signups:fill-tracker` runs the same lookup as the admin dashboard's bulk-import button,
+but from this machine and writing straight to Supabase. Use it when the deployed site reports
+"tracker.gg refused the request".
+
+Cloudflare challenges the requests that miss its cache and reach tracker's origin, which is most
+often the old act a player peaked in. The client retries a block twice; anything still refused is
+reported and picked up by simply running the command again, since filled rows are skipped.
+
+```
+npm run signups:fill-tracker -- --dry-run          # show what would change, write nothing
+npm run signups:fill-tracker                       # fill blanks on pending signups
+npm run signups:fill-tracker -- --active-season    # only the active season's signups
+npm run signups:fill-tracker -- --overwrite        # refresh values that are already set
+```
+
+Flags: `--source riot|tracker|both` (default `both`), `--status <status>|all` (default `pending`),
+`--season <uuid>` or `--season __none__`, `--active-season`, `--limit <n>`, `--overwrite`,
+`--dry-run`. It never touches `manual_value_override`, and `computed_value` is recomputed from
+whatever it fills.

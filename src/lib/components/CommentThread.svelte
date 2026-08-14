@@ -1,5 +1,15 @@
 <script lang="ts">
-  import { MessageSquare, Reply, Flag, Trash2, Pencil, X, Check } from 'lucide-svelte'
+  import {
+    MessageSquare,
+    Reply,
+    Flag,
+    Trash2,
+    Pencil,
+    X,
+    Check,
+    ChevronUp,
+    ChevronDown,
+  } from 'lucide-svelte'
   import { resolve } from '$app/paths'
   import type { CommentNode, CommentEntityType } from '$lib/server/comments'
 
@@ -126,6 +136,20 @@
     }
   }
 
+  /**
+   * Clicking the arrow you already picked clears the vote, which is what the
+   * server reads a 0 as.
+   */
+  async function vote(node: CommentNode, direction: 1 | -1) {
+    const next = node.viewer_vote === direction ? 0 : direction
+
+    await send('/api/comments/vote', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ commentId: node.id, value: next }),
+    })
+  }
+
   function startEdit(node: CommentNode) {
     editingId = node.id
     editDraft = node.body ?? ''
@@ -140,6 +164,11 @@
 
   function canModify(node: CommentNode) {
     return Boolean(viewerId && node.author?.id === viewerId)
+  }
+
+  /** Signed in, and not the author — the server enforces both as well. */
+  function canVote(node: CommentNode) {
+    return Boolean(viewerId) && !canModify(node)
   }
 
   function formatTime(value: string) {
@@ -276,6 +305,41 @@
       {:else}
         <p class="comment-body">{node.body}</p>
         <div class="comment-actions">
+          <!-- Score is shown to everyone; only a signed-in non-author can move it. -->
+          <div class="votes" class:votes-readonly={!canVote(node)}>
+            <button
+              type="button"
+              class="vote-btn"
+              class:vote-on={node.viewer_vote === 1}
+              disabled={busy || !canVote(node)}
+              aria-pressed={node.viewer_vote === 1}
+              aria-label="Upvote"
+              title={canVote(node) ? 'Upvote' : 'Sign in to vote'}
+              onclick={() => vote(node, 1)}
+            >
+              <ChevronUp size={14} />
+            </button>
+            <span
+              class="vote-score"
+              class:vote-score-up={node.score > 0}
+              class:vote-score-down={node.score < 0}
+            >
+              {node.score}
+            </span>
+            <button
+              type="button"
+              class="vote-btn"
+              class:vote-on-down={node.viewer_vote === -1}
+              disabled={busy || !canVote(node)}
+              aria-pressed={node.viewer_vote === -1}
+              aria-label="Downvote"
+              title={canVote(node) ? 'Downvote' : 'Sign in to vote'}
+              onclick={() => vote(node, -1)}
+            >
+              <ChevronDown size={14} />
+            </button>
+          </div>
+
           {#if viewerId && !isReply}
             <button type="button" class="action" onclick={() => startReply(node.id)}>
               <Reply size={13} /> Reply
@@ -575,6 +639,69 @@
     flex-wrap: wrap;
     gap: 0.75rem;
     margin-top: 0.4375rem;
+  }
+
+  /* Votes */
+  .votes {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.125rem;
+    /* Pulls the arrows back level with the text buttons beside them. */
+    margin: -0.1875rem 0.25rem -0.1875rem -0.25rem;
+  }
+
+  .vote-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.1875rem;
+    border: none;
+    border-radius: 0.25rem;
+    background: none;
+    color: rgba(255, 255, 255, 0.5);
+    cursor: pointer;
+    transition:
+      color 0.15s,
+      background 0.15s;
+  }
+
+  .vote-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text);
+  }
+
+  .vote-btn:disabled {
+    cursor: default;
+  }
+
+  /* Read-only arrows stay visible but recede — the score is the point. */
+  .votes-readonly .vote-btn {
+    opacity: 0.35;
+  }
+
+  .vote-on {
+    color: #4ade80;
+  }
+
+  .vote-on-down {
+    color: #f87171;
+  }
+
+  .vote-score {
+    min-width: 1.125rem;
+    text-align: center;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.66);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .vote-score-up {
+    color: #86efac;
+  }
+
+  .vote-score-down {
+    color: #fca5a5;
   }
 
   .action {

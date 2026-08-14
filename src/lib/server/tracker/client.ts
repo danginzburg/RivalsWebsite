@@ -112,11 +112,34 @@ function curlGet(url: string): Promise<string> {
   })
 }
 
-async function getJson(path: string): Promise<unknown> {
+/**
+ * Backoff between retries of a blocked read. Observed 2026-08-14: Cloudflare
+ * bot-checks only the requests that miss its cache and have to reach tracker's
+ * origin, so a block is usually transient rather than a ban on the caller. The
+ * same act URL returned the HTML block page, then 200 (`cf-cache-status:
+ * EXPIRED`), then 200 (`HIT`) within a minute, from an unchanged host.
+ *
+ * This matters most for a peak-act reading: recent acts are warm in the cache
+ * and almost always pass, while the old act a player peaked in is exactly the
+ * cold request that gets challenged.
+ */
+const BLOCK_RETRY_BACKOFF_MS = [1_500, 4_000]
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+async function getJson(path: string, attempt = 0): Promise<unknown> {
   const body = await curlGet(`${BASE}${path}`)
 
   // Cloudflare's block page is HTML, not JSON.
   if (/^\s*</.test(body)) {
+    // Retry rather than fail: the read is very likely to succeed once the
+    // origin has answered this URL once. Kept short so a host that really is
+    // blocked still reports back quickly.
+    if (attempt < BLOCK_RETRY_BACKOFF_MS.length) {
+      await sleep(BLOCK_RETRY_BACKOFF_MS[attempt])
+      return getJson(path, attempt + 1)
+    }
+
     throw new TrackerError(
       403,
       'tracker.gg refused the request. It may be rate limiting or blocking this host.'

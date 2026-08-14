@@ -38,9 +38,62 @@
     playerRows: ParsedPlayerRow[]
   }
 
-  type ImportMode = 'series_csv' | 'forfeit_no_show'
+  type ImportMode = 'riot_links' | 'series_csv' | 'forfeit_no_show'
 
-  let importMode = $state<ImportMode>('series_csv')
+  /**
+   * Tracker links are the default now that matches can be read straight from
+   * Riot, but the CSV path stays exactly as it was: it is the only way to
+   * import a match older than Riot's retention window, or one whose scoreboard
+   * needs correcting by hand after a rollback.
+   */
+  let importMode = $state<ImportMode>('riot_links')
+
+  let riotInput = $state('')
+  let riotRegion = $state('na')
+  let riotDryRun = $state(false)
+
+  type RiotPreview = {
+    teamA: { id: string; name: string; rosterVotes: number }
+    teamB: { id: string; name: string; rosterVotes: number }
+    unmatchedPlayers: string[]
+    maps: Array<{
+      matchId: string
+      mapName: string | null
+      score: string
+      playerCount: number
+    }>
+  }
+
+  let riotPreview = $state<RiotPreview | null>(null)
+
+  /** Preview first, then import — the failure worth catching is wrong teams. */
+  async function runRiotImport(dryRun: boolean) {
+    isSubmitting = true
+    riotDryRun = dryRun
+    parseError = null
+    submitMessage = null
+
+    try {
+      const response = await fetch('/api/admin/matches/import-riot', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ input: riotInput, region: riotRegion, dryRun }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload?.message ?? 'Import failed')
+
+      riotPreview = payload.preview ?? null
+      submitMessage = dryRun
+        ? 'Preview only — nothing has been saved yet.'
+        : `Imported ${payload.preview?.maps?.length ?? 0} map(s) for ${payload.preview?.teamA?.name} vs ${payload.preview?.teamB?.name}.`
+      if (!dryRun) riotInput = ''
+    } catch (err) {
+      parseError = err instanceof Error ? err.message : 'Import failed'
+    } finally {
+      isSubmitting = false
+      riotDryRun = false
+    }
+  }
   let fileName = $state('')
   let displayName = $state('')
   let seriesMaps = $state<ParsedMap[]>([])
@@ -436,6 +489,10 @@
       <section class="admin-card admin-card-pad">
         <div class="mb-4 flex flex-wrap gap-4 text-sm" style="color: var(--text);">
           <label class="inline-flex cursor-pointer items-center gap-2">
+            <input type="radio" bind:group={importMode} value="riot_links" />
+            <span>Tracker links / match ids</span>
+          </label>
+          <label class="inline-flex cursor-pointer items-center gap-2">
             <input type="radio" bind:group={importMode} value="series_csv" />
             <span>Series (map CSVs)</span>
           </label>
@@ -444,6 +501,82 @@
             <span>No-show forfeit (no stats)</span>
           </label>
         </div>
+
+        {#if importMode === 'riot_links'}
+          <div class="riot-import">
+            <label class="block text-sm" style="color: var(--text);">
+              <span class="mb-1 block font-semibold">Tracker links or Riot match ids</span>
+              <textarea
+                bind:value={riotInput}
+                rows="4"
+                class="admin-input w-full font-mono text-xs"
+                placeholder="https://tracker.gg/valorant/match/…&#10;https://tracker.gg/valorant/match/…"
+                disabled={isSubmitting}
+              ></textarea>
+              <span class="mt-1 block text-xs" style="color: rgba(255,255,255,0.6);">
+                One per line, in map order. Teams and scores are read from the match itself.
+              </span>
+            </label>
+
+            <div class="mt-3 flex flex-wrap items-end gap-3">
+              <label class="block text-sm" style="color: var(--text);">
+                <span class="mb-1 block font-semibold">Region</span>
+                <select bind:value={riotRegion} class="admin-input" disabled={isSubmitting}>
+                  {#each ['na', 'eu', 'ap', 'kr', 'br', 'latam'] as region (region)}
+                    <option value={region}>{region.toUpperCase()}</option>
+                  {/each}
+                </select>
+              </label>
+
+              <button
+                type="button"
+                class="admin-btn admin-btn-neutral text-sm"
+                onclick={() => runRiotImport(true)}
+                disabled={isSubmitting || riotInput.trim().length === 0}
+              >
+                {#if isSubmitting && riotDryRun}
+                  <span class="inline-flex items-center gap-2">
+                    <Loader2 size={16} class="animate-spin" /> Checking…
+                  </span>
+                {:else}
+                  Preview
+                {/if}
+              </button>
+            </div>
+
+            <p class="mt-3 text-xs leading-relaxed" style="color: rgba(255,255,255,0.6);">
+              Riot keeps match details for roughly two months, so import a series while it is
+              recent. Older matches are gone from Riot's side — use the map CSVs for those.
+            </p>
+
+            {#if riotPreview}
+              <div class="admin-subcard mt-3 rounded-md border p-3 text-sm">
+                <div class="font-semibold" style="color: var(--text);">
+                  {riotPreview.teamA.name} vs {riotPreview.teamB.name}
+                </div>
+                <div class="mt-1 text-xs" style="color: rgba(255,255,255,0.7);">
+                  Identified from {riotPreview.teamA.rosterVotes} and {riotPreview.teamB
+                    .rosterVotes} players on the rosters.
+                </div>
+                <ul class="mt-2 space-y-1 text-xs" style="color: rgba(255,255,255,0.8);">
+                  {#each riotPreview.maps as map, index (map.matchId)}
+                    <li>
+                      Map {index + 1}: <strong>{map.mapName ?? 'Unknown'}</strong>
+                      {map.score}
+                      <span style="color: rgba(255,255,255,0.5);">({map.playerCount} players)</span>
+                    </li>
+                  {/each}
+                </ul>
+                {#if riotPreview.unmatchedPlayers.length > 0}
+                  <div class="mt-2 text-xs" style="color: #fbbf24;">
+                    Not on any roster, so they import by name only:
+                    {riotPreview.unmatchedPlayers.join(', ')}
+                  </div>
+                {/if}
+              </div>
+            {/if}
+          </div>
+        {/if}
 
         {#if importMode === 'forfeit_no_show'}
           <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -603,11 +736,14 @@
         <div class="mb-3 flex items-center justify-between gap-3">
           <div>
             <div class="text-sm font-semibold" style="color: var(--text);">
-              {importMode === 'forfeit_no_show' ? 'No-show forfeit' : 'Series Summary'}
+              {#if importMode === 'forfeit_no_show'}No-show forfeit{:else if importMode === 'riot_links'}Riot
+                import{:else}Series Summary{/if}
             </div>
             <div class="mt-1 text-xs leading-relaxed" style="color: rgba(255,255,255,0.72);">
               {#if importMode === 'forfeit_no_show'}
                 Save a completed match with no map stats (e.g. opponent no-show).
+              {:else if importMode === 'riot_links'}
+                Preview first to check the teams were identified correctly, then import.
               {:else}
                 Review the series-level match info and each imported map below.
               {/if}
@@ -616,9 +752,10 @@
           <button
             type="button"
             class="admin-btn admin-btn-info text-sm"
-            onclick={submitImport}
+            onclick={() => (importMode === 'riot_links' ? runRiotImport(false) : submitImport())}
             disabled={isSubmitting ||
               (importMode === 'series_csv' && seriesMaps.length === 0) ||
+              (importMode === 'riot_links' && riotInput.trim().length === 0) ||
               (importMode === 'forfeit_no_show' &&
                 (!ffTeamAId || !ffTeamBId || !ffScheduledAt.trim() || !ffWinnerTeamId))}
           >

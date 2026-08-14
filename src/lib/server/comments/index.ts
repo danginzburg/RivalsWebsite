@@ -12,6 +12,9 @@ export type CommentAuthor = {
   role: string | null
 }
 
+/** +1 up, -1 down, 0 when the viewer has not voted or is signed out. */
+export type CommentVote = -1 | 0 | 1
+
 export type CommentNode = {
   id: string
   body: string | null
@@ -21,6 +24,10 @@ export type CommentNode = {
   author: CommentAuthor | null
   /** Reports are only populated for admins. */
   report_count: number
+  /** Net score: upvotes minus downvotes. */
+  score: number
+  /** How the viewer voted, so the arrows can render their own state. */
+  viewer_vote: CommentVote
   replies: CommentNode[]
 }
 
@@ -99,7 +106,7 @@ export function assertNotCommentBanned(profile: {
 export async function loadCommentThread(
   entityType: CommentEntityType,
   entityId: string,
-  options: { includeReportCounts?: boolean } = {}
+  options: { includeReportCounts?: boolean; viewerProfileId?: string | null } = {}
 ): Promise<CommentNode[]> {
   const { data: rows, error: rowsError } = await supabaseAdmin
     .from('comments')
@@ -145,6 +152,37 @@ export async function loadCommentThread(
     }
   }
 
+  /**
+   * Scores are summed here rather than kept as a counter column on `comments`:
+   * a stored counter and the vote rows can drift apart, and a thread is a few
+   * dozen rows at most.
+   */
+  const commentIds = comments.map((c) => c.id)
+  const scores = new Map<string, number>()
+  const viewerVotes = new Map<string, CommentVote>()
+
+  const { data: voteRows, error: votesError } = await supabaseAdmin
+    .from('comment_votes')
+    .select('comment_id, profile_id, value')
+    .in('comment_id', commentIds)
+
+  // Votes are additive to a thread — if the table is missing or unreadable the
+  // comments themselves should still render.
+  if (votesError) {
+    console.error('Failed to load comment votes:', votesError)
+  } else {
+    for (const row of (voteRows ?? []) as Array<{
+      comment_id: string
+      profile_id: string
+      value: number
+    }>) {
+      scores.set(row.comment_id, (scores.get(row.comment_id) ?? 0) + row.value)
+      if (options.viewerProfileId && row.profile_id === options.viewerProfileId) {
+        viewerVotes.set(row.comment_id, row.value > 0 ? 1 : -1)
+      }
+    }
+  }
+
   const toNode = (row: CommentRow): CommentNode => {
     const profile = profileById.get(row.profile_id)
     return {
@@ -161,6 +199,8 @@ export async function loadCommentThread(
             role: profile?.role ?? null,
           },
       report_count: reportCounts.get(row.id) ?? 0,
+      score: scores.get(row.id) ?? 0,
+      viewer_vote: viewerVotes.get(row.id) ?? 0,
       replies: [],
     }
   }

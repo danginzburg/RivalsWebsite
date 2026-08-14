@@ -439,6 +439,25 @@
     return parts.join(' · ')
   })
 
+  /**
+   * On phones the heading, filters and column picker take roughly 450px of an
+   * 812px screen, leaving the table about four rows tall. Collapse that block
+   * once the viewer starts scrolling the table so it stretches to the full
+   * screen height, and bring it back when they return to the top.
+   *
+   * Only the mobile stylesheet acts on this flag — on desktop there is room for
+   * both, so the class is inert.
+   */
+  let headerCollapsed = $state(false)
+
+  function handleTableScroll(event: Event & { currentTarget: HTMLDivElement }) {
+    const top = event.currentTarget.scrollTop
+    // Two thresholds rather than one: collapsing grows the table under the
+    // finger, and a single boundary makes the header flicker on and off.
+    if (!headerCollapsed && top > 24) headerCollapsed = true
+    else if (headerCollapsed && top < 4) headerCollapsed = false
+  }
+
   const batchOptions = $derived.by(() => {
     const opts: Array<{ label: string; value: string }> = [{ label: 'Latest', value: '' }]
     for (const b of batches) {
@@ -454,7 +473,7 @@
 
 <PageContainer class="stats-page">
   <div class="stats-viewport">
-    <div class="stats-shell page-content">
+    <div class="stats-shell page-content" class:shell-collapsed={headerCollapsed}>
       <div class="stats-head">
         <PageHeading title="Player Stats" subtitle={batchSubtitle} icon={BarChart3} />
       </div>
@@ -587,7 +606,7 @@
           <p class="empty-text">No players match the current filters.</p>
         </div>
       {:else}
-        <div class="stats-table-wrap">
+        <div class="stats-table-wrap" onscroll={handleTableScroll}>
           <table class="stats-table">
             <thead>
               <tr>
@@ -1187,11 +1206,41 @@
 
   @media (max-width: 640px) {
     .stats-viewport {
+      /* `dvh` rather than `svh`: when the browser chrome retracts the table
+         should take the space it frees up, not leave a strip of background. */
+      height: calc(100dvh - 4rem);
       padding: 1rem 0.75rem;
     }
 
     .stats-head {
       gap: 0.625rem;
+    }
+
+    /*
+     * Scrolled state: the heading, filters and column picker fold away so the
+     * table owns the whole screen. They stay in the DOM — removing them would
+     * drop the search box's focus and the picker's open/closed state.
+     */
+    .shell-collapsed .stats-head,
+    .shell-collapsed .toolbar,
+    .shell-collapsed .columns {
+      max-height: 0;
+      margin-bottom: 0;
+      opacity: 0;
+      overflow: hidden;
+      pointer-events: none;
+      /* The column picker's border survives a zero max-height otherwise. */
+      border-width: 0;
+    }
+
+    .stats-head,
+    .toolbar,
+    .columns {
+      max-height: 60vh;
+      transition:
+        max-height 0.2s ease,
+        opacity 0.15s ease,
+        margin-bottom 0.2s ease;
     }
 
     /* No room to sit beside the filters — take the full row instead. */

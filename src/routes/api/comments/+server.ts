@@ -11,6 +11,7 @@ import {
   type CommentEntityType,
 } from '$lib/server/comments'
 import { invalidateRecentComments } from '$lib/server/comments/recent'
+import { getViewerProfileId } from '$lib/server/auth/viewer'
 
 /** Load the full profile including ban fields. */
 async function loadCommenter(user: App.Locals['user']) {
@@ -36,6 +37,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   const isAdmin = locals.user?.role === 'admin'
   const comments = await loadCommentThread(entityType, entityId, {
     includeReportCounts: isAdmin,
+    viewerProfileId: await getViewerProfileId(locals.user),
   })
 
   return json({ comments })
@@ -93,6 +95,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
   const comments = await loadCommentThread(entityType, entityId, {
     includeReportCounts: profile.role === 'admin',
+    viewerProfileId: profile.id,
   })
 
   return json({ success: true, comments })
@@ -131,7 +134,7 @@ export const PATCH: RequestHandler = async ({ request, locals }) => {
   const comments = await loadCommentThread(
     existing.entity_type as CommentEntityType,
     existing.entity_id,
-    { includeReportCounts: profile.role === 'admin' }
+    { includeReportCounts: profile.role === 'admin', viewerProfileId: profile.id }
   )
 
   return json({ success: true, comments })
@@ -184,7 +187,7 @@ export const DELETE: RequestHandler = async ({ url, locals }) => {
   const comments = await loadCommentThread(
     existing.entity_type as CommentEntityType,
     existing.entity_id,
-    { includeReportCounts: isAdmin }
+    { includeReportCounts: isAdmin, viewerProfileId: profile.id }
   )
 
   return json({ success: true, comments })

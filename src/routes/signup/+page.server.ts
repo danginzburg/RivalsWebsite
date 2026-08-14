@@ -44,7 +44,27 @@ async function loadSignup(profileId: string, seasonId: string) {
 }
 
 export const load = async ({ locals }: { locals: App.Locals }) => {
-  if (!locals.user) throw redirect(303, '/auth/login?returnTo=/signup')
+  /**
+   * Signed-out visitors get the page, not a bounce to Discord. Sending them
+   * straight into an OAuth redirect means the first thing a prospective player
+   * sees is a consent screen for a site they have not looked at yet — the page
+   * asks them to sign in over the top of the form instead.
+   */
+  if (!locals.user) {
+    return {
+      signedIn: false,
+      profile: {
+        id: null,
+        display_name: null,
+        riot_id_base: null,
+        riot_tag: null,
+        discord_handle: null,
+      },
+      activeSeason: await loadActiveSeason(),
+      signup: null,
+      maxTrackerLinks: MAX_TRACKER_LINKS,
+    }
+  }
 
   const profile = await requireProfile(locals.user)
   const activeSeason = await loadActiveSeason()
@@ -60,6 +80,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
   const existing = activeSeason ? await loadSignup(profile.id, activeSeason.id) : null
 
   return {
+    signedIn: true,
     profile: {
       id: profile.id,
       display_name: profile.display_name ?? null,

@@ -1179,7 +1179,30 @@
     })
   })
 
+  /**
+   * Accolades, hall of fame, moderation and signups are not part of
+   * `fetchDashboardData` — they were added after it and fetch themselves the
+   * first time their tab is opened, guarded by a `*Loaded` flag. That guard
+   * also meant nothing ever refetched them: Refresh skipped them, and
+   * reopening the tab saw them as already loaded, so newly added rows never
+   * appeared until a full page reload.
+   *
+   * Only tabs the admin has actually opened are refreshed, so the rest stay
+   * lazy and Refresh does not fan out to every endpoint on the site.
+   */
+  async function refreshLazyTabs() {
+    await Promise.all([
+      accoladesLoaded ? loadAccolades() : Promise.resolve(),
+      hallOfFameLoaded ? loadHallOfFame() : Promise.resolve(),
+      commentReportsLoaded ? loadCommentReports() : Promise.resolve(),
+      signupsLoaded ? loadSignups() : Promise.resolve(),
+    ])
+  }
+
   async function refreshData() {
+    // Kicked off first so it overlaps the core fetch instead of queueing behind it.
+    const lazyTabs = refreshLazyTabs()
+
     await dashboardState.refresh({
       seasonId: adminMatchSeasonId || undefined,
       setLoading: (value) => (isLoading = value),
@@ -1192,6 +1215,12 @@
         matches = dashboardData.matches
       },
     })
+
+    // Hold the spinner until the lazy tabs land too — otherwise Refresh reports
+    // itself done while the tab being looked at is still showing stale rows.
+    isLoading = true
+    await lazyTabs
+    isLoading = false
   }
 
   async function onMatchSeasonChange(seasonId: string) {

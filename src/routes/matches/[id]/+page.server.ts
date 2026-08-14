@@ -69,7 +69,7 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
       supabaseAdmin
         .from('player_match_map_stats')
         .select(
-          'match_map_id, profile_id, team_id, player_name, agents, acs, kills, deaths, assists, kd, adr, kast_pct, hs_pct, econ_rating, rounds, fk, fd, plants, defuses'
+          'match_map_id, profile_id, team_id, player_name, agents, acs, kills, deaths, assists, kd, adr, kast_pct, hs_pct, econ_rating, rounds, fk, fd, plants, defuses, mk_2k, mk_3k, mk_4k, mk_5k, clutches_won, clutches_attempted, metadata'
         )
         .eq('match_id', matchId),
     ])
@@ -125,6 +125,22 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
           fd: row.fd,
           plants: row.plants,
           defuses: row.defuses,
+          // Null on CSV-imported maps, which never had these counted. The UI
+          // shows a dash for those rather than a misleading zero.
+          mk_2k: row.mk_2k ?? null,
+          mk_3k: row.mk_3k ?? null,
+          mk_4k: row.mk_4k ?? null,
+          mk_5k: row.mk_5k ?? null,
+          clutches_won: row.clutches_won ?? null,
+          clutches_attempted: row.clutches_attempted ?? null,
+          // Riot puuid keys the head-to-head grid; the breakdown sizes clutches.
+          puuid: (row.metadata as Record<string, unknown> | null)?.puuid as string | null,
+          duels: ((row.metadata as Record<string, unknown> | null)?.duels ?? null) as Record<
+            string,
+            number
+          > | null,
+          clutch_breakdown: ((row.metadata as Record<string, unknown> | null)?.clutch_breakdown ??
+            null) as Record<string, number> | null,
         }
       })
 
@@ -199,6 +215,58 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
     }
   }
 
+  /** Advanced-stat row shape, as loaded from `player_match_map_stats`. */
+  type AdvancedRow = {
+    mk_2k: number | null
+    mk_3k: number | null
+    mk_4k: number | null
+    mk_5k: number | null
+    clutches_won: number | null
+    clutches_attempted: number | null
+    puuid: string | null
+    duels: Record<string, number> | null
+    clutch_breakdown: Record<string, number> | null
+  }
+
+  /**
+   * Series totals for the stats only the Riot import records.
+   *
+   * Counts add up; the duel map and clutch breakdown are merged key by key.
+   * A stat null on every map stays null, so a CSV-imported series shows a dash
+   * instead of claiming nobody ever got an ace.
+   */
+  function sumAdvanced(rows: AdvancedRow[]) {
+    const addCounts = (key: keyof AdvancedRow) => {
+      const present = rows.map((row) => row[key] as number | null).filter((v) => v !== null)
+      return present.length > 0 ? present.reduce((a, b) => a + b, 0) : null
+    }
+
+    const mergeMap = (key: 'duels' | 'clutch_breakdown') => {
+      const merged: Record<string, number> = {}
+      let sawAny = false
+      for (const row of rows) {
+        const value = row[key]
+        if (!value) continue
+        sawAny = true
+        for (const [k, v] of Object.entries(value)) merged[k] = (merged[k] ?? 0) + v
+      }
+      return sawAny ? merged : null
+    }
+
+    return {
+      mk_2k: addCounts('mk_2k'),
+      mk_3k: addCounts('mk_3k'),
+      mk_4k: addCounts('mk_4k'),
+      mk_5k: addCounts('mk_5k'),
+      clutches_won: addCounts('clutches_won'),
+      clutches_attempted: addCounts('clutches_attempted'),
+      // The same player keeps one puuid across the series.
+      puuid: rows.find((row) => row.puuid)?.puuid ?? null,
+      duels: mergeMap('duels'),
+      clutch_breakdown: mergeMap('clutch_breakdown'),
+    }
+  }
+
   const totalStats = Array.from(totalByPlayer.values()).map((rows) => ({
     profile_id: rows[0].profile_id,
     team_id: rows[0].team_id,
@@ -233,6 +301,10 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
     fdpg: sum(rows.map((row) => row.fd)) / Math.max(rows.length, 1),
     plants_per_game: sum(rows.map((row) => row.plants)) / Math.max(rows.length, 1),
     defuses_per_game: sum(rows.map((row) => row.defuses)) / Math.max(rows.length, 1),
+    // Advanced stats add across maps rather than averaging — a series 5K count
+    // is how many aces there were, not aces per map. Stays null when no map
+    // recorded them, so "not counted" survives the aggregation.
+    ...sumAdvanced(rows),
   }))
 
   const hasRealStats = totalStats.length > 0
@@ -282,7 +354,10 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
     }
   }
 
-  const comments = await loadCommentThread('match', matchId, { includeReportCounts: isAdmin })
+  const comments = await loadCommentThread('match', matchId, {
+    includeReportCounts: isAdmin,
+    viewerProfileId,
+  })
   const seeds = await getSeasonStandingsRanks((match as { season_id?: string | null }).season_id)
 
   return {
