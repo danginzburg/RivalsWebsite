@@ -140,7 +140,7 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
             number
           > | null,
           clutch_breakdown: ((row.metadata as Record<string, unknown> | null)?.clutch_breakdown ??
-            null) as Record<string, number> | null,
+            null) as ClutchBreakdown | null,
         }
       })
 
@@ -215,6 +215,12 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
     }
   }
 
+  /** Clutch wins and attempts, each keyed by how many opponents were alive. */
+  type ClutchBreakdown = {
+    won: Record<string, number>
+    attempted: Record<string, number>
+  }
+
   /** Advanced-stat row shape, as loaded from `player_match_map_stats`. */
   type AdvancedRow = {
     mk_2k: number | null
@@ -225,7 +231,7 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
     clutches_attempted: number | null
     puuid: string | null
     duels: Record<string, number> | null
-    clutch_breakdown: Record<string, number> | null
+    clutch_breakdown: ClutchBreakdown | null
   }
 
   /**
@@ -241,14 +247,30 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
       return present.length > 0 ? present.reduce((a, b) => a + b, 0) : null
     }
 
-    const mergeMap = (key: 'duels' | 'clutch_breakdown') => {
+    const mergeDuels = () => {
       const merged: Record<string, number> = {}
       let sawAny = false
       for (const row of rows) {
-        const value = row[key]
+        if (!row.duels) continue
+        sawAny = true
+        for (const [k, v] of Object.entries(row.duels)) merged[k] = (merged[k] ?? 0) + v
+      }
+      return sawAny ? merged : null
+    }
+
+    /** `{ won, attempted }`, each keyed 1–5, summed across the maps. */
+    const mergeClutchBreakdown = (): ClutchBreakdown | null => {
+      const merged: ClutchBreakdown = { won: {}, attempted: {} }
+      let sawAny = false
+      for (const row of rows) {
+        const value = row.clutch_breakdown
         if (!value) continue
         sawAny = true
-        for (const [k, v] of Object.entries(value)) merged[k] = (merged[k] ?? 0) + v
+        for (const half of ['won', 'attempted'] as const) {
+          for (const [size, count] of Object.entries(value[half] ?? {})) {
+            merged[half][size] = (merged[half][size] ?? 0) + count
+          }
+        }
       }
       return sawAny ? merged : null
     }
@@ -262,8 +284,8 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
       clutches_attempted: addCounts('clutches_attempted'),
       // The same player keeps one puuid across the series.
       puuid: rows.find((row) => row.puuid)?.puuid ?? null,
-      duels: mergeMap('duels'),
-      clutch_breakdown: mergeMap('clutch_breakdown'),
+      duels: mergeDuels(),
+      clutch_breakdown: mergeClutchBreakdown(),
     }
   }
 

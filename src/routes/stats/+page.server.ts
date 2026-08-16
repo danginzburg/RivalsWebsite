@@ -45,6 +45,12 @@ function normalizeSort(value: string | null): string {
     'defuses',
     'defuses_per_game',
     'league_rank',
+    'mk_2k',
+    'mk_3k',
+    'mk_4k',
+    'mk_5k',
+    'clutches_won',
+    'clutches_attempted',
   ])
   return allowed.has(v) ? v : 'acs'
 }

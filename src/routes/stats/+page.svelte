@@ -8,7 +8,7 @@
   import { SvelteMap, SvelteURLSearchParams } from 'svelte/reactivity'
   import { resolve } from '$app/paths'
   import miksIcon from '$lib/assets/agents/Miks_icon.webp'
-  import { statsRowKey } from '$lib/stats/ui'
+  import { statsRowKey, displayPlayerName } from '$lib/stats/ui'
   import { rankValue, rankBaseValue, rankImageKey } from '$lib/ranks/ranks'
 
   let { data }: PageProps = $props()
@@ -275,6 +275,14 @@
     { key: 'plants_per_game', label: 'Plants/G', digits: 2 },
     { key: 'defuses', label: 'Defuses', digits: 0 },
     { key: 'defuses_per_game', label: 'Defuses/G', digits: 2 },
+    // Only batches generated from Riot-imported matches carry these; every
+    // CSV batch shows a dash, which is why they are off by default.
+    { key: 'mk_2k', label: '2K', digits: 0 },
+    { key: 'mk_3k', label: '3K', digits: 0 },
+    { key: 'mk_4k', label: '4K', digits: 0 },
+    { key: 'mk_5k', label: '5K', digits: 0 },
+    { key: 'clutches_won', label: 'Clutch W', digits: 0 },
+    { key: 'clutches_attempted', label: 'Clutch A', digits: 0 },
   ]
 
   const defaultVisible = new Set([
@@ -673,7 +681,7 @@
                   <td class="col-player">
                     {#if row.profile_id}
                       <a class="player-link" href={resolve(`/players/${row.profile_id}`)}>
-                        {row.player_name}
+                        {displayPlayerName(row.player_name)}
                       </a>
                     {:else}
                       <!-- eslint-disable svelte/no-navigation-without-resolve -->
@@ -683,7 +691,7 @@
                         href={unclaimedHref(String(row.player_name ?? 'Player'))}
                         title="Unclaimed player"
                       >
-                        {row.player_name}
+                        {displayPlayerName(row.player_name)}
                       </a>
                       <!-- eslint-enable svelte/no-navigation-without-resolve -->
                     {/if}

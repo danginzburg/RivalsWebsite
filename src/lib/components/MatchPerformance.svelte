@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { Swords, Crosshair, Flame } from 'lucide-svelte'
+  import { Swords, Crosshair } from 'lucide-svelte'
+  import { displayPlayerName as displayName } from '$lib/stats/ui'
 
   /** One player's row for the selected scope (a single map, or the series). */
   export type PerfRow = {
@@ -12,9 +13,12 @@
     mk_5k: number | null
     clutches_won: number | null
     clutches_attempted: number | null
-    clutch_breakdown: Record<string, number> | null
+    clutch_breakdown: { won: Record<string, number>; attempted: Record<string, number> } | null
     duels: Record<string, number> | null
   }
+
+  /** 1v1 through 1v5 — every clutch size gets a column, even if unused. */
+  const CLUTCH_SIZES = [1, 2, 3, 4, 5] as const
 
   interface Props {
     rows: PerfRow[]
@@ -68,18 +72,51 @@
     )
   }
 
+  /** The column player's record against the whole opposing team. */
+  function columnTotals(col: PerfRow) {
+    return teamARows.reduce(
+      (acc, row) => {
+        const d = duel(row, col)
+        // Flipped: from the column player's point of view, their kills are the
+        // "against" half of the row player's duel.
+        return {
+          forKills: acc.forKills + d.againstKills,
+          againstKills: acc.againstKills + d.forKills,
+        }
+      },
+      { forKills: 0, againstKills: 0 }
+    )
+  }
+
+  /** Every kill traded between the two teams, for the corner of the grid. */
+  const grandTotal = $derived(
+    teamARows.reduce(
+      (acc, row) => {
+        const t = duelTotals(row)
+        return {
+          forKills: acc.forKills + t.forKills,
+          againstKills: acc.againstKills + t.againstKills,
+        }
+      },
+      { forKills: 0, againstKills: 0 }
+    )
+  )
+
   /** "2 / 1 / 0" style breakdown, or a dash when nothing was recorded. */
   function fmt(value: number | null): string {
     return value === null ? '—' : String(value)
   }
 
-  /** Clutch sizes that actually occurred, so an empty row stays quiet. */
-  function clutchSizes(r: PerfRow): Array<{ size: string; count: number }> {
-    if (!r.clutch_breakdown) return []
-    return Object.entries(r.clutch_breakdown)
-      .filter(([, count]) => count > 0)
-      .map(([size, count]) => ({ size: `1v${size}`, count }))
-      .sort((a, b) => a.size.localeCompare(b.size))
+  /**
+   * One clutch size for one player. `attempted` of zero means the situation
+   * never came up, which reads better as a dash than as "0/0".
+   */
+  function clutchAt(r: PerfRow, size: number) {
+    const breakdown = r.clutch_breakdown
+    if (!breakdown) return null
+    const attempted = breakdown.attempted?.[String(size)] ?? 0
+    if (attempted === 0) return null
+    return { won: breakdown.won?.[String(size)] ?? 0, attempted }
   }
 </script>
 
@@ -88,8 +125,10 @@
     <!-- Multikills and clutches, one table per team -->
     <div class="perf-grid">
       {#each [{ name: teamAName, list: teamARows }, { name: teamBName, list: teamBRows }] as group (group.name)}
+        <!-- No team heading: these sit directly under the scoreboard's own
+             per-team tables and in the same left/right order, so repeating the
+             name is noise. -->
         <section class="perf-card">
-          <h3 class="perf-title"><Flame size={13} /> {group.name}</h3>
           <div class="table-scroll">
             <table class="perf-table">
               <thead>
@@ -99,37 +138,47 @@
                   <th title="Rounds with exactly three kills">3K</th>
                   <th title="Rounds with exactly four kills">4K</th>
                   <th title="Aces">5K</th>
-                  <th title="Clutches won of clutches attempted">Clutch</th>
+                  {#each CLUTCH_SIZES as size (size)}
+                    <th
+                      class="col-clutch"
+                      title="Clutches won of clutches attempted, alone against {size}"
+                    >
+                      1v{size}
+                    </th>
+                  {/each}
                 </tr>
               </thead>
               <tbody>
                 {#each group.list as row (row.player_name)}
                   <tr>
-                    <td class="col-player">{row.player_name}</td>
+                    <td class="col-player">{displayName(row.player_name)}</td>
                     <td class="num">{fmt(row.mk_2k)}</td>
                     <td class="num" class:hot={(row.mk_3k ?? 0) > 0}>{fmt(row.mk_3k)}</td>
                     <td class="num" class:hot={(row.mk_4k ?? 0) > 0}>{fmt(row.mk_4k)}</td>
                     <td class="num" class:ace={(row.mk_5k ?? 0) > 0}>{fmt(row.mk_5k)}</td>
-                    <td class="num">
-                      {#if row.clutches_attempted === null}
-                        —
-                      {:else}
-                        <span class="clutch" class:hot={(row.clutches_won ?? 0) > 0}>
-                          {row.clutches_won ?? 0}/{row.clutches_attempted}
-                        </span>
-                        {#if clutchSizes(row).length > 0}
-                          <span class="clutch-sizes">
-                            {clutchSizes(row)
-                              .map((c) => (c.count > 1 ? `${c.size}×${c.count}` : c.size))
-                              .join(' ')}
-                          </span>
+                    {#each CLUTCH_SIZES as size (size)}
+                      {@const c = clutchAt(row, size)}
+                      <td
+                        class="num col-clutch"
+                        class:hot={(c?.won ?? 0) > 0}
+                        class:clutch-lost={c !== null && c.won === 0}
+                        title={c
+                          ? `${displayName(row.player_name)} won ${c.won} of ${c.attempted} 1v${size} situations`
+                          : `${displayName(row.player_name)} was never alone against ${size}`}
+                      >
+                        {#if row.clutches_attempted === null}
+                          —
+                        {:else if c}
+                          {c.won}/{c.attempted}
+                        {:else}
+                          <span class="clutch-none">·</span>
                         {/if}
-                      {/if}
-                    </td>
+                      </td>
+                    {/each}
                   </tr>
                 {/each}
                 {#if group.list.length === 0}
-                  <tr><td colspan="6" class="empty">No players recorded.</td></tr>
+                  <tr><td colspan="10" class="empty">No players recorded.</td></tr>
                 {/if}
               </tbody>
             </table>
@@ -161,7 +210,7 @@
                   <span class="corner-col">{teamBName} →</span>
                 </th>
                 {#each teamBRows as col (col.player_name)}
-                  <th class="h2h-head">{col.player_name}</th>
+                  <th class="h2h-head">{displayName(col.player_name)}</th>
                 {/each}
                 <th class="h2h-head h2h-total">Total</th>
               </tr>
@@ -169,14 +218,16 @@
             <tbody>
               {#each teamARows as row (row.player_name)}
                 <tr>
-                  <th class="h2h-side">{row.player_name}</th>
+                  <th class="h2h-side">{displayName(row.player_name)}</th>
                   {#each teamBRows as col (col.player_name)}
                     {@const d = duel(row, col)}
                     <td
                       class="h2h-cell"
                       class:cell-up={d.diff > 0}
                       class:cell-down={d.diff < 0}
-                      title="{row.player_name} {d.forKills} — {d.againstKills} {col.player_name}"
+                      title="{displayName(
+                        row.player_name
+                      )} {d.forKills} — {d.againstKills} {displayName(col.player_name)}"
                     >
                       <span class="cell-score">
                         <span class="score-for">{d.forKills}</span><span class="score-sep">–</span
@@ -207,6 +258,50 @@
                 </tr>
               {/each}
             </tbody>
+            <tfoot>
+              <tr>
+                <th class="h2h-side h2h-foot-label">Total</th>
+                {#each teamBRows as col (col.player_name)}
+                  {@const t = columnTotals(col)}
+                  <td
+                    class="h2h-cell h2h-foot"
+                    class:cell-up={t.forKills > t.againstKills}
+                    class:cell-down={t.forKills < t.againstKills}
+                    title="{displayName(
+                      col.player_name
+                    )} {t.forKills} — {t.againstKills} {teamAName}"
+                  >
+                    <span class="cell-score">
+                      <!-- Read from the column player's side, matching the header. -->
+                      <span class="score-against">{t.forKills}</span><span class="score-sep">–</span
+                      ><span class="score-for">{t.againstKills}</span>
+                    </span>
+                    <span class="cell-diff">
+                      {t.forKills - t.againstKills > 0
+                        ? `+${t.forKills - t.againstKills}`
+                        : t.forKills - t.againstKills}
+                    </span>
+                  </td>
+                {/each}
+                <td
+                  class="h2h-cell h2h-foot h2h-total"
+                  class:cell-up={grandTotal.forKills > grandTotal.againstKills}
+                  class:cell-down={grandTotal.forKills < grandTotal.againstKills}
+                  title="All kills traded between the two teams"
+                >
+                  <span class="cell-score">
+                    <span class="score-for">{grandTotal.forKills}</span><span class="score-sep"
+                      >–</span
+                    ><span class="score-against">{grandTotal.againstKills}</span>
+                  </span>
+                  <span class="cell-diff">
+                    {grandTotal.forKills - grandTotal.againstKills > 0
+                      ? `+${grandTotal.forKills - grandTotal.againstKills}`
+                      : grandTotal.forKills - grandTotal.againstKills}
+                  </span>
+                </td>
+              </tr>
+            </tfoot>
           </table>
         </div>
       </section>
@@ -316,20 +411,34 @@
     font-variant-numeric: tabular-nums;
   }
 
-  .hot {
+  /*
+   * Emphasis is carried by colour alone, not weight.
+   *
+   * These have to out-specify `.perf-table td`, which sets the base colour —
+   * a bare `.hot` loses to it and silently renders plain white, which is why
+   * bold was previously the only emphasis that showed.
+   */
+  .perf-table td.hot {
     color: #86efac;
-    font-weight: 700;
   }
 
-  .ace {
-    color: #fbbf24;
-    font-weight: 700;
+  .perf-table td.ace {
+    color: #4ade80;
   }
 
-  .clutch-sizes {
-    display: block;
-    font-size: 0.5625rem;
-    color: rgba(255, 255, 255, 0.45);
+  /* Clutch columns are narrow and numerous — keep them tight and even. */
+  .col-clutch {
+    min-width: 2.375rem;
+  }
+
+  /* Attempted but never won reads as a miss, not as an absence. */
+  .perf-table td.clutch-lost {
+    color: rgba(248, 113, 113, 0.85);
+  }
+
+  /* The situation never arose, which is different from losing it. */
+  .clutch-none {
+    color: rgba(255, 255, 255, 0.25);
   }
 
   .empty {
@@ -381,7 +490,6 @@
 
   .cell-score {
     display: block;
-    font-weight: 700;
     font-size: 0.75rem;
   }
 
@@ -423,6 +531,21 @@
 
   .h2h-total {
     border-left: 1px solid rgba(255, 255, 255, 0.12);
+  }
+
+  /* Column totals: same divider weight as the row-total column, so the grid
+     reads as a block with a summary edge on two sides. */
+  .h2h-foot {
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+  }
+
+  .h2h-foot-label {
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.62) !important;
+    font-size: 0.5625rem !important;
+    font-weight: 700 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.06em !important;
   }
 
   @media (max-width: 860px) {

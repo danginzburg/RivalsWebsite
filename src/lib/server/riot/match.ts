@@ -186,12 +186,15 @@ export function toImportMap(
     mk_4k: player.multiKills.k4,
     mk_5k: player.multiKills.k5,
     clutches_won: player.clutches.totalWon,
-    clutches_attempted: player.clutches.attempted,
-    // The per-size clutch breakdown has no columns of its own — a 1v1 and a
-    // 1v5 are both wins in `clutches_won`, and the difference is worth keeping.
+    clutches_attempted: player.clutches.totalAttempted,
+    // The per-size breakdown has no columns of its own — a 1v1 and a 1v5 are
+    // both wins in `clutches_won`, and the difference is worth keeping.
     metadata: {
       puuid: player.puuid,
-      clutch_breakdown: player.clutches.won,
+      clutch_breakdown: {
+        won: player.clutches.won,
+        attempted: player.clutches.attempted,
+      },
       // Keyed by opponent puuid; the UI joins it back to names via each row's
       // own `puuid` to build the head-to-head grid.
       duels: player.duels,

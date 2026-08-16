@@ -8,6 +8,7 @@
   import { BarChart3, CalendarDays, RadioTower, Video, AlertTriangle } from 'lucide-svelte'
   import { SvelteMap } from 'svelte/reactivity'
   import { resolve } from '$app/paths'
+  import { displayPlayerName } from '$lib/stats/ui'
   import miksIcon from '$lib/assets/agents/Miks_icon.webp'
 
   let { data }: PageProps = $props()
@@ -71,7 +72,8 @@
   )
 
   function playerLabel(row: { profile_name?: string | null; player_name?: string | null }) {
-    return row.profile_name ?? row.player_name ?? 'Player'
+    // Tag stripped for display only — `playerHref` still uses the stored name.
+    return displayPlayerName(row.profile_name ?? row.player_name)
   }
 
   function playerHref(row: { profile_id?: string | null; player_name?: string | null }) {

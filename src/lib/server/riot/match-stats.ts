@@ -132,7 +132,12 @@ function round2(value: number): number {
 }
 
 function emptyClutches(): ClutchRecord {
-  return { won: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }, attempted: 0, totalWon: 0 }
+  return {
+    won: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+    attempted: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+    totalWon: 0,
+    totalAttempted: 0,
+  }
 }
 
 /** Kill events for one round, oldest first. */
@@ -245,10 +250,11 @@ function computeClutches(
 
         claimed.add(team)
         const clutcher = [...own][0]
-        const versus = Math.min(opponents.size, 5) as 1 | 2 | 3 | 4 | 5
+        const versus = Math.min(opponents.size, 5) as ClutchSize
 
         const record = records.get(clutcher) ?? emptyClutches()
-        record.attempted += 1
+        record.attempted[versus] += 1
+        record.totalAttempted += 1
         if (round.winning_team === team) {
           record.won[versus] += 1
           record.totalWon += 1

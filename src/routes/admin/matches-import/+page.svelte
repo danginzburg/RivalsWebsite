@@ -50,6 +50,12 @@
 
   let riotInput = $state('')
   let riotRegion = $state('na')
+  /**
+   * Empty means infer from the map count, which is right only when the series
+   * went the distance: a Bo5 won 3-1 has four maps and would otherwise be
+   * recorded as a Bo3, and a Bo3 won 2-0 as a Bo1.
+   */
+  let riotBestOf = $state('')
   let riotDryRun = $state(false)
 
   type RiotPreview = {
@@ -77,7 +83,12 @@
       const response = await fetch('/api/admin/matches/import-riot', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ input: riotInput, region: riotRegion, dryRun }),
+        body: JSON.stringify({
+          input: riotInput,
+          region: riotRegion,
+          dryRun,
+          ...(riotBestOf ? { bestOf: Number(riotBestOf) } : {}),
+        }),
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload?.message ?? 'Import failed')
@@ -525,6 +536,16 @@
                   {#each ['na', 'eu', 'ap', 'kr', 'br', 'latam'] as region (region)}
                     <option value={region}>{region.toUpperCase()}</option>
                   {/each}
+                </select>
+              </label>
+
+              <label class="block text-sm" style="color: var(--text);">
+                <span class="mb-1 block font-semibold">Best of</span>
+                <select bind:value={riotBestOf} class="admin-input" disabled={isSubmitting}>
+                  <option value="">Auto</option>
+                  <option value="1">Bo1</option>
+                  <option value="3">Bo3</option>
+                  <option value="5">Bo5</option>
                 </select>
               </label>
 

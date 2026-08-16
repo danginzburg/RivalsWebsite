@@ -121,7 +121,9 @@ describe('clutches', () => {
     )
 
     const red4 = statsFor(result, 'red4')
-    expect(red4.clutches.attempted).toBe(1)
+    expect(red4.clutches.totalAttempted).toBe(1)
+    // Attempts are recorded at the size the situation began at, not in a lump.
+    expect(red4.clutches.attempted[4]).toBe(1)
     expect(red4.clutches.won[4]).toBe(1)
     expect(red4.clutches.totalWon).toBe(1)
   })
@@ -141,7 +143,9 @@ describe('clutches', () => {
     )
 
     const red4 = statsFor(result, 'red4')
-    expect(red4.clutches.attempted).toBe(1)
+    expect(red4.clutches.totalAttempted).toBe(1)
+    // A lost 1v5 still counts as a 1v5 attempted.
+    expect(red4.clutches.attempted[5]).toBe(1)
     expect(red4.clutches.totalWon).toBe(0)
     expect(red4.clutches.won[5]).toBe(0)
   })
@@ -158,7 +162,7 @@ describe('clutches', () => {
     // Blue's last man dies at the same moment blue drops to one, so blue0..3
     // never enter a clutch; check nobody on red did either.
     for (const i of [0, 1, 2, 3, 4]) {
-      expect(statsFor(result, `red${i}`).clutches.attempted).toBe(0)
+      expect(statsFor(result, `red${i}`).clutches.totalAttempted).toBe(0)
     }
   })
 })

@@ -88,7 +88,7 @@ export const GET: RequestHandler = async ({ url }) => {
   let query = supabaseAdmin
     .from('rivals_group_stats')
     .select(
-      'id, player_name, profile_id, agents, games, games_won, games_lost, rounds, rounds_won, rounds_lost, acs, kd, kast_pct, adr, kills, deaths, assists, fk, fd, hs_pct, econ_rating, kpg, kpr, dpg, dpr, apg, apr, fkpg, fdpg, plants, plants_per_game, defuses, defuses_per_game, league_rank, import_batch_id, imported_at'
+      'id, player_name, profile_id, agents, games, games_won, games_lost, rounds, rounds_won, rounds_lost, acs, kd, kast_pct, adr, kills, deaths, assists, fk, fd, hs_pct, econ_rating, kpg, kpr, dpg, dpr, apg, apr, fkpg, fdpg, plants, plants_per_game, defuses, defuses_per_game, league_rank, mk_2k, mk_3k, mk_4k, mk_5k, clutches_won, clutches_attempted, import_batch_id, imported_at'
     )
     .eq('import_batch_id', effectiveBatchId)
 
