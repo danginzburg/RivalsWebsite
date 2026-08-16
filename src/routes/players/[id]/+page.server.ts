@@ -821,12 +821,13 @@ export const load = async ({
     }
   }
 
-  const [viewerProfileId, playerComments] = await Promise.all([
-    getViewerProfileId(locals.user),
-    loadCommentThread('player', profileId, {
-      includeReportCounts: locals.user?.role === 'admin',
-    }),
-  ])
+  // Sequential rather than parallel: the thread needs the viewer's profile id
+  // to mark which comments they have already voted on.
+  const viewerProfileId = await getViewerProfileId(locals.user)
+  const playerComments = await loadCommentThread('player', profileId, {
+    includeReportCounts: locals.user?.role === 'admin',
+    viewerProfileId,
+  })
 
   return {
     player: {

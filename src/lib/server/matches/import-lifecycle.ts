@@ -35,6 +35,18 @@ type PlayerRowInput = {
   plants?: unknown
   defuses?: unknown
   econ_rating?: unknown
+  /**
+   * Only the Riot match import supplies these; a CSV has no way to know them.
+   * They stay null rather than zero for CSV rows, so "not recorded" reads
+   * differently from "never got a multikill".
+   */
+  mk_2k?: unknown
+  mk_3k?: unknown
+  mk_4k?: unknown
+  mk_5k?: unknown
+  clutches_won?: unknown
+  clutches_attempted?: unknown
+  metadata?: unknown
 }
 
 type MapInput = {
@@ -68,6 +80,17 @@ function parseInteger(value: unknown, fieldName: string) {
   const n = Number(value)
   if (!Number.isInteger(n)) throw error(400, `${fieldName} must be an integer`)
   return n
+}
+
+/**
+ * For stats only some import sources can supply. Absent stays absent — writing
+ * 0 would claim a CSV-imported map recorded no aces, rather than that nobody
+ * counted them.
+ */
+function optionalInteger(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null
+  const n = Number(value)
+  return Number.isInteger(n) ? n : null
 }
 
 // Timezone tolerance for matching a sheet series against an existing match.
@@ -317,6 +340,16 @@ export async function importCompletedSeries({
       plants: parseInteger(row.plants ?? 0, 'Plants'),
       defuses: parseInteger(row.defuses ?? 0, 'Defuses'),
       econ_rating: Number(row.econ_rating ?? 0),
+      mk_2k: optionalInteger(row.mk_2k),
+      mk_3k: optionalInteger(row.mk_3k),
+      mk_4k: optionalInteger(row.mk_4k),
+      mk_5k: optionalInteger(row.mk_5k),
+      clutches_won: optionalInteger(row.clutches_won),
+      clutches_attempted: optionalInteger(row.clutches_attempted),
+      metadata:
+        row.metadata && typeof row.metadata === 'object'
+          ? (row.metadata as Record<string, unknown>)
+          : null,
     }))
 
     return {
@@ -602,7 +635,17 @@ export async function importCompletedSeries({
         plants_per_game: row.plants_per_game,
         defuses: row.defuses,
         defuses_per_game: row.defuses_per_game,
+        mk_2k: row.mk_2k,
+        mk_3k: row.mk_3k,
+        mk_4k: row.mk_4k,
+        mk_5k: row.mk_5k,
+        clutches_won: row.clutches_won,
+        clutches_attempted: row.clutches_attempted,
         metadata: {
+          // Extra detail from richer sources — the Riot match import sends a
+          // puuid and the per-size clutch breakdown. Spread first so the
+          // importer's own provenance below always wins.
+          ...(row.metadata ?? {}),
           import_batch_id: batchId,
           import_side: row.side,
           source_filename: map.sourceFilename,

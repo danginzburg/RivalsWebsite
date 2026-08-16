@@ -53,7 +53,13 @@ nav {
 .page-container {
   @apply flex w-full flex-col items-center px-3 pt-4 pb-0 sm:px-6 lg:px-10 xl:px-14;
   max-width: 100%;
-  overflow-x: hidden;
+  /* `clip`, not `hidden`. Both stop sideways overflow, but `hidden` on one axis
+     forces the other to `auto`, which makes this element a scroll container —
+     and a sticky descendant then sticks to *this* box instead of the viewport.
+     Since the page itself scrolls, that silently pinned the rulebook contents
+     and the home page discussion rail in place. `clip` creates no scrollport,
+     so both follow the scroll again. */
+  overflow-x: clip;
 }
 
 /* Standard inner content wrapper — use inside .page-container for page bodies.

@@ -3,10 +3,12 @@
   import PageContainer from '$lib/components/PageContainer.svelte'
   import AdminEditLink from '$lib/components/AdminEditLink.svelte'
   import CommentThread from '$lib/components/CommentThread.svelte'
+  import MatchPerformance from '$lib/components/MatchPerformance.svelte'
   import TeamSeed from '$lib/components/TeamSeed.svelte'
   import { BarChart3, CalendarDays, RadioTower, Video, AlertTriangle } from 'lucide-svelte'
   import { SvelteMap } from 'svelte/reactivity'
   import { resolve } from '$app/paths'
+  import { displayPlayerName } from '$lib/stats/ui'
   import miksIcon from '$lib/assets/agents/Miks_icon.webp'
 
   let { data }: PageProps = $props()
@@ -70,7 +72,8 @@
   )
 
   function playerLabel(row: { profile_name?: string | null; player_name?: string | null }) {
-    return row.profile_name ?? row.player_name ?? 'Player'
+    // Tag stripped for display only — `playerHref` still uses the stored name.
+    return displayPlayerName(row.profile_name ?? row.player_name)
   }
 
   function playerHref(row: { profile_id?: string | null; player_name?: string | null }) {
@@ -530,6 +533,18 @@
               {@render statTable(teamName(match.team_a), teamAStats)}
               {@render statTable(teamName(match.team_b), teamBStats)}
             </div>
+
+            <!-- Follows the same map/total tab as the scoreboard above, so the
+                 two never disagree about which map is being looked at. -->
+            <MatchPerformance
+              rows={(activeStats?.rows ?? []) as never}
+              teamAId={match.team_a_id}
+              teamAName={teamName(match.team_a)}
+              teamBName={teamName(match.team_b)}
+              scopeLabel={activeStats?.isTotal
+                ? 'Series total'
+                : `${activeStats?.label ?? ''}${activeStats?.subLabel ? ` · ${activeStats.subLabel}` : ''}`}
+            />
           {/if}
         </div>
       {/if}

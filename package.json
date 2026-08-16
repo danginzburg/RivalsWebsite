@@ -22,7 +22,8 @@
     "sheets:dry-run": "tsx --env-file=.env --tsconfig scripts/tsconfig.json scripts/05-dry-run.ts",
     "sheets:apply": "tsx --env-file=.env --tsconfig scripts/tsconfig.json scripts/06-apply-matches.ts",
     "sheets:import-agg": "tsx --env-file=.env --tsconfig scripts/tsconfig.json scripts/07-import-leaderboard-and-stats.ts",
-    "stats:rebuild-player-matches": "tsx --env-file=.env --tsconfig scripts/tsconfig.json scripts/rebuild-player-match-stats.ts"
+    "stats:rebuild-player-matches": "tsx --env-file=.env --tsconfig scripts/tsconfig.json scripts/rebuild-player-match-stats.ts",
+    "signups:fill-tracker": "tsx --env-file=.env --tsconfig scripts/tsconfig.json scripts/fill-signup-tracker-scores.ts"
   },
   "devDependencies": {
     "@eslint/compat": "^1.4.0",

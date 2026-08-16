@@ -3,6 +3,7 @@
   import PageContainer from '$lib/components/PageContainer.svelte'
   import PageHeading from '$lib/components/PageHeading.svelte'
   import { ClipboardList, Plus, X, Lock, Info } from 'lucide-svelte'
+  import DiscordIcon from '$lib/components/icons/DiscordIcon.svelte'
   import { enhance } from '$app/forms'
   import { untrack } from 'svelte'
 
@@ -12,6 +13,18 @@
   const activeSeason = $derived(data.activeSeason)
   const isApproved = $derived(data.signup?.status === 'approved')
   const isLocked = $derived(isApproved)
+
+  /**
+   * Signed-out visitors see the real form behind a prompt rather than being
+   * redirected away, so they can tell what they are being asked to sign in for.
+   * Dismissing it leaves the form inert — the server rejects the post anyway.
+   */
+  const signedIn = $derived(data.signedIn !== false)
+  let signInPromptOpen = $state(false)
+
+  $effect(() => {
+    if (!signedIn) signInPromptOpen = true
+  })
 
   type LinkRow = { label: string; url: string }
 
@@ -294,9 +307,15 @@
                 {withdrawing ? 'Withdrawing...' : 'Withdraw signup'}
               </button>
             {/if}
-            <button type="submit" class="submit-btn" disabled={submitting || !canSubmit}>
-              {submitting ? 'Saving...' : signup ? 'Update signup' : 'Submit signup'}
-            </button>
+            {#if signedIn}
+              <button type="submit" class="submit-btn" disabled={submitting || !canSubmit}>
+                {submitting ? 'Saving...' : signup ? 'Update signup' : 'Submit signup'}
+              </button>
+            {:else}
+              <button type="button" class="submit-btn" onclick={() => (signInPromptOpen = true)}>
+                Sign in to submit
+              </button>
+            {/if}
           </div>
         </form>
 
@@ -322,6 +341,57 @@
     {/if}
   </div>
 </PageContainer>
+
+{#if !signedIn && signInPromptOpen}
+  <div
+    class="prompt-backdrop"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="signin-prompt-title"
+    tabindex="-1"
+    onclick={(event) => {
+      // Only a click on the backdrop itself dismisses — not one that bubbled
+      // up from the card.
+      if (event.target === event.currentTarget) signInPromptOpen = false
+    }}
+    onkeydown={(event) => {
+      if (event.key === 'Escape') signInPromptOpen = false
+    }}
+  >
+    <div class="prompt-card">
+      <button
+        type="button"
+        class="prompt-close"
+        aria-label="Close"
+        onclick={() => (signInPromptOpen = false)}
+      >
+        <X size={16} />
+      </button>
+
+      <div class="prompt-icon"><ClipboardList size={22} /></div>
+      <h2 class="prompt-title" id="signin-prompt-title">Sign in to sign up</h2>
+      <p class="prompt-text">
+        {#if activeSeason}
+          Registering for {activeSeason.name} needs an account, so admins can reach you about your rank
+          and roster. Signing in with Discord creates one.
+        {:else}
+          Signing up needs an account, so admins can reach you about your rank and roster. Signing
+          in with Discord creates one.
+        {/if}
+      </p>
+
+      <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+      <a class="prompt-action" href="/auth/login?returnTo=/signup">
+        <DiscordIcon size={16} />
+        Continue with Discord
+      </a>
+
+      <button type="button" class="prompt-dismiss" onclick={() => (signInPromptOpen = false)}>
+        Have a look around first
+      </button>
+    </div>
+  </div>
+{/if}
 
 <style>
   .signup-form {
@@ -692,6 +762,108 @@
   .withdraw-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+
+  /* Sign-in prompt */
+  .prompt-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.25rem;
+    background: rgba(0, 0, 0, 0.66);
+    backdrop-filter: blur(3px);
+  }
+
+  .prompt-card {
+    position: relative;
+    width: 100%;
+    max-width: 24rem;
+    padding: 1.75rem 1.5rem 1.375rem;
+    border-radius: 0.875rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: #2e1a4d;
+    text-align: center;
+    box-shadow: 0 1.5rem 3rem rgba(0, 0, 0, 0.45);
+  }
+
+  .prompt-close {
+    position: absolute;
+    top: 0.625rem;
+    right: 0.625rem;
+    display: flex;
+    padding: 0.3125rem;
+    border: none;
+    border-radius: 0.375rem;
+    background: none;
+    color: rgba(255, 255, 255, 0.5);
+    cursor: pointer;
+  }
+
+  .prompt-close:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text);
+  }
+
+  .prompt-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    margin-bottom: 0.875rem;
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.07);
+    color: var(--accent-text);
+  }
+
+  .prompt-title {
+    font-size: 1.0625rem;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 0.5rem;
+  }
+
+  .prompt-text {
+    font-size: 0.8125rem;
+    line-height: 1.6;
+    color: rgba(255, 255, 255, 0.66);
+    margin-bottom: 1.25rem;
+  }
+
+  .prompt-action {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.625rem 1rem;
+    border-radius: 0.5rem;
+    background: #5865f2;
+    color: #fff;
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  .prompt-action:hover {
+    background: #4752c4;
+  }
+
+  .prompt-dismiss {
+    margin-top: 0.75rem;
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.5);
+    cursor: pointer;
+  }
+
+  .prompt-dismiss:hover {
+    color: rgba(255, 255, 255, 0.75);
   }
 
   @media (max-width: 640px) {
