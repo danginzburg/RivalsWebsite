@@ -72,7 +72,7 @@
     email?: string | null
   }) {
     return (
-      player.riot_id_base ?? player.display_name ?? player.player_name ?? player.email ?? 'Player'
+      player.display_name ?? player.riot_id_base ?? player.player_name ?? player.email ?? 'Player'
     )
   }
 

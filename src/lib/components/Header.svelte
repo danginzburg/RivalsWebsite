@@ -20,6 +20,7 @@
     ClipboardList,
   } from 'lucide-svelte'
   import DiscordIcon from '$lib/components/icons/DiscordIcon.svelte'
+  import NotificationBell from '$lib/components/NotificationBell.svelte'
   import rivalsLogo from '$lib/assets/rivals_logo.webp'
 
   let isMobileMenuOpen = $state(false)
@@ -28,6 +29,7 @@
   const user = $derived($page.data.user)
   const isAdmin = $derived(user?.role === 'admin')
   const hasActivePickem = $derived($page.data.hasActivePickem ?? false)
+  const unreadNotifications = $derived($page.data.unreadNotifications ?? 0)
 
   type NavHref =
     | '/'
@@ -142,6 +144,10 @@
           <DiscordIcon size={19} />
         </a>
 
+        {#if user}
+          <NotificationBell initialUnread={unreadNotifications} />
+        {/if}
+
         {#each utilityItems as item (item.href)}
           {@const Icon = item.icon}
           <a
@@ -178,6 +184,13 @@
         {/if}
       </div>
     </div>
+
+    <!-- Mobile cluster: bell (when signed in) sits beside the menu toggle. -->
+    {#if user}
+      <div class="mobile-bell">
+        <NotificationBell initialUnread={unreadNotifications} />
+      </div>
+    {/if}
 
     <!-- Mobile menu button -->
     <button
@@ -404,8 +417,13 @@
 
   /* Mobile */
   .mobile-menu-toggle,
-  .mobile-menu-panel {
+  .mobile-menu-panel,
+  .mobile-bell {
     display: none;
+  }
+
+  .mobile-bell {
+    align-items: center;
   }
 
   .mobile-menu-toggle {
@@ -476,6 +494,12 @@
     .mobile-menu-toggle,
     .mobile-menu-panel {
       display: block;
+    }
+
+    .mobile-bell {
+      display: flex;
+      /* Group the bell with the menu toggle on the right edge. */
+      margin-left: auto;
     }
   }
 </style>

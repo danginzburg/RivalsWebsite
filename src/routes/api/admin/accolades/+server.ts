@@ -37,7 +37,7 @@ export const GET: RequestHandler = async ({ locals }) => {
     const entry = {
       id: a.id,
       profile_id: a.profile_id,
-      display_name: p?.riot_id_base ?? p?.display_name ?? 'Player',
+      display_name: p?.display_name ?? p?.riot_id_base ?? 'Player',
       context: (a as any).context ?? null,
     }
     const current = assignmentsByAccolade.get(a.accolade_id) ?? []
@@ -213,7 +213,7 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
       details: { profileId: profile.id, playerName },
     })
 
-    const displayName = profile.riot_id_base ?? profile.display_name ?? 'Player'
+    const displayName = profile.display_name ?? profile.riot_id_base ?? 'Player'
     return json({
       success: true,
       assignment: { id: assignment.id, profile_id: profile.id, display_name: displayName, context },

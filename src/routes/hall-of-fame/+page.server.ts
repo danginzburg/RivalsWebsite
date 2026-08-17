@@ -73,7 +73,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
       stat_label: entry.stat_label ?? null,
       media_url: entry.media_url ?? null,
       holder: profile
-        ? { id: profile.id, name: profile.riot_id_base ?? profile.display_name ?? 'Player' }
+        ? { id: profile.id, name: profile.display_name ?? profile.riot_id_base ?? 'Player' }
         : entry.player_name
           ? { id: null, name: entry.player_name }
           : null,
@@ -99,7 +99,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
             logo_url: getTeamLogoUrl(winner),
           }
         : null,
-      mvp: mvp ? { id: mvp.id, name: mvp.riot_id_base ?? mvp.display_name ?? 'Player' } : null,
+      mvp: mvp ? { id: mvp.id, name: mvp.display_name ?? mvp.riot_id_base ?? 'Player' } : null,
     }
   })
 

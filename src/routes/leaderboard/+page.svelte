@@ -11,6 +11,8 @@
 
   const rows = $derived(data.rows ?? [])
   const batch = $derived(data.batch ?? null)
+  // The page is scoped to the running season; between seasons there is none.
+  const season = $derived(data.season ?? null)
   const myTeam = $derived(data.myTeam ?? null)
   const seeds = $derived((data.seeds ?? {}) as Record<string, number>)
   const isAdmin = $derived(data.viewer?.isAdmin ?? false)
@@ -34,7 +36,7 @@
   const unranked = $derived(filtered.filter((r) => r.stats == null))
 
   /** Medal colouring for the top three. */
-  function rankStyle(rank: number) {
+  function rankStyle(rank: number | null) {
     if (rank === 1) return 'background: rgba(252,211,77,0.16); color: #fcd34d;'
     if (rank === 2) return 'background: rgba(203,213,225,0.16); color: #cbd5e1;'
     if (rank === 3) return 'background: rgba(217,119,6,0.18); color: #fbbf24;'
@@ -54,7 +56,9 @@
   <div class="page-content py-6">
     <PageHeading
       title="Leaderboard"
-      subtitle="Standings and every team in the league."
+      subtitle={season?.name
+        ? `${season.name} standings and every team in the league.`
+        : 'Standings and every team in the league.'}
       icon={Trophy}
     >
       {#snippet actions()}
@@ -64,147 +68,160 @@
       {/snippet}
     </PageHeading>
 
-    <!-- Viewer's own team -->
-    {#if myTeam}
-      <a href={resolve(`/teams/${myTeam.id}`)} class="my-team">
-        {#if myTeam.logo_url}
-          <img src={myTeam.logo_url} alt="" class="my-team-logo" />
-        {:else}
-          <div class="my-team-logo my-team-logo-blank"></div>
-        {/if}
-        <div class="my-team-body">
-          <div class="my-team-label">Your team</div>
-          <div class="my-team-name">
-            {myTeam.name}{#if myTeam.tag}<span class="my-team-tag"
-                >[{String(myTeam.tag).toUpperCase()}]</span
-              >{/if}
-          </div>
-          {#if myTeam.role}
-            <div class="my-team-role">{myTeam.role}</div>
-          {/if}
-        </div>
-        <ChevronRight size={18} class="my-team-arrow" />
-      </a>
-    {/if}
-
-    <!-- Search -->
-    <div class="toolbar">
-      <div class="search-wrap">
-        <span class="search-icon"><Search size={14} /></span>
-        <input bind:value={search} class="search-input" placeholder="Search teams..." />
-      </div>
-      {#if batch}
-        <span class="batch-note">
-          {batch.display_name}{#if batch.as_of_date}<span class="batch-date">
-              · as of {batch.as_of_date}</span
-            >{/if}
-        </span>
-      {/if}
-    </div>
-
-    {#if rows.length === 0}
+    {#if !season}
+      <!-- Off-season: no standings, no roster, nothing to search. -->
       <div class="empty-state">
         <Trophy size={40} style="color: rgba(255,255,255,0.48);" />
-        <p class="empty-title">No teams yet</p>
-        <p class="empty-text">Approved teams and their standings will appear here.</p>
-      </div>
-    {:else if filtered.length === 0}
-      <div class="empty-state">
-        <p class="empty-text">No teams match “{search}”.</p>
+        <p class="empty-title">No season in progress</p>
+        <p class="empty-text">
+          Standings and teams appear here once the next season starts. Past seasons are on the
+          <a href={resolve('/events')} class="empty-link">events page</a>.
+        </p>
       </div>
     {:else}
-      <!-- Standings -->
-      {#if ranked.length > 0}
-        <div class="table-wrap">
-          <table class="standings">
-            <thead>
-              <tr>
-                <th class="col-rank">#</th>
-                <th class="col-team">Team</th>
-                <th class="col-num">Pts</th>
-                <th class="col-num">Series</th>
-                <th class="col-num">W</th>
-                <th class="col-num">L</th>
-                <th class="col-num">Maps</th>
-                <th class="col-num">MW</th>
-                <th class="col-num">ML</th>
-                <th class="col-num">Diff</th>
-              </tr>
-            </thead>
-            <tbody>
-              {#each ranked as row (row.id)}
-                {@const isMine = myTeam?.id === row.id}
-                <tr class:row-mine={isMine}>
-                  <td class="col-rank">
-                    <span class="rank-badge" style={rankStyle(row.stats.rank)}>
-                      {row.stats.rank}
-                    </span>
-                  </td>
-                  <td class="col-team">
-                    <a href={resolve(`/teams/${row.id}`)} class="team-cell">
-                      {#if row.logo_url}
-                        <img src={row.logo_url} alt="" class="team-logo" />
-                      {:else}
-                        <div class="team-logo team-logo-blank"></div>
-                      {/if}
-                      <span class="team-text">
-                        <span class="team-name">{row.name}</span>
-                        {#if row.tag}
-                          <span class="team-tag">[{String(row.tag).toUpperCase()}]</span>
-                        {/if}
-                        <TeamSeed seed={seeds[row.id] ?? null} label="Playoff seed" />
-                      </span>
-                    </a>
-                  </td>
-                  <td class="col-num tabular col-points">{row.stats.points}</td>
-                  <td class="col-num tabular muted">{row.stats.series_played}</td>
-                  <td class="col-num tabular">{row.stats.series_wins}</td>
-                  <td class="col-num tabular">{row.stats.series_losses}</td>
-                  <td class="col-num tabular muted">{row.stats.maps_played}</td>
-                  <td class="col-num tabular">{row.stats.map_wins}</td>
-                  <td class="col-num tabular">{row.stats.map_losses}</td>
-                  <td class="col-num tabular" style={diffStyle(row.stats.round_diff)}>
-                    {row.stats.round_diff > 0 ? '+' : ''}{row.stats.round_diff}
-                  </td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        </div>
+      <!-- Viewer's own team -->
+      {#if myTeam}
+        <a href={resolve(`/teams/${myTeam.id}`)} class="my-team">
+          {#if myTeam.logo_url}
+            <img src={myTeam.logo_url} alt="" class="my-team-logo" />
+          {:else}
+            <div class="my-team-logo my-team-logo-blank"></div>
+          {/if}
+          <div class="my-team-body">
+            <div class="my-team-label">Your team</div>
+            <div class="my-team-name">
+              {myTeam.name}{#if myTeam.tag}<span class="my-team-tag"
+                  >[{String(myTeam.tag).toUpperCase()}]</span
+                >{/if}
+            </div>
+            {#if myTeam.role}
+              <div class="my-team-role">{myTeam.role}</div>
+            {/if}
+          </div>
+          <ChevronRight size={18} class="my-team-arrow" />
+        </a>
       {/if}
 
-      <!-- Teams with no standings entry -->
-      {#if unranked.length > 0}
-        <section class="unranked">
-          <h2 class="unranked-title">
-            {ranked.length > 0 ? 'Not in current standings' : 'Teams'}
-            <span class="unranked-count">{unranked.length}</span>
-          </h2>
-          <div class="team-grid">
-            {#each unranked as row (row.id)}
-              <a
-                href={resolve(`/teams/${row.id}`)}
-                class="team-card"
-                class:row-mine={myTeam?.id === row.id}
-              >
-                {#if row.logo_url}
-                  <img src={row.logo_url} alt="" class="team-card-logo" />
-                {:else}
-                  <div class="team-card-logo team-logo-blank"></div>
-                {/if}
-                <div class="team-card-body">
-                  <div class="team-card-name">{row.name}</div>
-                  <div class="team-card-meta">
-                    {#if row.tag}
-                      <span class="team-card-tag">[{String(row.tag).toUpperCase()}]</span>
-                    {/if}
-                    <TeamSeed seed={seeds[row.id] ?? null} label="Playoff seed" />
-                  </div>
-                </div>
-              </a>
-            {/each}
+      <!-- Search -->
+      <div class="toolbar">
+        <div class="search-wrap">
+          <span class="search-icon"><Search size={14} /></span>
+          <input bind:value={search} class="search-input" placeholder="Search teams..." />
+        </div>
+        {#if batch}
+          <span class="batch-note">
+            {batch.display_name}{#if batch.as_of_date}<span class="batch-date">
+                · as of {batch.as_of_date}</span
+              >{/if}
+          </span>
+        {/if}
+      </div>
+
+      {#if rows.length === 0}
+        <div class="empty-state">
+          <Trophy size={40} style="color: rgba(255,255,255,0.48);" />
+          <p class="empty-title">No teams yet</p>
+          <p class="empty-text">Approved teams and their standings will appear here.</p>
+        </div>
+      {:else if filtered.length === 0}
+        <div class="empty-state">
+          <p class="empty-text">No teams match “{search}”.</p>
+        </div>
+      {:else}
+        <!-- Standings -->
+        {#if ranked.length > 0}
+          <div class="table-wrap">
+            <table class="standings">
+              <thead>
+                <tr>
+                  <th class="col-rank">#</th>
+                  <th class="col-team">Team</th>
+                  <th class="col-num">Pts</th>
+                  <th class="col-num">Series</th>
+                  <th class="col-num">W</th>
+                  <th class="col-num">L</th>
+                  <th class="col-num">Maps</th>
+                  <th class="col-num">MW</th>
+                  <th class="col-num">ML</th>
+                  <th class="col-num">Diff</th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each ranked as row (row.id)}
+                  {@const isMine = myTeam?.id === row.id}
+                  <tr class:row-mine={isMine}>
+                    <td class="col-rank">
+                      <span class="rank-badge" style={rankStyle(row.stats.rank)}>
+                        <!-- No rank until the season's first import. -->
+                        {row.stats.rank ?? '—'}
+                      </span>
+                    </td>
+                    <td class="col-team">
+                      <a href={resolve(`/teams/${row.id}`)} class="team-cell">
+                        {#if row.logo_url}
+                          <img src={row.logo_url} alt="" class="team-logo" />
+                        {:else}
+                          <div class="team-logo team-logo-blank"></div>
+                        {/if}
+                        <span class="team-text">
+                          <span class="team-name">{row.name}</span>
+                          {#if row.tag}
+                            <span class="team-tag">[{String(row.tag).toUpperCase()}]</span>
+                          {/if}
+                          <TeamSeed seed={seeds[row.id] ?? null} label="Playoff seed" />
+                        </span>
+                      </a>
+                    </td>
+                    <td class="col-num tabular col-points">{row.stats.points}</td>
+                    <td class="col-num tabular muted">{row.stats.series_played}</td>
+                    <td class="col-num tabular">{row.stats.series_wins}</td>
+                    <td class="col-num tabular">{row.stats.series_losses}</td>
+                    <td class="col-num tabular muted">{row.stats.maps_played}</td>
+                    <td class="col-num tabular">{row.stats.map_wins}</td>
+                    <td class="col-num tabular">{row.stats.map_losses}</td>
+                    <td class="col-num tabular" style={diffStyle(row.stats.round_diff)}>
+                      {row.stats.round_diff > 0 ? '+' : ''}{row.stats.round_diff}
+                    </td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
           </div>
-        </section>
+        {/if}
+
+        <!-- Teams with no standings entry -->
+        {#if unranked.length > 0}
+          <section class="unranked">
+            <h2 class="unranked-title">
+              {ranked.length > 0 ? 'Not in current standings' : 'Teams'}
+              <span class="unranked-count">{unranked.length}</span>
+            </h2>
+            <div class="team-grid">
+              {#each unranked as row (row.id)}
+                <a
+                  href={resolve(`/teams/${row.id}`)}
+                  class="team-card"
+                  class:row-mine={myTeam?.id === row.id}
+                >
+                  {#if row.logo_url}
+                    <img src={row.logo_url} alt="" class="team-card-logo" />
+                  {:else}
+                    <div class="team-card-logo team-logo-blank"></div>
+                  {/if}
+                  <div class="team-card-body">
+                    <div class="team-card-name">{row.name}</div>
+                    <div class="team-card-meta">
+                      {#if row.tag}
+                        <span class="team-card-tag">[{String(row.tag).toUpperCase()}]</span>
+                      {/if}
+                      <TeamSeed seed={seeds[row.id] ?? null} label="Playoff seed" />
+                    </div>
+                  </div>
+                </a>
+              {/each}
+            </div>
+          </section>
+        {/if}
       {/if}
     {/if}
   </div>
@@ -573,6 +590,15 @@
   .empty-text {
     font-size: 0.875rem;
     color: rgba(255, 255, 255, 0.5);
+  }
+
+  .empty-link {
+    color: var(--accent-text);
+    text-decoration: none;
+  }
+
+  .empty-link:hover {
+    text-decoration: underline;
   }
 
   @media (max-width: 640px) {

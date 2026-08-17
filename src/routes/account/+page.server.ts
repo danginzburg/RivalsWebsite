@@ -4,6 +4,7 @@ import { supabaseAdmin } from '$lib/supabase/admin'
 import { normalizeRiotBase, isValidRiotBase } from '$lib/server/riot-id'
 import { supabaseErrorMessageIncludes } from '$lib/server/supabase/errors'
 import { claimRelinkAfterProfileUpdate } from '$lib/server/players/claim-relink'
+import { syncPrimaryRiotName } from '$lib/server/players/riot-accounts'
 
 export const load: PageServerLoad = async ({ locals }) => {
   if (!locals.user) throw redirect(303, '/auth/login?returnTo=/account')
@@ -62,6 +63,18 @@ export const actions: Actions = {
       .eq('id', profile.id)
 
     if (updateError) return { success: false, message: updateError.message }
+
+    try {
+      await syncPrimaryRiotName(profile.id, riotIdBase)
+    } catch (err) {
+      console.warn('Failed to sync primary Riot account name:', err)
+    }
+
+    await supabaseAdmin
+      .from('profiles')
+      .update({ display_name: riotIdBase })
+      .eq('id', profile.id)
+      .eq('display_name_is_custom', false)
 
     try {
       await claimRelinkAfterProfileUpdate(profile.id)

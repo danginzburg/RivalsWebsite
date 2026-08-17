@@ -8,6 +8,7 @@ import {
   normalizeOptional,
   parseScore,
 } from '$lib/server/signups'
+import { createNotification } from '$lib/server/notifications'
 
 const SELECT_COLUMNS = `
   id,
@@ -69,7 +70,7 @@ export const GET: RequestHandler = async ({ locals, url }) => {
         profile: {
           id: row.profile_id,
           name:
-            profile?.riot_id_base ?? profile?.display_name ?? profile?.email ?? 'Unknown player',
+            profile?.display_name ?? profile?.riot_id_base ?? profile?.email ?? 'Unknown player',
           email: profile?.email ?? null,
         },
       }
@@ -176,6 +177,27 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
       .eq('id', existing.profile_id)
   }
 
+  // Let the player know an admin acted on their signup.
+  if (status === 'approved') {
+    await createNotification({
+      recipientProfileId: existing.profile_id,
+      type: 'signup_approved',
+      title: 'Your signup was approved',
+      body: 'You are in — see your registration on your account page.',
+      link: '/account',
+      actorProfileId: admin.id,
+    })
+  } else if (status === 'rejected') {
+    await createNotification({
+      recipientProfileId: existing.profile_id,
+      type: 'signup_rejected',
+      title: 'Your signup was not approved',
+      body: updated.admin_notes ? `Note from an admin: ${updated.admin_notes}` : null,
+      link: '/account',
+      actorProfileId: admin.id,
+    })
+  }
+
   return json({ success: true, signup: updated })
 }
 
@@ -185,9 +207,23 @@ export const DELETE: RequestHandler = async ({ locals, url }) => {
   const id = url.searchParams.get('id')
   if (!id) throw error(400, 'Signup id is required')
 
+  const { data: existing } = await supabaseAdmin
+    .from('player_signups')
+    .select('profile_id')
+    .eq('id', id)
+    .maybeSingle()
+
   const { error: deleteError } = await supabaseAdmin.from('player_signups').delete().eq('id', id)
 
   if (deleteError) throw error(500, 'Failed to delete signup')
+
+  // Nothing left to have been approved, so the published contact details go too.
+  if (existing?.profile_id) {
+    await supabaseAdmin
+      .from('profiles')
+      .update({ discord_handle: null, tracker_links: [] })
+      .eq('id', existing.profile_id)
+  }
 
   return json({ success: true })
 }

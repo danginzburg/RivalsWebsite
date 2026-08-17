@@ -12,6 +12,7 @@ import {
 } from '$lib/server/comments'
 import { invalidateRecentComments } from '$lib/server/comments/recent'
 import { getViewerProfileId } from '$lib/server/auth/viewer'
+import { buildCommentLink, createNotification } from '$lib/server/notifications'
 
 /** Load the full profile including ban fields. */
 async function loadCommenter(user: App.Locals['user']) {
@@ -20,7 +21,7 @@ async function loadCommenter(user: App.Locals['user']) {
 
   const { data } = await supabaseAdmin
     .from('profiles')
-    .select('id, role, comments_banned_until, comments_ban_reason')
+    .select('id, role, display_name, comments_banned_until, comments_ban_reason')
     .eq('id', profile.id)
     .maybeSingle()
 
@@ -62,10 +63,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
   // Replies are one level deep: replying to a reply attaches to its parent.
   let resolvedParentId: string | null = null
+  // Whom to notify — the author of the thread this reply lands under.
+  let replyRecipientId: string | null = null
   if (parentId) {
     const { data: parent } = await supabaseAdmin
       .from('comments')
-      .select('id, parent_id, entity_type, entity_id, is_deleted')
+      .select('id, parent_id, profile_id, entity_type, entity_id, is_deleted')
       .eq('id', parentId)
       .maybeSingle()
 
@@ -76,15 +79,20 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     if (parent.is_deleted) throw error(400, 'Cannot reply to a deleted comment')
 
     resolvedParentId = parent.parent_id ?? parent.id
+    replyRecipientId = parent.profile_id
   }
 
-  const { error: insertError } = await supabaseAdmin.from('comments').insert({
-    entity_type: entityType,
-    entity_id: entityId,
-    profile_id: profile.id,
-    parent_id: resolvedParentId,
-    body: text,
-  })
+  const { data: inserted, error: insertError } = await supabaseAdmin
+    .from('comments')
+    .insert({
+      entity_type: entityType,
+      entity_id: entityId,
+      profile_id: profile.id,
+      parent_id: resolvedParentId,
+      body: text,
+    })
+    .select('id')
+    .single()
 
   if (insertError) {
     console.error('Failed to create comment:', insertError)
@@ -92,6 +100,21 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   }
 
   invalidateRecentComments()
+
+  // Notify the parent author that someone replied (never yourself).
+  if (replyRecipientId && replyRecipientId !== profile.id) {
+    const link = await buildCommentLink(entityType, entityId, inserted.id)
+    await createNotification({
+      recipientProfileId: replyRecipientId,
+      type: 'comment_reply',
+      title: `${profile.display_name ?? 'Someone'} replied to your comment`,
+      body: text,
+      link,
+      actorProfileId: profile.id,
+      entityType,
+      entityId,
+    })
+  }
 
   const comments = await loadCommentThread(entityType, entityId, {
     includeReportCounts: profile.role === 'admin',
@@ -172,6 +195,23 @@ export const DELETE: RequestHandler = async ({ url, locals }) => {
   if (deleteError) throw error(500, 'Failed to delete comment')
 
   invalidateRecentComments()
+
+  // Tell the author when a moderator removes their comment (not on self-delete).
+  if (isAdmin && existing.profile_id !== profile.id) {
+    const link = await buildCommentLink(
+      existing.entity_type as CommentEntityType,
+      existing.entity_id
+    )
+    await createNotification({
+      recipientProfileId: existing.profile_id,
+      type: 'comment_deleted',
+      title: 'A moderator removed one of your comments',
+      link,
+      actorProfileId: profile.id,
+      entityType: existing.entity_type,
+      entityId: existing.entity_id,
+    })
+  }
 
   // Deleting resolves any open reports against the comment.
   await supabaseAdmin

@@ -1,7 +1,7 @@
 <script lang="ts">
   import CustomSelect from '$lib/components/CustomSelect.svelte'
   import { resolve } from '$app/paths'
-  import type { CommentReport } from '$lib/admin/types'
+  import type { CommentReport, ReviewFlag } from '$lib/admin/types'
 
   interface Props {
     reports: CommentReport[]
@@ -14,6 +14,12 @@
     onDeleteComment: (commentId: string, reportId: string) => void
     onBanUser: (profileId: string, name: string) => void
     onUnbanUser: (profileId: string, name: string) => void
+    // Data flags: user-submitted "this match/profile looks wrong" reports.
+    flags?: ReviewFlag[]
+    flagsLoaded?: boolean
+    processingFlagId?: string | null
+    onResolveFlag?: (flagId: string) => void
+    onDismissFlag?: (flagId: string) => void
   }
 
   let {
@@ -27,6 +33,11 @@
     onDeleteComment,
     onBanUser,
     onUnbanUser,
+    flags = [],
+    flagsLoaded = false,
+    processingFlagId = null,
+    onResolveFlag,
+    onDismissFlag,
   }: Props = $props()
 
   const statusOptions = [
@@ -45,6 +56,12 @@
       return comment.entity_slug ? resolve(`/events/${comment.entity_slug}`) : null
     }
     return resolve(`/players/${comment.entity_id}`)
+  }
+
+  function flagHref(flag: ReviewFlag) {
+    return flag.entity_type === 'match'
+      ? resolve(`/matches/${flag.entity_id}`)
+      : resolve(`/players/${flag.entity_id}`)
   }
 
   function isBanned(until: string | null | undefined) {
@@ -68,6 +85,101 @@
     return 'background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.6);'
   }
 </script>
+
+<section class="admin-bordered mb-3 p-3">
+  <div class="mb-3">
+    <div
+      class="text-sm font-semibold tracking-wide uppercase"
+      style="color: rgba(255,255,255,0.8);"
+    >
+      Data Flags ({flags.length})
+    </div>
+    <p class="mt-1 text-xs" style="color: rgba(255,255,255,0.55);">
+      Users flag matches or profiles whose data looks wrong. Fix the data on the linked page, then
+      resolve. Filter above is shared with reported comments.
+    </p>
+  </div>
+
+  {#if !flagsLoaded}
+    <div class="py-8 text-center text-sm" style="color: rgba(255,255,255,0.72);">
+      Loading flags...
+    </div>
+  {:else if flags.length === 0}
+    <div class="py-8 text-center text-sm" style="color: rgba(255,255,255,0.72);">
+      {statusFilter === 'pending'
+        ? 'No pending flags. Nothing to review.'
+        : 'No flags match this filter.'}
+    </div>
+  {:else}
+    <div class="grid grid-cols-1 gap-2">
+      {#each flags as flag (flag.id)}
+        <article
+          class="rounded-md border p-3"
+          style="border-color: rgba(255,255,255,0.10); background: rgba(0,0,0,0.2);"
+        >
+          <div class="mb-2 flex flex-wrap items-center gap-2">
+            <span
+              class="rounded px-2 py-0.5 text-[10px] font-bold uppercase"
+              style={statusStyle(flag.status)}
+            >
+              {flag.status}
+            </span>
+            <span
+              class="rounded px-2 py-0.5 text-[10px] font-bold uppercase"
+              style="background: rgba(147,197,253,0.14); color: #93c5fd;"
+            >
+              {flag.entity_type}
+            </span>
+            <span class="text-xs" style="color: rgba(255,255,255,0.5);">
+              Reported by <strong style="color: rgba(255,255,255,0.75);"
+                >{flag.reporter.name}</strong
+              >
+              · {formatDate(flag.created_at)}
+            </span>
+            <a
+              href={flagHref(flag)}
+              class="ml-auto text-xs font-semibold"
+              style="color: #93c5fd;"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {flag.entity_label} →
+            </a>
+          </div>
+
+          <div
+            class="rounded p-2 text-xs"
+            style="background: rgba(251,191,36,0.07); color: #fde68a;"
+          >
+            <strong>What's wrong:</strong>
+            {flag.reason}
+          </div>
+
+          {#if flag.status === 'pending'}
+            <div class="mt-3 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                class="admin-btn admin-btn-sm admin-btn-neutral"
+                disabled={processingFlagId === flag.id}
+                onclick={() => onDismissFlag?.(flag.id)}
+              >
+                Dismiss
+              </button>
+              <button
+                type="button"
+                class="admin-btn admin-btn-sm admin-btn-info"
+                disabled={processingFlagId === flag.id}
+                onclick={() => onResolveFlag?.(flag.id)}
+              >
+                {processingFlagId === flag.id ? 'Working...' : 'Mark Resolved'}
+              </button>
+            </div>
+          {/if}
+        </article>
+      {/each}
+    </div>
+  {/if}
+</section>
 
 <section class="admin-bordered p-3">
   <div class="mb-3 flex flex-wrap items-center justify-between gap-3">

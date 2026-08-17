@@ -4,6 +4,12 @@
   type Option = {
     value: string
     label: string
+    /**
+     * Optional heading this option sits under. Options are rendered in the
+     * order given — the heading is drawn whenever it changes — so the caller
+     * groups by sorting, and an ungrouped list behaves exactly as before.
+     */
+    group?: string
   }
 
   let {
@@ -122,8 +128,11 @@
 
   {#if isOpen}
     <ul class="select-dropdown" role="listbox" style={dropdownStyle}>
-      {#each options as option (option.value)}
+      {#each options as option, i (option.value)}
         {#if option.value !== undefined && option.value !== null}
+          {#if option.group && option.group !== options[i - 1]?.group}
+            <li class="group-header" role="presentation">{option.group}</li>
+          {/if}
           <li
             role="option"
             aria-selected={value === option.value}
@@ -236,6 +245,20 @@
     transition:
       background-color 0.1s ease,
       color 0.1s ease;
+  }
+
+  .select-dropdown li.group-header {
+    padding: 0.5rem 0.75rem 0.25rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.5);
+    cursor: default;
+  }
+
+  .select-dropdown li.group-header:hover {
+    background-color: transparent;
   }
 
   .select-dropdown li:hover {

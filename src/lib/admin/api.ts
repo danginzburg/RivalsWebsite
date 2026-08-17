@@ -99,7 +99,9 @@ export async function fetchAdminDashboardData(options?: { seasonId?: string | nu
   seasons: AdminSeason[]
   queue: TeamQueueEntry[]
   approved: TeamQueueEntry[]
+  seasonTeams: TeamQueueEntry[]
   matches: AdminMatch[]
+  seasonMatches: AdminMatch[]
 }> {
   const matchesUrl = options?.seasonId
     ? `/api/admin/matches?seasonId=${encodeURIComponent(options.seasonId)}`
@@ -109,27 +111,48 @@ export async function fetchAdminDashboardData(options?: { seasonId?: string | nu
     ? `/api/admin/teams?seasonId=${encodeURIComponent(options.seasonId)}`
     : '/api/admin/teams'
 
-  const [usersResult, seasonsResult, teamsResult, matchesResult] = await Promise.all([
-    adminJsonRequest<DashboardUsersResult>('/api/admin/users', {
-      fallbackMessage: 'Failed to fetch users',
-    }),
-    adminJsonRequest<DashboardSeasonsResult>('/api/admin/seasons', {
-      fallbackMessage: 'Failed to fetch seasons',
-    }),
-    adminJsonRequest<DashboardTeamsResult>(teamsUrl, {
-      fallbackMessage: 'Failed to fetch teams',
-    }),
-    adminJsonRequest<DashboardMatchesResult>(matchesUrl, {
-      fallbackMessage: 'Failed to fetch matches',
-    }),
-  ])
+  // The Seasons tab's per-season pickers need every approved team, not just the
+  // selected season's. Unscoped already returns all of them, so the extra
+  // request only goes out when a season filter is actually applied.
+  const allTeamsRequest = options?.seasonId
+    ? adminJsonRequest<DashboardTeamsResult>('/api/admin/teams', {
+        fallbackMessage: 'Failed to fetch teams',
+      })
+    : null
+
+  // Same story for the playoff pick'em match links.
+  const allMatchesRequest = options?.seasonId
+    ? adminJsonRequest<DashboardMatchesResult>('/api/admin/matches', {
+        fallbackMessage: 'Failed to fetch matches',
+      })
+    : null
+
+  const [usersResult, seasonsResult, teamsResult, matchesResult, allTeamsResult, allMatchesResult] =
+    await Promise.all([
+      adminJsonRequest<DashboardUsersResult>('/api/admin/users', {
+        fallbackMessage: 'Failed to fetch users',
+      }),
+      adminJsonRequest<DashboardSeasonsResult>('/api/admin/seasons', {
+        fallbackMessage: 'Failed to fetch seasons',
+      }),
+      adminJsonRequest<DashboardTeamsResult>(teamsUrl, {
+        fallbackMessage: 'Failed to fetch teams',
+      }),
+      adminJsonRequest<DashboardMatchesResult>(matchesUrl, {
+        fallbackMessage: 'Failed to fetch matches',
+      }),
+      allTeamsRequest,
+      allMatchesRequest,
+    ])
 
   return {
     users: usersResult.users,
     seasons: seasonsResult.seasons,
     queue: teamsResult.queue,
     approved: teamsResult.approved,
+    seasonTeams: (allTeamsResult ?? teamsResult).approved,
     matches: matchesResult.matches,
+    seasonMatches: (allMatchesResult ?? matchesResult).matches,
   }
 }
 

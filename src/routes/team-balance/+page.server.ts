@@ -44,7 +44,7 @@ export const load = async () => {
       const value = effectiveValue(row)
       return {
         profileId: row.profile_id,
-        name: row.display_name ?? profile?.riot_id_base ?? profile?.display_name ?? 'Player',
+        name: row.display_name ?? profile?.display_name ?? profile?.riot_id_base ?? 'Player',
         rank: row.current_rank ?? null,
         value,
         isManual: row.manual_value_override != null,

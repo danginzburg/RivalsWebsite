@@ -1,11 +1,7 @@
 import { error } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
-import {
-  buildPlayoffBracketSlots,
-  playoffPickemConfigFromSeasonMetadata,
-  type PlayoffMatchId,
-} from '$lib/playoffPickems'
+import { buildPickemSlots, getLinkedResults, getPickemContextBySeasonId } from '$lib/server/pickems'
 import { safeNumber } from '$lib/server/parse'
 import { loadCommentThread } from '$lib/server/comments'
 import { getViewerProfileId } from '$lib/server/auth/viewer'
@@ -98,21 +94,55 @@ export const load = async ({
     logo_url: getTeamLogoUrl(team),
   }))
 
-  // Bracket teams are looked up by id, and may include teams from other seasons
-  // if the bracket was configured before season-scoping — so merge in any that
-  // the seed list references but the season roster is missing.
-  const pickem = playoffPickemConfigFromSeasonMetadata(season.metadata)
+  // The bracket lives in the season's pick'em event. Its teams are looked up by
+  // id and may include teams from other seasons (brackets configured before
+  // season-scoping), so start the map from the roster and backfill anything the
+  // bracket references but the roster is missing.
+  const pickemCtx = await getPickemContextBySeasonId(season.id)
+  const isBracketEvent = pickemCtx.event?.format === 'bracket' && pickemCtx.matches.length > 0
+
   const teamMap: Record<string, (typeof teams)[number]> = {}
   for (const team of teams) teamMap[team.id] = team
+  // Pick'em-context teams are already normalized with logo urls.
+  for (const team of pickemCtx.teams) {
+    if (!teamMap[team.id]) {
+      teamMap[team.id] = {
+        id: team.id,
+        name: team.name,
+        tag: team.tag,
+        logo_url: team.logo_url ?? null,
+      }
+    }
+  }
 
-  const missingBracketTeamIds = pickem.seeds.map((s) => s.teamId).filter((id) => id && !teamMap[id])
+  /**
+   * The bracket's winners come from the real matches its slots are linked to,
+   * not from the admin-resolved winners — those are only filled in for games
+   * decided before the pick'em opened, so on their own they leave most of an
+   * already-played bracket showing TBD. `buildPickemSlots` layers the resolved
+   * winners on top, so an explicit admin resolution still wins over a link.
+   */
+  const linkedResults = isBracketEvent ? await getLinkedResults(pickemCtx.matches) : {}
 
-  if (missingBracketTeamIds.length > 0) {
+  const bracketSlots =
+    isBracketEvent && pickemCtx.event
+      ? buildPickemSlots(pickemCtx.event, pickemCtx.matches, { picks: {} }, linkedResults)
+      : []
+
+  // Linked matches may reference teams neither the roster nor the seeds list, so
+  // backfill any slot team still missing from the map to avoid TBD labels.
+  const missingSlotTeamIds = Array.from(
+    new Set(
+      bracketSlots
+        .flatMap((slot) => [slot.teamAId, slot.teamBId])
+        .filter((id): id is string => Boolean(id) && !teamMap[id!])
+    )
+  )
+  if (missingSlotTeamIds.length > 0) {
     const { data: extraTeams } = await supabaseAdmin
       .from('teams')
       .select('id, name, tag, logo_path')
-      .in('id', missingBracketTeamIds)
-
+      .in('id', missingSlotTeamIds)
     for (const team of extraTeams ?? []) {
       teamMap[team.id] = {
         id: team.id,
@@ -122,42 +152,6 @@ export const load = async ({
       }
     }
   }
-
-  /**
-   * The bracket's winners come from the real matches its slots are linked to,
-   * not from the pick'em's `resolved_matches` list — that list is only filled
-   * in for games decided before the pick'em opened, so on its own it leaves
-   * most of an already-played bracket showing TBD.
-   *
-   * `buildPlayoffBracketSlots` layers `resolved_matches` on top of the payload,
-   * so an explicit admin resolution still wins over a linked result.
-   */
-  const linkedMatchIds = pickem.match_links
-    .map((link) => link.actualMatchId)
-    .filter((id): id is string => Boolean(id))
-
-  const actualPicks: Partial<Record<PlayoffMatchId, string>> = {}
-  if (linkedMatchIds.length > 0) {
-    const { data: linkedMatches } = await supabaseAdmin
-      .from('matches')
-      .select('id, winner_team_id')
-      .in('id', linkedMatchIds)
-
-    const winnerByMatchId = new Map(
-      (linkedMatches ?? []).map((m) => [m.id, m.winner_team_id as string | null])
-    )
-
-    for (const link of pickem.match_links) {
-      if (!link.actualMatchId) continue
-      const winner = winnerByMatchId.get(link.actualMatchId)
-      if (winner) actualPicks[link.matchId] = winner
-    }
-  }
-
-  const bracketSlots =
-    pickem.enabled && pickem.seeds.length > 0
-      ? buildPlayoffBracketSlots(pickem, { picks: actualPicks })
-      : []
 
   const matches = (matchRows ?? []).map((match) => {
     const teamA = firstRel(match.team_a as TeamRel | TeamRel[] | null)
@@ -314,7 +308,7 @@ export const load = async ({
             logo_url: getTeamLogoUrl(runnerUp),
           }
         : null,
-      mvp: mvp ? { id: mvp.id, name: mvp.riot_id_base ?? mvp.display_name ?? 'Player' } : null,
+      mvp: mvp ? { id: mvp.id, name: mvp.display_name ?? mvp.riot_id_base ?? 'Player' } : null,
     },
     teams,
     matches,
@@ -324,10 +318,10 @@ export const load = async ({
       slots: bracketSlots,
       teams: teamMap,
       // Seeds actually assigned a team — how many made playoffs.
-      teamCount: pickem.seeds.filter((seed) => Boolean(seed.teamId)).length,
+      teamCount: pickemCtx.event?.seeds.filter((seed) => Boolean(seed.teamId)).length ?? 0,
       // Seed number keyed by team id, for display in the bracket.
       seeds: Object.fromEntries(
-        pickem.seeds.filter((s) => s.teamId).map((s) => [s.teamId, s.seed])
+        (pickemCtx.event?.seeds ?? []).filter((s) => s.teamId).map((s) => [s.teamId, s.seed])
       ) as Record<string, number>,
     },
     comments,

@@ -6,21 +6,24 @@
   import CustomSelect from '$lib/components/CustomSelect.svelte'
   import pickemMedal from '$lib/assets/accolades/pickem_medal.svg'
   import {
-    buildPlayoffBracketSlots,
-    normalizePlayoffPickemPayload,
-    validatePlayoffPickemPayload,
-    type PlayoffMatchId,
-    type PlayoffPickemPayload,
-    type PlayoffPickemTeam,
-    type PlayoffPickemSlot,
-  } from '$lib/playoffPickems'
+    buildPickemSlots,
+    normalizePickemPayload,
+    validatePickemPayload,
+    type PickemPayload,
+    type PickemTeam,
+    type PickemSlot,
+  } from '$lib/pickems'
   import type { PageProps } from './$types'
 
   let { data }: PageProps = $props()
 
   const RESULTS_VIEW_ID = '__results__'
 
-  let picks = $state<Partial<Record<PlayoffMatchId, string>>>(
+  const isBracket = $derived(data.event.format === 'bracket')
+  const entryNoun = $derived(isBracket ? 'bracket' : 'entry')
+  const entryNounPlural = $derived(isBracket ? 'brackets' : 'entries')
+
+  let picks = $state<Record<string, string>>(
     untrack(() => ({ ...(data.mySubmission?.payload.picks ?? {}) }))
   )
   let selectedSubmissionId = $state<string>(untrack(() => RESULTS_VIEW_ID))
@@ -28,21 +31,46 @@
   let saveMessage = $state<string | null>(null)
   let errorMessage = $state<string | null>(null)
 
-  const teamById = $derived(
-    new Map((data.teams as PlayoffPickemTeam[]).map((team) => [team.id, team]))
-  )
+  const teamById = $derived(new Map((data.teams as PickemTeam[]).map((team) => [team.id, team])))
   const isViewingResults = $derived(selectedSubmissionId === RESULTS_VIEW_ID)
   const selectedSubmission = $derived(
     data.submissions.find((submission) => submission.id === selectedSubmissionId) ?? null
   )
-  const displayPayload = $derived<PlayoffPickemPayload>(
+  const displayPayload = $derived<PickemPayload>(
     isViewingResults
-      ? { picks: { ...(data.actualWinners as Partial<Record<PlayoffMatchId, string>>) } }
+      ? { picks: { ...data.actualWinners } }
       : selectedSubmission && selectedSubmission.id !== data.mySubmission?.id
-        ? normalizePlayoffPickemPayload(selectedSubmission.payload)
+        ? normalizePickemPayload(selectedSubmission.payload)
         : { picks }
   )
-  const slots = $derived(buildPlayoffBracketSlots(data.config, displayPayload))
+  // Only a bracket's Actual view reconstructs from the linked real matches
+  // (their teams and winners can diverge from the seed routing). A submission
+  // view propagates from that person's own picks; matchups already carry their
+  // teams (assigned or filled from the linked game server-side).
+  const slots = $derived(
+    buildPickemSlots(
+      data.event,
+      data.matches,
+      displayPayload,
+      isBracket && isViewingResults ? (data.linkedResults ?? {}) : {}
+    )
+  )
+
+  /** Matchup slots grouped by week, preserving row order. */
+  const matchupGroups = $derived.by(() => {
+    const groups: Array<{ label: string; slots: PickemSlot[] }> = []
+    const byLabel = new Map<string, { label: string; slots: PickemSlot[] }>()
+    for (const slot of slots) {
+      let group = byLabel.get(slot.groupKey)
+      if (!group) {
+        group = { label: slot.groupKey || 'Matches', slots: [] }
+        byLabel.set(slot.groupKey, group)
+        groups.push(group)
+      }
+      group.slots.push(slot)
+    }
+    return groups
+  })
   const isViewingOwn = $derived(
     !isViewingResults && (!selectedSubmission || selectedSubmission.id === data.mySubmission?.id)
   )
@@ -53,28 +81,26 @@
    * the top has no single champion, so nothing is awarded: one rule, so the
    * banner and the row medal can never disagree.
    */
-  const isScored = $derived(data.config.status === 'scored')
+  const isScored = $derived(data.event.status === 'scored')
   const champion = $derived.by(() => {
     if (!isScored) return null
     const leaders = data.leaderboard.filter((entry) => entry.rank === 1)
     return leaders.length === 1 ? leaders[0] : null
   })
 
-  const resolvedIds = $derived(new Set(data.config.resolved_matches?.map((r) => r.matchId) ?? []))
-  const actualWinners = $derived(
-    (data.actualWinners ?? {}) as Partial<Record<PlayoffMatchId, string>>
-  )
+  const resolvedIds = $derived(new Set(data.resolvedSlotKeys ?? []))
+  const actualWinners = $derived((data.actualWinners ?? {}) as Record<string, string>)
   const decidedIds = $derived.by(() => {
     const ids = new Set(resolvedIds)
-    for (const matchId of Object.keys(actualWinners) as PlayoffMatchId[]) {
+    for (const matchId of Object.keys(actualWinners)) {
       ids.add(matchId)
     }
     return ids
   })
   const slotById = $derived(new Map(slots.map((s) => [s.id, s])))
 
-  function getSlots(ids: string[]): PlayoffPickemSlot[] {
-    return ids.map((id) => slotById.get(id as PlayoffMatchId)!).filter(Boolean)
+  function getSlots(ids: string[]): PickemSlot[] {
+    return ids.map((id) => slotById.get(id)!).filter(Boolean)
   }
 
   const ubQF = $derived(getSlots(['ub_qf_1', 'ub_qf_2', 'ub_qf_3', 'ub_qf_4']))
@@ -88,9 +114,9 @@
 
   const submissionOptions = $derived.by(() => {
     const opts: Array<{ value: string; label: string }> = []
-    opts.push({ value: RESULTS_VIEW_ID, label: 'Actual Bracket' })
+    opts.push({ value: RESULTS_VIEW_ID, label: isBracket ? 'Actual Bracket' : 'Actual Results' })
     if (data.mySubmission) {
-      opts.push({ value: data.mySubmission.id, label: 'My bracket' })
+      opts.push({ value: data.mySubmission.id, label: isBracket ? 'My bracket' : 'My picks' })
     } else if (data.viewer.canEdit) {
       opts.push({ value: '', label: 'Current picks' })
     }
@@ -114,15 +140,13 @@
   }
 
   /** Playoff seed for a team, from the bracket config. */
-  const seedByTeamId = $derived(
-    new Map((data.config.seeds ?? []).map((entry) => [entry.teamId, entry.seed]))
-  )
+  const seedByTeamId = $derived(new Map(Object.entries(data.seeds ?? {})))
 
   function teamSeed(teamId: string | null): number | null {
     return teamId ? (seedByTeamId.get(teamId) ?? null) : null
   }
 
-  function pickResult(matchId: PlayoffMatchId): 'correct' | 'wrong' | 'no-pick' | null {
+  function pickResult(matchId: string): 'correct' | 'wrong' | 'no-pick' | null {
     if (isViewingResults) return null
     if (resolvedIds.has(matchId)) return null
     const winner = actualWinners[matchId]
@@ -132,7 +156,7 @@
     return pick === winner ? 'correct' : 'wrong'
   }
 
-  function chooseWinner(matchId: PlayoffMatchId, teamId: string | null) {
+  function chooseWinner(matchId: string, teamId: string | null) {
     if (!data.viewer.canEdit || !isViewingOwn || !teamId || decidedIds.has(matchId)) return
     picks = { ...picks, [matchId]: teamId }
     saveMessage = null
@@ -140,11 +164,7 @@
   }
 
   function clearBracket() {
-    const kept: Partial<Record<PlayoffMatchId, string>> = {}
-    for (const r of data.config.resolved_matches ?? []) {
-      kept[r.matchId] = r.winnerId
-    }
-    picks = kept
+    picks = {}
     saveMessage = null
     errorMessage = null
   }
@@ -155,7 +175,7 @@
     saveMessage = null
     errorMessage = null
     try {
-      const payload = validatePlayoffPickemPayload(data.config, { picks })
+      const payload = validatePickemPayload(data.event, data.matches, { picks })
       const response = await fetch(`/api/pickems/${data.season.id}/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -186,7 +206,7 @@
           <p class="text-xs font-bold tracking-wide uppercase" style="color: var(--accent-text);">
             {data.season.name}
           </p>
-          <h1 class="responsive-title mt-1">Playoff Pick'em</h1>
+          <h1 class="responsive-title mt-1">{data.event.title || "Pick'em"}</h1>
           <p
             class="mt-1 flex flex-wrap items-center gap-3 text-sm"
             style="color: rgba(255,255,255,0.66);"
@@ -195,10 +215,10 @@
               class="inline-block rounded-full px-2 py-0.5 text-xs font-bold uppercase"
               style="background: var(--accent); color: var(--text);"
             >
-              {data.config.status}
+              {data.event.status}
             </span>
-            {#if data.config.lock_at}
-              <span>Locks {new Date(data.config.lock_at).toLocaleString()}</span>
+            {#if data.event.lockAt}
+              <span>Locks {new Date(data.event.lockAt).toLocaleString()}</span>
             {/if}
           </p>
         </div>
@@ -237,7 +257,7 @@
               onclick={saveBracket}
               disabled={isSaving}
             >
-              {isSaving ? 'Saving...' : 'Save bracket'}
+              {isSaving ? 'Saving...' : isBracket ? 'Save bracket' : 'Save picks'}
             </button>
           {:else}
             <span class="text-sm" style="color: rgba(255,255,255,0.6);">Submissions locked</span>
@@ -262,79 +282,98 @@
         </div>
       {/if}
 
-      <!-- Main area: bracket + leaderboard -->
+      <!-- Main area: bracket/matchups + leaderboard -->
       <div class="page-grid">
-        <div class="bracket-wrapper">
-          <!-- Upper bracket + Grand Final -->
-          <div class="bracket-flow ub-flow">
-            <div class="bracket-round conn-merge">
-              {#each ubQF as slot (slot.id)}
-                <div class="match-item">
-                  {@render matchCard(slot)}
-                </div>
-              {/each}
+        {#if isBracket}
+          <div class="bracket-wrapper">
+            <!-- Upper bracket + Grand Final -->
+            <div class="bracket-flow ub-flow">
+              <div class="bracket-round conn-merge">
+                {#each ubQF as slot (slot.id)}
+                  <div class="match-item">
+                    {@render matchCard(slot)}
+                  </div>
+                {/each}
+              </div>
+              <div class="bracket-round conn-merge">
+                {#each ubSF as slot (slot.id)}
+                  <div class="match-item">
+                    {@render matchCard(slot)}
+                  </div>
+                {/each}
+              </div>
+              <div class="bracket-round conn-straight">
+                {#each ubFinal as slot (slot.id)}
+                  <div class="match-item">
+                    {@render matchCard(slot)}
+                  </div>
+                {/each}
+              </div>
+              <div class="bracket-round">
+                {#each grandFinal as slot (slot.id)}
+                  <div class="match-item">
+                    {@render matchCard(slot)}
+                  </div>
+                {/each}
+              </div>
             </div>
-            <div class="bracket-round conn-merge">
-              {#each ubSF as slot (slot.id)}
-                <div class="match-item">
-                  {@render matchCard(slot)}
-                </div>
-              {/each}
-            </div>
-            <div class="bracket-round conn-straight">
-              {#each ubFinal as slot (slot.id)}
-                <div class="match-item">
-                  {@render matchCard(slot)}
-                </div>
-              {/each}
-            </div>
-            <div class="bracket-round">
-              {#each grandFinal as slot (slot.id)}
-                <div class="match-item">
-                  {@render matchCard(slot)}
-                </div>
-              {/each}
-            </div>
-          </div>
 
-          <!-- Lower bracket -->
-          <div class="bracket-flow lb-flow">
-            <div class="bracket-round conn-straight">
-              {#each lbR1 as slot (slot.id)}
-                <div class="match-item">
-                  {@render matchCard(slot)}
-                </div>
-              {/each}
-            </div>
-            <div class="bracket-round conn-merge">
-              {#each lbR2 as slot (slot.id)}
-                <div class="match-item">
-                  {@render matchCard(slot)}
-                </div>
-              {/each}
-            </div>
-            <div class="bracket-round conn-straight">
-              {#each lbR3 as slot (slot.id)}
-                <div class="match-item">
-                  {@render matchCard(slot)}
-                </div>
-              {/each}
-            </div>
-            <div class="bracket-round">
-              {#each lbFinal as slot (slot.id)}
-                <div class="match-item">
-                  {@render matchCard(slot)}
-                </div>
-              {/each}
+            <!-- Lower bracket -->
+            <div class="bracket-flow lb-flow">
+              <div class="bracket-round conn-straight">
+                {#each lbR1 as slot (slot.id)}
+                  <div class="match-item">
+                    {@render matchCard(slot)}
+                  </div>
+                {/each}
+              </div>
+              <div class="bracket-round conn-merge">
+                {#each lbR2 as slot (slot.id)}
+                  <div class="match-item">
+                    {@render matchCard(slot)}
+                  </div>
+                {/each}
+              </div>
+              <div class="bracket-round conn-straight">
+                {#each lbR3 as slot (slot.id)}
+                  <div class="match-item">
+                    {@render matchCard(slot)}
+                  </div>
+                {/each}
+              </div>
+              <div class="bracket-round">
+                {#each lbFinal as slot (slot.id)}
+                  <div class="match-item">
+                    {@render matchCard(slot)}
+                  </div>
+                {/each}
+              </div>
             </div>
           </div>
-        </div>
+        {:else}
+          <!-- Weekly matchups: a flat, grouped-by-week set of winner pickers -->
+          <div class="matchups-wrapper">
+            {#each matchupGroups as group (group.label)}
+              <section class="matchup-week">
+                <div class="week-label">{group.label}</div>
+                <div class="week-matches">
+                  {#each group.slots as slot (slot.id)}
+                    <div class="match-item">
+                      {@render matchCard(slot)}
+                    </div>
+                  {/each}
+                </div>
+              </section>
+            {/each}
+          </div>
+        {/if}
 
         <!-- Leaderboard sidebar -->
         <aside class="leaderboard">
           <div class="lb-heading">Leaderboard</div>
           <p class="text-xs" style="color: rgba(255,255,255,0.5);">
-            {data.submissions.length} bracket{data.submissions.length !== 1 ? 's' : ''}
+            {data.submissions.length}
+            {data.submissions.length === 1 ? entryNoun : entryNounPlural}
           </p>
           {#if champion}
             <div class="lb-winner">
@@ -375,7 +414,7 @@
   </div>
 </PageContainer>
 
-{#snippet matchCard(slot: PlayoffPickemSlot)}
+{#snippet matchCard(slot: PickemSlot)}
   {@const isResolved = resolvedIds.has(slot.id)}
   {@const isDecided = isResolved || Boolean(actualWinners[slot.id])}
   {@const result = pickResult(slot.id)}
@@ -458,6 +497,48 @@
   @media (min-width: 1200px) {
     .page-grid {
       grid-template-columns: 1fr 250px;
+    }
+  }
+
+  /* Weekly matchups layout */
+  .matchups-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    min-width: 0;
+  }
+
+  .matchup-week {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .week-label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent-text);
+  }
+
+  .week-matches {
+    display: grid;
+    /* At least two columns from tablet up so a week's slate fills the page
+       instead of stacking in a single narrow strip. */
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+
+  @media (min-width: 560px) {
+    .week-matches {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .week-matches {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
     }
   }
 

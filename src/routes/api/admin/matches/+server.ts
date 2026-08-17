@@ -3,6 +3,7 @@ import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import type { MatchStreamRow } from '$lib/server/db-rows'
 import { resolveTargetSeasonId } from '$lib/server/seasons/resolve'
+import { normalizeSectionKey } from '$lib/stats/sections'
 
 function normalizeOptional(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -31,6 +32,7 @@ export const GET: RequestHandler = async ({ locals, url }) => {
     `
       id,
       season_id,
+      stage,
       status,
       approval_status,
       best_of,
@@ -131,6 +133,9 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       approval_status: 'approved',
       best_of: bestOf,
       scheduled_at: scheduledAt,
+      // Optional at creation; the batch generator reads it, and an admin can
+      // set it later from the match editor.
+      stage: normalizeSectionKey(body.stage),
       team_a_id: teamAId,
       team_b_id: teamBId,
       submitted_by_profile_id: admin.id,
@@ -142,6 +147,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       `
       id,
       season_id,
+      stage,
       status,
       approval_status,
       best_of,

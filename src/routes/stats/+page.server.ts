@@ -3,6 +3,7 @@ import { supabaseAdmin } from '$lib/supabase/admin'
 import { safeInt } from '$lib/server/parse'
 import {
   normalizeRivalsGroupStatBatchFromDb,
+  withSectionFallback,
   type NormalizedRivalsGroupStatBatch,
   type StatImportBatchRow,
 } from '$lib/server/stats/rivals-batch'
@@ -97,15 +98,21 @@ export const load: PageServerLoad = async ({ fetch, url, locals }) => {
   }
 
   let batches: NormalizedRivalsGroupStatBatch[] = []
-  const { data: batchRows, error: batchError } = await supabaseAdmin
-    .from('stat_import_batches')
-    .select(
-      'id, source_filename, display_name, import_kind, week_label, created_at, metadata, sort_order'
-    )
-    .filter('metadata->>import_type', 'eq', 'rivals_group_stats')
-    .order('sort_order', { ascending: true, nullsFirst: false })
-    .order('created_at', { ascending: false })
-    .limit(100)
+  const { data: batchRows, error: batchError } = await withSectionFallback<StatImportBatchRow[]>(
+    (select) =>
+      supabaseAdmin
+        .from('stat_import_batches')
+        .select(select)
+        .filter('metadata->>import_type', 'eq', 'rivals_group_stats')
+        // A live batch created before its event has no rows yet. It is real and
+        // editable in admin, but listing an empty "Season 5 Playoffs" for
+        // visitors is just a dead end.
+        .gt('row_count', 0)
+        .order('sort_order', { ascending: true, nullsFirst: false })
+        .order('created_at', { ascending: false })
+        .limit(100)
+        .returns<StatImportBatchRow[]>()
+  )
 
   if (!batchError) {
     batches = (batchRows ?? []).map((b: StatImportBatchRow) =>

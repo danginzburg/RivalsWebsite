@@ -10,6 +10,18 @@ function normalizeOptional(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null
 }
 
+type ExistingMembershipRow = {
+  id: string
+  team_id: string
+  teams?: { name?: string | null } | Array<{ name?: string | null }> | null
+}
+
+function conflictLabel(row: ExistingMembershipRow): string {
+  const team = Array.isArray(row.teams) ? row.teams[0] : row.teams
+  const name = typeof team?.name === 'string' ? team.name.trim() : ''
+  return name ? `"${name}"` : 'a team'
+}
+
 const MEMBERSHIP_ROLES = ['player', 'captain', 'substitute', 'coach', 'manager'] as const
 type MembershipRole = (typeof MEMBERSHIP_ROLES)[number]
 
@@ -37,7 +49,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
   const { data: team, error: teamError } = await supabaseAdmin
     .from('teams')
-    .select('id, approval_status')
+    .select('id, approval_status, season_id')
     .eq('id', teamId)
     .maybeSingle()
 
@@ -56,31 +68,43 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     if (profileError || !profile) throw error(404, 'User not found')
   }
 
-  const profileQuery = resolvedProfileId
-    ? supabaseAdmin
-        .from('team_memberships')
-        .select('id, team_id')
-        .eq('profile_id', resolvedProfileId)
-        .eq('is_active', true)
-        .is('left_at', null)
-        .maybeSingle()
-    : Promise.resolve({
-        data: null as { id: string; team_id: string } | null,
-        error: null as { message?: string | null } | null,
-      })
+  /**
+   * A roster spot is exclusive within its season, not across all of history: the
+   * same player is expected to turn up on a different team in every past season
+   * being backfilled. Both duplicate checks are therefore scoped to the season
+   * this team is filed under (including the "no season" bucket).
+   */
+  const targetSeasonId = team.season_id as string | null
 
-  const playerNameQuery = playerName
-    ? supabaseAdmin
-        .from('team_memberships')
-        .select('id, team_id')
-        .ilike('player_name', playerName)
-        .eq('is_active', true)
-        .is('left_at', null)
-        .maybeSingle()
-    : Promise.resolve({
-        data: null as { id: string; team_id: string } | null,
-        error: null as { message?: string | null } | null,
-      })
+  let profileScoped = supabaseAdmin
+    .from('team_memberships')
+    .select('id, team_id, teams (name)')
+    .eq('profile_id', resolvedProfileId ?? '')
+    .eq('is_active', true)
+    .is('left_at', null)
+
+  profileScoped = targetSeasonId
+    ? profileScoped.eq('season_id', targetSeasonId)
+    : profileScoped.is('season_id', null)
+
+  let nameScoped = supabaseAdmin
+    .from('team_memberships')
+    .select('id, team_id, teams (name)')
+    .ilike('player_name', playerName ?? '')
+    .eq('is_active', true)
+    .is('left_at', null)
+
+  nameScoped = targetSeasonId
+    ? nameScoped.eq('season_id', targetSeasonId)
+    : nameScoped.is('season_id', null)
+
+  const emptyResult = Promise.resolve({
+    data: null as ExistingMembershipRow | null,
+    error: null as { message?: string | null } | null,
+  })
+
+  const profileQuery = resolvedProfileId ? profileScoped.maybeSingle() : emptyResult
+  const playerNameQuery = playerName ? nameScoped.maybeSingle() : emptyResult
 
   const [
     { data: existing, error: existingError },
@@ -90,10 +114,16 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   if (existingError) throw error(500, 'Failed to validate existing membership')
   if (existingByNameError) throw error(500, 'Failed to validate existing named membership')
   if (existing) {
-    throw error(409, 'Player is already on a team (remove them first)')
+    throw error(
+      409,
+      `Player is already on ${conflictLabel(existing)} this season (remove them first)`
+    )
   }
   if (existingByName) {
-    throw error(409, 'That player name is already on a team (remove them first)')
+    throw error(
+      409,
+      `That player name is already on ${conflictLabel(existingByName)} this season (remove them first)`
+    )
   }
 
   const today = new Date().toISOString().slice(0, 10)
@@ -180,53 +210,6 @@ export const DELETE: RequestHandler = async ({ locals, request }) => {
 export const PATCH: RequestHandler = async ({ locals, request }) => {
   const adminProfile = await requireAdmin(locals.user)
   const body = await request.json()
-
-  const action = normalizeOptional(body.action)
-
-  if (action === 'toggle_starter') {
-    const membershipId = Number(body.membershipId)
-    const isStarter = Boolean(body.isStarter)
-
-    if (!Number.isFinite(membershipId)) {
-      throw error(400, 'Missing membershipId')
-    }
-
-    const { data: membership, error: membershipError } = await supabaseAdmin
-      .from('team_memberships')
-      .select('id, team_id, player_name, profile_id')
-      .eq('id', membershipId)
-      .eq('is_active', true)
-      .is('left_at', null)
-      .maybeSingle()
-
-    if (membershipError || !membership) {
-      throw error(404, 'Active team member not found')
-    }
-
-    const { error: updateError } = await supabaseAdmin
-      .from('team_memberships')
-      .update({ is_starter: isStarter })
-      .eq('id', membership.id)
-
-    if (updateError) {
-      throw error(500, 'Failed to update starter status')
-    }
-
-    await logAdminAction({
-      adminProfileId: adminProfile.id,
-      actionType: 'team_player_starter_toggled',
-      targetTable: 'team_memberships',
-      targetId: String(membership.id),
-      details: {
-        teamId: membership.team_id,
-        profileId: membership.profile_id,
-        playerName: membership.player_name ?? null,
-        isStarter,
-      },
-    })
-
-    return json({ success: true })
-  }
 
   const teamId = normalizeOptional(body.teamId)
   const profileId = normalizeOptional(body.profileId)

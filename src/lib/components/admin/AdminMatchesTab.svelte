@@ -4,6 +4,7 @@
 
   import {
     bestOfOptions,
+    matchStageOptions,
     matchStatusOptions,
     streamPlatformOptions,
     streamStatusOptions,
@@ -446,6 +447,21 @@
                         })}
                     />
                   </label>
+                  <!-- The stage is what the stats batch generator filters on,
+                       so it sits next to the designation it can be guessed
+                       from. -->
+                  <div class="text-xs md:col-span-2" style="color: rgba(255,255,255,0.82);">
+                    Stage
+                    <div class="mt-1">
+                      <CustomSelect
+                        options={matchStageOptions}
+                        value={editState.stage}
+                        compact={true}
+                        placeholder="Stage"
+                        onSelect={(value) => onUpdateMatchEditForm(match.id, { stage: value })}
+                      />
+                    </div>
+                  </div>
                   <label class="text-xs" style="color: rgba(255,255,255,0.82);">
                     Team A Score
                     <input

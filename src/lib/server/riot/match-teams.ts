@@ -13,6 +13,8 @@ export type SidePlayer = {
   riotId: string
   /** 'Red' or 'Blue'. */
   team: string
+  /** Riot PUUID, when known — the reliable key for a renamed player. */
+  puuid?: string | null
 }
 
 export type TeamResolution = {
@@ -52,7 +54,7 @@ export const MIN_ROSTER_VOTES = 2
  */
 export function resolveSeriesTeams(
   players: SidePlayer[],
-  resolveTeamId: (riotId: string) => string | null
+  resolveTeamId: (riotId: string, puuid?: string | null) => string | null
 ): { ok: true; resolution: TeamResolution } | { ok: false; failure: TeamResolutionFailure } {
   const sides = Array.from(new Set(players.map((p) => p.team)))
   if (sides.length !== 2) {
@@ -70,7 +72,7 @@ export function resolveSeriesTeams(
   const votesBySide = new Map<string, Map<string, number>>(sides.map((side) => [side, new Map()]))
 
   for (const player of players) {
-    const teamId = resolveTeamId(player.riotId)
+    const teamId = resolveTeamId(player.riotId, player.puuid)
     if (!teamId) {
       unmatched.push(player.riotId)
       continue

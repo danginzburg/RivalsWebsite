@@ -1,23 +1,23 @@
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { TtlCache } from '$lib/server/cache'
-import { playoffPickemConfigFromSeasonMetadata } from '$lib/playoffPickems'
+import { normalizePickemSeeds } from '$lib/pickems'
 
 /**
  * Playoff seeds, keyed by team id.
  *
- * Seeds are configured on the season's playoff bracket, so this is the one
- * place that knows how to read them. Every surface that shows a team goes
- * through here rather than reaching into season metadata itself.
+ * Seeds live on the season's pick'em event (`pickem_events.config.seeds`), so
+ * this is the one place that knows how to read them. Every surface that shows a
+ * team goes through here rather than reaching into the pick'em config itself.
  */
 export type SeedMap = Record<string, number>
 
 /** Seeds change only when an admin edits the bracket. */
 const seedCache = new TtlCache<SeedMap>({ ttlMs: 5 * 60_000, maxEntries: 50 })
 
-function toSeedMap(metadata: unknown): SeedMap {
-  const config = playoffPickemConfigFromSeasonMetadata(metadata)
+function toSeedMap(config: unknown): SeedMap {
+  const raw = config && typeof config === 'object' ? (config as Record<string, unknown>) : {}
   const map: SeedMap = {}
-  for (const entry of config.seeds ?? []) {
+  for (const entry of normalizePickemSeeds(raw.seeds)) {
     if (entry.teamId) map[entry.teamId] = entry.seed
   }
   return map
@@ -29,12 +29,12 @@ export async function getSeasonSeeds(seasonId: string | null | undefined): Promi
 
   return seedCache.wrap(seasonId, async () => {
     const { data } = await supabaseAdmin
-      .from('seasons')
-      .select('metadata')
-      .eq('id', seasonId)
+      .from('pickem_events')
+      .select('config')
+      .eq('season_id', seasonId)
       .maybeSingle()
 
-    return toSeedMap(data?.metadata)
+    return toSeedMap(data?.config)
   })
 }
 
@@ -45,12 +45,12 @@ export async function getSeasonSeeds(seasonId: string | null | undefined): Promi
 export async function getActiveSeasonSeeds(): Promise<SeedMap> {
   return seedCache.wrap('__active__', async () => {
     const { data } = await supabaseAdmin
-      .from('seasons')
-      .select('metadata')
-      .eq('is_active', true)
+      .from('pickem_events')
+      .select('config, seasons!inner (is_active)')
+      .eq('seasons.is_active', true)
       .maybeSingle()
 
-    return toSeedMap(data?.metadata)
+    return toSeedMap(data?.config)
   })
 }
 

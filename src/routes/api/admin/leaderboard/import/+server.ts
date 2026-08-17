@@ -65,7 +65,11 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     const teamCode = normalizeOptional(row.team)
     if (!teamCode) throw error(400, `Row ${index + 1} is missing TEAM`)
 
-    const team = matcher.byLeaderboardTag(teamCode)
+    /*
+     * Older season sheets list teams by full name rather than tag, so a tag
+     * miss falls back to the name index before the row is given up on.
+     */
+    const team = matcher.byLeaderboardTag(teamCode) ?? matcher.byMatchName(teamCode)
     if (!team) {
       unresolved.push(teamCode)
       return null
@@ -121,6 +125,9 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       as_of_date: asOfDate,
       season_name: season?.name ?? null,
       unmatched_teams: unresolved,
+      // Which sheet layout this came from. `maps_only` means the series
+      // columns are mirrored map figures, not a real series record.
+      source_layout: normalizeOptional(body.sourceLayout) ?? 'series_and_maps',
     },
   })
 

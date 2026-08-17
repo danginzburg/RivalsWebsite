@@ -242,6 +242,28 @@ nav {
   background: rgba(120, 67, 145, 0.12);
 }
 
+/* Compact file picker for uploads that sit inline beside a field, rather than
+   owning a whole import page the way .admin-dropzone does. */
+.admin-inline-upload {
+  @apply inline-flex cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold;
+  border: 1px dashed rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.admin-inline-upload:hover {
+  border-color: var(--hover);
+  background: rgba(120, 67, 145, 0.12);
+}
+
+.admin-inline-upload-busy {
+  @apply cursor-progress;
+  opacity: 0.6;
+}
+
 /* Larger drop *region* (the whole card accepts a drag, not just a strip). */
 .admin-dropzone-region {
   @apply p-4 sm:p-6;
@@ -465,34 +487,6 @@ nav {
   @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wide uppercase;
   background: rgba(255, 255, 255, 0.09);
   color: rgba(255, 255, 255, 0.7);
-}
-
-.admin-toggle {
-  @apply inline-flex items-center rounded-md px-2 py-1 text-[11px] font-semibold whitespace-nowrap;
-  border: 1px solid var(--admin-line);
-  background: rgba(255, 255, 255, 0.05);
-  color: rgba(255, 255, 255, 0.6);
-  cursor: pointer;
-  transition:
-    background 0.15s,
-    border-color 0.15s,
-    color 0.15s;
-}
-
-.admin-toggle:hover:not(:disabled) {
-  border-color: var(--admin-line-strong);
-  color: var(--text);
-}
-
-.admin-toggle-on {
-  background: rgba(250, 204, 21, 0.18);
-  border-color: rgba(250, 204, 21, 0.4);
-  color: #fde68a;
-}
-
-.admin-toggle:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
 }
 
 /* --- Rows & layout helpers --- */

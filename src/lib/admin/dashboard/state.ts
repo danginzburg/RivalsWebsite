@@ -5,7 +5,11 @@ type DashboardData = {
   users: unknown[]
   seasons: unknown[]
   approved: unknown[]
+  /** Approved teams across every season, for the Seasons tab's pickers. */
+  seasonTeams: unknown[]
   matches: AdminMatch[]
+  /** Matches across every season, for the Seasons tab's pick'em links. */
+  seasonMatches: unknown[]
 }
 
 type FetchAdapter = {
@@ -155,6 +159,7 @@ export function createAdminDashboardState({ fetchAdapter }: { fetchAdapter: Fetc
           youtubeVodUrl: vodUrl || null,
           mapVetoes: state.mapVetoes || '',
           designation: state.designation || null,
+          stage: state.stage || null,
         },
         fallbackMessage: 'Failed to update match',
       })

@@ -2,7 +2,7 @@ import { supabaseAdmin } from '$lib/supabase/admin'
 import { safeNumber } from '$lib/server/parse'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
 import { publicDataCache } from '$lib/server/cache'
-import { getActiveSeasonSeeds } from '$lib/server/seasons/seeds'
+import { getSeasonSeeds, type SeedMap } from '$lib/server/seasons/seeds'
 
 type TeamRel = {
   id: string
@@ -33,7 +33,8 @@ export type StandingsRow = {
   org: string | null
   /** Null when the team has no entry in the current standings. */
   stats: {
-    rank: number
+    /** Null before the season's first import, when nothing is ranked yet. */
+    rank: number | null
     points: number
     series_played: number
     series_wins: number
@@ -45,30 +46,103 @@ export type StandingsRow = {
   } | null
 }
 
+/** A team the season has, but the standings have not recorded a result for. */
+const ZEROED_STATS: NonNullable<StandingsRow['stats']> = {
+  rank: null,
+  points: 0,
+  series_played: 0,
+  series_wins: 0,
+  series_losses: 0,
+  maps_played: 0,
+  map_wins: 0,
+  map_losses: 0,
+  round_diff: 0,
+}
+
+type BatchRow = {
+  id: string
+  display_name: string | null
+  source_filename: string | null
+  metadata: Record<string, unknown> | null
+}
+
 /**
- * Standings plus the full team directory. These were two pages that showed
- * overlapping data; teams without a leaderboard entry still appear so the
- * page remains a complete roster of the league.
+ * The newest applied leaderboard import belonging to the running season.
+ *
+ * Which season a batch belongs to is decided by the season of the teams in it,
+ * not by `stat_import_batches.season_id` — that column is NULL on the Google
+ * Sheets imports, which are the most recent standings there are. Recency alone
+ * is worse: between seasons it kept the previous season's final table on the
+ * page as if it were the current standings. Past seasons keep their tables on
+ * their own event pages.
+ */
+async function loadCurrentBatch(activeSeasonId: string | null): Promise<BatchRow | null> {
+  if (!activeSeasonId) return null
+
+  const { data: seasonEntries } = await supabaseAdmin
+    .from('leaderboard_entries')
+    .select('import_batch_id, teams:teams!leaderboard_entries_team_id_fkey!inner (season_id)')
+    .eq('teams.season_id', activeSeasonId)
+    .not('import_batch_id', 'is', null)
+
+  const candidateIds = Array.from(
+    new Set((seasonEntries ?? []).map((entry) => entry.import_batch_id as string))
+  )
+  if (candidateIds.length === 0) return null
+
+  const { data: batch } = await supabaseAdmin
+    .from('stat_import_batches')
+    .select('id, display_name, source_filename, created_at, metadata')
+    .in('id', candidateIds)
+    .filter('metadata->>import_type', 'eq', 'leaderboard_entries')
+    .eq('status', 'applied')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  return (batch as BatchRow | null) ?? null
+}
+
+/**
+ * Standings plus the season's team directory. These were two pages that showed
+ * overlapping data; a team the season has appears whether or not the standings
+ * have recorded a result for it yet.
+ *
+ * The whole page belongs to the running season. Between seasons there is
+ * nothing current to show — not the last season's table and not its teams —
+ * and the page says so instead. Past seasons keep their standings and rosters
+ * on their own event pages.
  */
 async function loadStandings() {
+  const { data: activeSeason } = await supabaseAdmin
+    .from('seasons')
+    .select('id, name')
+    .eq('is_active', true)
+    .maybeSingle()
+
+  const activeSeasonId = (activeSeason?.id as string | undefined) ?? null
+
+  if (!activeSeasonId) {
+    return {
+      rows: [] as StandingsRow[],
+      seeds: {} as SeedMap,
+      season: null,
+      batch: null,
+    }
+  }
+
   // The batch, the team directory and the bracket seeds are independent of one
   // another; only the entries query needs to wait on them.
-  const [{ data: batch }, { data: teams }, seeds] = await Promise.all([
-    supabaseAdmin
-      .from('stat_import_batches')
-      .select('id, display_name, source_filename, created_at, metadata')
-      .filter('metadata->>import_type', 'eq', 'leaderboard_entries')
-      .eq('status', 'applied')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
+  const [batch, { data: teams }, seeds] = await Promise.all([
+    loadCurrentBatch(activeSeasonId),
     supabaseAdmin
       .from('teams')
       .select('id, name, tag, logo_path, metadata')
+      .eq('season_id', activeSeasonId)
       .eq('approval_status', 'approved')
       .order('name', { ascending: true }),
     // Seeds come from the active season's bracket, matching the team list.
-    getActiveSeasonSeeds(),
+    getSeasonSeeds(activeSeasonId),
   ])
 
   const teamIds = (teams ?? []).map((t) => t.id)
@@ -109,7 +183,15 @@ async function loadStandings() {
             map_losses: safeNumber(entry.map_losses),
             round_diff: safeNumber(entry.round_diff),
           }
-        : null,
+        : /*
+           * Before the season's first import there is nothing to be outside of,
+           * so every team joins the table at zero rather than being listed as
+           * missing from standings that do not exist yet. Once an import lands,
+           * a team absent from it really is outside the standings.
+           */
+          batch
+          ? null
+          : ZEROED_STATS,
     }
   })
 
@@ -124,6 +206,7 @@ async function loadStandings() {
   return {
     rows,
     seeds,
+    season: { id: activeSeasonId, name: (activeSeason?.name as string | undefined) ?? null },
     batch: batch
       ? {
           display_name:
@@ -182,6 +265,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     rows: standings.rows,
     seeds: standings.seeds,
     batch: standings.batch,
+    season: standings.season,
     myTeam,
     viewer: { isAdmin: locals.user?.role === 'admin' },
   }

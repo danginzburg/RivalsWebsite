@@ -5,10 +5,11 @@
   import PageHeading from '$lib/components/PageHeading.svelte'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
   import { BarChart3, Search } from 'lucide-svelte'
-  import { SvelteMap, SvelteURLSearchParams } from 'svelte/reactivity'
+  import { SvelteURLSearchParams } from 'svelte/reactivity'
   import { resolve } from '$app/paths'
-  import miksIcon from '$lib/assets/agents/Miks_icon.webp'
+  import { agentIconUrl, rankIconUrlByKey } from '$lib/icons'
   import { statsRowKey, displayPlayerName } from '$lib/stats/ui'
+  import { resolveBatchSection, sectionLabel, sectionOrder } from '$lib/stats/sections'
   import { rankValue, rankBaseValue, rankImageKey } from '$lib/ranks/ranks'
 
   let { data }: PageProps = $props()
@@ -43,6 +44,7 @@
       ...row,
       win_pct: ratePct(row.games_won, row.games, row.games_won, row.games_lost),
       round_win_pct: ratePct(row.rounds_won, row.rounds, row.rounds_won, row.rounds_lost),
+      clutch_win_pct: ratePct(row.clutches_won, row.clutches_attempted),
     }))
   )
   const viewer = $derived(
@@ -185,54 +187,12 @@
     return v.toFixed(digits)
   }
 
-  const rankAssetModules = import.meta.glob('$lib/assets/ranks/*_Rank.png', {
-    eager: true,
-    import: 'default',
-  }) as Record<string, string>
-
-  const rankIconMap = $derived.by(() => {
-    const map = new SvelteMap<string, string>()
-    for (const [path, url] of Object.entries(rankAssetModules)) {
-      const filename = path.split('/').pop() ?? ''
-      const key = filename.replace(/\.png$/i, '')
-      map.set(key, url)
-    }
-    return map
-  })
-
   function rankIconUrl(leagueRank: unknown): string | null {
     if (typeof leagueRank !== 'string') return null
-    const key = rankImageKey(leagueRank)
-    return key ? (rankIconMap.get(key) ?? null) : null
+    return rankIconUrlByKey(rankImageKey(leagueRank))
   }
 
   const hasAnyRanks = $derived(rows.some((r: Record<string, unknown>) => !!r.league_rank))
-
-  const agentAssetModules = import.meta.glob('$lib/assets/agents/*_icon.webp', {
-    eager: true,
-    import: 'default',
-  }) as Record<string, string>
-
-  const agentIconMap = $derived.by(() => {
-    const map = new SvelteMap<string, string>()
-    const normalize = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, '')
-
-    for (const [path, url] of Object.entries(agentAssetModules)) {
-      const filename = path.split('/').pop() ?? ''
-      const base = filename.replace(/_icon\.webp$/i, '')
-      map.set(normalize(base), url)
-    }
-    // Common aliases
-    if (map.has('harbor')) map.set('harbour', map.get('harbor')!)
-    map.set('miks', miksIcon)
-    return map
-  })
-
-  function agentIconUrl(agentName: string): string | null {
-    const normalize = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, '')
-    const key = normalize(agentName)
-    return agentIconMap.get(key) ?? null
-  }
 
   function parseAgents(value: unknown): string[] {
     if (typeof value !== 'string') return []
@@ -283,6 +243,7 @@
     { key: 'mk_5k', label: '5K', digits: 0 },
     { key: 'clutches_won', label: 'Clutch W', digits: 0 },
     { key: 'clutches_attempted', label: 'Clutch A', digits: 0 },
+    { key: 'clutch_win_pct', label: 'Clutch%', digits: 1 },
   ]
 
   const defaultVisible = new Set([
@@ -420,14 +381,12 @@
   }
 
   function isWeekBatch(b: {
+    section?: string | null
     import_kind?: string | null
     week_label?: string | null
     display_name?: string | null
   }) {
-    if (b.import_kind === 'weekly') return true
-    if (b.week_label) return true
-    if (typeof b.display_name === 'string' && /week/i.test(b.display_name)) return true
-    return false
+    return resolveBatchSection(b) === 'weeks'
   }
 
   const hasAnyWeeks = $derived(batches.some((b) => isWeekBatch(b)))
@@ -466,14 +425,31 @@
     else if (headerCollapsed && top < 4) headerCollapsed = false
   }
 
+  /**
+   * Batches grouped under their section — Kickoff, Regular Season, Play-ins,
+   * Playoffs — rather than one flat list of a season's worth of imports.
+   *
+   * The server already sorts by `sort_order` then recency, so grouping only
+   * needs a stable sort on section order to keep that within each group.
+   */
   const batchOptions = $derived.by(() => {
-    const opts: Array<{ label: string; value: string }> = [{ label: 'Latest', value: '' }]
-    for (const b of batches) {
+    const opts: Array<{ label: string; value: string; group?: string }> = [
+      { label: 'Latest', value: '' },
+    ]
+
+    const visible = batches.filter(
       // The batch actually being viewed always stays listed, otherwise the
       // select would show a blank value after landing on a week via URL.
-      if (hideWeeks && isWeekBatch(b) && b.id !== selectedBatchId) continue
+      (b) => !(hideWeeks && isWeekBatch(b) && b.id !== selectedBatchId)
+    )
+
+    const bySection = visible
+      .map((b, index) => ({ b, index, section: resolveBatchSection(b) }))
+      .sort((a, z) => sectionOrder(a.section) - sectionOrder(z.section) || a.index - z.index)
+
+    for (const { b, section } of bySection) {
       const label = `${b.display_name}${b.import_kind === 'weekly' && b.week_label ? ` (${b.week_label})` : ''}`
-      opts.push({ label, value: b.id })
+      opts.push({ label, value: b.id, group: sectionLabel(section) })
     }
     return opts
   })

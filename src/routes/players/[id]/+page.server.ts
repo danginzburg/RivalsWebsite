@@ -17,6 +17,7 @@ import { rematchPlayerMatchMapStatsForBase } from '$lib/server/imports/matching'
 import { rankValue } from '$lib/ranks/ranks'
 import { loadCommentThread } from '$lib/server/comments'
 import { getViewerProfileId } from '$lib/server/auth/viewer'
+import { listRiotAccounts, syncPrimaryRiotName } from '$lib/server/players/riot-accounts'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -50,8 +51,6 @@ type TeamHistoryRow = {
   team: { id: string; name: string; tag: string | null; logo_url: string | null }
   season: { name: string; code: string | null } | null
   role: string | null
-  /** Still on the roster — drives the "Current" marker. */
-  is_current: boolean
   joined_at: string | null
   /** Sort key: when this team's season began, empty for an unassigned team. */
   season_started_on: string
@@ -66,6 +65,11 @@ type TeamHistoryRow = {
  * Rosters carry duplicate rows for the same player and team — a re-add writes a
  * second membership rather than reviving the first — so stints are collapsed to
  * one row per team. A genuine move between two teams still shows as two rows.
+ *
+ * The list makes no current-versus-former distinction. Rosters are season-scoped,
+ * so a backfilled past season leaves its memberships open indefinitely and an
+ * open membership says nothing about where the player is today; the season column
+ * carries that information instead.
  */
 async function loadTeamHistory(profileId: string): Promise<TeamHistoryRow[]> {
   // `seasons` has three FKs back to `teams` (season_id, winner, runner-up), so
@@ -108,17 +112,16 @@ async function loadTeamHistory(profileId: string): Promise<TeamHistoryRow[]> {
     if (!team || team.approval_status !== 'approved') continue
 
     const seasonRel = Array.isArray(team.seasons) ? team.seasons[0] : team.seasons
-    const isCurrent = Boolean(row.is_active) && !row.left_at
+    const isOpen = Boolean(row.is_active) && !row.left_at
     const existing = byTeam.get(team.id)
 
     if (existing) {
-      // Merge the stints: earliest join, and current if any stint is open.
-      existing.is_current ||= isCurrent
+      // Merge the stints, keeping the earliest join.
       if (row.joined_at && (!existing.joined_at || row.joined_at < existing.joined_at)) {
         existing.joined_at = row.joined_at
       }
       // An open stint's role is the one worth showing.
-      if (isCurrent && row.role) existing.role = row.role
+      if (isOpen && row.role) existing.role = row.role
       continue
     }
 
@@ -131,7 +134,6 @@ async function loadTeamHistory(profileId: string): Promise<TeamHistoryRow[]> {
       },
       season: seasonRel ? { name: seasonRel.name ?? 'Season', code: seasonRel.code ?? null } : null,
       role: row.role ?? null,
-      is_current: isCurrent,
       joined_at: row.joined_at ?? null,
       season_started_on: seasonRel?.starts_on ?? '',
     })
@@ -347,9 +349,7 @@ export const load = async ({
 
   const { data: profileRel, error: profileError } = await supabaseAdmin
     .from('profiles')
-    .select(
-      'id, auth0_sub, role, display_name, email, riot_id_base, stats_player_name, created_at, discord_handle, tracker_links'
-    )
+    .select('id, auth0_sub, role, display_name, email, riot_id_base, stats_player_name, created_at')
     .eq('id', profileId)
     .maybeSingle()
 
@@ -383,21 +383,44 @@ export const load = async ({
 
   // Current roster spot, every past roster spot, and the aggregate stat rows
   // all key off the profile alone, so they go out together.
-  const [{ data: membership }, teamHistory, { data: statsRows }] = await Promise.all([
+  const [
+    { data: membershipRows },
+    { data: activeSeason },
+    teamHistory,
+    { data: approvedSignup },
+    { data: statsRows },
+  ] = await Promise.all([
+    // Rosters are exclusive per season, so a player who has been backfilled into
+    // past seasons carries several active memberships at once. The header wants
+    // the current-season one; the rest belong to the history table below.
     supabaseAdmin
       .from('team_memberships')
       .select(
         `
       team_id,
       role,
+      season_id,
       teams (id, name, tag, logo_path, approval_status)
     `
       )
       .eq('profile_id', profileId)
       .eq('is_active', true)
-      .is('left_at', null)
-      .maybeSingle(),
+      .is('left_at', null),
+    supabaseAdmin.from('seasons').select('id').eq('is_active', true).maybeSingle(),
     loadTeamHistory(profileId),
+    // Contact details come from the approved signup itself rather than the
+    // copy on `profiles`. That copy is written on approval and retracted on
+    // rejection, so any path that leaves a signup non-approved without going
+    // through the admin endpoint strands it — which is how pending players
+    // ended up publishing a Discord handle.
+    supabaseAdmin
+      .from('player_signups')
+      .select('discord_handle, tracker_links, updated_at')
+      .eq('profile_id', profileId)
+      .eq('status', 'approved')
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
     supabaseAdmin
       .from('rivals_group_stats')
       .select(
@@ -408,7 +431,23 @@ export const load = async ({
       .limit(200),
   ])
 
-  const membershipTeams = (membership as { teams?: TeamRel | TeamRel[] | null } | null)?.teams
+  type ActiveMembershipRow = {
+    role?: string | null
+    season_id?: string | null
+    teams?: TeamRel | TeamRel[] | null
+  }
+
+  // Only the active season's spot counts as the player's team right now. Open
+  // memberships in backfilled past seasons are history, and with no active
+  // season configured there is no current team at all.
+  const currentSeasonId = (activeSeason?.id as string | undefined) ?? null
+  const membership = currentSeasonId
+    ? (((membershipRows ?? []) as ActiveMembershipRow[]).find(
+        (row) => row.season_id === currentSeasonId
+      ) ?? null)
+    : null
+
+  const membershipTeams = membership?.teams
   const teamRel = membership
     ? Array.isArray(membershipTeams)
       ? membershipTeams[0]
@@ -829,10 +868,14 @@ export const load = async ({
     viewerProfileId,
   })
 
+  const riotAccounts = await listRiotAccounts(profileId)
+
   return {
     player: {
       profile_id: profileId,
-      riot_id: profileRel.riot_id_base ?? profileRel.display_name ?? profileRel.email ?? 'Player',
+      // The chosen display name is authoritative; Riot name and email are only
+      // fallbacks for profiles that never set one.
+      riot_id: profileRel.display_name ?? profileRel.riot_id_base ?? profileRel.email ?? 'Player',
       riot_id_base: profileRel.riot_id_base ?? null,
       stats_player_name: (profileRel as ProfileRow).stats_player_name ?? null,
       has_unmatched_stats_candidate: hasUnmatchedStatsCandidate,
@@ -840,10 +883,13 @@ export const load = async ({
       rank_value: null,
       pronouns: null,
       // Published from an approved signup; empty until then.
-      discord_handle: (profileRel as { discord_handle?: string | null }).discord_handle ?? null,
+      discord_handle:
+        (approvedSignup as { discord_handle?: string | null } | null)?.discord_handle ?? null,
       tracker_links: ((
-        profileRel as { tracker_links?: Array<{ label: string; url: string }> | null }
-      ).tracker_links ?? []) as Array<{ label: string; url: string }>,
+        approvedSignup as {
+          tracker_links?: Array<{ label: string; url: string }> | null
+        } | null
+      )?.tracker_links ?? []) as Array<{ label: string; url: string }>,
       display_name: profileRel?.display_name ?? null,
       email: profileRel?.email ?? null,
       created_at: profileRel?.created_at ?? null,
@@ -852,6 +898,7 @@ export const load = async ({
     activeTeam,
     teamHistory,
     accolades: playerAccolades,
+    riotAccounts,
     viewer: {
       canEditRiotIdBase,
       profileId: viewerProfileId,
@@ -925,6 +972,20 @@ export const actions = {
       .eq('id', target.id)
 
     if (updateError) return { success: false, message: updateError.message }
+
+    // Keep the canonical primary account name in step with the legacy column.
+    try {
+      await syncPrimaryRiotName(target.id, riotIdBase)
+    } catch (err) {
+      console.warn('Failed to sync primary Riot account name after riot_id_base save:', err)
+    }
+
+    // Seed the chosen display name unless the player set one of their own.
+    await supabaseAdmin
+      .from('profiles')
+      .update({ display_name: riotIdBase })
+      .eq('id', target.id)
+      .eq('display_name_is_custom', false)
 
     try {
       await claimRelinkAfterProfileUpdate(target.id)
@@ -1009,6 +1070,56 @@ export const actions = {
     } catch (err) {
       console.warn('Failed to rematch match map stats after stats_player_name save:', err)
     }
+
+    throw redirect(303, `/players/${target.id}`)
+  },
+
+  /**
+   * Set the chosen display name. Flipping `display_name_is_custom` stops the
+   * signup / Riot-ID flows from ever overwriting it again.
+   */
+  setDisplayName: async ({
+    locals,
+    params,
+    request,
+  }: {
+    locals: App.Locals
+    params: { id: string }
+    request: Request
+  }) => {
+    if (!locals.user) throw redirect(303, `/auth/login?returnTo=/players/${params.id}`)
+
+    const form = await request.formData()
+    const displayName = String(form.get('display_name') ?? '')
+      .trim()
+      .slice(0, 40)
+    if (displayName.length < 2) {
+      return { success: false, message: 'Enter a display name of at least 2 characters.' }
+    }
+
+    const { data: viewer } = await supabaseAdmin
+      .from('profiles')
+      .select('id, role')
+      .eq('auth0_sub', locals.user.sub)
+      .maybeSingle()
+    if (!viewer) throw error(403, 'Profile not found')
+
+    const { data: target } = await supabaseAdmin
+      .from('profiles')
+      .select('id, auth0_sub')
+      .eq('id', params.id)
+      .maybeSingle()
+    if (!target) throw error(404, 'Player not found')
+
+    const isSelf = target.auth0_sub && target.auth0_sub === locals.user.sub
+    if (!isSelf && viewer.role !== 'admin') throw error(403, 'Not allowed')
+
+    const { error: updateError } = await supabaseAdmin
+      .from('profiles')
+      .update({ display_name: displayName, display_name_is_custom: true })
+      .eq('id', target.id)
+
+    if (updateError) return { success: false, message: updateError.message }
 
     throw redirect(303, `/players/${target.id}`)
   },

@@ -178,6 +178,12 @@ export async function updateMatchDetails(
     youtubeVodUrl: string | null
     mapVetoes: string[]
     designation: string | null
+    /**
+     * Competition section (kickoff / regular / playins / playoffs). This is
+     * what the stats batch generator filters on, so it is a real column rather
+     * than another free-text metadata field like `designation`.
+     */
+    stage: string | null
     /** Omitted leaves the match where it is; null files it under no season. */
     seasonId?: string | null | undefined
   },
@@ -207,6 +213,7 @@ export async function updateMatchDetails(
       best_of: input.bestOf,
       status: nextStatus,
       scheduled_at: input.scheduledAt,
+      stage: input.stage,
       team_a_score: Number.isFinite(input.teamAScore) ? input.teamAScore : 0,
       team_b_score: Number.isFinite(input.teamBScore) ? input.teamBScore : 0,
       winner_team_id: input.winnerTeamId,

@@ -1,10 +1,10 @@
 <script lang="ts">
-  import type { PlayoffPickemSlot, PlayoffMatchId } from '$lib/playoffPickems'
+  import type { PickemSlot } from '$lib/pickems'
 
   type BracketTeam = { id: string; name: string; tag: string | null; logo_url?: string | null }
 
   interface Props {
-    slots: PlayoffPickemSlot[]
+    slots: PickemSlot[]
     teams: Record<string, BracketTeam>
     /** Playoff seeds keyed by team id, from the bracket config. */
     seeds?: Record<string, number>
@@ -19,9 +19,7 @@
   const slotById = $derived(new Map(slots.map((s) => [s.id, s])))
 
   function group(ids: string[]) {
-    return ids
-      .map((id) => slotById.get(id as PlayoffMatchId))
-      .filter(Boolean) as PlayoffPickemSlot[]
+    return ids.map((id) => slotById.get(id)).filter(Boolean) as PickemSlot[]
   }
 
   const ubQF = $derived(group(['ub_qf_1', 'ub_qf_2', 'ub_qf_3', 'ub_qf_4']))
@@ -103,7 +101,7 @@
   </div>
 </div>
 
-{#snippet matchCard(slot: PlayoffPickemSlot, isGrandFinal = false)}
+{#snippet matchCard(slot: PickemSlot, isGrandFinal = false)}
   <article class="match-card" class:gf={isGrandFinal}>
     <div class="match-header">
       <span class="match-label">{slot.label}</span>

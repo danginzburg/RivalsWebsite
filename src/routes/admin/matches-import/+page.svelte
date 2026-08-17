@@ -1,7 +1,31 @@
 <script lang="ts">
   import PageContainer from '$lib/components/PageContainer.svelte'
+  import CustomSelect from '$lib/components/CustomSelect.svelte'
   import { Upload, Loader2, AlertTriangle, CheckCircle2, Layers3, ArrowLeft } from 'lucide-svelte'
   import { resolve } from '$app/paths'
+
+  const riotBestOfOptions = [
+    { value: '', label: 'Auto' },
+    { value: '1', label: 'Bo1' },
+    { value: '3', label: 'Bo3' },
+    { value: '5', label: 'Bo5' },
+  ]
+
+  const riotRegionOptions = [
+    { value: 'na', label: 'NA' },
+    { value: 'eu', label: 'EU' },
+    { value: 'ap', label: 'AP' },
+    { value: 'kr', label: 'KR' },
+    { value: 'br', label: 'BR' },
+    { value: 'latam', label: 'LATAM' },
+  ]
+
+  const forfeitBestOfOptions = [
+    { value: '1', label: 'Bo1' },
+    { value: '3', label: 'Bo3' },
+    { value: '5', label: 'Bo5' },
+    { value: '7', label: 'Bo7' },
+  ]
 
   import type { PageProps } from './$types'
 
@@ -532,21 +556,25 @@
             <div class="mt-3 flex flex-wrap items-end gap-3">
               <label class="block text-sm" style="color: var(--text);">
                 <span class="mb-1 block font-semibold">Region</span>
-                <select bind:value={riotRegion} class="admin-input" disabled={isSubmitting}>
-                  {#each ['na', 'eu', 'ap', 'kr', 'br', 'latam'] as region (region)}
-                    <option value={region}>{region.toUpperCase()}</option>
-                  {/each}
-                </select>
+                <div class="w-28">
+                  <CustomSelect
+                    options={riotRegionOptions}
+                    bind:value={riotRegion}
+                    disabled={isSubmitting}
+                  />
+                </div>
               </label>
 
               <label class="block text-sm" style="color: var(--text);">
                 <span class="mb-1 block font-semibold">Best of</span>
-                <select bind:value={riotBestOf} class="admin-input" disabled={isSubmitting}>
-                  <option value="">Auto</option>
-                  <option value="1">Bo1</option>
-                  <option value="3">Bo3</option>
-                  <option value="5">Bo5</option>
-                </select>
+                <div class="w-28">
+                  <CustomSelect
+                    options={riotBestOfOptions}
+                    bind:value={riotBestOf}
+                    placeholder="Auto"
+                    disabled={isSubmitting}
+                  />
+                </div>
               </label>
 
               <button
@@ -674,12 +702,13 @@
                 class="mb-1 block text-xs font-semibold uppercase"
                 style="color: rgba(255,255,255,0.7);">Best of</span
               >
-              <select bind:value={ffBestOf} class="admin-input max-w-xs">
-                <option value={1}>1</option>
-                <option value={3}>3</option>
-                <option value={5}>5</option>
-                <option value={7}>7</option>
-              </select>
+              <div class="max-w-xs">
+                <CustomSelect
+                  options={forfeitBestOfOptions}
+                  value={String(ffBestOf)}
+                  onSelect={(v) => (ffBestOf = Number(v))}
+                />
+              </div>
             </label>
           </div>
         {:else}
