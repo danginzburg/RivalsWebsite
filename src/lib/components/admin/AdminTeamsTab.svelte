@@ -20,7 +20,6 @@
       display_name?: string | null
       email?: string | null
       role: string
-      is_starter?: boolean
     }>
   }
 
@@ -64,7 +63,6 @@
       riotId: string,
       role: string
     ) => void
-    onToggleStarter: (teamId: string, membershipId: number | null, isStarter: boolean) => void
     onRemoveTeam: (teamId: string, teamName: string) => void
   }
 
@@ -91,15 +89,10 @@
     onAddPlayerChange,
     onAddPlayer,
     onRemovePlayer,
-    onToggleStarter,
     onRemoveTeam,
   }: Props = $props()
 
   let createTeamLogoInput: HTMLInputElement | null = null
-
-  function starterCount(team: TeamRecord) {
-    return (team.roster ?? []).filter((player) => player.is_starter).length
-  }
 
   /**
    * New teams land in whichever season is being viewed, so the form says which
@@ -329,7 +322,6 @@
                 style="color: rgba(255,255,255,0.7);"
               >
                 <span>Team Players</span>
-                <span class="admin-pill">{starterCount(team)} starters</span>
               </div>
               <div class="flex flex-col gap-1">
                 {#each team.roster ?? [] as player (player.membership_id ?? `${team.id}-${player.profile_id}`)}
@@ -339,9 +331,9 @@
                   >
                     <div class="min-w-0 flex-1 text-xs" style="color: var(--text);">
                       <span class="font-semibold"
-                        >{player.riot_id_base ??
+                        >{player.display_name ??
+                          player.riot_id_base ??
                           player.player_name ??
-                          player.display_name ??
                           player.email ??
                           'User'}</span
                       >
@@ -356,27 +348,6 @@
                       {/if}
                     </div>
                     <div class="flex flex-shrink-0 items-center gap-1.5">
-                      <!-- Starters feed the expected lineup on match pages
-                           before any stats are imported. -->
-                      <button
-                        type="button"
-                        class="admin-toggle"
-                        class:admin-toggle-on={player.is_starter}
-                        disabled={processingTeamId === team.id || player.membership_id == null}
-                        title={player.membership_id == null
-                          ? 'Membership predates starter tracking'
-                          : player.is_starter
-                            ? 'Remove starter designation'
-                            : 'Mark as starter'}
-                        onclick={() =>
-                          onToggleStarter(
-                            team.id,
-                            player.membership_id ?? null,
-                            !player.is_starter
-                          )}
-                      >
-                        {player.is_starter ? '★ Starter' : '☆ Starter'}
-                      </button>
                       <button
                         type="button"
                         class="admin-btn admin-btn-sm admin-btn-danger"
@@ -386,9 +357,9 @@
                             team.id,
                             player.membership_id ?? null,
                             player.profile_id,
-                            player.riot_id_base ??
+                            player.display_name ??
+                              player.riot_id_base ??
                               player.player_name ??
-                              player.display_name ??
                               player.email ??
                               'User',
                             player.role

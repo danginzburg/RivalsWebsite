@@ -7,6 +7,7 @@ import {
   normalizeTrackerLinks,
   MAX_TRACKER_LINKS,
 } from '$lib/server/signups'
+import { riotIdOwnedByOther, upsertPrimaryRiotAccount } from '$lib/server/players/riot-accounts'
 
 const SIGNUP_COLUMNS = `
   id,
@@ -167,14 +168,7 @@ export const actions = {
     }
 
     // The Riot ID must not already belong to someone else.
-    const { data: riotIdOwner } = await supabaseAdmin
-      .from('profiles')
-      .select('id')
-      .ilike('riot_id_base', riotId)
-      .neq('id', profile.id)
-      .maybeSingle()
-
-    if (riotIdOwner?.id) {
+    if (await riotIdOwnedByOther(riotId, riotTag, profile.id)) {
       return fail(409, {
         success: false,
         message: 'That Riot ID is already linked to another account.',
@@ -203,10 +197,28 @@ export const actions = {
     }
 
     // Keep the profile's Riot ID in step so stats matching uses the same name.
+    // The submission also returns the signup to review, so the contact details
+    // published by any earlier approval are retracted along with it.
     await supabaseAdmin
       .from('profiles')
-      .update({ riot_id_base: riotId, riot_tag: riotTag })
+      .update({ riot_id_base: riotId, riot_tag: riotTag, discord_handle: null, tracker_links: [] })
       .eq('id', profile.id)
+
+    // Seed the chosen display name from the Riot name, but only while the player
+    // has not set one of their own — the flag flips when they edit it directly.
+    await supabaseAdmin
+      .from('profiles')
+      .update({ display_name: riotId })
+      .eq('id', profile.id)
+      .eq('display_name_is_custom', false)
+
+    // Sync the primary Riot account row (captures the PUUID best-effort) so the
+    // canonical, rename-proof identity is recorded alongside the legacy columns.
+    try {
+      await upsertPrimaryRiotAccount({ profileId: profile.id, riotName: riotId, riotTag })
+    } catch (err) {
+      console.warn('Failed to sync primary Riot account on signup:', err)
+    }
 
     return {
       success: true,

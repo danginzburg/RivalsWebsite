@@ -5,24 +5,22 @@
   import { Upload, CheckCircle2, AlertTriangle, Loader2, ArrowLeft } from 'lucide-svelte'
   import { resolve } from '$app/paths'
   import { SvelteMap } from 'svelte/reactivity'
+  import {
+    parseLeaderboardCsv,
+    type LeaderboardCsvLayout,
+    type LeaderboardCsvRow,
+  } from '$lib/admin/leaderboard-csv'
 
   let { data }: PageProps = $props()
   const seasons = $derived(data.seasons ?? [])
 
-  type ParsedRow = {
-    team: string
-    points: number
-    series_played: number
-    series_wins: number
-    series_losses: number
-    maps_played: number
-    map_wins: number
-    map_losses: number
-    round_diff: number
+  /** The shared row plus the preview-only match result this page shows. */
+  type ParsedRow = LeaderboardCsvRow & {
     matchedTeamId: string | null
   }
 
   let parsedRows = $state<ParsedRow[]>([])
+  let csvLayout = $state<LeaderboardCsvLayout | null>(null)
   let fileName = $state('')
   let displayName = $state('')
   let seasonId = $state('')
@@ -77,49 +75,13 @@
     }
   })
 
-  function parseInteger(value: string) {
-    const n = Number(String(value ?? '').trim())
-    return Number.isFinite(n) ? Math.trunc(n) : 0
-  }
-
   function parseCSV(text: string) {
-    const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0)
-    if (lines.length < 2) throw new Error('CSV must include a header and at least one data row')
-
-    const headers = lines[0].split(',').map((header) => header.trim().toUpperCase())
-    const required = [
-      'TEAM',
-      'POINTS',
-      '# SERIES',
-      'SERIES WINS',
-      'SERIES LOSSES',
-      '# MAPS',
-      'MAP WINS',
-      'MAP LOSSES',
-      'ROUND DIFF',
-    ]
-    for (const column of required) {
-      if (!headers.includes(column)) throw new Error(`CSV missing required column: ${column}`)
-    }
-
-    const index = (name: string) => headers.indexOf(name)
-
-    parsedRows = lines.slice(1).map((line) => {
-      const parts = line.split(',')
-      const team = parts[index('TEAM')]?.trim() ?? ''
-      return {
-        team,
-        points: parseInteger(parts[index('POINTS')]),
-        series_played: parseInteger(parts[index('# SERIES')]),
-        series_wins: parseInteger(parts[index('SERIES WINS')]),
-        series_losses: parseInteger(parts[index('SERIES LOSSES')]),
-        maps_played: parseInteger(parts[index('# MAPS')]),
-        map_wins: parseInteger(parts[index('MAP WINS')]),
-        map_losses: parseInteger(parts[index('MAP LOSSES')]),
-        round_diff: parseInteger(parts[index('ROUND DIFF')]),
-        matchedTeamId: teamMap.get(normalizeKey(team)) ?? null,
-      }
-    })
+    const parsed = parseLeaderboardCsv(text)
+    csvLayout = parsed.layout
+    parsedRows = parsed.rows.map((row) => ({
+      ...row,
+      matchedTeamId: teamMap.get(normalizeKey(row.team)) ?? null,
+    }))
   }
 
   function handleFile(file: File) {
@@ -155,6 +117,7 @@
           asOfDate,
           sourceFilename: fileName,
           displayName,
+          sourceLayout: csvLayout,
         }),
       })
 
@@ -236,6 +199,13 @@
         {#if parseError}
           <div class="admin-alert admin-alert-error mt-3">
             {parseError}
+          </div>
+        {/if}
+
+        {#if csvLayout === 'maps_only'}
+          <div class="admin-alert admin-alert-warn mt-3">
+            Older maps-only sheet detected. WINS/LOSSES are map results and there is no series
+            record, so the map figures are used for both.
           </div>
         {/if}
 

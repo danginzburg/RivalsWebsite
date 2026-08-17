@@ -9,6 +9,7 @@ import {
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { logAdminAction } from '$lib/server/audit/admin-actions'
 import { resolveTargetSeasonId } from '$lib/server/seasons/resolve'
+import { normalizeSectionKey } from '$lib/stats/sections'
 
 function normalizeOptional(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -64,6 +65,10 @@ export const PATCH: RequestHandler = async ({ locals, request, params }) => {
         youtubeVodUrl: normalizeOptional(body.youtubeVodUrl),
         mapVetoes: parseMapVetoes(body.mapVetoes),
         designation: normalizeOptional(body.designation),
+        // Unknown values are dropped rather than rejected — the column feeds
+        // the batch generator, and a typo should leave the match unfiled, not
+        // fail the whole edit.
+        stage: normalizeSectionKey(body.stage),
         // Absent leaves the season alone; present re-files the match.
         seasonId:
           body.seasonId === undefined ? undefined : await resolveTargetSeasonId(body.seasonId),

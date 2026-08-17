@@ -1,22 +1,16 @@
 <script lang="ts">
-  import {
-    normalizePlayoffPickemConfig,
-    PLAYOFF_MATCH_IDS,
-    MATCH_LABELS,
-    type PlayoffMatchId,
-  } from '$lib/playoffPickems'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
-  import type {
-    AdminMatch,
-    AdminSeason,
-    ApprovedTeamEntry,
-    SeasonEditState,
-  } from '$lib/admin/types'
+  import { Upload } from 'lucide-svelte'
+  import type { AdminSeason, SeasonEditState, SeasonTeamEntry } from '$lib/admin/types'
 
   interface Props {
     seasons: AdminSeason[]
-    approvedTeams: ApprovedTeamEntry[]
-    matches: AdminMatch[]
+    /**
+     * Approved teams from every season. The dashboard's `approvedTeams` follows
+     * the global season picker, so it cannot answer "which teams played in the
+     * season on this row" — that is what the per-season pickers here need.
+     */
+    seasonTeams?: SeasonTeamEntry[]
     /** Candidates for the season MVP picker. */
     players?: Array<{
       id: string
@@ -41,21 +35,19 @@
     onSeasonEditChange: (seasonId: string, nextState: SeasonEditState) => void
     onCreateSeason: () => void
     onSaveSeason: (seasonId: string) => void
-    onSavePlayoffPickem: (
-      seasonId: string,
-      config: ReturnType<typeof normalizePlayoffPickemConfig>
-    ) => void
-    onScorePlayoffPickem: (seasonId: string) => void
     /** Season id whose logo is mid-upload, or null. */
     logoUploadingSeasonId?: string | null
     onUploadSeasonLogo: (seasonId: string, file: File) => void
     onRemoveSeasonLogo: (seasonId: string, seasonName: string) => void
+    /** Season id whose standings CSV is mid-upload, or null. */
+    leaderboardUploadingSeasonId?: string | null
+    /** Imports a standings CSV and pins it as this season's snapshot. */
+    onUploadLeaderboardCsv: (seasonId: string, file: File) => void
   }
 
   let {
     seasons,
-    approvedTeams,
-    matches,
+    seasonTeams = [],
     players = [],
     leaderboardBatches = [],
     createSeasonCode,
@@ -73,30 +65,41 @@
     onSeasonEditChange,
     onCreateSeason,
     onSaveSeason,
-    onSavePlayoffPickem,
-    onScorePlayoffPickem,
     logoUploadingSeasonId = null,
     onUploadSeasonLogo,
     onRemoveSeasonLogo,
+    leaderboardUploadingSeasonId = null,
+    onUploadLeaderboardCsv,
   }: Props = $props()
 
-  let expandedPickemSeasonId = $state<string | null>(null)
   let expandedResultsSeasonId = $state<string | null>(null)
 
+  const teamLabel = (team: { name: string; tag: string | null }) =>
+    team.name + (team.tag ? ` (${team.tag})` : '')
+
+  /**
+   * Only the teams that played in that season — a champion or seed from another
+   * season is never a valid answer. A season with nothing filed against it yet
+   * gets an empty picker rather than a borrowed list, because silently offering
+   * another season's teams is the bug this scoping exists to prevent.
+   */
+  function teamsForSeason(seasonId: string) {
+    return seasonTeams.filter((t) => t.season_id === seasonId)
+  }
+
   /** Blank option lets an admin clear a previously-set result. */
-  const teamPickerOptions = $derived([
-    { value: '', label: '— None —' },
-    ...approvedTeams.map((t) => ({
-      value: t.id,
-      label: t.name + (t.tag ? ` (${t.tag})` : ''),
-    })),
-  ])
+  function teamPickerOptions(seasonId: string) {
+    return [
+      { value: '', label: '— None —' },
+      ...teamsForSeason(seasonId).map((t) => ({ value: t.id, label: teamLabel(t) })),
+    ]
+  }
 
   const playerPickerOptions = $derived([
     { value: '', label: '— None —' },
     ...(players ?? []).map((p) => ({
       value: p.id,
-      label: p.riot_id_base ?? p.display_name ?? p.email ?? 'Player',
+      label: p.display_name ?? p.riot_id_base ?? p.email ?? 'Player',
     })),
   ])
 
@@ -104,145 +107,6 @@
     { value: '', label: '— Use latest import —' },
     ...(leaderboardBatches ?? []).map((b) => ({ value: b.id, label: b.label })),
   ])
-
-  let playoffConfigForm = $state<Record<string, ReturnType<typeof normalizePlayoffPickemConfig>>>(
-    {}
-  )
-
-  $effect(() => {
-    const next: Record<string, ReturnType<typeof normalizePlayoffPickemConfig>> = {}
-    for (const season of seasons ?? []) {
-      next[season.id] =
-        playoffConfigForm[season.id] ??
-        normalizePlayoffPickemConfig(season.metadata?.playoff_pickem)
-    }
-    const keys = Object.keys(next)
-    const currentKeys = Object.keys(playoffConfigForm)
-    const changed =
-      keys.length !== currentKeys.length ||
-      keys.some(
-        (key) => JSON.stringify(playoffConfigForm[key] ?? {}) !== JSON.stringify(next[key] ?? {})
-      )
-    if (changed) playoffConfigForm = next
-  })
-
-  function updatePlayoffConfig(
-    seasonId: string,
-    patch: Partial<ReturnType<typeof normalizePlayoffPickemConfig>>
-  ) {
-    const current = playoffConfigForm[seasonId] ?? normalizePlayoffPickemConfig(null)
-    playoffConfigForm = {
-      ...playoffConfigForm,
-      [seasonId]: {
-        ...current,
-        ...patch,
-      },
-    }
-  }
-
-  function updateSeed(seasonId: string, seed: number, teamId: string) {
-    const current = playoffConfigForm[seasonId] ?? normalizePlayoffPickemConfig(null)
-    const seeds = current.seeds.filter((entry) => entry.seed !== seed)
-    if (teamId) seeds.push({ seed, teamId })
-    updatePlayoffConfig(seasonId, { seeds: seeds.sort((a, b) => a.seed - b.seed) })
-  }
-
-  function updateMatchup(
-    seasonId: string,
-    matchId: string,
-    side: 'seedA' | 'seedB',
-    seedValue: string
-  ) {
-    const current = playoffConfigForm[seasonId] ?? normalizePlayoffPickemConfig(null)
-    updatePlayoffConfig(seasonId, {
-      matchups: current.matchups.map((mu) =>
-        mu.matchId === matchId ? { ...mu, [side]: Number(seedValue) || mu[side] } : mu
-      ),
-    })
-  }
-
-  const seedOptions = Array.from({ length: 8 }, (_, i) => ({
-    value: String(i + 1),
-    label: `Seed ${i + 1}`,
-  }))
-
-  function updateMatchLink(seasonId: string, matchId: string, actualMatchId: string) {
-    const current = playoffConfigForm[seasonId] ?? normalizePlayoffPickemConfig(null)
-    updatePlayoffConfig(seasonId, {
-      match_links: current.match_links.map((link) =>
-        link.matchId === matchId ? { ...link, actualMatchId: actualMatchId || null } : link
-      ),
-    })
-  }
-
-  const pickemStatusOptions = [
-    { value: 'draft', label: 'Draft' },
-    { value: 'open', label: 'Open' },
-    { value: 'locked', label: 'Locked' },
-    { value: 'scored', label: 'Scored' },
-  ]
-
-  const approvedTeamOptions = $derived(
-    approvedTeams.map((t) => ({
-      value: t.id,
-      label: t.name + (t.tag ? ` (${t.tag})` : ''),
-    }))
-  )
-
-  function matchOptions(filteredMatches: AdminMatch[]) {
-    return filteredMatches
-      .filter((m) => m.team_a_id && m.team_b_id)
-      .map((m) => ({ value: m.id, label: matchLabel(m) }))
-  }
-
-  function matchLabel(match: AdminMatch) {
-    const a = Array.isArray(match.team_a) ? match.team_a[0] : match.team_a
-    const b = Array.isArray(match.team_b) ? match.team_b[0] : match.team_b
-    const names = `${a?.name ?? 'Team A'} vs ${b?.name ?? 'Team B'}`
-    return match.scheduled_at
-      ? `${names} - ${new Date(match.scheduled_at).toLocaleDateString()}`
-      : names
-  }
-
-  const bracketMatchOptions = PLAYOFF_MATCH_IDS.map((id) => ({
-    value: id,
-    label: MATCH_LABELS[id],
-  }))
-
-  function toggleResolvedMatch(seasonId: string, matchId: string, checked: boolean) {
-    const current = playoffConfigForm[seasonId] ?? normalizePlayoffPickemConfig(null)
-    const resolved = current.resolved_matches.filter((r) => r.matchId !== matchId)
-    if (checked) {
-      resolved.push({ matchId: matchId as PlayoffMatchId, winnerId: '' })
-    }
-    updatePlayoffConfig(seasonId, { resolved_matches: resolved })
-  }
-
-  function updateResolvedWinner(seasonId: string, matchId: string, winnerId: string) {
-    const current = playoffConfigForm[seasonId] ?? normalizePlayoffPickemConfig(null)
-    updatePlayoffConfig(seasonId, {
-      resolved_matches: current.resolved_matches.map((r) =>
-        r.matchId === matchId ? { ...r, winnerId } : r
-      ),
-    })
-  }
-
-  function resolvedTeamOptions(seasonId: string, matchId: PlayoffMatchId) {
-    const config = playoffConfigForm[seasonId] ?? normalizePlayoffPickemConfig(null)
-    const seeds = config.seeds
-    const mu = config.matchups.find((m) => m.matchId === matchId)
-    if (mu) {
-      const teamA = seeds.find((s) => s.seed === mu.seedA)
-      const teamB = seeds.find((s) => s.seed === mu.seedB)
-      return [teamA, teamB]
-        .filter((s): s is { seed: number; teamId: string } => Boolean(s))
-        .map((s) => {
-          const team = approvedTeams.find((t) => t.id === s.teamId)
-          return { value: s.teamId, label: team ? (team.tag ?? team.name) : `Seed ${s.seed}` }
-        })
-    }
-    return approvedTeamOptions
-  }
 </script>
 
 <div class="grid grid-cols-1 gap-4">
@@ -462,7 +326,7 @@
                       Champion
                       <div class="mt-1">
                         <CustomSelect
-                          options={teamPickerOptions}
+                          options={teamPickerOptions(season.id)}
                           value={state.winnerTeamId}
                           compact={true}
                           placeholder="No champion set"
@@ -475,7 +339,7 @@
                       Runner-up
                       <div class="mt-1">
                         <CustomSelect
-                          options={teamPickerOptions}
+                          options={teamPickerOptions(season.id)}
                           value={state.runnerUpTeamId}
                           compact={true}
                           placeholder="No runner-up set"
@@ -515,6 +379,36 @@
                       />
                     </div>
                   </label>
+
+                  <div class="mt-2 flex flex-wrap items-center gap-2">
+                    <label
+                      class="admin-inline-upload"
+                      class:admin-inline-upload-busy={leaderboardUploadingSeasonId === season.id}
+                    >
+                      <Upload size={13} />
+                      <span>
+                        {leaderboardUploadingSeasonId === season.id
+                          ? 'Importing…'
+                          : 'Upload standings CSV'}
+                      </span>
+                      <input
+                        type="file"
+                        accept=".csv"
+                        class="hidden"
+                        disabled={leaderboardUploadingSeasonId === season.id}
+                        onchange={(event) => {
+                          const input = event.currentTarget as HTMLInputElement
+                          const file = input.files?.[0]
+                          // Cleared so re-picking the same file fires onchange again.
+                          input.value = ''
+                          if (file) onUploadLeaderboardCsv(season.id, file)
+                        }}
+                      />
+                    </label>
+                    <span class="text-xs" style="color: rgba(255,255,255,0.5);">
+                      Imports for {season.name} and selects it above — still needs Save.
+                    </span>
+                  </div>
 
                   <div class="admin-bordered mt-2 p-2">
                     <div class="mb-2 text-xs font-semibold" style="color: rgba(255,255,255,0.82);">
@@ -592,245 +486,6 @@
                 </div>
               {/if}
             </div>
-
-            {#if true}
-              {@const pickem = playoffConfigForm[season.id] ?? normalizePlayoffPickemConfig(null)}
-              {@const isPickemExpanded = expandedPickemSeasonId === season.id}
-              <div
-                class="mt-4 rounded-md border"
-                style="border-color: rgba(255,255,255,0.10); background: rgba(255,255,255,0.035);"
-              >
-                <button
-                  type="button"
-                  class="flex w-full flex-wrap items-center justify-between gap-3 p-3"
-                  style="cursor: pointer;"
-                  onclick={() => (expandedPickemSeasonId = isPickemExpanded ? null : season.id)}
-                >
-                  <div class="flex items-center gap-2">
-                    <span
-                      class="inline-block text-xs transition-transform"
-                      style="color: rgba(255,255,255,0.5); transform: rotate({isPickemExpanded
-                        ? '90deg'
-                        : '0deg'});">▶</span
-                    >
-                    <div class="text-left">
-                      <div class="text-sm font-semibold" style="color: var(--text);">
-                        Playoff Pick'em
-                      </div>
-                      <div class="text-xs" style="color: rgba(255,255,255,0.62);">
-                        8-team double elimination bracket
-                        {#if pickem.enabled}
-                          <span style="color: #86efac;"> · Enabled</span>
-                        {/if}
-                        {#if pickem.status && pickem.status !== 'draft'}
-                          <span style="color: rgba(255,255,255,0.5);"> · {pickem.status}</span>
-                        {/if}
-                      </div>
-                    </div>
-                  </div>
-                </button>
-
-                {#if isPickemExpanded}
-                  <div class="px-3 pb-3">
-                    <div class="mb-3 flex flex-wrap items-center justify-end gap-3">
-                      <label
-                        class="inline-flex items-center gap-2 text-sm"
-                        style="color: rgba(255,255,255,0.82);"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={pickem.enabled}
-                          onchange={(e) =>
-                            updatePlayoffConfig(season.id, {
-                              enabled: (e.currentTarget as HTMLInputElement).checked,
-                            })}
-                        />
-                        Enabled
-                      </label>
-                    </div>
-
-                    <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                      <CustomSelect
-                        options={pickemStatusOptions}
-                        value={pickem.status}
-                        compact={true}
-                        placeholder="Status"
-                        onSelect={(value) =>
-                          updatePlayoffConfig(season.id, {
-                            status: value as typeof pickem.status,
-                          })}
-                      />
-                      <input
-                        type="datetime-local"
-                        value={pickem.lock_at ? pickem.lock_at.slice(0, 16) : ''}
-                        oninput={(e) =>
-                          updatePlayoffConfig(season.id, {
-                            lock_at: (e.currentTarget as HTMLInputElement).value || null,
-                          })}
-                        class="admin-input md:col-span-2"
-                      />
-                    </div>
-
-                    <div class="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                      {#each [1, 2, 3, 4, 5, 6, 7, 8] as seed (seed)}
-                        <div>
-                          <div
-                            class="mb-1 text-xs font-semibold"
-                            style="color: rgba(255,255,255,0.68);"
-                          >
-                            Seed {seed}
-                          </div>
-                          <CustomSelect
-                            options={approvedTeamOptions}
-                            value={pickem.seeds.find((entry) => entry.seed === seed)?.teamId ?? ''}
-                            compact={true}
-                            placeholder="Select team"
-                            onSelect={(value) => updateSeed(season.id, seed, value)}
-                          />
-                        </div>
-                      {/each}
-                    </div>
-
-                    <div class="mt-3">
-                      <div
-                        class="mb-2 text-xs font-semibold tracking-wide uppercase"
-                        style="color: rgba(255,255,255,0.68);"
-                      >
-                        QF Matchups
-                      </div>
-                      <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                        {#each pickem.matchups as mu (mu.matchId)}
-                          <div
-                            class="rounded-md border p-2"
-                            style="border-color: rgba(255,255,255,0.08); background: rgba(0,0,0,0.15);"
-                          >
-                            <div
-                              class="mb-1 text-xs font-semibold"
-                              style="color: rgba(255,255,255,0.58);"
-                            >
-                              {mu.matchId.replace('ub_qf_', 'QF ')}
-                            </div>
-                            <div class="grid grid-cols-2 gap-1">
-                              <CustomSelect
-                                options={seedOptions}
-                                value={String(mu.seedA)}
-                                compact={true}
-                                placeholder="Seed A"
-                                onSelect={(value) =>
-                                  updateMatchup(season.id, mu.matchId, 'seedA', value)}
-                              />
-                              <CustomSelect
-                                options={seedOptions}
-                                value={String(mu.seedB)}
-                                compact={true}
-                                placeholder="Seed B"
-                                onSelect={(value) =>
-                                  updateMatchup(season.id, mu.matchId, 'seedB', value)}
-                              />
-                            </div>
-                          </div>
-                        {/each}
-                      </div>
-                    </div>
-
-                    <div class="mt-3">
-                      <div
-                        class="mb-2 text-xs font-semibold tracking-wide uppercase"
-                        style="color: rgba(255,255,255,0.68);"
-                      >
-                        Resolved Matches (already concluded, no points)
-                      </div>
-                      <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
-                        {#each bracketMatchOptions as opt (opt.value)}
-                          {@const isChecked = pickem.resolved_matches.some(
-                            (r) => r.matchId === opt.value
-                          )}
-                          {@const resolved = pickem.resolved_matches.find(
-                            (r) => r.matchId === opt.value
-                          )}
-                          <div
-                            class="flex items-center gap-2 rounded-md border p-2"
-                            style="border-color: rgba(255,255,255,0.08); background: {isChecked
-                              ? 'rgba(239,68,68,0.08)'
-                              : 'rgba(0,0,0,0.15)'};"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={isChecked}
-                              onchange={(e) =>
-                                toggleResolvedMatch(
-                                  season.id,
-                                  opt.value,
-                                  (e.currentTarget as HTMLInputElement).checked
-                                )}
-                              class="accent-red-500"
-                            />
-                            <span
-                              class="min-w-[5rem] text-xs font-semibold"
-                              style="color: rgba(255,255,255,0.6);"
-                            >
-                              {opt.label}
-                            </span>
-                            {#if isChecked}
-                              <div class="flex-1">
-                                <CustomSelect
-                                  options={resolvedTeamOptions(
-                                    season.id,
-                                    opt.value as PlayoffMatchId
-                                  )}
-                                  value={resolved?.winnerId ?? ''}
-                                  compact={true}
-                                  placeholder="Select winner"
-                                  onSelect={(value) =>
-                                    updateResolvedWinner(season.id, opt.value, value)}
-                                />
-                              </div>
-                            {/if}
-                          </div>
-                        {/each}
-                      </div>
-                    </div>
-
-                    <div class="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
-                      {#each pickem.match_links as link (link.matchId)}
-                        <div>
-                          <div
-                            class="mb-1 text-xs font-semibold"
-                            style="color: rgba(255,255,255,0.68);"
-                          >
-                            {link.matchId}
-                          </div>
-                          <CustomSelect
-                            options={matchOptions(matches)}
-                            value={link.actualMatchId ?? ''}
-                            compact={true}
-                            placeholder="No linked match"
-                            onSelect={(value) => updateMatchLink(season.id, link.matchId, value)}
-                          />
-                        </div>
-                      {/each}
-                    </div>
-
-                    <div class="mt-3 flex flex-wrap justify-end gap-2">
-                      <button
-                        type="button"
-                        class="admin-btn admin-btn-info text-sm"
-                        onclick={() => onSavePlayoffPickem(season.id, pickem)}
-                      >
-                        Save Pick'em
-                      </button>
-                      <button
-                        type="button"
-                        class="admin-btn admin-btn-warn text-sm"
-                        onclick={() => onScorePlayoffPickem(season.id)}
-                      >
-                        Score Pick'em
-                      </button>
-                    </div>
-                  </div>
-                {/if}
-              </div>
-            {/if}
           </article>
         {/each}
       </div>

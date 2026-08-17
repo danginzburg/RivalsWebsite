@@ -255,7 +255,8 @@
 </section>
 
 {#snippet comment(node: CommentNode, isReply: boolean)}
-  <article class="comment" class:comment-reply={isReply}>
+  <!-- Anchor target so notification links (#comment-{id}) land on the right comment. -->
+  <article id="comment-{node.id}" class="comment" class:comment-reply={isReply}>
     {#if node.is_deleted}
       <p class="deleted">This comment was removed.</p>
     {:else}

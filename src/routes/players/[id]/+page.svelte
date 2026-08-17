@@ -3,11 +3,12 @@
   import PageContainer from '$lib/components/PageContainer.svelte'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
   import CommentThread from '$lib/components/CommentThread.svelte'
+  import ReviewFlagButton from '$lib/components/ReviewFlagButton.svelte'
+  import RiotAccountsPanel from '$lib/components/RiotAccountsPanel.svelte'
   import { User, ExternalLink } from 'lucide-svelte'
   import DiscordIcon from '$lib/components/icons/DiscordIcon.svelte'
-  import { SvelteMap } from 'svelte/reactivity'
   import { resolve } from '$app/paths'
-  import miksIcon from '$lib/assets/agents/Miks_icon.webp'
+  import { agentIconUrl, rankIconUrlByKey } from '$lib/icons'
   import { builtInAccoladeIcons } from '$lib/accolades/icons'
   import { enhance } from '$app/forms'
   import { rankImageKey } from '$lib/ranks/ranks'
@@ -101,48 +102,9 @@
     statsPlayerNameValue = player.stats_player_name ?? ''
   })
 
-  const agentAssetModules = import.meta.glob('$lib/assets/agents/*_icon.webp', {
-    eager: true,
-    import: 'default',
-  }) as Record<string, string>
-
-  const agentIconMap = $derived.by(() => {
-    const map = new SvelteMap<string, string>()
-    const normalize = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, '')
-    for (const [path, url] of Object.entries(agentAssetModules)) {
-      const filename = path.split('/').pop() ?? ''
-      const base = filename.replace(/_icon\.webp$/i, '')
-      map.set(normalize(base), url)
-    }
-    if (map.has('harbor')) map.set('harbour', map.get('harbor')!)
-    map.set('miks', miksIcon)
-    return map
-  })
-
-  function agentIconUrl(agentName: string): string | null {
-    const normalize = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, '')
-    return agentIconMap.get(normalize(agentName)) ?? null
-  }
-
-  const rankAssetModules = import.meta.glob('$lib/assets/ranks/*_Rank.png', {
-    eager: true,
-    import: 'default',
-  }) as Record<string, string>
-
-  const rankIconMap = $derived.by(() => {
-    const map = new SvelteMap<string, string>()
-    for (const [path, url] of Object.entries(rankAssetModules)) {
-      const filename = path.split('/').pop() ?? ''
-      const key = filename.replace(/\.png$/i, '')
-      map.set(key, url)
-    }
-    return map
-  })
-
   function rankIconUrl(leagueRank: unknown): string | null {
     if (typeof leagueRank !== 'string') return null
-    const key = rankImageKey(leagueRank)
-    return key ? (rankIconMap.get(key) ?? null) : null
+    return rankIconUrlByKey(rankImageKey(leagueRank))
   }
 
   const playerRank = $derived((data.bestRank ?? null) as string | null)
@@ -352,6 +314,12 @@
 
       <section class="card">
         <div class="card-body">
+          <RiotAccountsPanel
+            accounts={data.riotAccounts ?? []}
+            canEdit={viewer.canEditRiotIdBase}
+            displayName={player.display_name}
+          />
+
           {#if viewer.canEditRiotIdBase && !player.riot_id_base}
             <div
               class="mb-4 rounded-md border p-3"
@@ -607,15 +575,20 @@
                 {/if}
 
                 <span class="team-row-season">{entry.season?.name ?? 'Unassigned season'}</span>
-
-                <span class="team-row-status" class:team-row-current={entry.is_current}>
-                  {entry.is_current ? 'Current' : 'Former'}
-                </span>
               </a>
             {/each}
           </div>
         {/if}
       </section>
+
+      <div class="player-flag-bar">
+        <ReviewFlagButton
+          entityType="player"
+          entityId={player.profile_id}
+          viewerId={data.viewer?.profileId ?? null}
+          noun="profile"
+        />
+      </div>
 
       <CommentThread
         entityType="player"
@@ -629,6 +602,12 @@
 </PageContainer>
 
 <style>
+  .player-flag-bar {
+    display: flex;
+    justify-content: flex-end;
+    margin: 0.5rem 0 0.75rem;
+  }
+
   .player-page {
     width: 100%;
     /*
@@ -1004,9 +983,9 @@
     display: flex;
     align-items: center;
     /*
-     * Wraps rather than overflowing: logo, name, role, season and status do
-     * not share one line on a phone, and the status was the item pushed off
-     * the right edge.
+     * Wraps rather than overflowing: logo, name, role and season do not share
+     * one line on a phone, and the season was the item pushed off the right
+     * edge.
      */
     flex-wrap: wrap;
     gap: 0.6875rem;
@@ -1031,7 +1010,7 @@
   .team-row-name {
     /*
      * Small basis on purpose: flex wraps before it shrinks, so a generous basis
-     * would push the status onto a second line while there was still room to
+     * would push the season onto a second line while there was still room to
      * ellipsize the name instead.
      */
     flex: 1 1 4rem;
@@ -1065,25 +1044,10 @@
 
   .team-row-season {
     flex-shrink: 0;
-    font-size: 0.75rem;
-    color: rgba(255, 255, 255, 0.55);
-  }
-
-  .team-row-status {
-    flex-shrink: 0;
     /* Stays hard right whether it shares the first line or wraps below. */
     margin-left: auto;
-    min-width: 3.75rem;
-    text-align: right;
-    font-size: 0.6875rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: rgba(255, 255, 255, 0.4);
-  }
-
-  .team-row-current {
-    color: #4ade80;
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.55);
   }
 
   .row-agents {

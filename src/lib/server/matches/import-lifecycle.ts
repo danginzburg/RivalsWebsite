@@ -13,9 +13,12 @@ import {
   buildTeamMatcher,
   getApprovedTeamsForImports,
   getProfilesForImports,
+  getRiotAccountsForImports,
   parseMatchCsvDate,
   rebuildPlayerMatchStats,
 } from '$lib/server/imports/matching'
+import { applyMatchStatReassignments } from '$lib/server/matches/reassignments'
+import { refreshLiveBatchesForMatch } from '$lib/server/stats/from-matches'
 
 type PlayerRowInput = {
   player_name?: unknown
@@ -74,6 +77,13 @@ function normalizeOptional(value: unknown): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
   return trimmed.length > 0 ? trimmed : null
+}
+
+/** Pull the Riot PUUID out of a player row's metadata, if the source carried one. */
+function puuidFromMetadata(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== 'object') return null
+  const puuid = (metadata as Record<string, unknown>).puuid
+  return typeof puuid === 'string' && puuid.trim() ? puuid.trim() : null
 }
 
 function parseInteger(value: unknown, fieldName: string) {
@@ -239,12 +249,13 @@ export async function importCompletedSeries({
     .eq('is_active', true)
     .maybeSingle()
 
-  const [teams, profiles] = await Promise.all([
+  const [teams, profiles, riotAccounts] = await Promise.all([
     getApprovedTeamsForImports(),
     getProfilesForImports(),
+    getRiotAccountsForImports(),
   ])
   const teamMatcher = buildTeamMatcher(teams)
-  const profileMatcher = buildProfileMatcher(profiles)
+  const profileMatcher = buildProfileMatcher(profiles, riotAccounts)
 
   const importedTeamA = teamMatcher.byMatchName(teamAName)
   const importedTeamB = teamMatcher.byMatchName(teamBName)
@@ -326,7 +337,12 @@ export async function importCompletedSeries({
       side: row.side === 'b' ? 'b' : 'a',
       profile_id:
         normalizeOptional(row.profile_id) ??
-        profileMatcher.resolve(normalizeOptional(row.player_name) ?? ''),
+        // PUUID (from the Riot import's row metadata) resolves first, so a
+        // renamed-but-known player still matches; name is the CSV fallback.
+        profileMatcher.resolve(
+          normalizeOptional(row.player_name) ?? '',
+          puuidFromMetadata(row.metadata)
+        ),
       acs: Number(row.acs ?? 0),
       kills: parseInteger(row.kills ?? 0, 'Kills'),
       deaths: parseInteger(row.deaths ?? 0, 'Deaths'),
@@ -660,6 +676,11 @@ export async function importCompletedSeries({
       throw error(500, `Failed to insert player map stats for map ${mapIndex + 1}`)
   }
 
+  // Manual per-match overrides win over automatic matching, and are stored by
+  // match so they re-apply on every re-import. Applied before the rebuild so
+  // the series aggregates credit the reassigned profile.
+  await applyMatchStatReassignments(match.id)
+
   await rebuildPlayerMatchStats(match.id)
 
   const metaBase = stripForfeitFromMetadata(match.metadata as Record<string, unknown> | null)
@@ -686,6 +707,18 @@ export async function importCompletedSeries({
 
   if (updateMatchError) throw error(500, 'Failed to update imported match result')
 
+  // Live stat batches covering this match refill themselves here — that is how
+  // a "Season 5 Kickoff" batch set up in advance stays current. Best-effort on
+  // purpose: the match is already written, and a batch that failed to rebuild
+  // can be fixed with the Regenerate button.
+  const refreshedBatches = await refreshLiveBatchesForMatch({
+    matchId: match.id,
+    adminProfileId,
+  }).catch((err) => {
+    console.error('Failed to refresh live stat batches after match import:', err)
+    return []
+  })
+
   return json({
     success: true,
     matchId: match.id,
@@ -693,6 +726,7 @@ export async function importCompletedSeries({
     teamAScore: seriesTeamAScore,
     teamBScore: seriesTeamBScore,
     unresolvedPlayers,
+    refreshedBatches,
   })
 }
 

@@ -3,10 +3,10 @@
   import PageContainer from '$lib/components/PageContainer.svelte'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
   import { BarChart3, Users } from 'lucide-svelte'
-  import { SvelteMap, SvelteURLSearchParams } from 'svelte/reactivity'
+  import { SvelteURLSearchParams } from 'svelte/reactivity'
   import { resolve } from '$app/paths'
   import { enhance } from '$app/forms'
-  import miksIcon from '$lib/assets/agents/Miks_icon.webp'
+  import { agentIconUrl, rankIconUrlByKey } from '$lib/icons'
   import { rankImageKey } from '$lib/ranks/ranks'
 
   let { data, form }: PageProps = $props()
@@ -87,29 +87,6 @@
 
   let riotIdBaseValue = $derived(viewer?.riotIdBase ?? base ?? '')
 
-  const agentAssetModules = import.meta.glob('$lib/assets/agents/*_icon.webp', {
-    eager: true,
-    import: 'default',
-  }) as Record<string, string>
-
-  const agentIconMap = $derived.by(() => {
-    const map = new SvelteMap<string, string>()
-    const normalize = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, '')
-    for (const [path, url] of Object.entries(agentAssetModules)) {
-      const filename = path.split('/').pop() ?? ''
-      const base = filename.replace(/_icon\.webp$/i, '')
-      map.set(normalize(base), url)
-    }
-    if (map.has('harbor')) map.set('harbour', map.get('harbor')!)
-    map.set('miks', miksIcon)
-    return map
-  })
-
-  function agentIconUrl(agentName: string): string | null {
-    const normalize = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, '')
-    return agentIconMap.get(normalize(agentName)) ?? null
-  }
-
   function parseAgents(value: unknown): string[] {
     if (typeof value !== 'string') return []
     const tokens = value
@@ -125,25 +102,9 @@
     return v.toFixed(digits)
   }
 
-  const rankAssetModules = import.meta.glob('$lib/assets/ranks/*_Rank.png', {
-    eager: true,
-    import: 'default',
-  }) as Record<string, string>
-
-  const rankIconMap = $derived.by(() => {
-    const map = new SvelteMap<string, string>()
-    for (const [path, url] of Object.entries(rankAssetModules)) {
-      const filename = path.split('/').pop() ?? ''
-      const key = filename.replace(/\.png$/i, '')
-      map.set(key, url)
-    }
-    return map
-  })
-
   function rankIconUrl(leagueRank: unknown): string | null {
     if (typeof leagueRank !== 'string') return null
-    const key = rankImageKey(leagueRank)
-    return key ? (rankIconMap.get(key) ?? null) : null
+    return rankIconUrlByKey(rankImageKey(leagueRank))
   }
 
   const playerRank = $derived((data.bestRank ?? null) as string | null)

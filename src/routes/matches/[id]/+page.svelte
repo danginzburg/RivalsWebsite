@@ -3,19 +3,55 @@
   import PageContainer from '$lib/components/PageContainer.svelte'
   import AdminEditLink from '$lib/components/AdminEditLink.svelte'
   import CommentThread from '$lib/components/CommentThread.svelte'
+  import ReviewFlagButton from '$lib/components/ReviewFlagButton.svelte'
   import MatchPerformance from '$lib/components/MatchPerformance.svelte'
+  import MatchReassignPanel from '$lib/components/MatchReassignPanel.svelte'
   import TeamSeed from '$lib/components/TeamSeed.svelte'
-  import { BarChart3, CalendarDays, RadioTower, Video, AlertTriangle } from 'lucide-svelte'
-  import { SvelteMap } from 'svelte/reactivity'
+  import {
+    BarChart3,
+    CalendarDays,
+    RadioTower,
+    Video,
+    AlertTriangle,
+    X,
+    Check,
+  } from 'lucide-svelte'
   import { resolve } from '$app/paths'
   import { displayPlayerName } from '$lib/stats/ui'
-  import miksIcon from '$lib/assets/agents/Miks_icon.webp'
+  import { agentIconUrl } from '$lib/icons'
 
   let { data }: PageProps = $props()
 
   const match = $derived(data.match)
   const isAdmin = $derived(data.viewer?.isAdmin ?? false)
   const hasRealStats = $derived(data.match?.has_real_stats ?? false)
+
+  // Distinct source accounts across all maps, for the admin reassignment panel.
+  const reassignRoster = $derived.by(() => {
+    const seen = new Set<string>()
+    const out: Array<{
+      puuid: string | null
+      playerName: string
+      profileId: string | null
+      profileName: string | null
+    }> = []
+    for (const map of (match?.maps ?? []) as Array<{ stats?: any[] }>) {
+      for (const row of map.stats ?? []) {
+        const puuid = (row.puuid as string | null) ?? null
+        const playerName = String(row.player_name ?? '')
+        const key = puuid ?? playerName
+        if (!key || seen.has(key)) continue
+        seen.add(key)
+        out.push({
+          puuid,
+          playerName,
+          profileId: (row.profile_id as string | null) ?? null,
+          profileName: (row.profile_name as string | null) ?? null,
+        })
+      }
+    }
+    return out
+  })
   let activeStatsTab = $state<'total' | string>('total')
 
   function teamName(value: unknown) {
@@ -54,6 +90,16 @@
   function formatStatus(status: string | null | undefined) {
     if (!status) return 'Unknown'
     return status.charAt(0).toUpperCase() + status.slice(1)
+  }
+
+  /** Bare host for a watch link — the full URL is noise in the list. */
+  function hostName(url: string | null | undefined) {
+    if (!url) return ''
+    try {
+      return new URL(url).hostname.replace(/^www\./, '')
+    } catch {
+      return url
+    }
   }
 
   const isComplete = $derived(match.status === 'completed')
@@ -114,33 +160,6 @@
 
       return playerLabel(a).localeCompare(playerLabel(b), undefined, { sensitivity: 'base' })
     })
-  }
-
-  const agentAssetModules = import.meta.glob('$lib/assets/agents/*_icon.webp', {
-    eager: true,
-    import: 'default',
-  }) as Record<string, string>
-
-  const agentIconMap = $derived.by(() => {
-    const map = new SvelteMap<string, string>()
-    const normalize = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, '')
-
-    for (const [path, url] of Object.entries(agentAssetModules)) {
-      const filename = path.split('/').pop() ?? ''
-      const base = filename.replace(/_icon\.webp$/i, '')
-      map.set(normalize(base), url)
-    }
-
-    if (map.has('harbor')) map.set('harbour', map.get('harbor')!)
-    map.set('miks', miksIcon)
-    return map
-  })
-
-  function agentIconUrl(agentName: string): string | null {
-    const key = String(agentName ?? '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, '')
-    return agentIconMap.get(key) ?? null
   }
 
   function parseAgents(value: unknown): string[] {
@@ -358,47 +377,66 @@
     {/if}
 
     <!--
-      Details and Watch share one card: both answer "what is this match and
-      how do I follow it", and as separate cards the short detail list left a
-      ragged gap beside the stream list.
+      Details flows top to bottom: any unique meta (the scheduled date already
+      lives in the scoreboard, so only "Started" is repeated here), then the
+      map veto, then Watch. The old two-pane split existed only to fill the gap
+      beside a short detail list; the Watch grid fills that width on its own now.
     -->
     <section class="card">
       <header class="card-head">
         <CalendarDays size={15} />
         <h2 class="card-title">Details</h2>
+        {#if match.started_at}
+          <span class="head-meta">Started {formatLocal(match.started_at)}</span>
+        {/if}
       </header>
 
-      <div class="info-split">
-        <div class="card-body">
-          <dl class="detail-list">
-            <div class="detail">
-              <dt>Scheduled</dt>
-              <dd>{formatLocal(match.scheduled_at)}</dd>
-            </div>
-            {#if match.started_at}
-              <div class="detail">
-                <dt>Started</dt>
-                <dd>{formatLocal(match.started_at)}</dd>
-              </div>
-            {/if}
-          </dl>
-
-          {#if (match.metadata?.map_vetoes?.length ?? 0) > 0}
-            <div class="veto">
-              <div class="veto-label">Map Veto</div>
-              <ol class="veto-list">
-                {#each match.metadata.map_vetoes as veto, index (index)}
-                  <li><span class="veto-num">{index + 1}</span>{veto}</li>
-                {/each}
-              </ol>
-            </div>
-          {/if}
-        </div>
+      <div class="card-body detail-body">
+        {#if (match.map_vetoes?.length ?? 0) > 0}
+          <div class="veto">
+            <div class="section-label">Map Veto</div>
+            <ol class="veto-list">
+              {#each match.map_vetoes as step, index (index)}
+                {@const action = step.action ?? null}
+                <li
+                  class="veto-step"
+                  class:veto-step-img={step.image}
+                  class:veto-ban={action === 'ban'}
+                  class:veto-pick={action === 'pick'}
+                  class:veto-decider={action === 'decider'}
+                >
+                  {#if step.image}
+                    <img class="veto-img" src={step.image} alt={step.mapName} loading="lazy" />
+                  {/if}
+                  <span class="veto-num">{index + 1}</span>
+                  {#if action === 'ban'}
+                    <span class="veto-mark veto-mark-ban" aria-hidden="true"
+                      ><X size={30} strokeWidth={3.5} /></span
+                    >
+                  {:else if action === 'pick'}
+                    <span class="veto-mark veto-mark-pick" aria-hidden="true"
+                      ><Check size={26} strokeWidth={3.5} /></span
+                    >
+                  {/if}
+                  {#if action}
+                    <span class="veto-badge veto-badge-{action}">
+                      {action === 'decider' ? 'Decider' : action}
+                    </span>
+                  {/if}
+                  <span class="veto-caption">
+                    <span class="veto-map">{step.mapName ?? step.text}</span>
+                    {#if step.label}<span class="veto-action">{step.label}</span>{/if}
+                  </span>
+                </li>
+              {/each}
+            </ol>
+          </div>
+        {/if}
 
         <div class="watch">
-          <div class="watch-head">
+          <div class="section-label">
             <RadioTower size={13} />
-            <span class="watch-label">Watch</span>
+            Watch
           </div>
 
           {#if (match.streams ?? []).length === 0 && !match.vod_url}
@@ -413,14 +451,15 @@
                   target="_blank"
                   rel="noopener noreferrer"
                   class="watch-item"
+                  title={stream.stream_url}
                 >
-                  <RadioTower size={15} class="watch-icon" />
+                  <RadioTower size={16} class="watch-icon" />
                   <span class="watch-body">
                     <span class="watch-name">
                       {stream.metadata?.display_name || stream.platform}
                       {#if stream.is_primary}<span class="watch-pill">Primary</span>{/if}
                     </span>
-                    <span class="watch-url">{stream.stream_url}</span>
+                    <span class="watch-url">{hostName(stream.stream_url)}</span>
                   </span>
                   <span class="watch-status">{stream.status}</span>
                 </a>
@@ -435,11 +474,12 @@
                   target="_blank"
                   rel="noopener noreferrer"
                   class="watch-item"
+                  title={match.vod_url}
                 >
-                  <Video size={15} class="watch-icon" />
+                  <Video size={16} class="watch-icon" />
                   <span class="watch-body">
                     <span class="watch-name">YouTube VOD</span>
-                    <span class="watch-url">{match.vod_url}</span>
+                    <span class="watch-url">{hostName(match.vod_url)}</span>
                   </span>
                 </a>
                 <!-- eslint-enable svelte/no-navigation-without-resolve -->
@@ -450,21 +490,15 @@
       </div>
     </section>
 
-    <!-- Stats -->
-    <section class="card">
-      <header class="card-head">
-        <BarChart3 size={15} />
-        <h2 class="card-title">{hasRealStats ? 'Match Stats' : 'Expected Lineup'}</h2>
-        {#if !hasRealStats && (match.total_stats?.length ?? 0) > 0}
-          <span class="pre-match">Pre-match</span>
-        {/if}
-      </header>
+    <!-- Stats: only shown once a real import exists. Before that there is
+         nothing to show but a guessed lineup, which isn't worth a card. -->
+    {#if hasRealStats}
+      <section class="card">
+        <header class="card-head">
+          <BarChart3 size={15} />
+          <h2 class="card-title">Match Stats</h2>
+        </header>
 
-      {#if statsTabs.length <= 1 && (match.total_stats?.length ?? 0) === 0}
-        <p class="card-empty">
-          No starters designated yet. Set starters in the admin panel to show the expected lineup.
-        </p>
-      {:else}
         <div class="card-body">
           {#if statsTabs.length > 1}
             <div class="map-tabs">
@@ -545,10 +579,23 @@
                 ? 'Series total'
                 : `${activeStats?.label ?? ''}${activeStats?.subLabel ? ` · ${activeStats.subLabel}` : ''}`}
             />
+
+            {#if isAdmin && reassignRoster.length > 0}
+              <MatchReassignPanel matchId={match.id} players={reassignRoster} />
+            {/if}
           {/if}
         </div>
-      {/if}
-    </section>
+      </section>
+    {/if}
+
+    <div class="match-flag-bar">
+      <ReviewFlagButton
+        entityType="match"
+        entityId={match.id}
+        viewerId={data.viewer?.profileId ?? null}
+        noun="match"
+      />
+    </div>
 
     <CommentThread
       entityType="match"
@@ -561,6 +608,12 @@
 </PageContainer>
 
 <style>
+  .match-flag-bar {
+    display: flex;
+    justify-content: flex-end;
+    margin: 0.5rem 0 0.75rem;
+  }
+
   .match-page {
     width: 100%;
     max-width: 90rem;
@@ -787,16 +840,6 @@
   }
 
   /* Cards */
-  /*
-   * Two panes inside one card. A rule rather than a gap, so they read as one
-   * card split in two instead of two cards that lost their borders.
-   */
-  .info-split {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    align-items: start;
-  }
-
   .card {
     border-radius: 0.75rem;
     border: 1px solid rgba(255, 255, 255, 0.07);
@@ -825,102 +868,27 @@
     padding: 1rem;
   }
 
-  .card-empty {
-    padding: 2rem 1rem;
-    text-align: center;
-    font-size: 0.8125rem;
-    color: rgba(255, 255, 255, 0.5);
-  }
-
-  .pre-match {
-    margin-left: auto;
-    font-size: 0.625rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    padding: 0.1875rem 0.5rem;
-    border-radius: 999px;
-    background: rgba(250, 204, 21, 0.16);
-    color: #fcd34d;
-  }
-
   /* Details */
-  .detail-list {
+  /* A single top-to-bottom flow; each section gets even breathing room. */
+  .detail-body {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: 1.25rem;
   }
 
-  .detail {
-    display: flex;
-    align-items: baseline;
-    gap: 0.625rem;
-    font-size: 0.8125rem;
+  /* Scheduled lives in the scoreboard; only the actual start time repeats here,
+     tucked into the header's empty right side rather than a one-row list. */
+  .head-meta {
+    margin-left: auto;
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.55);
   }
 
-  .detail dt {
-    width: 5rem;
-    flex-shrink: 0;
-    color: rgba(255, 255, 255, 0.5);
-  }
-
-  .detail dd {
-    color: var(--text);
-  }
-
-  .veto {
-    margin-top: 1rem;
-    padding-top: 0.875rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.07);
-  }
-
-  .veto-label {
-    font-size: 0.6875rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: rgba(255, 255, 255, 0.5);
-    margin-bottom: 0.5rem;
-  }
-
-  .veto-list {
-    list-style: none;
-    display: flex;
-    flex-direction: column;
-    gap: 0.3125rem;
-  }
-
-  .veto-list li {
-    display: flex;
-    gap: 0.5rem;
-    font-size: 0.8125rem;
-    line-height: 1.45;
-    color: rgba(255, 255, 255, 0.78);
-  }
-
-  .veto-num {
-    flex-shrink: 0;
-    width: 1.125rem;
-    font-variant-numeric: tabular-nums;
-    color: rgba(255, 255, 255, 0.4);
-  }
-
-  /* Watch */
-  .watch {
-    border-left: 1px solid rgba(255, 255, 255, 0.07);
-    /* Stretch to the taller pane so the rule runs the full card height. */
-    align-self: stretch;
-  }
-
-  .watch-head {
+  .section-label {
     display: flex;
     align-items: center;
     gap: 0.4375rem;
-    padding: 1rem 1rem 0.625rem;
-    color: var(--accent-text);
-  }
-
-  .watch-label {
+    margin-bottom: 0.625rem;
     font-size: 0.6875rem;
     font-weight: 700;
     text-transform: uppercase;
@@ -928,34 +896,214 @@
     color: rgba(255, 255, 255, 0.5);
   }
 
+  .section-label :global(svg) {
+    color: var(--accent-text);
+  }
+
+  /* Each step is a card of the map's art; the step number sits in a corner
+     and the name/action ride a dark scrim at the bottom. */
+  .veto-list {
+    list-style: none;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 9rem), 1fr));
+    gap: 0.5rem;
+  }
+
+  .veto-step {
+    position: relative;
+    display: flex;
+    align-items: flex-end;
+    min-height: 4.25rem;
+    padding: 0.5rem;
+    border-radius: 0.5rem;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .veto-step-img {
+    aspect-ratio: 16 / 10;
+    min-height: 0;
+  }
+
+  .veto-img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  /* Legibility scrim, image steps only — the fallback card is dark already. */
+  .veto-step-img::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      to top,
+      rgba(0, 0, 0, 0.85),
+      rgba(0, 0, 0, 0.2) 55%,
+      rgba(0, 0, 0, 0)
+    );
+  }
+
+  .veto-num {
+    position: absolute;
+    top: 0.375rem;
+    left: 0.375rem;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.25rem;
+    height: 1.25rem;
+    border-radius: 0.3125rem;
+    background: rgba(0, 0, 0, 0.55);
+    font-size: 0.6875rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: rgba(255, 255, 255, 0.9);
+  }
+
+  .veto-caption {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.0625rem;
+    min-width: 0;
+  }
+
+  .veto-map {
+    font-size: 0.8125rem;
+    font-weight: 700;
+    color: #fff;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .veto-action {
+    font-size: 0.625rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: rgba(255, 255, 255, 0.72);
+  }
+
+  /* Pick/ban tint. The colored border + scrim make the state obvious even on a
+     busy map thumbnail; the ::after scrim below shifts to match. */
+  .veto-ban {
+    border-color: rgba(248, 113, 113, 0.55);
+  }
+
+  .veto-pick {
+    border-color: rgba(74, 222, 128, 0.55);
+  }
+
+  .veto-decider {
+    border-color: rgba(252, 211, 77, 0.55);
+  }
+
+  .veto-ban.veto-step-img::after {
+    background: linear-gradient(
+      to top,
+      rgba(80, 8, 8, 0.9),
+      rgba(120, 12, 12, 0.35) 55%,
+      rgba(40, 0, 0, 0.15)
+    );
+  }
+
+  .veto-pick.veto-step-img::after {
+    background: linear-gradient(
+      to top,
+      rgba(6, 60, 20, 0.9),
+      rgba(10, 90, 30, 0.32) 55%,
+      rgba(0, 30, 8, 0.12)
+    );
+  }
+
+  /* The big X / check over the map art — the at-a-glance signal. */
+  .veto-mark {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    z-index: 1;
+    transform: translate(-50%, -50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    padding: 0.25rem;
+    filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.8));
+  }
+
+  .veto-mark-ban {
+    color: #f87171;
+  }
+
+  .veto-mark-pick {
+    color: #4ade80;
+  }
+
+  /* Corner badge spelling out the action for anyone who can't rely on color. */
+  .veto-badge {
+    position: absolute;
+    top: 0.375rem;
+    right: 0.375rem;
+    z-index: 1;
+    padding: 0.125rem 0.4375rem;
+    border-radius: 0.3125rem;
+    font-size: 0.625rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #fff;
+  }
+
+  .veto-badge-ban {
+    background: rgba(220, 38, 38, 0.95);
+  }
+
+  .veto-badge-pick {
+    background: rgba(22, 163, 74, 0.95);
+  }
+
+  .veto-badge-decider {
+    background: rgba(202, 138, 4, 0.95);
+  }
+
+  /* Watch */
   .watch-empty {
-    padding: 0 1rem 1rem;
     font-size: 0.8125rem;
     color: rgba(255, 255, 255, 0.5);
   }
 
+  /* A grid, so multiple streams fill the card's width side by side instead of
+     stacking into a tall single column. */
   .watch-list {
-    display: flex;
-    flex-direction: column;
-    padding-bottom: 0.375rem;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr));
+    gap: 0.5rem;
   }
 
   .watch-item {
     display: flex;
     align-items: center;
     gap: 0.6875rem;
-    padding: 0.75rem 1rem;
+    padding: 0.625rem 0.75rem;
+    border-radius: 0.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.02);
     text-decoration: none;
     color: var(--text);
-    transition: background 0.15s;
-  }
-
-  .watch-item + .watch-item {
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    transition:
+      background 0.15s,
+      border-color 0.15s;
   }
 
   .watch-item:hover {
-    background: rgba(255, 255, 255, 0.04);
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.14);
   }
 
   :global(.watch-icon) {
@@ -1244,18 +1392,6 @@
   @media (max-width: 1280px) {
     .stat-grid {
       grid-template-columns: minmax(0, 1fr);
-    }
-  }
-
-  @media (max-width: 768px) {
-    /* Panes stack, so the divider moves from the side to the top. */
-    .info-split {
-      grid-template-columns: minmax(0, 1fr);
-    }
-
-    .watch {
-      border-left: none;
-      border-top: 1px solid rgba(255, 255, 255, 0.07);
     }
   }
 

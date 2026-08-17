@@ -2,6 +2,7 @@ import { redirect, error } from '@sveltejs/kit'
 import type { PageServerLoad } from './$types'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { errorMessage } from '$lib/server/errors'
+import { withSectionFallback } from '$lib/server/stats/rivals-batch'
 
 type StatBatchRow = {
   id: string
@@ -9,8 +10,17 @@ type StatBatchRow = {
   source_filename: string | null
   import_kind: string | null
   week_label: string | null
+  section: string | null
   created_at: string
-  metadata: { import_kind?: string | null; week_label?: string | null } | null
+  row_count: number | null
+  metadata: {
+    import_kind?: string | null
+    week_label?: string | null
+    generated_from_matches?: boolean
+    auto_refresh?: boolean
+    source_season_id?: string | null
+    source_stages?: unknown
+  } | null
   sort_order: number | null
 }
 
@@ -70,30 +80,51 @@ export const load: PageServerLoad = async ({ locals }) => {
     }
   }
 
+  // Seasons the batch generator can be scoped to.
+  const { data: seasonRows } = await supabaseAdmin
+    .from('seasons')
+    .select('id, code, name, is_active')
+    .order('starts_on', { ascending: false, nullsFirst: false })
+
   return {
     profiles: profiles ?? [],
     weekLabels,
-    // For manual ordering and ID visibility.
+    seasons: (seasonRows ?? []).map((s) => ({
+      id: s.id as string,
+      code: (s.code as string | null) ?? null,
+      name: (s.name as string | null) ?? null,
+      is_active: Boolean(s.is_active),
+    })),
+    // For manual ordering, sectioning and ID visibility.
     batches: await (async () => {
-      const { data: rows, error: batchError } = await supabaseAdmin
-        .from('stat_import_batches')
-        .select(
-          'id, display_name, source_filename, import_kind, week_label, created_at, metadata, sort_order'
-        )
-        .filter('metadata->>import_type', 'eq', 'rivals_group_stats')
-        .order('sort_order', { ascending: true, nullsFirst: false })
-        .order('created_at', { ascending: false })
-        .limit(200)
+      const { data: rows, error: batchError } = await withSectionFallback<StatBatchRow[]>(
+        (select) =>
+          supabaseAdmin
+            .from('stat_import_batches')
+            .select(select)
+            .filter('metadata->>import_type', 'eq', 'rivals_group_stats')
+            .order('sort_order', { ascending: true, nullsFirst: false })
+            .order('created_at', { ascending: false })
+            .limit(200)
+            .returns<StatBatchRow[]>()
+      )
 
       if (batchError) return []
 
-      return ((rows ?? []) as StatBatchRow[]).map((b) => ({
+      return (rows ?? []).map((b) => ({
         id: b.id,
         display_name: b.display_name ?? b.source_filename ?? b.id,
         import_kind: b.import_kind ?? b.metadata?.import_kind ?? null,
         week_label: b.week_label ?? b.metadata?.week_label ?? null,
+        section: b.section ?? null,
         created_at: b.created_at,
         sort_order: b.sort_order ?? null,
+        row_count: b.row_count ?? 0,
+        // Only these can be rebuilt from their source matches.
+        generated: Boolean(b.metadata?.generated_from_matches),
+        // Live batches rebuild themselves on every covered match import.
+        auto_refresh: Boolean(b.metadata?.auto_refresh),
+        season_id: b.metadata?.source_season_id ?? null,
       }))
     })(),
   }

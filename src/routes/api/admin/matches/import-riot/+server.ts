@@ -7,7 +7,12 @@ import { RiotLookupError } from '$lib/server/riot/henrik'
 import { fetchMatch, toImportMap, MATCH_REGIONS, type MatchRegion } from '$lib/server/riot/match'
 import { parseMatchIdList } from '$lib/server/riot/match-id'
 import { resolveSeriesTeams } from '$lib/server/riot/match-teams'
-import { buildProfileMatcher, getProfilesForImports } from '$lib/server/imports/matching'
+import {
+  buildProfileMatcher,
+  getProfilesForImports,
+  getRiotAccountsForImports,
+} from '$lib/server/imports/matching'
+import { backfillRiotAccountPuuids } from '$lib/server/imports/puuid-backfill'
 import { importCompletedSeries } from '$lib/server/matches/import-lifecycle'
 
 /** A best-of-seven is the longest series the league runs. */
@@ -74,8 +79,11 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   // Resolve the league teams from the first map's players, then hold that
   // mapping for the whole series — the sides swap between maps, so re-deriving
   // per map would flip team A and team B halfway through.
-  const profiles = await getProfilesForImports()
-  const profileMatcher = buildProfileMatcher(profiles)
+  const [profiles, riotAccounts] = await Promise.all([
+    getProfilesForImports(),
+    getRiotAccountsForImports(),
+  ])
+  const profileMatcher = buildProfileMatcher(profiles, riotAccounts)
 
   const { data: memberships } = await supabaseAdmin
     .from('team_memberships')
@@ -87,14 +95,14 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     if (row.profile_id) teamByProfileId.set(String(row.profile_id), String(row.team_id))
   }
 
-  const resolveTeamId = (riotId: string) => {
-    const profileId = profileMatcher.resolve(riotId)
+  const resolveTeamId = (riotId: string, puuid?: string | null) => {
+    const profileId = profileMatcher.resolve(riotId, puuid)
     return profileId ? (teamByProfileId.get(profileId) ?? null) : null
   }
 
   const first = matches[0]
   const resolved = resolveSeriesTeams(
-    first.players.map((p) => ({ riotId: p.riotId, team: p.team })),
+    first.players.map((p) => ({ riotId: p.riotId, team: p.team, puuid: p.puuid })),
     resolveTeamId
   )
 
@@ -130,7 +138,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
    */
   const maps = matches.map((match, index) => {
     const perMap = resolveSeriesTeams(
-      match.players.map((p) => ({ riotId: p.riotId, team: p.team })),
+      match.players.map((p) => ({ riotId: p.riotId, team: p.team, puuid: p.puuid })),
       resolveTeamId
     )
 
@@ -173,6 +181,16 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       maps,
     },
     adminProfileId: admin.id,
+  })
+
+  // Self-healing: every player in the series carries a PUUID from Riot. Where a
+  // known account matched only by name and has no PUUID stored yet, fill it in
+  // so future imports match that account by PUUID even after a rename.
+  const playerPuuidPairs = matches.flatMap((m) =>
+    m.players.map((p) => ({ riotId: p.riotId, puuid: p.puuid }))
+  )
+  await backfillRiotAccountPuuids(playerPuuidPairs, profileMatcher).catch((err) => {
+    console.warn('Failed to backfill Riot account PUUIDs after import:', err)
   })
 
   return json({ success: true, dryRun: false, preview, result })

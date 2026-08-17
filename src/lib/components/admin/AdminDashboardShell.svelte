@@ -6,6 +6,7 @@
     CalendarDays,
     Upload,
     Layers3,
+    Swords,
     Shield,
     Award,
     Flag,
@@ -23,6 +24,7 @@
       teams: number
       matches: number
       seasons: number
+      pickems: number
       accolades: number
       hallOfFame: number
       moderation: number
@@ -66,6 +68,7 @@
     { id: 'teams', label: 'Teams', icon: ShieldCheck, count: counts.teams },
     { id: 'matches', label: 'Matches', icon: CalendarDays, count: counts.matches },
     { id: 'seasons', label: 'Seasons', icon: Layers3, count: counts.seasons },
+    { id: 'pickems', label: "Pick'em", icon: Swords, count: counts.pickems },
     { id: 'accolades', label: 'Accolades', icon: Shield, count: counts.accolades },
     { id: 'hall-of-fame', label: 'HOF', icon: Award, count: counts.hallOfFame },
     { id: 'moderation', label: 'Moderation', icon: Flag, count: counts.moderation, hideZero: true },

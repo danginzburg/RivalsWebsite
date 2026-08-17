@@ -103,11 +103,13 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
       avatar_url: userInfo.picture ?? null,
     })
   } else {
+    // Never overwrite display_name on login: it is the player's chosen site
+    // name (defaulting to their Riot name), not the Discord username. Only the
+    // insert branch above seeds it from Discord for brand-new profiles.
     await supabaseAdmin
       .from('profiles')
       .update({
         email: userInfo.email ?? null,
-        display_name: userInfo.name ?? userInfo.nickname ?? null,
         avatar_url: userInfo.picture ?? null,
       })
       .eq('auth0_sub', userInfo.sub)

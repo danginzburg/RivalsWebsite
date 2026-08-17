@@ -5,6 +5,7 @@ import { getTeamLogoUrl } from '$lib/server/teams/logo'
 import { loadCommentThread } from '$lib/server/comments'
 import { getViewerProfileId } from '$lib/server/auth/viewer'
 import { getSeasonStandingsRanks } from '$lib/server/leaderboard/ranks'
+import { getValorantMapLookup, parseVetoLine, type VetoStep } from '$lib/server/valorant/maps'
 
 function normalizePlayerKey(
   teamId: string | null | undefined,
@@ -108,8 +109,8 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
           profile_id: row.profile_id,
           team_id: row.team_id,
           player_name:
-            row.player_name ?? profile?.riot_id_base ?? profile?.display_name ?? 'Player',
-          profile_name: profile?.riot_id_base ?? profile?.display_name ?? null,
+            row.player_name ?? profile?.display_name ?? profile?.riot_id_base ?? 'Player',
+          profile_name: profile?.display_name ?? profile?.riot_id_base ?? null,
           agents: row.agents ?? null,
           acs: row.acs,
           kills: row.kills,
@@ -331,56 +332,21 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
 
   const hasRealStats = totalStats.length > 0
 
-  let placeholderStats: any[] = []
-  if (!hasRealStats) {
-    const teamIds = [match.team_a_id, match.team_b_id].filter(Boolean)
-    if (teamIds.length > 0) {
-      const { data: starters } = await supabaseAdmin
-        .from('team_memberships')
-        .select('profile_id, player_name, team_id')
-        .in('team_id', teamIds)
-        .eq('is_active', true)
-        .eq('is_starter', true)
-        .is('left_at', null)
-
-      const starterProfileIds = (starters ?? [])
-        .map((s) => s.profile_id)
-        .filter((id): id is string => Boolean(id))
-      const starterProfileById = new Map<string, any>()
-      if (starterProfileIds.length > 0) {
-        const { data: profiles } = await supabaseAdmin
-          .from('profiles')
-          .select('id, riot_id_base, display_name')
-          .in('id', starterProfileIds)
-        for (const p of profiles ?? []) starterProfileById.set(p.id, p)
-      }
-
-      placeholderStats = (starters ?? []).map((s) => {
-        const p = s.profile_id ? starterProfileById.get(s.profile_id) : null
-        return {
-          profile_id: s.profile_id,
-          team_id: s.team_id,
-          player_name: s.player_name ?? p?.riot_id_base ?? p?.display_name ?? 'Player',
-          profile_name: p?.riot_id_base ?? p?.display_name ?? null,
-          agents: null,
-          acs: null,
-          kills: null,
-          deaths: null,
-          assists: null,
-          kd: null,
-          adr: null,
-          kast_pct: null,
-          hs_pct: null,
-        }
-      })
-    }
-  }
-
   const comments = await loadCommentThread('match', matchId, {
     includeReportCounts: isAdmin,
     viewerProfileId,
   })
   const seeds = await getSeasonStandingsRanks((match as { season_id?: string | null }).season_id)
+
+  // Resolve each free-text veto line to a Valorant map + its art, so the page
+  // can show the maps rather than a list of strings. Only fetched when a veto
+  // exists; unrecognized lines keep their text and simply render without art.
+  const rawVetoes = Array.isArray(matchMeta?.map_vetoes) ? (matchMeta.map_vetoes as string[]) : []
+  let mapVetoes: VetoStep[] = []
+  if (rawVetoes.length > 0) {
+    const mapLookup = await getValorantMapLookup()
+    mapVetoes = rawVetoes.map((line) => parseVetoLine(line, mapLookup))
+  }
 
   return {
     viewer: { isAdmin, profileId: viewerProfileId },
@@ -403,9 +369,10 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
       streams: streams ?? [],
       vod_url: match.metadata?.youtube_vod_url ?? null,
       designation: (matchMeta?.designation as string | null) ?? null,
+      map_vetoes: mapVetoes,
       maps: normalizedMapsWithForfeitNames,
       forfeit_display: forfeitDisplay,
-      total_stats: hasRealStats ? totalStats : placeholderStats,
+      total_stats: totalStats,
       has_real_stats: hasRealStats,
     },
   }

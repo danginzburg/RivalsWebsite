@@ -5,6 +5,7 @@ export type AdminTabId =
   | 'teams'
   | 'matches'
   | 'seasons'
+  | 'pickems'
   | 'accolades'
   | 'hall-of-fame'
   | 'moderation'
@@ -60,6 +61,20 @@ export type CommentReport = {
   } | null
 }
 
+export type ReviewFlag = {
+  id: string
+  status: 'pending' | 'resolved' | 'dismissed'
+  reason: string
+  created_at: string
+  entity_type: 'match' | 'player'
+  entity_id: string
+  /** Human label for the flagged match or player. */
+  entity_label: string
+  /** Page the flag points at. */
+  entity_link: string
+  reporter: { id: string; name: string }
+}
+
 export type BestOfValue = '3' | '5'
 
 export type AdminSelectOption = {
@@ -89,7 +104,6 @@ export type TeamQueueEntry = {
     profile_id: string
     player_name?: string | null
     role: string
-    is_starter?: boolean
     riot_id_base: string | null
     display_name: string | null
     email: string | null
@@ -112,7 +126,6 @@ export type ApprovedTeamEntry = TeamQueueEntry & {
     membership_id?: number | null
     profile_id: string
     role: string
-    is_starter?: boolean
     riot_id_base: string | null
     display_name: string | null
     email: string | null
@@ -126,6 +139,25 @@ export type AdminUser = {
   role: string
   riot_id_base: string | null
   created_at: string
+}
+
+/** Approved teams across every season, for the Seasons tab's per-season pickers. */
+export type SeasonTeamEntry = {
+  id: string
+  name: string
+  tag: string | null
+  season_id: string | null
+}
+
+/** Matches across every season, for the Seasons tab's playoff pick'em links. */
+export type SeasonMatchEntry = {
+  id: string
+  season_id: string | null
+  scheduled_at: string | null
+  team_a_id: string | null
+  team_b_id: string | null
+  team_a: AdminTeamLite | AdminTeamLite[] | null
+  team_b: AdminTeamLite | AdminTeamLite[] | null
 }
 
 export type AdminSeason = {
@@ -205,6 +237,8 @@ export type AdminMatch = {
   streams: MatchStreamRow[]
   vod_url: string | null
   season_id: string | null
+  /** Competition section key — see `$lib/stats/sections`. */
+  stage: string | null
 }
 
 export type TeamEditState = {
@@ -225,6 +259,8 @@ export type MatchEditState = {
   mapVetoes: string
   /** Optional label shown above the matchup, e.g. "Grand Finals". */
   designation: string
+  /** Section key the match is filed under; '' leaves it unfiled. */
+  stage: string
 }
 
 export type MatchStreamFormState = {

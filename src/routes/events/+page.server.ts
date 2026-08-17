@@ -1,7 +1,7 @@
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
 import { getSeasonLogoUrl } from '$lib/server/seasons/logo'
-import { playoffPickemConfigFromSeasonMetadata } from '$lib/playoffPickems'
+import { normalizePickemSeeds } from '$lib/pickems'
 
 type TeamRel = { id: string; name: string; tag?: string | null; logo_path?: string | null }
 type ProfileRel = { id: string; display_name: string | null; riot_id_base: string | null }
@@ -80,11 +80,28 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     teamCounts.set(key, (teamCounts.get(key) ?? 0) + 1)
   }
 
+  // Bracket presence + playoff team count come from each season's pick'em event.
+  const { data: pickemRows } =
+    seasonIds.length > 0
+      ? await supabaseAdmin
+          .from('pickem_events')
+          .select('season_id, format, config')
+          .in('season_id', seasonIds)
+      : { data: [] as Array<{ season_id: string; format: string; config: unknown }> }
+
+  const pickemBySeason = new Map<string, { format: string; seedCount: number }>()
+  for (const row of pickemRows ?? []) {
+    const config =
+      row.config && typeof row.config === 'object' ? (row.config as Record<string, unknown>) : {}
+    const seedCount = normalizePickemSeeds(config.seeds).filter((s) => s.teamId).length
+    pickemBySeason.set(String(row.season_id), { format: row.format, seedCount })
+  }
+
   const normalized = (seasons ?? []).map((season) => {
     const winner = firstRel(season.winner as TeamRel | TeamRel[] | null)
     const runnerUp = firstRel(season.runner_up as TeamRel | TeamRel[] | null)
     const mvp = firstRel(season.mvp as unknown as ProfileRel | ProfileRel[] | null)
-    const pickem = playoffPickemConfigFromSeasonMetadata(season.metadata)
+    const pickem = pickemBySeason.get(season.id) ?? null
     const counts = matchCounts.get(season.id) ?? { total: 0, completed: 0 }
 
     return {
@@ -112,13 +129,13 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
             logo_url: getTeamLogoUrl(runnerUp),
           }
         : null,
-      mvp: mvp ? { id: mvp.id, name: mvp.riot_id_base ?? mvp.display_name ?? 'Player' } : null,
+      mvp: mvp ? { id: mvp.id, name: mvp.display_name ?? mvp.riot_id_base ?? 'Player' } : null,
       match_count: counts.total,
       completed_count: counts.completed,
       team_count: teamCounts.get(season.id) ?? 0,
-      has_bracket: pickem.enabled && pickem.seeds.length > 0,
+      has_bracket: pickem?.format === 'bracket' && pickem.seedCount > 0,
       // Seeds actually assigned a team — how many made playoffs.
-      playoff_team_count: pickem.seeds.filter((seed) => Boolean(seed.teamId)).length,
+      playoff_team_count: pickem?.seedCount ?? 0,
     }
   })
 

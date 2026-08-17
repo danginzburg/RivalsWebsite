@@ -8,6 +8,7 @@ import {
   loadCommentThread,
   type CommentEntityType,
 } from '$lib/server/comments'
+import { buildCommentLink, createNotification } from '$lib/server/notifications'
 
 /** Accepts 1, -1, or 0 — where 0 means "take my vote back". */
 function parseVote(value: unknown): -1 | 0 | 1 {
@@ -79,6 +80,35 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       console.error('Failed to save comment vote:', upsertError)
       throw error(500, 'Failed to save your vote')
     }
+  }
+
+  // An upvote notifies the author, aggregated into one row per comment. The
+  // count is read live from the vote rows so toggling a vote never inflates it.
+  if (value === 1) {
+    const { count } = await supabaseAdmin
+      .from('comment_votes')
+      .select('comment_id', { count: 'exact', head: true })
+      .eq('comment_id', commentId)
+      .eq('value', 1)
+
+    const upvotes = count ?? 1
+    const link = await buildCommentLink(
+      comment.entity_type as CommentEntityType,
+      comment.entity_id,
+      commentId
+    )
+    await createNotification({
+      recipientProfileId: comment.profile_id,
+      type: 'comment_upvote',
+      title:
+        upvotes === 1 ? 'Someone upvoted your comment' : `${upvotes} people upvoted your comment`,
+      link,
+      actorProfileId: profile.id,
+      entityType: comment.entity_type,
+      entityId: comment.entity_id,
+      dedupeKey: `comment_upvote:${commentId}`,
+      actorCount: upvotes,
+    })
   }
 
   const comments = await loadCommentThread(

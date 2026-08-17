@@ -3,7 +3,32 @@ import {
   buildProfileMatcher,
   rebuildPlayerMatchStats,
   type ProfileRow,
+  type RiotAccountRow,
 } from '$lib/server/imports/matching'
+
+/** Approved Riot accounts (primary + alts) owned by one profile. */
+async function getProfileRiotAccounts(profileId: string): Promise<RiotAccountRow[]> {
+  const { data } = await supabaseAdmin
+    .from('profile_riot_accounts')
+    .select('profile_id, riot_name, riot_tag, riot_puuid')
+    .eq('profile_id', profileId)
+    .eq('status', 'approved')
+  return (data ?? []) as RiotAccountRow[]
+}
+
+/** Every name a profile is known by, across legacy columns and Riot accounts. */
+function profileNamesWithAccounts(profile: ProfileRow, accounts: RiotAccountRow[]): string[] {
+  const names = [profile.display_name, profile.riot_id_base, profile.stats_player_name]
+    .map((v) => String(v ?? '').trim())
+    .filter(Boolean)
+  for (const account of accounts) {
+    if (account.riot_name) {
+      names.push(account.riot_name.trim())
+      if (account.riot_tag) names.push(`${account.riot_name}#${account.riot_tag}`.trim())
+    }
+  }
+  return Array.from(new Set(names))
+}
 
 export type ClaimRelinkResult = {
   teamMembershipsLinked: number
@@ -36,9 +61,12 @@ export function normalizedProfileNameKeys(profile: ProfileRow): Set<string> {
 
 /**
  * Link or reconcile name-only team memberships after display/riot/stats names are set.
- * - If the profile has no active membership: attach matching name-only rows.
- * - If the profile already has an active membership: same-team name-only rows are deactivated;
- *   name-only rows on a different team are counted as conflicts (need admin review).
+ *
+ * Rosters are exclusive per season, so every rule below applies within the season of
+ * the name-only row rather than across the profile's whole history:
+ * - No active membership that season: attach the matching name-only row.
+ * - Already on that season's team: the name-only row is deactivated as a duplicate.
+ * - Already on a different team that season: counted as a conflict (needs admin review).
  */
 export async function relinkTeamMembershipsForClaim(profileId: string): Promise<{
   linked: number
@@ -55,18 +83,23 @@ export async function relinkTeamMembershipsForClaim(profileId: string): Promise<
     throw new Error('Failed to load profile for team relink')
   }
 
-  const nameKeys = normalizedProfileNameKeys(profile as ProfileRow)
+  const accounts = await getProfileRiotAccounts(profileId)
+  const nameKeys = new Set(
+    profileNamesWithAccounts(profile as ProfileRow, accounts).map((n) => normalizeMembershipName(n))
+  )
+  for (const key of normalizedProfileNameKeys(profile as ProfileRow)) nameKeys.add(key)
   if (nameKeys.size === 0) {
     return { linked: 0, duplicatesDeactivated: 0, conflicts: 0 }
   }
 
-  const { data: activeMembership, error: activeErr } = await supabaseAdmin
+  // One active spot per season, so this is a set rather than a single row: a
+  // player backfilled into old seasons holds one membership in each.
+  const { data: activeMemberships, error: activeErr } = await supabaseAdmin
     .from('team_memberships')
-    .select('id, team_id')
+    .select('id, team_id, season_id')
     .eq('profile_id', profileId)
     .eq('is_active', true)
     .is('left_at', null)
-    .maybeSingle()
 
   if (activeErr) {
     throw new Error('Failed to load active team membership')
@@ -74,7 +107,7 @@ export async function relinkTeamMembershipsForClaim(profileId: string): Promise<
 
   const { data: nameOnlyRows, error: listErr } = await supabaseAdmin
     .from('team_memberships')
-    .select('id, team_id, player_name, profile_id')
+    .select('id, team_id, player_name, profile_id, season_id')
     .is('profile_id', null)
     .eq('is_active', true)
     .is('left_at', null)
@@ -91,17 +124,38 @@ export async function relinkTeamMembershipsForClaim(profileId: string): Promise<
   const toDeactivate: string[] = []
   let conflicts = 0
 
-  if (!activeMembership?.team_id) {
-    toLink.push(...matching.map((m) => String(m.id)))
-  } else {
-    const activeTeamId = String(activeMembership.team_id)
-    for (const row of matching) {
-      const teamId = String((row as { team_id?: string }).team_id ?? '')
-      if (teamId === activeTeamId) {
-        toDeactivate.push(String(row.id))
-      } else {
+  const seasonKey = (value: unknown) => String(value ?? '__none__')
+  const linkedSeasons = new Set<string>()
+  const activeTeamBySeason = new Map<string, string>()
+  for (const row of (activeMemberships ?? []) as Array<{
+    team_id?: string | null
+    season_id?: string | null
+  }>) {
+    if (row.team_id) activeTeamBySeason.set(seasonKey(row.season_id), String(row.team_id))
+  }
+
+  for (const row of matching) {
+    const teamId = String((row as { team_id?: string }).team_id ?? '')
+    const activeTeamId = activeTeamBySeason.get(
+      seasonKey((row as { season_id?: string | null }).season_id)
+    )
+
+    if (!activeTeamId) {
+      const season = seasonKey((row as { season_id?: string | null }).season_id)
+      if (linkedSeasons.has(season)) {
+        // A second candidate in the same season would collide with the first on
+        // the per-season unique index, so it goes to review instead.
         conflicts += 1
+        continue
       }
+      linkedSeasons.add(season)
+      toLink.push(String(row.id))
+    } else if (teamId === activeTeamId) {
+      // Same season, same team: the named slot is a stand-in for the spot the
+      // profile already holds, so it retires rather than duplicating it.
+      toDeactivate.push(String(row.id))
+    } else {
+      conflicts += 1
     }
   }
 
@@ -145,7 +199,7 @@ export async function relinkPlayerMatchMapStatsForClaim(profileId: string): Prom
 }> {
   const { data: profile, error: profileError } = await supabaseAdmin
     .from('profiles')
-    .select('id, display_name, riot_id_base, stats_player_name')
+    .select('id, display_name, riot_id_base, stats_player_name, riot_puuid')
     .eq('id', profileId)
     .maybeSingle()
 
@@ -153,12 +207,18 @@ export async function relinkPlayerMatchMapStatsForClaim(profileId: string): Prom
     throw new Error('Failed to load profile for match map relink')
   }
 
-  const matcher = buildProfileMatcher([profile as ProfileRow])
-  const rawNames = [profile.display_name, profile.riot_id_base, profile.stats_player_name]
-    .map((v) => String(v ?? '').trim())
-    .filter(Boolean)
+  const accounts = await getProfileRiotAccounts(profileId)
+  const matcher = buildProfileMatcher([profile as ProfileRow], accounts)
+  const rawNames = profileNamesWithAccounts(profile as ProfileRow, accounts)
+  const puuids = Array.from(
+    new Set(
+      [profile.riot_puuid, ...accounts.map((a) => a.riot_puuid)]
+        .map((v) => String(v ?? '').trim())
+        .filter(Boolean)
+    )
+  )
 
-  if (rawNames.length === 0) {
+  if (rawNames.length === 0 && puuids.length === 0) {
     return { rowsLinked: 0, matchIds: [] }
   }
 
@@ -170,10 +230,15 @@ export async function relinkPlayerMatchMapStatsForClaim(profileId: string): Prom
     const qTag = quoteOrValue(`${base}#%`)
     orParts.push(`player_name.eq.${qEq}`, `player_name.eq.${qBase}`, `player_name.ilike.${qTag}`)
   }
+  // Rows imported from Riot carry the source PUUID in metadata; a renamed
+  // account still relinks by that key even when no stored name matches.
+  for (const puuid of puuids) {
+    orParts.push(`metadata->>puuid.eq.${quoteOrValue(puuid)}`)
+  }
 
   const { data: candidates, error: candErr } = await supabaseAdmin
     .from('player_match_map_stats')
-    .select('id, match_id, player_name')
+    .select('id, match_id, player_name, metadata')
     .is('profile_id', null)
     .or(orParts.join(','))
     .limit(5000)
@@ -182,12 +247,22 @@ export async function relinkPlayerMatchMapStatsForClaim(profileId: string): Prom
     throw new Error('Failed to load unmatched player match map stats')
   }
 
+  const puuidSet = new Set(puuids)
   const idsToUpdate: string[] = []
   const matchIds = new Set<string>()
 
   for (const row of candidates ?? []) {
     const name = String((row as { player_name?: string | null }).player_name ?? '')
-    if (matcher.resolve(name) === profileId) {
+    const rowPuuid = (() => {
+      const meta = (row as { metadata?: unknown }).metadata
+      if (meta && typeof meta === 'object') {
+        const p = (meta as Record<string, unknown>).puuid
+        return typeof p === 'string' ? p : null
+      }
+      return null
+    })()
+
+    if ((rowPuuid && puuidSet.has(rowPuuid)) || matcher.resolve(name, rowPuuid) === profileId) {
       idsToUpdate.push(String((row as { id: string }).id))
       const mid = (row as { match_id?: string }).match_id
       if (mid) matchIds.add(String(mid))
@@ -213,7 +288,7 @@ export async function relinkPlayerMatchMapStatsForClaim(profileId: string): Prom
 export async function syncRivalsGroupStatsByProfileNames(profileId: string): Promise<number> {
   const { data: profile, error: profileError } = await supabaseAdmin
     .from('profiles')
-    .select('id, display_name, riot_id_base, stats_player_name')
+    .select('id, display_name, riot_id_base, stats_player_name, riot_puuid')
     .eq('id', profileId)
     .maybeSingle()
 
@@ -221,13 +296,8 @@ export async function syncRivalsGroupStatsByProfileNames(profileId: string): Pro
     throw new Error('Failed to load profile for rivals group stats sync')
   }
 
-  const names = Array.from(
-    new Set(
-      [profile.display_name, profile.riot_id_base, profile.stats_player_name]
-        .map((v) => String(v ?? '').trim())
-        .filter(Boolean)
-    )
-  )
+  const accounts = await getProfileRiotAccounts(profileId)
+  const names = Array.from(new Set(profileNamesWithAccounts(profile as ProfileRow, accounts)))
 
   let total = 0
   for (const name of names) {

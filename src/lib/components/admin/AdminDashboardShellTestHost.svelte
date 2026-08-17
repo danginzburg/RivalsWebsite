@@ -9,6 +9,7 @@
     teams: 2,
     matches: 4,
     seasons: 1,
+    pickems: 0,
     accolades: 0,
     hallOfFame: 0,
     moderation: 0,

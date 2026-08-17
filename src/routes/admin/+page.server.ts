@@ -79,6 +79,83 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     console.error('Error fetching approved teams:', approvedTeamsError)
   }
 
+  /**
+   * Every approved team, whatever season it belongs to. The list above is
+   * narrowed by the season picker, which is right for the Teams and Matches
+   * tabs but not for the Seasons tab: its per-season pickers each need the
+   * teams of the season on that row, not the one selected globally.
+   */
+  const { data: seasonTeams, error: seasonTeamsError } = await supabaseAdmin
+    .from('teams')
+    .select('id, name, tag, season_id')
+    .eq('approval_status', 'approved')
+    .order('name', { ascending: true })
+
+  if (seasonTeamsError) {
+    console.error('Error fetching teams for season pickers:', seasonTeamsError)
+  }
+
+  /** Same reasoning as `seasonTeams`, for the playoff pick'em match links. */
+  const { data: seasonMatches, error: seasonMatchesError } = await supabaseAdmin
+    .from('matches')
+    .select(
+      `
+      id,
+      season_id,
+      scheduled_at,
+      team_a_id,
+      team_b_id,
+      team_a:teams!matches_team_a_id_fkey (id, name, tag),
+      team_b:teams!matches_team_b_id_fkey (id, name, tag)
+    `
+    )
+    .order('scheduled_at', { ascending: true, nullsFirst: false })
+
+  if (seasonMatchesError) {
+    console.error('Error fetching matches for season pickers:', seasonMatchesError)
+  }
+
+  // Each season's pick'em event + its match rows, for the Pick'em tab editor.
+  const { data: pickemEventRows, error: pickemEventsError } = await supabaseAdmin
+    .from('pickem_events')
+    .select(
+      `id, season_id, format, title, status, lock_at, config,
+       pickem_matches (slot_key, group_key, sort_order, label, points, team_a_id, team_b_id, feed_a, feed_b, linked_match_id, actual_winner_id)`
+    )
+
+  if (pickemEventsError) {
+    console.error('Error fetching pick’em events:', pickemEventsError)
+  }
+
+  const pickems = (pickemEventRows ?? []).map((row) => {
+    const config =
+      row.config && typeof row.config === 'object' ? (row.config as Record<string, unknown>) : {}
+    const matches = ((row.pickem_matches ?? []) as Array<Record<string, unknown>>)
+      .map((m) => ({
+        slotKey: m.slot_key as string,
+        groupKey: (m.group_key as string) ?? '',
+        sortOrder: (m.sort_order as number) ?? 0,
+        label: (m.label as string) ?? '',
+        points: (m.points as number) ?? 1,
+        teamAId: (m.team_a_id as string | null) ?? null,
+        teamBId: (m.team_b_id as string | null) ?? null,
+        feedA: (m.feed_a as unknown) ?? null,
+        feedB: (m.feed_b as unknown) ?? null,
+        linkedMatchId: (m.linked_match_id as string | null) ?? null,
+        actualWinnerId: (m.actual_winner_id as string | null) ?? null,
+      }))
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+    return {
+      seasonId: row.season_id as string,
+      format: (row.format as string) ?? 'bracket',
+      title: (row.title as string) ?? '',
+      status: (row.status as string) ?? 'draft',
+      lockAt: (row.lock_at as string | null) ?? null,
+      seeds: Array.isArray(config.seeds) ? config.seeds : [],
+      matches,
+    }
+  })
+
   const approvedTeamIds = (approvedTeams ?? []).map((team) => team.id)
   const approvedCaptainMap = new Map<
     string,
@@ -99,7 +176,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
   if (approvedTeamIds.length > 0) {
     const { data: rosterRows, error: rosterError } = await supabaseAdmin
       .from('team_memberships')
-      .select('id, team_id, profile_id, player_name, role, is_starter')
+      .select('id, team_id, profile_id, player_name, role')
       .in('team_id', approvedTeamIds)
       .eq('is_active', true)
       .is('left_at', null)
@@ -134,7 +211,6 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
           profile_id: row.profile_id,
           player_name: (row as { player_name?: string | null }).player_name ?? null,
           role: row.role,
-          is_starter: (row as any).is_starter ?? false,
           riot_id_base: p?.riot_id_base ?? null,
           display_name: p?.display_name ?? null,
           email: p?.email ?? null,
@@ -166,6 +242,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     `
       id,
       season_id,
+      stage,
       status,
       approval_status,
       best_of,
@@ -277,6 +354,9 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     })),
     leaderboardBatches,
     approvedTeams: withLogoUrl(approvedTeams || []),
+    seasonTeams: seasonTeams ?? [],
+    seasonMatches: seasonMatches ?? [],
+    pickems,
     disbandedTeams: disbandedWithLogos,
     matches: (matches ?? []).map((match) => ({
       ...match,

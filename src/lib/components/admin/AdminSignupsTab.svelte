@@ -1,5 +1,6 @@
 <script lang="ts">
   import CustomSelect from '$lib/components/CustomSelect.svelte'
+  import AdminRiotAccountsPanel from '$lib/components/admin/AdminRiotAccountsPanel.svelte'
   import { resolve } from '$app/paths'
   import {
     SIGNUP_RANK_OPTIONS,
@@ -119,6 +120,8 @@
     return signup.manual_value_override ?? signup.computed_value
   }
 </script>
+
+<AdminRiotAccountsPanel />
 
 <section class="admin-bordered p-3">
   <div class="mb-3 flex flex-wrap items-center justify-between gap-3">

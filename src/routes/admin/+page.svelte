@@ -3,16 +3,18 @@
   import { teamName, toDatetimeLocal } from '$lib/admin/match-ui'
   import { adminDashboardFetchAdapter, adminFormRequest, adminJsonRequest } from '$lib/admin/api'
   import { createAdminDashboardState } from '$lib/admin/dashboard/state'
+  import { readLeaderboardCsvFile } from '$lib/admin/leaderboard-csv'
   import {
     buildApprovedTeamOptions,
     filterAdminMatches,
     normalizeSearchValue,
     profileLabel,
   } from '$lib/admin/ui'
-  import type { normalizePlayoffPickemConfig } from '$lib/playoffPickems'
+  import { invalidateAll } from '$app/navigation'
   import AdminDashboardShell from '$lib/components/admin/AdminDashboardShell.svelte'
   import AdminMatchesTab from '$lib/components/admin/AdminMatchesTab.svelte'
   import AdminSeasonsTab from '$lib/components/admin/AdminSeasonsTab.svelte'
+  import AdminPickemsTab from '$lib/components/admin/AdminPickemsTab.svelte'
   import AdminTeamsTab from '$lib/components/admin/AdminTeamsTab.svelte'
   import AdminUsersTab from '$lib/components/admin/AdminUsersTab.svelte'
   import AdminAccoladesTab from '$lib/components/admin/AdminAccoladesTab.svelte'
@@ -22,6 +24,8 @@
   import AdminActionConfirmationModal from '$lib/components/admin/AdminActionConfirmationModal.svelte'
   import type {
     ApprovedTeamEntry,
+    SeasonTeamEntry,
+    SeasonMatchEntry,
     AdminMatch,
     AdminPageDataExtras,
     AdminSeason,
@@ -36,6 +40,7 @@
     PendingActionConfirmation,
     PendingRoleChange,
     PlayerSignup,
+    ReviewFlag,
     SeasonEditState,
     SignupEditState,
     TeamEditState,
@@ -58,12 +63,22 @@
   const getInitialUsers = () => data.users || []
   const getInitialSeasons = () => data.seasons || []
   const getInitialApprovedTeams = () => data.approvedTeams || []
+  const getInitialSeasonTeams = () => data.seasonTeams || []
+  const getInitialSeasonMatches = () => data.seasonMatches || []
+  const getInitialLeaderboardBatches = () => data.leaderboardBatches ?? []
   const getInitialMatches = () => data.matches || []
   const getInitialSeasonId = () => data.activeSeasonId ?? ''
 
   let users = $state<AdminUser[]>(getInitialUsers())
   let seasons = $state<AdminSeason[]>(getInitialSeasons())
   let approvedTeams = $state<ApprovedTeamEntry[]>(getInitialApprovedTeams() as ApprovedTeamEntry[])
+  let seasonTeams = $state<SeasonTeamEntry[]>(getInitialSeasonTeams() as SeasonTeamEntry[])
+  let seasonMatches = $state<SeasonMatchEntry[]>(getInitialSeasonMatches() as SeasonMatchEntry[])
+  // Held locally so an inline standings import can offer its new batch straight
+  // away, instead of waiting for a full page load to refresh `data`.
+  let leaderboardBatches = $state<Array<{ id: string; label: string }>>(
+    getInitialLeaderboardBatches()
+  )
   let matches = $state<AdminMatch[]>(getInitialMatches())
   let adminMatchSeasonId = $state<string>(getInitialSeasonId())
   let matchSearchQuery = $state('')
@@ -165,7 +180,7 @@
     { value: '', label: '— None —' },
     ...(users ?? []).map((u) => ({
       value: u.id,
-      label: u.riot_id_base ?? u.display_name ?? u.email ?? 'Player',
+      label: u.display_name ?? u.riot_id_base ?? u.email ?? 'Player',
     })),
   ])
 
@@ -556,8 +571,57 @@
   let commentReportStatusFilter = $state('pending')
   let processingReportId = $state<string | null>(null)
 
-  /** Pending count drives the badge on the Moderation tab. */
-  const pendingReportCount = $derived(commentReports.filter((r) => r.status === 'pending').length)
+  // ---- Data flags (user-submitted "this looks wrong" reports) ----
+  let reviewFlags = $state<ReviewFlag[]>([])
+  let reviewFlagsLoaded = $state(false)
+  let processingFlagId = $state<string | null>(null)
+
+  const pendingFlagCount = $derived(reviewFlags.filter((f) => f.status === 'pending').length)
+
+  /** Pending comments + data flags together drive the badge on the Moderation tab. */
+  const pendingReportCount = $derived(
+    commentReports.filter((r) => r.status === 'pending').length + pendingFlagCount
+  )
+
+  async function loadReviewFlags() {
+    try {
+      const result = await adminJsonRequest<{ flags?: ReviewFlag[] }>(
+        `/api/admin/review-flags?status=${encodeURIComponent(commentReportStatusFilter)}`,
+        { fallbackMessage: 'Failed to load flags' }
+      )
+      reviewFlags = result.flags ?? []
+      reviewFlagsLoaded = true
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to load flags'
+    }
+  }
+
+  async function flagAction(flagId: string, action: 'resolve' | 'dismiss', successText: string) {
+    processingFlagId = flagId
+    errorMessage = null
+    successMessage = null
+    try {
+      await adminJsonRequest('/api/admin/review-flags', {
+        method: 'PATCH',
+        body: { action, flagId },
+        fallbackMessage: 'Flag action failed',
+      })
+      successMessage = successText
+      await loadReviewFlags()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Flag action failed'
+    } finally {
+      processingFlagId = null
+    }
+  }
+
+  function resolveFlag(flagId: string) {
+    return flagAction(flagId, 'resolve', 'Flag resolved.')
+  }
+
+  function dismissFlag(flagId: string) {
+    return flagAction(flagId, 'dismiss', 'Flag dismissed.')
+  }
 
   async function loadCommentReports() {
     try {
@@ -1015,6 +1079,7 @@
         winnerTeamId: '',
         mapVetoes: '',
         designation: '',
+        stage: '',
       } as const)
     matchEditForm = {
       ...matchEditForm,
@@ -1041,6 +1106,7 @@
           ? match.metadata.map_vetoes.join('\n')
           : '',
         designation: (match.metadata?.designation as string | undefined) ?? '',
+        stage: match.stage ?? '',
       }
     }
     const keys = Object.keys(next)
@@ -1195,6 +1261,7 @@
       accoladesLoaded ? loadAccolades() : Promise.resolve(),
       hallOfFameLoaded ? loadHallOfFame() : Promise.resolve(),
       commentReportsLoaded ? loadCommentReports() : Promise.resolve(),
+      reviewFlagsLoaded ? loadReviewFlags() : Promise.resolve(),
       signupsLoaded ? loadSignups() : Promise.resolve(),
     ])
   }
@@ -1212,6 +1279,8 @@
         users = dashboardData.users as AdminUser[]
         seasons = dashboardData.seasons as AdminSeason[]
         approvedTeams = dashboardData.approved as ApprovedTeamEntry[]
+        seasonTeams = dashboardData.seasonTeams as SeasonTeamEntry[]
+        seasonMatches = dashboardData.seasonMatches as SeasonMatchEntry[]
         matches = dashboardData.matches
       },
     })
@@ -1619,39 +1688,100 @@
     }
   }
 
-  async function savePlayoffPickem(
-    seasonId: string,
-    config: ReturnType<typeof normalizePlayoffPickemConfig>
-  ) {
+  let leaderboardUploadingSeasonId = $state<string | null>(null)
+
+  /**
+   * Imports a standings CSV straight into the season being edited, then selects
+   * the resulting batch in the snapshot picker. The pin itself is part of the
+   * season edit form, so it lands on Save like every other field in that block.
+   */
+  async function uploadSeasonLeaderboardCsv(seasonId: string, file: File) {
+    const season = seasons.find((entry) => entry.id === seasonId)
+    if (!season) return
+
+    leaderboardUploadingSeasonId = seasonId
     errorMessage = null
     successMessage = null
     try {
-      await adminJsonRequest(`/api/admin/playoff-pickems/${seasonId}`, {
-        method: 'PATCH',
-        body: { config },
-        fallbackMessage: "Failed to save playoff pick'em",
+      const { layout, rows } = await readLeaderboardCsvFile(file)
+      if (rows.length === 0) throw new Error('That CSV has no standings rows')
+
+      const result = await adminJsonRequest<{
+        imported: number
+        skipped: number
+        unmatchedTeams?: string[]
+        batchId: string
+      }>('/api/admin/leaderboard/import', {
+        method: 'POST',
+        body: {
+          rows,
+          seasonId,
+          split: 'main',
+          // A final snapshot belongs to the season's last day where one is set.
+          asOfDate: season.ends_on ?? new Date().toISOString().slice(0, 10),
+          sourceFilename: file.name,
+          displayName: `${season.name} Final Standings`,
+          sourceLayout: layout,
+        },
+        fallbackMessage: 'Failed to import standings CSV',
       })
-      successMessage = "Playoff pick'em saved."
-      await refreshData()
+
+      leaderboardBatches = [
+        { id: result.batchId, label: `${season.name} Final Standings` },
+        ...leaderboardBatches.filter((batch) => batch.id !== result.batchId),
+      ]
+
+      const current = seasonEditForm[seasonId]
+      if (current) {
+        seasonEditForm = {
+          ...seasonEditForm,
+          [seasonId]: { ...current, finalLeaderboardBatchId: result.batchId },
+        }
+      }
+
+      const unmatched = result.unmatchedTeams ?? []
+      const mapsOnlyNote =
+        layout === 'maps_only' ? ' Maps-only sheet: map W/L used as the season record.' : ''
+      successMessage = unmatched.length
+        ? `Imported ${result.imported} rows for ${season.name}; skipped unmatched teams: ${unmatched.join(', ')}.${mapsOnlyNote} Save the season to pin it.`
+        : `Imported ${result.imported} rows for ${season.name}.${mapsOnlyNote} Save the season to pin it.`
     } catch (err) {
-      errorMessage = err instanceof Error ? err.message : "Failed to save playoff pick'em"
+      errorMessage = err instanceof Error ? err.message : 'Failed to import standings CSV'
+    } finally {
+      leaderboardUploadingSeasonId = null
     }
   }
 
-  async function scorePlayoffPickem(seasonId: string) {
+  async function savePickem(seasonId: string, body: Record<string, unknown>) {
+    errorMessage = null
+    successMessage = null
+    try {
+      await adminJsonRequest(`/api/admin/pickems/${seasonId}`, {
+        method: 'PATCH',
+        body,
+        fallbackMessage: "Failed to save pick'em",
+      })
+      successMessage = "Pick'em saved."
+      await invalidateAll()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : "Failed to save pick'em"
+    }
+  }
+
+  async function scorePickem(seasonId: string) {
     errorMessage = null
     successMessage = null
     try {
       const result = await adminJsonRequest<{
         summary?: { submissionsScored?: number; completedMatches?: number }
-      }>(`/api/admin/playoff-pickems/${seasonId}`, {
+      }>(`/api/admin/pickems/${seasonId}`, {
         method: 'POST',
-        fallbackMessage: "Failed to score playoff pick'em",
+        fallbackMessage: "Failed to score pick'em",
       })
-      successMessage = `Scored ${result.summary?.submissionsScored ?? 0} brackets from ${result.summary?.completedMatches ?? 0} completed matches.`
-      await refreshData()
+      successMessage = `Scored ${result.summary?.submissionsScored ?? 0} entries from ${result.summary?.completedMatches ?? 0} completed matches.`
+      await invalidateAll()
     } catch (err) {
-      errorMessage = err instanceof Error ? err.message : "Failed to score playoff pick'em"
+      errorMessage = err instanceof Error ? err.message : "Failed to score pick'em"
     }
   }
 
@@ -1879,48 +2009,6 @@
     }
   }
 
-  /**
-   * Starters drive the expected lineup shown on a match page before stats are
-   * imported, so this is a plain toggle — no confirmation, and the roster is
-   * patched locally rather than reloading the whole dashboard.
-   */
-  async function toggleTeamPlayerStarter(
-    teamId: string,
-    membershipId: number | null,
-    isStarter: boolean
-  ) {
-    if (membershipId === null) {
-      errorMessage = 'This membership predates starter tracking and cannot be toggled.'
-      return
-    }
-
-    processingTeamId = teamId
-    errorMessage = null
-    successMessage = null
-
-    try {
-      await adminJsonRequest('/api/admin/teams/manage', {
-        method: 'PATCH',
-        body: { action: 'toggle_starter', membershipId, isStarter },
-        fallbackMessage: 'Failed to update starter status',
-      })
-
-      approvedTeams = approvedTeams.map((team) => {
-        if (team.id !== teamId) return team
-        return {
-          ...team,
-          roster: (team.roster ?? []).map((player) =>
-            player.membership_id === membershipId ? { ...player, is_starter: isStarter } : player
-          ),
-        }
-      })
-    } catch (err) {
-      errorMessage = err instanceof Error ? err.message : 'Failed to update starter status'
-    } finally {
-      processingTeamId = null
-    }
-  }
-
   function cancelActionConfirmation() {
     showActionConfirmation = false
     pendingActionConfirmation = null
@@ -1992,6 +2080,7 @@
       teams: approvedTeams.length,
       matches: matches.length,
       seasons: seasons.length,
+      pickems: (data.pickems ?? []).filter((p) => p.status !== 'draft').length,
       accolades: accolades.length,
       hallOfFame: hallOfFameEntries.length,
       moderation: pendingReportCount,
@@ -2005,6 +2094,7 @@
       if (tab === 'accolades' && !accoladesLoaded) loadAccolades()
       if (tab === 'hall-of-fame' && !hallOfFameLoaded) loadHallOfFame()
       if (tab === 'moderation' && !commentReportsLoaded) loadCommentReports()
+      if (tab === 'moderation' && !reviewFlagsLoaded) loadReviewFlags()
       if (tab === 'signups' && !signupsLoaded) loadSignups()
     }}
     onRefresh={refreshData}
@@ -2057,7 +2147,6 @@
         onAddPlayerChange={updateAddPlayerForm}
         onAddPlayer={addPlayerToTeam}
         onRemovePlayer={removeApprovedTeamPlayer}
-        onToggleStarter={toggleTeamPlayerStarter}
         onRemoveTeam={removeApprovedTeam}
       />
     {/if}
@@ -2133,10 +2222,9 @@
     {#if activeTab === 'seasons'}
       <AdminSeasonsTab
         {seasons}
-        {approvedTeams}
-        {matches}
+        {seasonTeams}
         players={users}
-        leaderboardBatches={data.leaderboardBatches ?? []}
+        {leaderboardBatches}
         {createSeasonCode}
         {createSeasonName}
         {createSeasonStartsOn}
@@ -2156,11 +2244,22 @@
           })}
         onCreateSeason={createSeason}
         onSaveSeason={saveSeason}
-        onSavePlayoffPickem={savePlayoffPickem}
-        onScorePlayoffPickem={scorePlayoffPickem}
         {logoUploadingSeasonId}
+        {leaderboardUploadingSeasonId}
+        onUploadLeaderboardCsv={uploadSeasonLeaderboardCsv}
         onUploadSeasonLogo={uploadSeasonLogo}
         onRemoveSeasonLogo={removeSeasonLogo}
+      />
+    {/if}
+
+    {#if activeTab === 'pickems'}
+      <AdminPickemsTab
+        {seasons}
+        {seasonTeams}
+        {seasonMatches}
+        pickems={data.pickems ?? []}
+        onSavePickem={savePickem}
+        onScorePickem={scorePickem}
       />
     {/if}
 
@@ -2237,12 +2336,18 @@
         onStatusFilterChange={(value) => {
           commentReportStatusFilter = value
           loadCommentReports()
+          loadReviewFlags()
         }}
         onResolve={resolveReport}
         onDismiss={dismissReport}
         onDeleteComment={deleteReportedComment}
         onBanUser={banFromCommenting}
         onUnbanUser={unbanFromCommenting}
+        flags={reviewFlags}
+        flagsLoaded={reviewFlagsLoaded}
+        {processingFlagId}
+        onResolveFlag={resolveFlag}
+        onDismissFlag={dismissFlag}
       />
     {/if}
 

@@ -70,7 +70,7 @@ export function normalizeBody(value: unknown): string {
 
 export function authorLabel(profile: ProfileRow | undefined): string {
   if (!profile) return 'Unknown'
-  return profile.riot_id_base ?? profile.display_name ?? profile.email ?? 'Player'
+  return profile.display_name ?? profile.riot_id_base ?? profile.email ?? 'Player'
 }
 
 /**
