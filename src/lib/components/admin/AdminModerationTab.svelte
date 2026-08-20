@@ -1,7 +1,7 @@
 <script lang="ts">
   import CustomSelect from '$lib/components/CustomSelect.svelte'
   import { resolve } from '$app/paths'
-  import type { CommentReport, ReviewFlag } from '$lib/admin/types'
+  import type { CommentReport, ReviewFlag, BugReport } from '$lib/admin/types'
 
   interface Props {
     reports: CommentReport[]
@@ -20,6 +20,12 @@
     processingFlagId?: string | null
     onResolveFlag?: (flagId: string) => void
     onDismissFlag?: (flagId: string) => void
+    // Bug reports: site-wide "something's broken" reports from the global button.
+    bugReports?: BugReport[]
+    bugReportsLoaded?: boolean
+    processingBugReportId?: string | null
+    onResolveBugReport?: (reportId: string) => void
+    onDismissBugReport?: (reportId: string) => void
   }
 
   let {
@@ -38,6 +44,11 @@
     processingFlagId = null,
     onResolveFlag,
     onDismissFlag,
+    bugReports = [],
+    bugReportsLoaded = false,
+    processingBugReportId = null,
+    onResolveBugReport,
+    onDismissBugReport,
   }: Props = $props()
 
   const statusOptions = [
@@ -85,6 +96,97 @@
     return 'background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.6);'
   }
 </script>
+
+<section class="admin-bordered mb-3 p-3">
+  <div class="mb-3">
+    <div
+      class="text-sm font-semibold tracking-wide uppercase"
+      style="color: rgba(255,255,255,0.8);"
+    >
+      Bug Reports ({bugReports.length})
+    </div>
+    <p class="mt-1 text-xs" style="color: rgba(255,255,255,0.55);">
+      Site-wide bug reports submitted from the "Report a bug" button. Filter above is shared with
+      the other lists.
+    </p>
+  </div>
+
+  {#if !bugReportsLoaded}
+    <div class="py-8 text-center text-sm" style="color: rgba(255,255,255,0.72);">
+      Loading bug reports...
+    </div>
+  {:else if bugReports.length === 0}
+    <div class="py-8 text-center text-sm" style="color: rgba(255,255,255,0.72);">
+      {statusFilter === 'pending'
+        ? 'No pending bug reports. Nothing to review.'
+        : 'No bug reports match this filter.'}
+    </div>
+  {:else}
+    <div class="grid grid-cols-1 gap-2">
+      {#each bugReports as report (report.id)}
+        <article
+          class="rounded-md border p-3"
+          style="border-color: rgba(255,255,255,0.10); background: rgba(0,0,0,0.2);"
+        >
+          <div class="mb-2 flex flex-wrap items-center gap-2">
+            <span
+              class="rounded px-2 py-0.5 text-[10px] font-bold uppercase"
+              style={statusStyle(report.status)}
+            >
+              {report.status}
+            </span>
+            <span class="text-xs" style="color: rgba(255,255,255,0.5);">
+              Reported by <strong style="color: rgba(255,255,255,0.75);"
+                >{report.reporter.name}</strong
+              >
+              · {formatDate(report.created_at)}
+            </span>
+            {#if report.page_path}
+              <a
+                href={report.page_path}
+                class="ml-auto text-xs font-semibold"
+                style="color: #93c5fd;"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {report.page_path} →
+              </a>
+            {/if}
+          </div>
+
+          <div
+            class="rounded p-2 text-xs"
+            style="background: rgba(251,191,36,0.07); color: #fde68a;"
+          >
+            <strong>Report:</strong>
+            <span class="whitespace-pre-wrap">{report.description}</span>
+          </div>
+
+          {#if report.status === 'pending'}
+            <div class="mt-3 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                class="admin-btn admin-btn-sm admin-btn-neutral"
+                disabled={processingBugReportId === report.id}
+                onclick={() => onDismissBugReport?.(report.id)}
+              >
+                Dismiss
+              </button>
+              <button
+                type="button"
+                class="admin-btn admin-btn-sm admin-btn-info"
+                disabled={processingBugReportId === report.id}
+                onclick={() => onResolveBugReport?.(report.id)}
+              >
+                {processingBugReportId === report.id ? 'Working...' : 'Mark Resolved'}
+              </button>
+            </div>
+          {/if}
+        </article>
+      {/each}
+    </div>
+  {/if}
+</section>
 
 <section class="admin-bordered mb-3 p-3">
   <div class="mb-3">

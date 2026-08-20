@@ -11,6 +11,7 @@
     ChevronDown,
   } from 'lucide-svelte'
   import { resolve } from '$app/paths'
+  import type { Snippet } from 'svelte'
   import type { CommentNode, CommentEntityType } from '$lib/server/comments'
 
   interface Props {
@@ -20,9 +21,11 @@
     /** Null when signed out — the composer is replaced by a sign-in prompt. */
     viewerId: string | null
     isAdmin?: boolean
+    /** Optional control rendered at the right edge of the header row (e.g. a flag button). */
+    headerAction?: Snippet
   }
 
-  let { entityType, entityId, comments, viewerId, isAdmin = false }: Props = $props()
+  let { entityType, entityId, comments, viewerId, isAdmin = false, headerAction }: Props = $props()
 
   const MAX_LENGTH = 2000
 
@@ -186,13 +189,18 @@
 </script>
 
 <section class="comments">
-  <h2 class="comments-title">
-    <MessageSquare size={16} />
-    Discussion
-    {#if totalCount > 0}
-      <span class="comment-count">{totalCount}</span>
+  <header class="comments-header">
+    <h2 class="comments-title">
+      <MessageSquare size={16} />
+      Discussion
+      {#if totalCount > 0}
+        <span class="comment-count">{totalCount}</span>
+      {/if}
+    </h2>
+    {#if headerAction}
+      <div class="comments-header-action">{@render headerAction()}</div>
     {/if}
-  </h2>
+  </header>
 
   {#if errorMessage}
     <div class="alert alert-error">{errorMessage}</div>
@@ -415,18 +423,31 @@
     background: rgba(0, 0, 0, 0.2);
   }
 
+  .comments-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+    padding-bottom: 0.625rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
   .comments-title {
     display: flex;
     align-items: center;
     gap: 0.4375rem;
+    margin: 0;
     font-size: 0.75rem;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: rgba(255, 255, 255, 0.5);
-    margin-bottom: 1rem;
-    padding-bottom: 0.625rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .comments-header-action {
+    margin-left: auto;
   }
 
   .comment-count {

@@ -20,6 +20,8 @@
     }>
     /** Leaderboard imports that can be pinned as a season's final standings. */
     leaderboardBatches?: Array<{ id: string; label: string }>
+    /** Every Valorant map + art, for the per-season map-pool picker. */
+    valorantMaps?: Array<{ displayName: string; listViewIcon: string }>
     createSeasonCode: string
     createSeasonName: string
     createSeasonStartsOn: string
@@ -50,6 +52,7 @@
     seasonTeams = [],
     players = [],
     leaderboardBatches = [],
+    valorantMaps = [],
     createSeasonCode,
     createSeasonName,
     createSeasonStartsOn,
@@ -107,6 +110,11 @@
     { value: '', label: '— Use latest import —' },
     ...(leaderboardBatches ?? []).map((b) => ({ value: b.id, label: b.label })),
   ])
+
+  /** Add or remove a map from a season's pool, keeping selection order. */
+  function toggleMapInPool(pool: string[], mapName: string): string[] {
+    return pool.includes(mapName) ? pool.filter((m) => m !== mapName) : [...pool, mapName]
+  }
 </script>
 
 <div class="grid grid-cols-1 gap-4">
@@ -190,6 +198,11 @@
             runnerUpTeamId: season.runner_up_team_id ?? '',
             mvpProfileId: season.mvp_profile_id ?? '',
             finalLeaderboardBatchId: season.final_leaderboard_batch_id ?? '',
+            mapPool: Array.isArray(season.metadata?.map_pool)
+              ? (season.metadata.map_pool as unknown[]).filter(
+                  (name): name is string => typeof name === 'string'
+                )
+              : [],
           }}
           {@const isResultsExpanded = expandedResultsSeasonId === season.id}
           <article
@@ -474,6 +487,43 @@
                     ></textarea>
                   </label>
 
+                  <div class="admin-bordered mt-2 p-2">
+                    <div
+                      class="mb-2 flex items-center gap-2 text-xs font-semibold"
+                      style="color: rgba(255,255,255,0.82);"
+                    >
+                      Map Pool
+                      <span style="color: rgba(255,255,255,0.5);">
+                        {state.mapPool.length} selected
+                      </span>
+                    </div>
+                    {#if valorantMaps.length === 0}
+                      <div class="text-xs" style="color: rgba(255,255,255,0.5);">
+                        Map art is unavailable right now — reload to try again.
+                      </div>
+                    {:else}
+                      <div class="map-pool-grid">
+                        {#each valorantMaps as map (map.displayName)}
+                          {@const selected = state.mapPool.includes(map.displayName)}
+                          <button
+                            type="button"
+                            class="map-pool-chip"
+                            class:map-pool-chip-on={selected}
+                            aria-pressed={selected}
+                            onclick={() =>
+                              onSeasonEditChange(season.id, {
+                                ...state,
+                                mapPool: toggleMapInPool(state.mapPool, map.displayName),
+                              })}
+                          >
+                            <img src={map.listViewIcon} alt="" class="map-pool-art" />
+                            <span class="map-pool-name">{map.displayName}</span>
+                          </button>
+                        {/each}
+                      </div>
+                    {/if}
+                  </div>
+
                   <div class="mt-2 flex justify-end">
                     <button
                       type="button"
@@ -492,3 +542,58 @@
     {/if}
   </section>
 </div>
+
+<style>
+  .map-pool-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 0.375rem;
+  }
+
+  .map-pool-chip {
+    position: relative;
+    display: block;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    border-radius: 0.375rem;
+    overflow: hidden;
+    border: 2px solid rgba(255, 255, 255, 0.08);
+    background: rgba(0, 0, 0, 0.3);
+    cursor: pointer;
+    padding: 0;
+    opacity: 0.55;
+    transition:
+      opacity 0.15s,
+      border-color 0.15s;
+  }
+
+  .map-pool-chip:hover {
+    opacity: 0.85;
+  }
+
+  .map-pool-chip-on {
+    opacity: 1;
+    border-color: #86efac;
+  }
+
+  .map-pool-art {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .map-pool-name {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 0.5rem 0.375rem 0.3125rem;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    color: #fff;
+    text-align: left;
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0));
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+  }
+</style>

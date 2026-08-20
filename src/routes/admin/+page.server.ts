@@ -4,6 +4,7 @@ import { supabaseAdmin } from '$lib/supabase/admin'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
 import { getSeasonLogoUrl } from '$lib/server/seasons/logo'
+import { getValorantMapList } from '$lib/server/valorant/maps'
 import type { MatchStreamRow } from '$lib/server/db-rows'
 
 type RosterProfileRow = {
@@ -337,6 +338,13 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     .order('created_at', { ascending: false })
     .limit(50)
 
+  // Map art for the Seasons tab's map-pool picker. A failed fetch yields an
+  // empty list, which the picker treats as "unavailable" rather than erroring.
+  const valorantMaps = (await getValorantMapList()).map((map) => ({
+    displayName: map.displayName,
+    listViewIcon: map.listViewIcon,
+  }))
+
   const leaderboardBatches = (leaderboardBatchRows ?? []).map((batch) => ({
     id: batch.id,
     label:
@@ -353,6 +361,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
       logo_url: getSeasonLogoUrl(season),
     })),
     leaderboardBatches,
+    valorantMaps,
     approvedTeams: withLogoUrl(approvedTeams || []),
     seasonTeams: seasonTeams ?? [],
     seasonMatches: seasonMatches ?? [],

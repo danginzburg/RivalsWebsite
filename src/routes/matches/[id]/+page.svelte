@@ -312,9 +312,11 @@
         {#if match.designation}
           <span class="sb-designation">{match.designation}</span>
         {/if}
-        <span class="sb-status" class:sb-status-live={match.status === 'live'}>
-          {formatStatus(match.status)}
-        </span>
+        {#if !isComplete}
+          <span class="sb-status" class:sb-status-live={match.status === 'live'}>
+            {formatStatus(match.status)}
+          </span>
+        {/if}
         {#if isAdmin}
           <AdminEditLink href="/admin?tab=matches" label="Edit Match" class="sb-admin" />
         {/if}
@@ -500,23 +502,33 @@
         </header>
 
         <div class="card-body">
-          {#if statsTabs.length > 1}
-            <div class="map-tabs">
-              {#each statsTabs as tab (tab.key)}
-                <button
-                  type="button"
-                  class="map-tab"
-                  class:map-tab-active={activeStatsTab === tab.key}
-                  class:map-tab-void={tab.isVoided}
-                  onclick={() => (activeStatsTab = String(tab.key))}
-                >
-                  <span class="map-tab-label">{tab.label}</span>
-                  {#if tab.subLabel}<span class="map-tab-sub">{tab.subLabel}</span>{/if}
-                  {#if tab.isVoided}<span class="map-tab-ff">FF</span>{/if}
-                </button>
-              {/each}
+          <div class="stats-toolbar">
+            {#if statsTabs.length > 1}
+              <div class="map-tabs">
+                {#each statsTabs as tab (tab.key)}
+                  <button
+                    type="button"
+                    class="map-tab"
+                    class:map-tab-active={activeStatsTab === tab.key}
+                    class:map-tab-void={tab.isVoided}
+                    onclick={() => (activeStatsTab = String(tab.key))}
+                  >
+                    <span class="map-tab-label">{tab.label}</span>
+                    {#if tab.subLabel}<span class="map-tab-sub">{tab.subLabel}</span>{/if}
+                    {#if tab.isVoided}<span class="map-tab-ff">FF</span>{/if}
+                  </button>
+                {/each}
+              </div>
+            {/if}
+            <div class="stats-flag">
+              <ReviewFlagButton
+                entityType="match"
+                entityId={match.id}
+                viewerId={data.viewer?.profileId ?? null}
+                noun="match"
+              />
             </div>
-          {/if}
+          </div>
 
           {#if activeStats}
             {#if !activeStats.isTotal}
@@ -588,15 +600,6 @@
       </section>
     {/if}
 
-    <div class="match-flag-bar">
-      <ReviewFlagButton
-        entityType="match"
-        entityId={match.id}
-        viewerId={data.viewer?.profileId ?? null}
-        noun="match"
-      />
-    </div>
-
     <CommentThread
       entityType="match"
       entityId={match.id}
@@ -608,12 +611,6 @@
 </PageContainer>
 
 <style>
-  .match-flag-bar {
-    display: flex;
-    justify-content: flex-end;
-    margin: 0.5rem 0 0.75rem;
-  }
-
   .match-page {
     width: 100%;
     max-width: 90rem;
@@ -1154,11 +1151,23 @@
   }
 
   /* Map tabs */
+  .stats-toolbar {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.5rem 0.75rem;
+    margin-bottom: 1rem;
+  }
+
+  .stats-flag {
+    margin-left: auto;
+  }
+
   .map-tabs {
     display: flex;
     flex-wrap: wrap;
     gap: 0.375rem;
-    margin-bottom: 1rem;
   }
 
   .map-tab {
@@ -1314,7 +1323,13 @@
   }
 
   .stat-table {
-    width: 100%;
+    /*
+     * Grow to fit the columns' natural widths and let .table-scroll scroll
+     * when that exceeds the viewport. Plain width:100% compresses the 10
+     * columns until the fixed-size agent icons overflow into the ACS cell.
+     */
+    width: max-content;
+    min-width: 100%;
     border-collapse: collapse;
     font-size: 0.8125rem;
   }
@@ -1377,6 +1392,7 @@
   }
 
   .agent-icon {
+    flex: none;
     width: 1.375rem;
     height: 1.375rem;
     border-radius: 0.25rem;
@@ -1384,6 +1400,7 @@
   }
 
   .agent-text {
+    flex: none;
     font-size: 0.6875rem;
     color: rgba(255, 255, 255, 0.6);
   }

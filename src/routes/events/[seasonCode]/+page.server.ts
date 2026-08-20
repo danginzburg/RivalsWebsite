@@ -6,7 +6,9 @@ import { safeNumber } from '$lib/server/parse'
 import { loadCommentThread } from '$lib/server/comments'
 import { getViewerProfileId } from '$lib/server/auth/viewer'
 import { getSeasonLogoUrl } from '$lib/server/seasons/logo'
+import { loadLegacyBracket } from '$lib/server/seasons/legacyBracket'
 import { isUnreachableError } from '$lib/server/supabase/unreachable'
+import { getValorantMapLookup, resolveMapPool, type MapPoolEntry } from '$lib/server/valorant/maps'
 
 type TeamRel = { id: string; name: string; tag?: string | null; logo_path?: string | null }
 type ProfileRel = { id: string; display_name: string | null; riot_id_base: string | null }
@@ -124,10 +126,32 @@ export const load = async ({
    */
   const linkedResults = isBracketEvent ? await getLinkedResults(pickemCtx.matches) : {}
 
-  const bracketSlots =
+  let bracketSlots =
     isBracketEvent && pickemCtx.event
       ? buildPickemSlots(pickemCtx.event, pickemCtx.matches, { picks: {} }, linkedResults)
       : []
+
+  // Seeds and playoff-team count come from the new pick'em event by default.
+  let bracketSeeds = Object.fromEntries(
+    (pickemCtx.event?.seeds ?? []).filter((s) => s.teamId).map((s) => [s.teamId, s.seed])
+  ) as Record<string, number>
+  // Seeds actually assigned a team — how many made playoffs.
+  let bracketTeamCount = pickemCtx.event?.seeds.filter((seed) => Boolean(seed.teamId)).length ?? 0
+
+  /**
+   * Fallback for archived seasons: their bracket predates the pick'em rework and
+   * still lives in `seasons.metadata`, not the pick'em tables. When the new
+   * pick'em has no bracket, rebuild the archived one from that metadata so it
+   * keeps displaying.
+   */
+  if (bracketSlots.length === 0) {
+    const legacy = await loadLegacyBracket(season.metadata)
+    if (legacy) {
+      bracketSlots = legacy.slots
+      bracketSeeds = legacy.seeds
+      bracketTeamCount = legacy.teamCount
+    }
+  }
 
   // Linked matches may reference teams neither the roster nor the seeds list, so
   // backfill any slot team still missing from the map to avoid TBD labels.
@@ -278,6 +302,20 @@ export const load = async ({
     viewerProfileId,
   })
 
+  // Map pool: admin-curated map names on the season's metadata, resolved to
+  // valorant-api art. Only fetch the art list when a pool is actually set.
+  const rawMapPool = (season.metadata as Record<string, unknown> | null)?.map_pool
+  const mapPoolNames = Array.isArray(rawMapPool)
+    ? rawMapPool.filter(
+        (name): name is string => typeof name === 'string' && name.trim().length > 0
+      )
+    : []
+  let mapPool: MapPoolEntry[] = []
+  if (mapPoolNames.length > 0) {
+    const mapLookup = await getValorantMapLookup()
+    mapPool = resolveMapPool(mapPoolNames, mapLookup)
+  }
+
   const winner = firstRel(season.winner as TeamRel | TeamRel[] | null)
   const runnerUp = firstRel(season.runner_up as TeamRel | TeamRel[] | null)
   const mvp = firstRel(season.mvp as unknown as ProfileRel | ProfileRel[] | null)
@@ -309,6 +347,7 @@ export const load = async ({
           }
         : null,
       mvp: mvp ? { id: mvp.id, name: mvp.display_name ?? mvp.riot_id_base ?? 'Player' } : null,
+      map_pool: mapPool,
     },
     teams,
     matches,
@@ -317,12 +356,9 @@ export const load = async ({
     bracket: {
       slots: bracketSlots,
       teams: teamMap,
-      // Seeds actually assigned a team — how many made playoffs.
-      teamCount: pickemCtx.event?.seeds.filter((seed) => Boolean(seed.teamId)).length ?? 0,
+      teamCount: bracketTeamCount,
       // Seed number keyed by team id, for display in the bracket.
-      seeds: Object.fromEntries(
-        (pickemCtx.event?.seeds ?? []).filter((s) => s.teamId).map((s) => [s.teamId, s.seed])
-      ) as Record<string, number>,
+      seeds: bracketSeeds,
     },
     comments,
     viewer: { isAdmin, profileId: viewerProfileId },

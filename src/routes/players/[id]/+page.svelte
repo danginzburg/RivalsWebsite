@@ -581,33 +581,27 @@
         {/if}
       </section>
 
-      <div class="player-flag-bar">
-        <ReviewFlagButton
-          entityType="player"
-          entityId={player.profile_id}
-          viewerId={data.viewer?.profileId ?? null}
-          noun="profile"
-        />
-      </div>
-
       <CommentThread
         entityType="player"
         entityId={player.profile_id}
         comments={data.comments ?? []}
         viewerId={data.viewer?.profileId ?? null}
         isAdmin={data.viewer?.isAdmin ?? false}
-      />
+      >
+        {#snippet headerAction()}
+          <ReviewFlagButton
+            entityType="player"
+            entityId={player.profile_id}
+            viewerId={data.viewer?.profileId ?? null}
+            noun="profile"
+          />
+        {/snippet}
+      </CommentThread>
     </div>
   </div>
 </PageContainer>
 
 <style>
-  .player-flag-bar {
-    display: flex;
-    justify-content: flex-end;
-    margin: 0.5rem 0 0.75rem;
-  }
-
   .player-page {
     width: 100%;
     /*

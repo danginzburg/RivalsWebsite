@@ -2,6 +2,7 @@
   import './layout.css'
   import favicon from '$lib/assets/rivals_logo.webp'
   import Header from '$lib/components/Header.svelte'
+  import BugReportButton from '$lib/components/BugReportButton.svelte'
   import { user, isLoading } from '$lib/stores/auth'
 
   let { children, data } = $props()
@@ -23,3 +24,5 @@
     {@render children()}
   </main>
 </div>
+
+<BugReportButton signedIn={Boolean(data.user)} />
