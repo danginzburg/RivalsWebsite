@@ -15,9 +15,10 @@
   const matches = $derived(data.matches ?? [])
   const leaderboard = $derived(data.leaderboard ?? [])
   const bracket = $derived(data.bracket)
+  const mapPool = $derived(season.map_pool ?? [])
   const isAdmin = $derived(data.viewer?.isAdmin ?? false)
 
-  type TabId = 'overview' | 'bracket' | 'standings' | 'matches' | 'teams'
+  type TabId = 'overview' | 'bracket' | 'standings' | 'matches' | 'teams' | 'maps'
   let activeTab = $state<TabId>('overview')
 
   const tabs = $derived.by(() => {
@@ -26,6 +27,7 @@
     if (leaderboard.length > 0) items.push({ id: 'standings', label: 'Standings' })
     if (matches.length > 0) items.push({ id: 'matches', label: `Matches (${matches.length})` })
     if (teams.length > 0) items.push({ id: 'teams', label: `Teams (${teams.length})` })
+    if (mapPool.length > 0) items.push({ id: 'maps', label: 'Map Pool' })
     return items
   })
 
@@ -175,6 +177,15 @@
           {/if}
         </div>
 
+        {#if mapPool.length > 0}
+          <section class="panel">
+            <h2 class="block-title">
+              Map Pool <span class="block-count">{mapPool.length}</span>
+            </h2>
+            {@render mapPoolGrid()}
+          </section>
+        {/if}
+
         {#if teams.length > 0}
           <section class="panel">
             <h2 class="block-title">Teams <span class="block-count">{teams.length}</span></h2>
@@ -233,6 +244,10 @@
       <div class="panel">
         {@render teamsGrid()}
       </div>
+    {:else if activeTab === 'maps'}
+      <div class="panel">
+        {@render mapPoolGrid()}
+      </div>
     {/if}
 
     <CommentThread
@@ -264,6 +279,21 @@
           </div>
         </div>
       </a>
+    {/each}
+  </div>
+{/snippet}
+
+{#snippet mapPoolGrid()}
+  <div class="map-grid">
+    {#each mapPool as map (map.name)}
+      <div class="map-card">
+        {#if map.image}
+          <img src={map.image} alt="" class="map-art" loading="lazy" />
+        {:else}
+          <div class="map-art map-art-blank"></div>
+        {/if}
+        <span class="map-name">{map.name}</span>
+      </div>
     {/each}
   </div>
 {/snippet}
@@ -844,6 +874,47 @@
     color: rgba(255, 255, 255, 0.6);
     white-space: nowrap;
     text-align: right;
+  }
+
+  /* Map pool */
+  .map-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 0.625rem;
+  }
+
+  .map-card {
+    position: relative;
+    border-radius: 0.5rem;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    background: rgba(255, 255, 255, 0.025);
+    aspect-ratio: 16 / 9;
+  }
+
+  .map-art {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .map-art-blank {
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .map-name {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 0.75rem 0.625rem 0.5rem;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    color: #fff;
+    /* Gradient scrim keeps the name legible over the map art. */
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.82), rgba(0, 0, 0, 0));
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
   }
 
   /* Team grid */

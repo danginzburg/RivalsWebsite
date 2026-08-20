@@ -41,6 +41,7 @@
     PendingRoleChange,
     PlayerSignup,
     ReviewFlag,
+    BugReport,
     SeasonEditState,
     SignupEditState,
     TeamEditState,
@@ -578,10 +579,63 @@
 
   const pendingFlagCount = $derived(reviewFlags.filter((f) => f.status === 'pending').length)
 
-  /** Pending comments + data flags together drive the badge on the Moderation tab. */
+  // ---- Bug reports (site-wide "something's broken" reports) ----
+  let bugReports = $state<BugReport[]>([])
+  let bugReportsLoaded = $state(false)
+  let processingBugReportId = $state<string | null>(null)
+
+  const pendingBugReportCount = $derived(bugReports.filter((r) => r.status === 'pending').length)
+
+  /** Pending comments + data flags + bug reports drive the badge on the Moderation tab. */
   const pendingReportCount = $derived(
-    commentReports.filter((r) => r.status === 'pending').length + pendingFlagCount
+    commentReports.filter((r) => r.status === 'pending').length +
+      pendingFlagCount +
+      pendingBugReportCount
   )
+
+  async function loadBugReports() {
+    try {
+      const result = await adminJsonRequest<{ reports?: BugReport[] }>(
+        `/api/admin/bug-reports?status=${encodeURIComponent(commentReportStatusFilter)}`,
+        { fallbackMessage: 'Failed to load bug reports' }
+      )
+      bugReports = result.reports ?? []
+      bugReportsLoaded = true
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to load bug reports'
+    }
+  }
+
+  async function bugReportAction(
+    reportId: string,
+    action: 'resolve' | 'dismiss',
+    successText: string
+  ) {
+    processingBugReportId = reportId
+    errorMessage = null
+    successMessage = null
+    try {
+      await adminJsonRequest('/api/admin/bug-reports', {
+        method: 'PATCH',
+        body: { action, reportId },
+        fallbackMessage: 'Bug report action failed',
+      })
+      successMessage = successText
+      await loadBugReports()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Bug report action failed'
+    } finally {
+      processingBugReportId = null
+    }
+  }
+
+  function resolveBugReport(reportId: string) {
+    return bugReportAction(reportId, 'resolve', 'Bug report resolved.')
+  }
+
+  function dismissBugReport(reportId: string) {
+    return bugReportAction(reportId, 'dismiss', 'Bug report dismissed.')
+  }
 
   async function loadReviewFlags() {
     try {
@@ -1189,6 +1243,11 @@
         runnerUpTeamId: season.runner_up_team_id ?? '',
         mvpProfileId: season.mvp_profile_id ?? '',
         finalLeaderboardBatchId: season.final_leaderboard_batch_id ?? '',
+        mapPool: Array.isArray(season.metadata?.map_pool)
+          ? (season.metadata.map_pool as unknown[]).filter(
+              (name): name is string => typeof name === 'string'
+            )
+          : [],
       }
     }
     const keys = Object.keys(next)
@@ -1262,6 +1321,7 @@
       hallOfFameLoaded ? loadHallOfFame() : Promise.resolve(),
       commentReportsLoaded ? loadCommentReports() : Promise.resolve(),
       reviewFlagsLoaded ? loadReviewFlags() : Promise.resolve(),
+      bugReportsLoaded ? loadBugReports() : Promise.resolve(),
       signupsLoaded ? loadSignups() : Promise.resolve(),
     ])
   }
@@ -1631,6 +1691,7 @@
           runnerUpTeamId: state.runnerUpTeamId || null,
           mvpProfileId: state.mvpProfileId || null,
           finalLeaderboardBatchId: state.finalLeaderboardBatchId || null,
+          mapPool: state.mapPool ?? [],
         },
         fallbackMessage: 'Failed to update season',
       })
@@ -2095,6 +2156,7 @@
       if (tab === 'hall-of-fame' && !hallOfFameLoaded) loadHallOfFame()
       if (tab === 'moderation' && !commentReportsLoaded) loadCommentReports()
       if (tab === 'moderation' && !reviewFlagsLoaded) loadReviewFlags()
+      if (tab === 'moderation' && !bugReportsLoaded) loadBugReports()
       if (tab === 'signups' && !signupsLoaded) loadSignups()
     }}
     onRefresh={refreshData}
@@ -2225,6 +2287,7 @@
         {seasonTeams}
         players={users}
         {leaderboardBatches}
+        valorantMaps={data.valorantMaps ?? []}
         {createSeasonCode}
         {createSeasonName}
         {createSeasonStartsOn}
@@ -2337,6 +2400,7 @@
           commentReportStatusFilter = value
           loadCommentReports()
           loadReviewFlags()
+          loadBugReports()
         }}
         onResolve={resolveReport}
         onDismiss={dismissReport}
@@ -2348,6 +2412,11 @@
         {processingFlagId}
         onResolveFlag={resolveFlag}
         onDismissFlag={dismissFlag}
+        {bugReports}
+        {bugReportsLoaded}
+        {processingBugReportId}
+        onResolveBugReport={resolveBugReport}
+        onDismissBugReport={dismissBugReport}
       />
     {/if}
 

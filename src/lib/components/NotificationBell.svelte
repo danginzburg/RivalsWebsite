@@ -357,4 +357,20 @@
   .notif-item:not(.unread) .notif-text {
     margin-left: calc(0.5rem + 0.5rem);
   }
+
+  /* On narrow screens the bell isn't flush with the viewport edge (the menu
+     toggle sits to its right), so anchoring the panel to the bell with a
+     near-full width pushes its left edge off-screen. Pin it to the viewport
+     instead so it always stays inside the window. */
+  @media (max-width: 480px) {
+    .panel {
+      position: fixed;
+      top: 3.75rem;
+      right: 0.75rem;
+      left: 0.75rem;
+      width: auto;
+      max-width: none;
+      max-height: calc(100vh - 4.5rem);
+    }
+  }
 </style>

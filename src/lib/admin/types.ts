@@ -75,6 +75,16 @@ export type ReviewFlag = {
   reporter: { id: string; name: string }
 }
 
+export type BugReport = {
+  id: string
+  status: 'pending' | 'resolved' | 'dismissed'
+  description: string
+  /** The route the reporter was on, e.g. "/matches/abc". Null if unknown. */
+  page_path: string | null
+  created_at: string
+  reporter: { id: string; name: string }
+}
+
 export type BestOfValue = '3' | '5'
 
 export type AdminSelectOption = {
@@ -282,6 +292,8 @@ export type SeasonEditState = {
   runnerUpTeamId: string
   mvpProfileId: string
   finalLeaderboardBatchId: string
+  /** Canonical Valorant map names shown as the season's map pool. */
+  mapPool: string[]
 }
 
 export type PendingRoleChange = {

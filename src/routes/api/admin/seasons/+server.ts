@@ -132,6 +132,27 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
     if (body[bodyKey] !== undefined) updates[column] = normalizeOptional(body[bodyKey])
   }
 
+  // Map pool lives on metadata. Merge onto the existing object so a save that
+  // sends the pool cannot drop other metadata keys the season carries.
+  if (body.mapPool !== undefined) {
+    const mapPool = Array.isArray(body.mapPool)
+      ? body.mapPool
+          .map((name: unknown) => (typeof name === 'string' ? name.trim() : ''))
+          .filter((name: string) => name.length > 0)
+      : []
+
+    const { data: current } = await supabaseAdmin
+      .from('seasons')
+      .select('metadata')
+      .eq('id', id)
+      .maybeSingle()
+    const existing =
+      current?.metadata && typeof current.metadata === 'object'
+        ? (current.metadata as Record<string, unknown>)
+        : {}
+    updates.metadata = { ...existing, map_pool: mapPool }
+  }
+
   const { data, error: updateError } = await supabaseAdmin
     .from('seasons')
     .update(updates)

@@ -9,6 +9,7 @@ export const NOTIFICATION_TYPES = [
   'comment_upvote',
   'result_report_resolved',
   'review_flag_resolved',
+  'bug_report_resolved',
 ] as const
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number]

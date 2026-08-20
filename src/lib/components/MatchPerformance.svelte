@@ -7,6 +7,8 @@
     puuid: string | null
     player_name: string
     team_id: string | null
+    kills?: number | null
+    acs?: number | null
     mk_2k: number | null
     mk_3k: number | null
     mk_4k: number | null
@@ -31,8 +33,29 @@
 
   let { rows, teamAId, teamAName, teamBName, scopeLabel }: Props = $props()
 
-  const teamARows = $derived(rows.filter((r) => r.team_id === teamAId))
-  const teamBRows = $derived(rows.filter((r) => r.team_id !== teamAId))
+  /**
+   * Sort players the same way the scoreboard table above does — kills desc,
+   * then ACS desc, then name — so a given player sits in the same slot in both
+   * places and the eye can track down the two tables without re-hunting.
+   */
+  function sortByKillsDesc(list: PerfRow[]): PerfRow[] {
+    return [...list].sort((a, b) => {
+      const killsA = Number.isFinite(Number(a.kills)) ? Number(a.kills) : 0
+      const killsB = Number.isFinite(Number(b.kills)) ? Number(b.kills) : 0
+      if (killsB !== killsA) return killsB - killsA
+
+      const acsA = Number.isFinite(Number(a.acs)) ? Number(a.acs) : 0
+      const acsB = Number.isFinite(Number(b.acs)) ? Number(b.acs) : 0
+      if (acsB !== acsA) return acsB - acsA
+
+      return displayName(a.player_name).localeCompare(displayName(b.player_name), undefined, {
+        sensitivity: 'base',
+      })
+    })
+  }
+
+  const teamARows = $derived(sortByKillsDesc(rows.filter((r) => r.team_id === teamAId)))
+  const teamBRows = $derived(sortByKillsDesc(rows.filter((r) => r.team_id !== teamAId)))
 
   /**
    * Advanced stats only exist for matches imported from the Riot API. A CSV

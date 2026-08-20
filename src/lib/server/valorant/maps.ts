@@ -73,6 +73,38 @@ export async function getValorantMapLookup(): Promise<MapLookup> {
   return inFlight
 }
 
+/**
+ * Full map-art list, sorted by name — the source for the admin map-pool picker
+ * and anywhere else that needs to offer "every map" rather than resolve one.
+ * Empty when the fetch fails, so callers should treat an empty list as "not
+ * loaded" rather than "no maps exist".
+ */
+export async function getValorantMapList(): Promise<ValorantMapArt[]> {
+  const lookup = await getValorantMapLookup()
+  return Array.from(lookup.values()).sort((a, b) => a.displayName.localeCompare(b.displayName))
+}
+
+/** One map-pool entry resolved against the art list. */
+export type MapPoolEntry = {
+  /** Canonical map name when recognized, otherwise the stored string as-is. */
+  name: string
+  /** Landscape splash art URL, or null when the name isn't a known map. */
+  image: string | null
+}
+
+/**
+ * Resolve a season's stored map-pool names to art, keeping the admin's order.
+ * Uses the landscape splash art — the pool is a showcase of a handful of maps,
+ * not a dense thumbnail list, so the larger key art reads better. An
+ * unrecognized name still renders, it just carries no image.
+ */
+export function resolveMapPool(names: string[], lookup: MapLookup): MapPoolEntry[] {
+  return names.map((name) => {
+    const art = lookup.get(normalize(name))
+    return { name: art?.displayName ?? name, image: art?.splash ?? null }
+  })
+}
+
 /** What a veto line does to its map — drives the pick/ban color scheme. */
 export type VetoAction = 'ban' | 'pick' | 'decider' | null
 
