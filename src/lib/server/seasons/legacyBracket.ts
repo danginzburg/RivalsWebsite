@@ -219,6 +219,16 @@ async function loadLinkedResults(
  * admin-resolved winners layered on top — the same precedence the live engine
  * uses, so a reconstructed bracket shows its true results, not TBD.
  */
+/**
+ * How many teams a season's legacy bracket seeds, without the DB round-trips
+ * `loadLegacyBracket` makes. The events list only needs the count to show the
+ * "N-team playoffs" label, so it parses the metadata blob and stops there.
+ * Returns 0 when the season carries no seeded legacy bracket.
+ */
+export function legacyBracketSeedCount(metadata: unknown): number {
+  return parseConfig(metadata).seeds.length
+}
+
 export async function loadLegacyBracket(metadata: unknown): Promise<LegacyBracket | null> {
   const config = parseConfig(metadata)
   if (config.seeds.length === 0) return null

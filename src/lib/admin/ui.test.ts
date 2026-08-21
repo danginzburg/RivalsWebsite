@@ -6,6 +6,7 @@ import {
   normalizeSearchValue,
   profileLabel,
 } from './ui'
+import { fromDatetimeLocal, toDatetimeLocal } from './match-ui'
 
 describe('admin ui helpers', () => {
   it('normalizes search values by trimming and lowercasing', () => {
@@ -37,6 +38,24 @@ describe('admin ui helpers', () => {
     expect(filterAdminMatches(matches, '', false)).toEqual([matches[0]])
     expect(filterAdminMatches(matches, 'delta', true)).toEqual([matches[1]])
     expect(filterAdminMatches(matches, 'scheduled', true)).toEqual([matches[0]])
+  })
+
+  it('round-trips datetime-local values through UTC without shifting wall-clock time', () => {
+    // fromDatetimeLocal interprets the bare string in the local zone (as the
+    // browser would); toDatetimeLocal renders the stored UTC back to local. The
+    // wall-clock value the admin typed must survive the round trip regardless
+    // of the test runner's timezone.
+    const local = '2026-08-21T14:00'
+    const stored = fromDatetimeLocal(local)
+    expect(stored).not.toBeNull()
+    expect(stored).toMatch(/Z$/) // absolute instant, not a bare local string
+    expect(toDatetimeLocal(stored)).toBe(local)
+  })
+
+  it('treats empty datetime-local input as null', () => {
+    expect(fromDatetimeLocal('')).toBeNull()
+    expect(fromDatetimeLocal(null)).toBeNull()
+    expect(fromDatetimeLocal('not-a-date')).toBeNull()
   })
 
   it('builds approved team options with uppercase tags', () => {

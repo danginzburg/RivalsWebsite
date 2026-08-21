@@ -21,7 +21,9 @@ function parseScheduledAt(value: unknown): string | null {
   const raw = normalizeOptional(value)
   if (!raw) return null
 
-  // <input type="datetime-local"> is interpreted in the viewer's local timezone.
+  // The client sends an absolute UTC ISO string (converted from the viewer's
+  // local wall-clock time in the browser). Do NOT accept a bare datetime-local
+  // string here — new Date() would reinterpret it in the server's zone (UTC).
   const d = new Date(raw)
   if (!Number.isFinite(d.getTime())) throw error(400, 'Invalid scheduledAt')
   return d.toISOString()

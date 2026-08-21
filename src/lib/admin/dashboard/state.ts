@@ -1,5 +1,5 @@
 import type { AdminMatch, BestOfValue, MatchEditState, MatchStreamFormState } from '../types'
-import { teamName } from '../match-ui'
+import { fromDatetimeLocal, teamName } from '../match-ui'
 
 type DashboardData = {
   users: unknown[]
@@ -107,7 +107,10 @@ export function createAdminDashboardState({ fetchAdapter }: { fetchAdapter: Fetc
           teamAId: input.teamAId,
           teamBId: input.teamBId,
           bestOf: Number(input.bestOf),
-          scheduledAt: input.scheduledAt || null,
+          // Convert local wall-clock → UTC ISO here in the browser, where the
+          // viewer's timezone is known. Sending the bare datetime-local string
+          // would let the server reinterpret it in its own (UTC) zone.
+          scheduledAt: fromDatetimeLocal(input.scheduledAt),
           ...(input.seasonId ? { seasonId: input.seasonId } : {}),
         },
         fallbackMessage: 'Failed to create match',
@@ -152,7 +155,7 @@ export function createAdminDashboardState({ fetchAdapter }: { fetchAdapter: Fetc
           teamBId: state.teamBId,
           bestOf: Number(state.bestOf),
           status: state.status,
-          scheduledAt: state.scheduledAt || null,
+          scheduledAt: fromDatetimeLocal(state.scheduledAt),
           teamAScore: Number(state.teamAScore),
           teamBScore: Number(state.teamBScore),
           winnerTeamId: state.winnerTeamId || null,
