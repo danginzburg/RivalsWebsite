@@ -9,6 +9,7 @@ import { getSeasonLogoUrl } from '$lib/server/seasons/logo'
 import { loadLegacyBracket } from '$lib/server/seasons/legacyBracket'
 import { isUnreachableError } from '$lib/server/supabase/unreachable'
 import { getValorantMapLookup, resolveMapPool, type MapPoolEntry } from '$lib/server/valorant/maps'
+import { resolveSeasonProfile } from '$lib/seasons/profile'
 
 type TeamRel = { id: string; name: string; tag?: string | null; logo_path?: string | null }
 type ProfileRel = { id: string; display_name: string | null; riot_id_base: string | null }
@@ -34,6 +35,7 @@ export const load = async ({
       id,
       code,
       name,
+      kind,
       starts_on,
       ends_on,
       is_active,
@@ -296,11 +298,19 @@ export const load = async ({
     })
   }
 
+  // Presentation profile — which sections show and any outbound links. Rivals
+  // events carry no profile and default to everything on, unchanged from before.
+  const profile = resolveSeasonProfile(season.metadata as Record<string, unknown> | null)
+
   const viewerProfileId = await getViewerProfileId(locals.user)
-  const comments = await loadCommentThread('season', season.id, {
-    includeReportCounts: isAdmin,
-    viewerProfileId,
-  })
+  // Skip the comment thread entirely when the event hides it (e.g. an external
+  // event where visitors aren't expected to log in to post).
+  const comments = profile.sections.comments
+    ? await loadCommentThread('season', season.id, {
+        includeReportCounts: isAdmin,
+        viewerProfileId,
+      })
+    : null
 
   // Map pool: admin-curated map names on the season's metadata, resolved to
   // valorant-api art. Only fetch the art list when a pool is actually set.
@@ -325,6 +335,7 @@ export const load = async ({
       id: season.id,
       code: season.code,
       name: season.name,
+      kind: season.kind === 'external' ? 'external' : 'rivals',
       starts_on: season.starts_on,
       ends_on: season.ends_on,
       is_active: season.is_active,
@@ -361,6 +372,7 @@ export const load = async ({
       seeds: bracketSeeds,
     },
     comments,
+    profile,
     viewer: { isAdmin, profileId: viewerProfileId },
   }
 }

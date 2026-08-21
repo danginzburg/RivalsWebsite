@@ -13,6 +13,12 @@ export type ValorantMapArt = {
   splash: string
   /** Light (~80KB) list thumbnail shown on the veto; falls back to splash. */
   listViewIcon: string
+  /**
+   * A standard 5v5 competitive (Search & Destroy) map. The api's list also
+   * carries TDM maps, the practice range, and basic training; only the
+   * competitive maps carry a `tacticalDescription`, which is what we key on.
+   */
+  competitive: boolean
 }
 
 type MapLookup = Map<string, ValorantMapArt>
@@ -37,7 +43,12 @@ async function fetchLookup(): Promise<MapLookup> {
     const res = await fetch(MAPS_URL, { signal: controller.signal })
     if (!res.ok) return lookup
     const body = (await res.json()) as {
-      data?: Array<{ displayName?: string; splash?: string; listViewIcon?: string }>
+      data?: Array<{
+        displayName?: string
+        splash?: string
+        listViewIcon?: string
+        tacticalDescription?: string | null
+      }>
     }
     for (const map of body.data ?? []) {
       if (!map.displayName || !map.splash) continue
@@ -45,6 +56,7 @@ async function fetchLookup(): Promise<MapLookup> {
         displayName: map.displayName,
         splash: map.splash,
         listViewIcon: map.listViewIcon ?? map.splash,
+        competitive: Boolean(map.tacticalDescription),
       })
     }
   } catch {
@@ -74,14 +86,17 @@ export async function getValorantMapLookup(): Promise<MapLookup> {
 }
 
 /**
- * Full map-art list, sorted by name — the source for the admin map-pool picker
- * and anywhere else that needs to offer "every map" rather than resolve one.
- * Empty when the fetch fails, so callers should treat an empty list as "not
- * loaded" rather than "no maps exist".
+ * Competitive map-art list, sorted by name — the source for the admin map-pool
+ * picker. TDM maps, the range, and basic training are filtered out so a season
+ * pool can only be built from standard 5v5 competitive maps. Empty when the
+ * fetch fails, so callers should treat an empty list as "not loaded" rather
+ * than "no maps exist".
  */
 export async function getValorantMapList(): Promise<ValorantMapArt[]> {
   const lookup = await getValorantMapLookup()
-  return Array.from(lookup.values()).sort((a, b) => a.displayName.localeCompare(b.displayName))
+  return Array.from(lookup.values())
+    .filter((map) => map.competitive)
+    .sort((a, b) => a.displayName.localeCompare(b.displayName))
 }
 
 /** One map-pool entry resolved against the art list. */

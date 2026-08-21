@@ -8,12 +8,73 @@ import {
   type NormalizedRivalsGroupStatBatch,
   type StatImportBatchRow,
 } from '$lib/server/stats/rivals-batch'
+import { parseFullSeasonBatchId, resolveSeasonStatBatchIds } from '$lib/server/stats/season-batches'
+import { aggregateFullSeasonRows } from '$lib/server/stats/aggregate-full-season'
+
+/** Columns read from `rivals_group_stats`, shared by direct and aggregated reads. */
+const STATS_ROW_SELECT =
+  'id, player_name, profile_id, agents, games, games_won, games_lost, rounds, rounds_won, rounds_lost, acs, kd, kast_pct, adr, kills, deaths, assists, fk, fd, hs_pct, econ_rating, kpg, kpr, dpg, dpr, apg, apr, fkpg, fdpg, plants, plants_per_game, defuses, defuses_per_game, league_rank, mk_2k, mk_3k, mk_4k, mk_5k, clutches_won, clutches_attempted, import_batch_id, imported_at'
+
+/** The `rivals_group_stats` column a sort key maps to; anything else falls to ACS. */
+function sortColumn(sort: string): 'acs' | 'kd' | 'kast_pct' | 'adr' {
+  if (sort === 'kd') return 'kd'
+  if (sort === 'kast') return 'kast_pct'
+  if (sort === 'adr') return 'adr'
+  return 'acs'
+}
 
 export const GET: RequestHandler = async ({ url }) => {
   const batchId = url.searchParams.get('batchId')
   const onlyMatched = url.searchParams.get('onlyMatched') === 'true'
   const limit = Math.min(500, Math.max(1, safeInt(url.searchParams.get('limit'), 100)))
   const sort = (url.searchParams.get('sort') ?? 'acs').toLowerCase()
+
+  // A `season:<code>` id is a whole-season aggregate. Nothing is stored under
+  // that id; resolve it to the season's phase batches and sum them here.
+  const seasonCode = parseFullSeasonBatchId(batchId)
+  if (seasonCode) {
+    const { data: season } = await supabaseAdmin
+      .from('seasons')
+      .select('code, name, metadata')
+      .eq('code', seasonCode)
+      .maybeSingle()
+
+    const sourceIds = resolveSeasonStatBatchIds(season ?? { code: seasonCode })
+    if (sourceIds.length === 0) {
+      return json({ batchId: batchId, batch: null, rows: [] })
+    }
+
+    let query = supabaseAdmin
+      .from('rivals_group_stats')
+      .select(STATS_ROW_SELECT)
+      .in('import_batch_id', sourceIds)
+    if (onlyMatched) query = query.not('profile_id', 'is', null)
+
+    const { data: sourceRows, error: rowsError } = await query
+    if (rowsError) throw error(500, 'Failed to load stats')
+
+    const aggregated = aggregateFullSeasonRows(sourceRows ?? [], batchId!)
+    const col = sortColumn(sort)
+    aggregated.sort((a, b) => {
+      const av = a[col] == null ? -Infinity : Number(a[col])
+      const bv = b[col] == null ? -Infinity : Number(b[col])
+      return bv - av
+    })
+
+    const seasonName = (season?.name as string | null) ?? null
+    return json({
+      batchId,
+      batch: {
+        id: batchId,
+        display_name: seasonName ? `${seasonName} (Full)` : 'Full Season',
+        source_filename: null,
+        import_kind: 'aggregate',
+        week_label: null,
+        section: 'full',
+      },
+      rows: aggregated.slice(0, limit),
+    })
+  }
 
   let effectiveBatchId = batchId
   if (!effectiveBatchId) {
@@ -87,9 +148,7 @@ export const GET: RequestHandler = async ({ url }) => {
 
   let query = supabaseAdmin
     .from('rivals_group_stats')
-    .select(
-      'id, player_name, profile_id, agents, games, games_won, games_lost, rounds, rounds_won, rounds_lost, acs, kd, kast_pct, adr, kills, deaths, assists, fk, fd, hs_pct, econ_rating, kpg, kpr, dpg, dpr, apg, apr, fkpg, fdpg, plants, plants_per_game, defuses, defuses_per_game, league_rank, mk_2k, mk_3k, mk_4k, mk_5k, clutches_won, clutches_attempted, import_batch_id, imported_at'
-    )
+    .select(STATS_ROW_SELECT)
     .eq('import_batch_id', effectiveBatchId)
 
   if (onlyMatched) {

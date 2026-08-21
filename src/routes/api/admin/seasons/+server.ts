@@ -3,11 +3,13 @@ import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { getSeasonLogoUrl } from '$lib/server/seasons/logo'
+import { sanitizeSeasonProfile, type SeasonKind } from '$lib/seasons/profile'
 
 const SEASON_COLUMNS = `
   id,
   code,
   name,
+  kind,
   starts_on,
   ends_on,
   is_active,
@@ -25,6 +27,11 @@ function normalizeOptional(value: unknown): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
   return trimmed.length > 0 ? trimmed : null
+}
+
+/** Only the two known event kinds are accepted; anything else is a rivals event. */
+function normalizeKind(value: unknown): SeasonKind {
+  return value === 'external' ? 'external' : 'rivals'
 }
 
 async function listSeasons() {
@@ -71,6 +78,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     .insert({
       code,
       name,
+      kind: normalizeKind(body.kind),
       starts_on: startsOn,
       ends_on: endsOn,
       is_active: isActive,
@@ -117,6 +125,10 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
     is_active: isActive,
   }
 
+  // Kind is only rewritten when the caller sends it, so a partial save can't
+  // silently flip an event's type.
+  if (body.kind !== undefined) updates.kind = normalizeKind(body.kind)
+
   // Season results are only written when the caller actually sent them.
   // A payload that omits a field leaves it alone rather than clearing it, so
   // a partial save (renaming a season, toggling active) cannot wipe results.
@@ -132,15 +144,10 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
     if (body[bodyKey] !== undefined) updates[column] = normalizeOptional(body[bodyKey])
   }
 
-  // Map pool lives on metadata. Merge onto the existing object so a save that
-  // sends the pool cannot drop other metadata keys the season carries.
-  if (body.mapPool !== undefined) {
-    const mapPool = Array.isArray(body.mapPool)
-      ? body.mapPool
-          .map((name: unknown) => (typeof name === 'string' ? name.trim() : ''))
-          .filter((name: string) => name.length > 0)
-      : []
-
+  // Map pool and the presentation profile both live on metadata. Read the
+  // existing object once and merge both onto it, so a save that sends one can't
+  // drop the other (or any other metadata key the season carries).
+  if (body.mapPool !== undefined || body.profile !== undefined) {
     const { data: current } = await supabaseAdmin
       .from('seasons')
       .select('metadata')
@@ -150,7 +157,21 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
       current?.metadata && typeof current.metadata === 'object'
         ? (current.metadata as Record<string, unknown>)
         : {}
-    updates.metadata = { ...existing, map_pool: mapPool }
+    const merged: Record<string, unknown> = { ...existing }
+
+    if (body.mapPool !== undefined) {
+      merged.map_pool = Array.isArray(body.mapPool)
+        ? body.mapPool
+            .map((name: unknown) => (typeof name === 'string' ? name.trim() : ''))
+            .filter((name: string) => name.length > 0)
+        : []
+    }
+
+    if (body.profile !== undefined) {
+      merged.profile = sanitizeSeasonProfile(body.profile)
+    }
+
+    updates.metadata = merged
   }
 
   const { data, error: updateError } = await supabaseAdmin
