@@ -14,6 +14,7 @@
  */
 
 export const SECTION_KEYS = [
+  'full',
   'kickoff',
   'regular',
   'playins',
@@ -34,6 +35,11 @@ export type SectionDef = {
 
 /** Declaration order is display order, in the picker and in the admin table. */
 export const SECTIONS: SectionDef[] = [
+  // A generated season total (Kickoff + Regular + Play-ins + Playoffs summed
+  // into one line per player). Never a match stage and never inferred from a
+  // name — only the virtual full-season batches are filed here, on purpose, so
+  // they sit at the top of the picker above the individual phases they combine.
+  { key: 'full', label: 'Full Season', isMatchStage: false },
   { key: 'kickoff', label: 'Kickoff', isMatchStage: true },
   { key: 'regular', label: 'Regular Season', isMatchStage: true },
   { key: 'playins', label: 'Play-ins', isMatchStage: true },

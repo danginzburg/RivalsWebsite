@@ -1,7 +1,20 @@
 <script lang="ts">
   import CustomSelect from '$lib/components/CustomSelect.svelte'
-  import { Upload } from 'lucide-svelte'
+  import { Upload, Plus, X } from 'lucide-svelte'
   import type { AdminSeason, SeasonEditState, SeasonTeamEntry } from '$lib/admin/types'
+  import {
+    SEASON_SECTION_KEYS,
+    SEASON_SECTION_LABELS,
+    allSectionsOn,
+    type SeasonExternalLink,
+    type SeasonKind,
+    type SeasonSectionKey,
+  } from '$lib/seasons/profile'
+
+  const kindOptions = [
+    { value: 'rivals', label: 'Rivals' },
+    { value: 'external', label: 'External' },
+  ]
 
   interface Props {
     seasons: AdminSeason[]
@@ -24,6 +37,7 @@
     valorantMaps?: Array<{ displayName: string; listViewIcon: string }>
     createSeasonCode: string
     createSeasonName: string
+    createSeasonKind: SeasonKind
     createSeasonStartsOn: string
     createSeasonEndsOn: string
     createSeasonIsActive: boolean
@@ -31,6 +45,7 @@
     seasonEditForm: Record<string, SeasonEditState>
     onCreateSeasonCodeChange: (value: string) => void
     onCreateSeasonNameChange: (value: string) => void
+    onCreateSeasonKindChange: (value: SeasonKind) => void
     onCreateSeasonStartsOnChange: (value: string) => void
     onCreateSeasonEndsOnChange: (value: string) => void
     onCreateSeasonIsActiveChange: (value: boolean) => void
@@ -55,6 +70,7 @@
     valorantMaps = [],
     createSeasonCode,
     createSeasonName,
+    createSeasonKind,
     createSeasonStartsOn,
     createSeasonEndsOn,
     createSeasonIsActive,
@@ -62,6 +78,7 @@
     seasonEditForm,
     onCreateSeasonCodeChange,
     onCreateSeasonNameChange,
+    onCreateSeasonKindChange,
     onCreateSeasonStartsOnChange,
     onCreateSeasonEndsOnChange,
     onCreateSeasonIsActiveChange,
@@ -115,6 +132,27 @@
   function toggleMapInPool(pool: string[], mapName: string): string[] {
     return pool.includes(mapName) ? pool.filter((m) => m !== mapName) : [...pool, mapName]
   }
+
+  /** Sections default to all-on for any season saved before this field existed. */
+  function sectionsOf(state: SeasonEditState): Record<SeasonSectionKey, boolean> {
+    return state.sections ?? allSectionsOn()
+  }
+
+  function toggleSection(
+    state: SeasonEditState,
+    key: SeasonSectionKey,
+    on: boolean
+  ): Record<SeasonSectionKey, boolean> {
+    return { ...sectionsOf(state), [key]: on }
+  }
+
+  function updateLink(
+    links: SeasonExternalLink[],
+    index: number,
+    patch: Partial<SeasonExternalLink>
+  ): SeasonExternalLink[] {
+    return links.map((link, i) => (i === index ? { ...link, ...patch } : link))
+  }
 </script>
 
 <div class="grid grid-cols-1 gap-4">
@@ -125,7 +163,7 @@
     >
       Create Season
     </div>
-    <div class="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-5">
+    <div class="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-6">
       <input
         bind:value={createSeasonCode}
         oninput={(e) => onCreateSeasonCodeChange((e.currentTarget as HTMLInputElement).value)}
@@ -137,6 +175,12 @@
         oninput={(e) => onCreateSeasonNameChange((e.currentTarget as HTMLInputElement).value)}
         class="admin-input xl:col-span-2"
         placeholder="Season name"
+      />
+      <CustomSelect
+        options={kindOptions}
+        value={createSeasonKind}
+        compact={true}
+        onSelect={(value) => onCreateSeasonKindChange(value === 'external' ? 'external' : 'rivals')}
       />
       <input
         type="date"
@@ -190,6 +234,7 @@
           {@const state = seasonEditForm[season.id] ?? {
             code: season.code ?? '',
             name: season.name ?? '',
+            kind: (season.kind === 'external' ? 'external' : 'rivals') as SeasonKind,
             startsOn: season.starts_on ?? '',
             endsOn: season.ends_on ?? '',
             isActive: Boolean(season.is_active),
@@ -203,6 +248,8 @@
                   (name): name is string => typeof name === 'string'
                 )
               : [],
+            sections: allSectionsOn(),
+            links: [],
           }}
           {@const isResultsExpanded = expandedResultsSeasonId === season.id}
           <article
@@ -278,21 +325,41 @@
               />
             </div>
             <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
-              <label
-                class="inline-flex items-center gap-2 text-sm"
-                style="color: rgba(255,255,255,0.82);"
-              >
-                <input
-                  type="checkbox"
-                  checked={state.isActive}
-                  onchange={(e) =>
-                    onSeasonEditChange(season.id, {
-                      ...state,
-                      isActive: (e.currentTarget as HTMLInputElement).checked,
-                    })}
-                />
-                Active season
-              </label>
+              <div class="flex flex-wrap items-center gap-3">
+                <label
+                  class="inline-flex items-center gap-2 text-sm"
+                  style="color: rgba(255,255,255,0.82);"
+                >
+                  <input
+                    type="checkbox"
+                    checked={state.isActive}
+                    onchange={(e) =>
+                      onSeasonEditChange(season.id, {
+                        ...state,
+                        isActive: (e.currentTarget as HTMLInputElement).checked,
+                      })}
+                  />
+                  Active season
+                </label>
+                <label
+                  class="inline-flex items-center gap-2 text-sm"
+                  style="color: rgba(255,255,255,0.82);"
+                >
+                  Type
+                  <div style="min-width: 130px;">
+                    <CustomSelect
+                      options={kindOptions}
+                      value={state.kind}
+                      compact={true}
+                      onSelect={(value) =>
+                        onSeasonEditChange(season.id, {
+                          ...state,
+                          kind: value === 'external' ? 'external' : 'rivals',
+                        })}
+                    />
+                  </div>
+                </label>
+              </div>
               <button
                 type="button"
                 class="admin-btn admin-btn-info text-sm"
@@ -522,6 +589,105 @@
                         {/each}
                       </div>
                     {/if}
+                  </div>
+
+                  <!-- Event page profile: which sections show + outbound links.
+                       Most useful for external events that host their rulebook /
+                       signup / FAQ elsewhere and don't run a full bracket. -->
+                  <div class="admin-bordered mt-2 p-2">
+                    <div class="mb-2 text-xs font-semibold" style="color: rgba(255,255,255,0.82);">
+                      Event Page Sections
+                    </div>
+                    <div class="flex flex-wrap gap-x-4 gap-y-2">
+                      {#each SEASON_SECTION_KEYS as key (key)}
+                        <label
+                          class="inline-flex items-center gap-2 text-xs"
+                          style="color: rgba(255,255,255,0.82);"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={sectionsOf(state)[key]}
+                            onchange={(e) =>
+                              onSeasonEditChange(season.id, {
+                                ...state,
+                                sections: toggleSection(
+                                  state,
+                                  key,
+                                  (e.currentTarget as HTMLInputElement).checked
+                                ),
+                              })}
+                          />
+                          {SEASON_SECTION_LABELS[key]}
+                        </label>
+                      {/each}
+                    </div>
+
+                    <div
+                      class="mt-3 mb-2 flex items-center gap-2 text-xs font-semibold"
+                      style="color: rgba(255,255,255,0.82);"
+                    >
+                      External Links
+                      <span style="color: rgba(255,255,255,0.5);">
+                        Rulebook / signup / FAQ hosted elsewhere
+                      </span>
+                    </div>
+                    <div class="flex flex-col gap-2">
+                      {#each state.links ?? [] as link, i (i)}
+                        <div class="flex flex-wrap items-center gap-2">
+                          <input
+                            value={link.label}
+                            class="admin-input"
+                            style="max-width: 160px;"
+                            placeholder="Label (e.g. Rulebook)"
+                            oninput={(e) =>
+                              onSeasonEditChange(season.id, {
+                                ...state,
+                                links: updateLink(state.links, i, {
+                                  label: (e.currentTarget as HTMLInputElement).value,
+                                }),
+                              })}
+                          />
+                          <input
+                            value={link.url}
+                            class="admin-input flex-1"
+                            style="min-width: 200px;"
+                            placeholder="https://…"
+                            oninput={(e) =>
+                              onSeasonEditChange(season.id, {
+                                ...state,
+                                links: updateLink(state.links, i, {
+                                  url: (e.currentTarget as HTMLInputElement).value,
+                                }),
+                              })}
+                          />
+                          <button
+                            type="button"
+                            class="admin-btn admin-btn-sm admin-btn-danger"
+                            aria-label="Remove link"
+                            onclick={() =>
+                              onSeasonEditChange(season.id, {
+                                ...state,
+                                links: state.links.filter((_, idx) => idx !== i),
+                              })}
+                          >
+                            <X size={13} />
+                          </button>
+                        </div>
+                      {/each}
+                      <div>
+                        <button
+                          type="button"
+                          class="admin-btn admin-btn-sm admin-btn-neutral inline-flex items-center gap-1"
+                          onclick={() =>
+                            onSeasonEditChange(season.id, {
+                              ...state,
+                              links: [...(state.links ?? []), { label: '', url: '' }],
+                            })}
+                        >
+                          <Plus size={13} /> Add link
+                        </button>
+                      </div>
+                    </div>
                   </div>
 
                   <div class="mt-2 flex justify-end">

@@ -18,16 +18,25 @@
   const mapPool = $derived(season.map_pool ?? [])
   const isAdmin = $derived(data.viewer?.isAdmin ?? false)
 
+  // Presentation profile: which sections show + outbound links. Defaults to
+  // everything on, so rivals events are unaffected.
+  const sections = $derived(data.profile.sections)
+  const externalLinks = $derived(data.profile.links ?? [])
+
   type TabId = 'overview' | 'bracket' | 'standings' | 'matches' | 'teams' | 'maps'
   let activeTab = $state<TabId>('overview')
 
   const tabs = $derived.by(() => {
     const items: Array<{ id: TabId; label: string }> = [{ id: 'overview', label: 'Overview' }]
-    if (bracket.slots.length > 0) items.push({ id: 'bracket', label: 'Bracket' })
-    if (leaderboard.length > 0) items.push({ id: 'standings', label: 'Standings' })
-    if (matches.length > 0) items.push({ id: 'matches', label: `Matches (${matches.length})` })
-    if (teams.length > 0) items.push({ id: 'teams', label: `Teams (${teams.length})` })
-    if (mapPool.length > 0) items.push({ id: 'maps', label: 'Map Pool' })
+    if (sections.bracket && bracket.slots.length > 0)
+      items.push({ id: 'bracket', label: 'Bracket' })
+    if (sections.standings && leaderboard.length > 0)
+      items.push({ id: 'standings', label: 'Standings' })
+    if (sections.matches && matches.length > 0)
+      items.push({ id: 'matches', label: `Matches (${matches.length})` })
+    if (sections.teams && teams.length > 0)
+      items.push({ id: 'teams', label: `Teams (${teams.length})` })
+    if (sections.mapPool && mapPool.length > 0) items.push({ id: 'maps', label: 'Map Pool' })
     return items
   })
 
@@ -76,8 +85,23 @@
           {#if season.is_active}
             <span class="badge badge-active">Active</span>
           {/if}
+          {#if season.kind === 'external'}
+            <span class="badge badge-external">External</span>
+          {/if}
         </div>
         <p class="season-dates">{formatRange(season.starts_on, season.ends_on)}</p>
+        {#if externalLinks.length > 0}
+          <div class="event-links">
+            {#each externalLinks as link (link.url)}
+              <!-- Off-site links (rulebook / signup / FAQ) live elsewhere for
+                   non-rivals events, so open in a new tab. -->
+              <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+              <a href={link.url} class="event-link" target="_blank" rel="noopener noreferrer">
+                {link.label}
+              </a>
+            {/each}
+          </div>
+        {/if}
       </div>
       {#if isAdmin}
         <AdminEditLink href="/admin?tab=seasons" label="Manage Season" />
@@ -177,7 +201,7 @@
           {/if}
         </div>
 
-        {#if mapPool.length > 0}
+        {#if sections.mapPool && mapPool.length > 0}
           <section class="panel">
             <h2 class="block-title">
               Map Pool <span class="block-count">{mapPool.length}</span>
@@ -186,14 +210,14 @@
           </section>
         {/if}
 
-        {#if teams.length > 0}
+        {#if sections.teams && teams.length > 0}
           <section class="panel">
             <h2 class="block-title">Teams <span class="block-count">{teams.length}</span></h2>
             {@render teamsGrid()}
           </section>
         {/if}
 
-        {#if leaderboard.length > 0}
+        {#if sections.standings && leaderboard.length > 0}
           <section class="panel">
             <h2 class="block-title">
               Standings
@@ -205,14 +229,14 @@
           </section>
         {/if}
 
-        {#if bracket.slots.length > 0}
+        {#if sections.bracket && bracket.slots.length > 0}
           <section class="panel">
             <h2 class="block-title">Playoff Bracket</h2>
             <ArchiveBracket slots={bracket.slots} teams={bracket.teams} seeds={bracket.seeds} />
           </section>
         {/if}
 
-        {#if matches.length > 0}
+        {#if sections.matches && matches.length > 0}
           <section class="panel">
             <h2 class="block-title">
               Matches <span class="block-count">{matches.length}</span>
@@ -250,13 +274,15 @@
       </div>
     {/if}
 
-    <CommentThread
-      entityType="season"
-      entityId={season.id}
-      comments={data.comments ?? []}
-      viewerId={data.viewer?.profileId ?? null}
-      isAdmin={data.viewer?.isAdmin ?? false}
-    />
+    {#if sections.comments}
+      <CommentThread
+        entityType="season"
+        entityId={season.id}
+        comments={data.comments ?? []}
+        viewerId={data.viewer?.profileId ?? null}
+        isAdmin={data.viewer?.isAdmin ?? false}
+      />
+    {/if}
   </div>
 </PageContainer>
 
@@ -453,10 +479,41 @@
     color: #86efac;
   }
 
+  .badge-external {
+    background: rgba(96, 165, 250, 0.16);
+    color: #93c5fd;
+  }
+
   .season-dates {
     font-size: 0.8125rem;
     color: rgba(255, 255, 255, 0.64);
     margin-top: 0.25rem;
+  }
+
+  .event-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.625rem;
+  }
+
+  .event-link {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    padding: 0.3125rem 0.75rem;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.86);
+    text-decoration: none;
+    transition:
+      background 0.15s ease,
+      border-color 0.15s ease;
+  }
+
+  .event-link:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.24);
   }
 
   /* Podium */

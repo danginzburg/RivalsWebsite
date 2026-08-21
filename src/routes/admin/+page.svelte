@@ -46,6 +46,7 @@
     SignupEditState,
     TeamEditState,
   } from '$lib/admin/types'
+  import { resolveSeasonProfile } from '$lib/seasons/profile'
   import type { PageData, PageProps } from './$types'
 
   let { data: pageData }: PageProps = $props()
@@ -86,6 +87,7 @@
   let showCompletedAdminMatches = $state(false)
   let createSeasonCode = $state('')
   let createSeasonName = $state('')
+  let createSeasonKind = $state<'rivals' | 'external'>('rivals')
   let createSeasonStartsOn = $state('')
   let createSeasonEndsOn = $state('')
   let createSeasonIsActive = $state(false)
@@ -1232,9 +1234,11 @@
   $effect(() => {
     const next: Record<string, SeasonEditState> = {}
     for (const season of seasons ?? []) {
+      const profile = resolveSeasonProfile(season.metadata as Record<string, unknown> | null)
       next[season.id] = seasonEditForm[season.id] ?? {
         code: season.code ?? '',
         name: season.name ?? '',
+        kind: season.kind === 'external' ? 'external' : 'rivals',
         startsOn: season.starts_on ?? '',
         endsOn: season.ends_on ?? '',
         isActive: Boolean(season.is_active),
@@ -1248,6 +1252,8 @@
               (name): name is string => typeof name === 'string'
             )
           : [],
+        sections: profile.sections,
+        links: profile.links,
       }
     }
     const keys = Object.keys(next)
@@ -1650,6 +1656,7 @@
         body: {
           code: createSeasonCode,
           name: createSeasonName,
+          kind: createSeasonKind,
           startsOn: createSeasonStartsOn || null,
           endsOn: createSeasonEndsOn || null,
           isActive: createSeasonIsActive,
@@ -1659,6 +1666,7 @@
       successMessage = 'Season created.'
       createSeasonCode = ''
       createSeasonName = ''
+      createSeasonKind = 'rivals'
       createSeasonStartsOn = ''
       createSeasonEndsOn = ''
       createSeasonIsActive = false
@@ -1683,6 +1691,7 @@
           id: seasonId,
           code: state.code,
           name: state.name,
+          kind: state.kind,
           startsOn: state.startsOn || null,
           endsOn: state.endsOn || null,
           isActive: Boolean(state.isActive),
@@ -1692,6 +1701,7 @@
           mvpProfileId: state.mvpProfileId || null,
           finalLeaderboardBatchId: state.finalLeaderboardBatchId || null,
           mapPool: state.mapPool ?? [],
+          profile: { sections: state.sections, links: state.links },
         },
         fallbackMessage: 'Failed to update season',
       })
@@ -2290,6 +2300,7 @@
         valorantMaps={data.valorantMaps ?? []}
         {createSeasonCode}
         {createSeasonName}
+        {createSeasonKind}
         {createSeasonStartsOn}
         {createSeasonEndsOn}
         {createSeasonIsActive}
@@ -2297,6 +2308,7 @@
         {seasonEditForm}
         onCreateSeasonCodeChange={(value) => (createSeasonCode = value)}
         onCreateSeasonNameChange={(value) => (createSeasonName = value)}
+        onCreateSeasonKindChange={(value) => (createSeasonKind = value)}
         onCreateSeasonStartsOnChange={(value) => (createSeasonStartsOn = value)}
         onCreateSeasonEndsOnChange={(value) => (createSeasonEndsOn = value)}
         onCreateSeasonIsActiveChange={(value) => (createSeasonIsActive = value)}

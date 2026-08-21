@@ -48,6 +48,27 @@ const SEASON_STAT_BATCHES: Record<string, string[]> = {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
+/**
+ * The stats picker and API address a whole-season aggregate with a synthetic id
+ * `season:<code>` (e.g. `season:rivals4`) rather than a real
+ * `stat_import_batches` UUID. Nothing is materialized in the database — the API
+ * recognises this shape, resolves it to the season's phase batches, and sums
+ * them on the fly. The `season:` prefix cannot collide with a UUID batch id.
+ */
+export const FULL_SEASON_BATCH_PREFIX = 'season:'
+
+export function toFullSeasonBatchId(code: string): string {
+  return `${FULL_SEASON_BATCH_PREFIX}${code}`
+}
+
+/** The season `code` inside a `season:<code>` id, or null for any other id. */
+export function parseFullSeasonBatchId(batchId: string | null | undefined): string | null {
+  if (typeof batchId !== 'string') return null
+  if (!batchId.startsWith(FULL_SEASON_BATCH_PREFIX)) return null
+  const code = batchId.slice(FULL_SEASON_BATCH_PREFIX.length).trim()
+  return code === '' ? null : code
+}
+
 export type SeasonRef = {
   code?: string | null
   metadata?: { stat_batches?: unknown } | null

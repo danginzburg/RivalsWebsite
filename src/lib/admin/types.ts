@@ -1,4 +1,5 @@
 import type { MatchStreamRow } from '$lib/server/db-rows'
+import type { SeasonExternalLink, SeasonKind, SeasonSectionKey } from '$lib/seasons/profile'
 
 export type AdminTabId =
   | 'users'
@@ -174,6 +175,7 @@ export type AdminSeason = {
   id: string
   code: string
   name: string
+  kind?: SeasonKind | null
   starts_on: string | null
   ends_on: string | null
   is_active: boolean | null
@@ -284,6 +286,7 @@ export type MatchStreamFormState = {
 export type SeasonEditState = {
   code: string
   name: string
+  kind: SeasonKind
   startsOn: string
   endsOn: string
   isActive: boolean
@@ -294,6 +297,10 @@ export type SeasonEditState = {
   finalLeaderboardBatchId: string
   /** Canonical Valorant map names shown as the season's map pool. */
   mapPool: string[]
+  /** Which event-page sections are shown (all on by default). */
+  sections: Record<SeasonSectionKey, boolean>
+  /** Outbound links (e.g. off-site rulebook / signup / FAQ). */
+  links: SeasonExternalLink[]
 }
 
 export type PendingRoleChange = {
