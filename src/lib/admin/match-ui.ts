@@ -11,6 +11,21 @@ export function toDatetimeLocal(value: string | null | undefined): string {
   return `${yyyy}-${mm}-${dd}T${hh}:${min}`
 }
 
+/**
+ * Inverse of {@link toDatetimeLocal}: turn a `<input type="datetime-local">`
+ * value (a bare wall-clock string with no timezone) into an absolute UTC ISO
+ * string. This MUST run in the browser so the viewer's timezone is applied —
+ * `new Date('2026-08-21T14:00')` uses the runtime's local zone, and on the
+ * server that's UTC, which silently shifts the stored time. Returns null for
+ * empty/invalid input.
+ */
+export function fromDatetimeLocal(value: string | null | undefined): string | null {
+  if (!value) return null
+  const date = new Date(value)
+  if (!Number.isFinite(date.getTime())) return null
+  return date.toISOString()
+}
+
 export function teamName(value: unknown): string {
   if (!value) return 'Team'
   if (Array.isArray(value)) {

@@ -6,9 +6,14 @@ import { countUnread } from '$lib/server/notifications'
 export const load: LayoutServerLoad = async ({ locals }) => {
   const { data: activeSeason } = await supabaseAdmin
     .from('seasons')
-    .select('id, pickem_events (status)')
+    .select('id, kind, pickem_events (status)')
     .eq('is_active', true)
     .maybeSingle()
+
+  // External events reuse the match/stats/standings infrastructure but host
+  // their rulebook / signup / FAQ elsewhere, so the Rivals-only nav tabs are
+  // hidden while an external event is the active season.
+  const activeSeasonKind = activeSeason?.kind === 'external' ? 'external' : 'rivals'
 
   const pickemStatus = (
     Array.isArray(activeSeason?.pickem_events)
@@ -24,6 +29,7 @@ export const load: LayoutServerLoad = async ({ locals }) => {
   return {
     user: locals.user,
     hasActivePickem,
+    activeSeasonKind,
     unreadNotifications,
   }
 }

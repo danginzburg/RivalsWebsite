@@ -2,6 +2,7 @@ import { supabaseAdmin } from '$lib/supabase/admin'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
 import { getSeasonLogoUrl } from '$lib/server/seasons/logo'
 import { normalizePickemSeeds } from '$lib/pickems'
+import { legacyBracketSeedCount } from '$lib/server/seasons/legacyBracket'
 
 type TeamRel = { id: string; name: string; tag?: string | null; logo_path?: string | null }
 type ProfileRel = { id: string; display_name: string | null; riot_id_base: string | null }
@@ -103,6 +104,12 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     const mvp = firstRel(season.mvp as unknown as ProfileRel | ProfileRel[] | null)
     const pickem = pickemBySeason.get(season.id) ?? null
     const counts = matchCounts.get(season.id) ?? { total: 0, completed: 0 }
+    // Archived seasons keep their bracket in `seasons.metadata`, not the pick'em
+    // tables — the detail page already falls back to it, so the list must too or
+    // those seasons show no playoff label despite rendering a full bracket.
+    const legacySeedCount =
+      pickem && pickem.seedCount > 0 ? 0 : legacyBracketSeedCount(season.metadata)
+    const playoffTeamCount = pickem?.seedCount ? pickem.seedCount : legacySeedCount
 
     return {
       id: season.id,
@@ -133,9 +140,9 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
       match_count: counts.total,
       completed_count: counts.completed,
       team_count: teamCounts.get(season.id) ?? 0,
-      has_bracket: pickem?.format === 'bracket' && pickem.seedCount > 0,
+      has_bracket: (pickem?.format === 'bracket' && pickem.seedCount > 0) || legacySeedCount > 0,
       // Seeds actually assigned a team — how many made playoffs.
-      playoff_team_count: pickem?.seedCount ?? 0,
+      playoff_team_count: playoffTeamCount,
     }
   })
 

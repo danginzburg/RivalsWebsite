@@ -47,6 +47,7 @@
     TeamEditState,
   } from '$lib/admin/types'
   import { resolveSeasonProfile } from '$lib/seasons/profile'
+  import { onMount } from 'svelte'
   import type { PageData, PageProps } from './$types'
 
   let { data: pageData }: PageProps = $props()
@@ -59,6 +60,49 @@
 
   let activeTab = $state<AdminTabId>('matches')
   let isLoading = $state(false)
+
+  // Remember the tab across visits. Restored in onMount (not the state
+  // initializer) so the server render and hydration both start on 'matches'
+  // and only then switch, avoiding a hydration mismatch.
+  const ACTIVE_TAB_STORAGE_KEY = 'admin:activeTab'
+  const ADMIN_TAB_IDS: readonly AdminTabId[] = [
+    'users',
+    'teams',
+    'matches',
+    'seasons',
+    'pickems',
+    'accolades',
+    'hall-of-fame',
+    'moderation',
+    'signups',
+  ]
+
+  function selectTab(tab: AdminTabId) {
+    activeTab = tab
+    try {
+      localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, tab)
+    } catch {
+      // Ignore storage failures (private mode, quota) — the tab still switches.
+    }
+    if (tab === 'accolades' && !accoladesLoaded) loadAccolades()
+    if (tab === 'hall-of-fame' && !hallOfFameLoaded) loadHallOfFame()
+    if (tab === 'moderation' && !commentReportsLoaded) loadCommentReports()
+    if (tab === 'moderation' && !reviewFlagsLoaded) loadReviewFlags()
+    if (tab === 'moderation' && !bugReportsLoaded) loadBugReports()
+    if (tab === 'signups' && !signupsLoaded) loadSignups()
+  }
+
+  onMount(() => {
+    let stored: string | null = null
+    try {
+      stored = localStorage.getItem(ACTIVE_TAB_STORAGE_KEY)
+    } catch {
+      // Ignore — fall back to the default tab.
+    }
+    if (stored && stored !== activeTab && ADMIN_TAB_IDS.includes(stored as AdminTabId)) {
+      selectTab(stored as AdminTabId)
+    }
+  })
   let errorMessage = $state<string | null>(null)
   let successMessage = $state<string | null>(null)
 
@@ -2160,15 +2204,7 @@
     {isLoading}
     {errorMessage}
     {successMessage}
-    onTabChange={(tab) => {
-      activeTab = tab
-      if (tab === 'accolades' && !accoladesLoaded) loadAccolades()
-      if (tab === 'hall-of-fame' && !hallOfFameLoaded) loadHallOfFame()
-      if (tab === 'moderation' && !commentReportsLoaded) loadCommentReports()
-      if (tab === 'moderation' && !reviewFlagsLoaded) loadReviewFlags()
-      if (tab === 'moderation' && !bugReportsLoaded) loadBugReports()
-      if (tab === 'signups' && !signupsLoaded) loadSignups()
-    }}
+    onTabChange={selectTab}
     onRefresh={refreshData}
   >
     {#if activeTab === 'users'}

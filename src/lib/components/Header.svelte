@@ -29,6 +29,9 @@
   const user = $derived($page.data.user)
   const isAdmin = $derived(user?.role === 'admin')
   const hasActivePickem = $derived($page.data.hasActivePickem ?? false)
+  // While an external event is the active season, hide the Rivals-only tabs
+  // (Calculator, Rulebook, FAQ, Signup) — that event hosts them elsewhere.
+  const isExternalSeason = $derived($page.data.activeSeasonKind === 'external')
   const unreadNotifications = $derived($page.data.unreadNotifications ?? 0)
 
   type NavHref =
@@ -56,10 +59,14 @@
     { href: '/events', label: 'Events', icon: CalendarClock },
     // { href: '/hall-of-fame', label: 'Hall of Fame', icon: Award },
     { href: '/stats', label: 'Stats', icon: BarChart3 },
-    { href: '/team-balance', label: 'Calculator', icon: Calculator },
-    { href: '/rulebook', label: 'Rulebook', icon: BookOpen },
-    { href: '/faq', label: 'FAQ', icon: HelpCircle },
-    { href: '/signup', label: 'Signup', icon: ClipboardList },
+    ...(isExternalSeason
+      ? []
+      : [
+          { href: '/team-balance' as NavHref, label: 'Calculator', icon: Calculator },
+          { href: '/rulebook' as NavHref, label: 'Rulebook', icon: BookOpen },
+          { href: '/faq' as NavHref, label: 'FAQ', icon: HelpCircle },
+          { href: '/signup' as NavHref, label: 'Signup', icon: ClipboardList },
+        ]),
   ])
 
   /** Icon-only items pinned to the right of the nav. */
