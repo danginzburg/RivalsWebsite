@@ -6,7 +6,7 @@ import { enforceRateLimit } from '$lib/server/rate-limit'
 import { RiotLookupError } from '$lib/server/riot/henrik'
 import { fetchMatch, toImportMap, MATCH_REGIONS, type MatchRegion } from '$lib/server/riot/match'
 import { parseMatchIdList } from '$lib/server/riot/match-id'
-import { resolveSeriesTeams } from '$lib/server/riot/match-teams'
+import { resolveSeriesTeams, resolveSeriesTeamsManual } from '$lib/server/riot/match-teams'
 import {
   buildProfileMatcher,
   getProfilesForImports,
@@ -45,6 +45,16 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   const region = parseRegion(body.region)
   const dryRun = body.dryRun === true
   const { ids, unparsed } = parseMatchIdList(typeof body.input === 'string' ? body.input : '')
+
+  // When the rosters can't identify the teams, the admin picks them by hand and
+  // resends with these two ids — the import then runs exactly as it would have,
+  // just with the teams given rather than inferred.
+  const manualTeamAId = typeof body.teamAId === 'string' ? body.teamAId.trim() : ''
+  const manualTeamBId = typeof body.teamBId === 'string' ? body.teamBId.trim() : ''
+  const hasManualTeams = manualTeamAId.length > 0 && manualTeamBId.length > 0
+  if (hasManualTeams && manualTeamAId === manualTeamBId) {
+    throw error(400, 'Pick two different teams.')
+  }
 
   if (ids.length === 0) {
     throw error(400, 'No Riot match ids or tracker.gg match links found in that input.')
@@ -101,19 +111,37 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   }
 
   const first = matches[0]
-  const resolved = resolveSeriesTeams(
-    first.players.map((p) => ({ riotId: p.riotId, team: p.team, puuid: p.puuid })),
-    resolveTeamId
-  )
+  const toSidePlayers = (match: (typeof matches)[number]) =>
+    match.players.map((p) => ({ riotId: p.riotId, team: p.team, puuid: p.puuid }))
+
+  // One resolver for the series and every map: hand-picked teams when the admin
+  // supplied them, otherwise the automatic roster vote.
+  const resolveSeries = (match: (typeof matches)[number]) =>
+    hasManualTeams
+      ? resolveSeriesTeamsManual(toSidePlayers(match), resolveTeamId, manualTeamAId, manualTeamBId)
+      : resolveSeriesTeams(toSidePlayers(match), resolveTeamId)
+
+  const resolved = resolveSeries(first)
 
   if (!resolved.ok) {
-    throw error(
-      422,
-      `${resolved.failure.reason}${
-        resolved.failure.unmatched.length > 0
-          ? ` Unrecognised players: ${resolved.failure.unmatched.join(', ')}.`
-          : ''
-      }`
+    const suffix =
+      resolved.failure.unmatched.length > 0
+        ? ` Unrecognised players: ${resolved.failure.unmatched.join(', ')}.`
+        : ''
+
+    // With teams already hand-picked there is nothing left to fall back to, so
+    // this is a hard failure. Otherwise, tell the client the teams could not be
+    // identified so it can offer the manual team picker rather than dead-ending.
+    if (hasManualTeams) throw error(422, `${resolved.failure.reason}${suffix}`)
+
+    return json(
+      {
+        success: false,
+        needsManualTeams: true,
+        reason: `${resolved.failure.reason}${suffix}`,
+        unmatchedPlayers: resolved.failure.unmatched,
+      },
+      { status: 422 }
     )
   }
 
@@ -137,10 +165,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
    * be read.
    */
   const maps = matches.map((match, index) => {
-    const perMap = resolveSeriesTeams(
-      match.players.map((p) => ({ riotId: p.riotId, team: p.team, puuid: p.puuid })),
-      resolveTeamId
-    )
+    const perMap = resolveSeries(match)
 
     const sideForTeamA = perMap.ok
       ? perMap.resolution.teamAId === teamAId
