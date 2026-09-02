@@ -96,12 +96,51 @@
 
   let riotPreview = $state<RiotPreview | null>(null)
 
+  /**
+   * When the rosters can't identify the teams the server asks for them by hand:
+   * the admin picks a season and the two teams from it, and the import reruns
+   * with those ids. Kept separate from a plain error so the picker can appear.
+   */
+  let riotNeedsManualTeams = $state(false)
+  let riotManualReason = $state<string | null>(null)
+  let riotManualUnmatched = $state<string[]>([])
+  let riotManualSeasonId = $state('')
+  let riotManualTeamAId = $state('')
+  let riotManualTeamBId = $state('')
+
+  const manualSeasonTeams = $derived(
+    (data.teams ?? []).filter(
+      (team) => !riotManualSeasonId || team.season_id === riotManualSeasonId
+    )
+  )
+
+  const manualSeasonOptions = $derived([
+    { value: '', label: 'All seasons' },
+    ...(data.seasons ?? []).map((season) => ({
+      value: season.id,
+      label: `${season.name}${season.is_active ? ' (active)' : ''}`,
+    })),
+  ])
+
+  const manualTeamOptions = $derived([
+    { value: '', label: 'Select team…' },
+    ...manualSeasonTeams.map((team) => ({
+      value: team.id,
+      label: `${team.name}${team.tag ? ` [${team.tag}]` : ''}`,
+    })),
+  ])
+
   /** Preview first, then import — the failure worth catching is wrong teams. */
   async function runRiotImport(dryRun: boolean) {
     isSubmitting = true
     riotDryRun = dryRun
     parseError = null
     submitMessage = null
+
+    const manualTeams =
+      riotNeedsManualTeams && riotManualTeamAId && riotManualTeamBId
+        ? { teamAId: riotManualTeamAId, teamBId: riotManualTeamBId }
+        : {}
 
     try {
       const response = await fetch('/api/admin/matches/import-riot', {
@@ -112,16 +151,32 @@
           region: riotRegion,
           dryRun,
           ...(riotBestOf ? { bestOf: Number(riotBestOf) } : {}),
+          ...manualTeams,
         }),
       })
       const payload = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(payload?.message ?? 'Import failed')
+      if (!response.ok) {
+        if (payload?.needsManualTeams) {
+          riotNeedsManualTeams = true
+          riotManualReason = payload.reason ?? 'Could not identify both teams.'
+          riotManualUnmatched = payload.unmatchedPlayers ?? []
+          if (!riotManualSeasonId) riotManualSeasonId = data.activeSeasonId ?? ''
+          return
+        }
+        throw new Error(payload?.message ?? 'Import failed')
+      }
 
+      // A clean run means the teams resolved — retire any manual prompt.
+      riotNeedsManualTeams = false
       riotPreview = payload.preview ?? null
       submitMessage = dryRun
         ? 'Preview only — nothing has been saved yet.'
         : `Imported ${payload.preview?.maps?.length ?? 0} map(s) for ${payload.preview?.teamA?.name} vs ${payload.preview?.teamB?.name}.`
-      if (!dryRun) riotInput = ''
+      if (!dryRun) {
+        riotInput = ''
+        riotManualTeamAId = ''
+        riotManualTeamBId = ''
+      }
     } catch (err) {
       parseError = err instanceof Error ? err.message : 'Import failed'
     } finally {
@@ -622,6 +677,100 @@
                     {riotPreview.unmatchedPlayers.join(', ')}
                   </div>
                 {/if}
+              </div>
+            {/if}
+
+            {#if riotNeedsManualTeams}
+              <div class="admin-alert admin-alert-warn mt-3 space-y-3">
+                <div class="text-sm font-semibold" style="color: var(--text);">
+                  Pick the teams by hand
+                </div>
+                <p class="text-xs leading-relaxed" style="color: rgba(255,255,255,0.72);">
+                  {riotManualReason}
+                </p>
+                {#if riotManualUnmatched.length > 0}
+                  <p class="text-xs" style="color: #fbbf24;">
+                    Unrecognised players: {riotManualUnmatched.join(', ')}
+                  </p>
+                {/if}
+
+                <label class="block text-sm" style="color: var(--text);">
+                  <span
+                    class="mb-1 block text-xs font-semibold uppercase"
+                    style="color: rgba(255,255,255,0.7);">Season</span
+                  >
+                  <div class="max-w-xs">
+                    <CustomSelect
+                      options={manualSeasonOptions}
+                      bind:value={riotManualSeasonId}
+                      disabled={isSubmitting}
+                    />
+                  </div>
+                </label>
+
+                <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <label class="block text-sm" style="color: var(--text);">
+                    <span
+                      class="mb-1 block text-xs font-semibold uppercase"
+                      style="color: rgba(255,255,255,0.7);">Team A</span
+                    >
+                    <CustomSelect
+                      options={manualTeamOptions}
+                      bind:value={riotManualTeamAId}
+                      placeholder="Select team…"
+                      disabled={isSubmitting}
+                    />
+                  </label>
+                  <label class="block text-sm" style="color: var(--text);">
+                    <span
+                      class="mb-1 block text-xs font-semibold uppercase"
+                      style="color: rgba(255,255,255,0.7);">Team B</span
+                    >
+                    <CustomSelect
+                      options={manualTeamOptions}
+                      bind:value={riotManualTeamBId}
+                      placeholder="Select team…"
+                      disabled={isSubmitting}
+                    />
+                  </label>
+                </div>
+
+                <div class="flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    class="admin-btn admin-btn-neutral text-sm"
+                    onclick={() => runRiotImport(true)}
+                    disabled={isSubmitting ||
+                      !riotManualTeamAId ||
+                      !riotManualTeamBId ||
+                      riotManualTeamAId === riotManualTeamBId}
+                  >
+                    {#if isSubmitting && riotDryRun}
+                      <span class="inline-flex items-center gap-2">
+                        <Loader2 size={16} class="animate-spin" /> Checking…
+                      </span>
+                    {:else}
+                      Preview with these teams
+                    {/if}
+                  </button>
+                  <button
+                    type="button"
+                    class="admin-btn admin-btn-info text-sm"
+                    onclick={() => runRiotImport(false)}
+                    disabled={isSubmitting ||
+                      !riotManualTeamAId ||
+                      !riotManualTeamBId ||
+                      riotManualTeamAId === riotManualTeamBId}
+                  >
+                    {#if isSubmitting && !riotDryRun}
+                      <span class="inline-flex items-center gap-2">
+                        <Loader2 size={16} class="animate-spin" /> Saving…
+                      </span>
+                    {:else}
+                      Import with these teams
+                    {/if}
+                  </button>
+                </div>
               </div>
             {/if}
           </div>

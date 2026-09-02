@@ -148,3 +148,71 @@ export function resolveSeriesTeams(
     },
   }
 }
+
+/**
+ * Resolve a series to two teams the admin picked by hand.
+ *
+ * Used when {@link resolveSeriesTeams} cannot identify the teams on its own —
+ * too few recognised players, an even split, or nobody registered at all. The
+ * teams are a given here; the one thing still to work out is which Valorant
+ * side each is on, and that answer still comes from the players: whichever side
+ * has more of team A's roster is taken as team A's side. With no recognised
+ * players the sides are a guess (natural order), which the caller corrects by
+ * re-running this per map — the same way the automatic path re-derives sides.
+ */
+export function resolveSeriesTeamsManual(
+  players: SidePlayer[],
+  resolveTeamId: (riotId: string, puuid?: string | null) => string | null,
+  teamAId: string,
+  teamBId: string
+): { ok: true; resolution: TeamResolution } | { ok: false; failure: TeamResolutionFailure } {
+  const sides = Array.from(new Set(players.map((p) => p.team)))
+  if (sides.length !== 2) {
+    return {
+      ok: false,
+      failure: {
+        reason: `Expected two teams in the match, found ${sides.length}.`,
+        unmatched: [],
+        candidates: [],
+      },
+    }
+  }
+
+  const [sideA, sideB] = sides
+  const tally = new Map<string, { a: number; b: number }>([
+    [sideA, { a: 0, b: 0 }],
+    [sideB, { a: 0, b: 0 }],
+  ])
+  // Players on neither chosen team, so they import by name only — the same
+  // meaning `unmatched` carries out of the automatic path.
+  const unmatched: string[] = []
+
+  for (const player of players) {
+    const side = tally.get(player.team)
+    if (!side) continue
+    const teamId = resolveTeamId(player.riotId, player.puuid)
+    if (teamId === teamAId) side.a += 1
+    else if (teamId === teamBId) side.b += 1
+    else unmatched.push(player.riotId)
+  }
+
+  // Net lean toward team A on each side; the side leaning harder toward team A
+  // is team A's. A tie (including no recognised players) keeps the natural
+  // order, leaving sideA as team A.
+  const leanA = tally.get(sideA)!.a - tally.get(sideA)!.b
+  const leanB = tally.get(sideB)!.a - tally.get(sideB)!.b
+  const teamAValorantSide = leanA >= leanB ? sideA : sideB
+  const teamBValorantSide = teamAValorantSide === sideA ? sideB : sideA
+
+  return {
+    ok: true,
+    resolution: {
+      teamAValorantSide,
+      teamAId,
+      teamBId,
+      teamAVotes: tally.get(teamAValorantSide)!.a,
+      teamBVotes: tally.get(teamBValorantSide)!.b,
+      unmatched,
+    },
+  }
+}

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { MIN_ROSTER_VOTES, resolveSeriesTeams, type SidePlayer } from './match-teams'
+import {
+  MIN_ROSTER_VOTES,
+  resolveSeriesTeams,
+  resolveSeriesTeamsManual,
+  type SidePlayer,
+} from './match-teams'
 
 /** Five Reds on team-a, five Blues on team-b, unless overridden. */
 function roster(overrides: Record<string, string | null> = {}): {
@@ -125,6 +130,85 @@ describe('resolveSeriesTeams', () => {
 
   it('fails when the match does not have exactly two sides', () => {
     const result = resolveSeriesTeams([{ riotId: 'a#NA1', team: 'Red' }], () => 'team-a')
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.failure.reason).toMatch(/found 1/)
+  })
+})
+
+describe('resolveSeriesTeamsManual', () => {
+  it('puts team A on the side where its roster is recognised', () => {
+    // Only one recognised player per side — too few for the automatic path,
+    // but enough to tell which side each hand-picked team is on.
+    const players: SidePlayer[] = [
+      { riotId: 'red0#NA1', team: 'Red' },
+      { riotId: 'blue0#NA1', team: 'Blue' },
+    ]
+    const resolve = (id: string) =>
+      id === 'red0#NA1' ? 'team-a' : id === 'blue0#NA1' ? 'team-b' : null
+
+    const result = resolveSeriesTeamsManual(players, resolve, 'team-a', 'team-b')
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.resolution.teamAValorantSide).toBe('Red')
+    expect(result.resolution.teamAId).toBe('team-a')
+    expect(result.resolution.teamBId).toBe('team-b')
+  })
+
+  it('flips the side when team A is the one on Blue', () => {
+    const players: SidePlayer[] = [
+      { riotId: 'red0#NA1', team: 'Red' },
+      { riotId: 'blue0#NA1', team: 'Blue' },
+    ]
+    const resolve = (id: string) =>
+      id === 'red0#NA1' ? 'team-b' : id === 'blue0#NA1' ? 'team-a' : null
+
+    const result = resolveSeriesTeamsManual(players, resolve, 'team-a', 'team-b')
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.resolution.teamAValorantSide).toBe('Blue')
+  })
+
+  it('defaults team A to the first side when no players are recognised', () => {
+    const players: SidePlayer[] = [
+      { riotId: 'x#NA1', team: 'Red' },
+      { riotId: 'y#NA1', team: 'Blue' },
+    ]
+
+    const result = resolveSeriesTeamsManual(players, () => null, 'team-a', 'team-b')
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.resolution.teamAValorantSide).toBe('Red')
+    expect(result.resolution.unmatched).toEqual(['x#NA1', 'y#NA1'])
+  })
+
+  it('reports players on neither chosen team as unmatched', () => {
+    const players: SidePlayer[] = [
+      { riotId: 'red0#NA1', team: 'Red' },
+      { riotId: 'red1#NA1', team: 'Red' },
+      { riotId: 'blue0#NA1', team: 'Blue' },
+    ]
+    const resolve = (id: string) =>
+      id === 'red0#NA1' ? 'team-a' : id === 'blue0#NA1' ? 'team-b' : 'team-z'
+
+    const result = resolveSeriesTeamsManual(players, resolve, 'team-a', 'team-b')
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.resolution.unmatched).toEqual(['red1#NA1'])
+  })
+
+  it('fails when the match does not have exactly two sides', () => {
+    const result = resolveSeriesTeamsManual(
+      [{ riotId: 'a#NA1', team: 'Red' }],
+      () => 'team-a',
+      'team-a',
+      'team-b'
+    )
 
     expect(result.ok).toBe(false)
     if (result.ok) return
