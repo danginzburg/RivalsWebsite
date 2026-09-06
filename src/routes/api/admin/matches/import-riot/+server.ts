@@ -6,7 +6,11 @@ import { enforceRateLimit } from '$lib/server/rate-limit'
 import { RiotLookupError } from '$lib/server/riot/henrik'
 import { fetchMatch, toImportMap, MATCH_REGIONS, type MatchRegion } from '$lib/server/riot/match'
 import { parseMatchIdList } from '$lib/server/riot/match-id'
-import { resolveSeriesTeams, resolveSeriesTeamsManual } from '$lib/server/riot/match-teams'
+import {
+  resolveSeriesTeams,
+  resolveSeriesTeamsManual,
+  sideForTeamAByContinuity,
+} from '$lib/server/riot/match-teams'
 import {
   buildProfileMatcher,
   getProfilesForImports,
@@ -95,6 +99,23 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   ])
   const profileMatcher = buildProfileMatcher(profiles, riotAccounts)
 
+  // Only the active season's teams count. A membership stays `is_active` after a
+  // season ends, so a returning player carries live memberships on several teams
+  // across seasons; without this scope the profile→team map takes whichever row
+  // happened to be read last and can resolve a player onto a team they were on a
+  // season ago, mis-identifying the match.
+  const { data: activeSeason } = await supabaseAdmin
+    .from('seasons')
+    .select('id')
+    .eq('is_active', true)
+    .maybeSingle()
+
+  const { data: activeTeams } = await supabaseAdmin
+    .from('teams')
+    .select('id')
+    .eq('season_id', activeSeason?.id ?? '')
+  const activeTeamIds = new Set((activeTeams ?? []).map((t) => String(t.id)))
+
   const { data: memberships } = await supabaseAdmin
     .from('team_memberships')
     .select('profile_id, team_id')
@@ -102,7 +123,9 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
   const teamByProfileId = new Map<string, string>()
   for (const row of memberships ?? []) {
-    if (row.profile_id) teamByProfileId.set(String(row.profile_id), String(row.team_id))
+    if (row.profile_id && activeTeamIds.has(String(row.team_id))) {
+      teamByProfileId.set(String(row.profile_id), String(row.team_id))
+    }
   }
 
   const resolveTeamId = (riotId: string, puuid?: string | null) => {
@@ -159,20 +182,34 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   if (!teamAName || !teamBName) throw error(422, 'Resolved a team that no longer exists.')
 
   /**
-   * Sides swap at half time and between maps, so team A's colour on map 2 is
-   * not necessarily its colour on map 1. Re-derive it per map from that map's
-   * own players, falling back to the series mapping when a map's roster cannot
-   * be read.
+   * Sides swap between maps, so team A's colour on map 2 is not its colour on
+   * map 1. The reliable signal is the roster itself: the same players carry
+   * across the series, so we anchor team A's side on map 1 and follow those
+   * players to whichever side they are on for each later map. This holds even
+   * when nobody in the lobby is on a known league roster — the case where the
+   * per-map vote has nothing to decide and, left to itself, would pin team A to
+   * the Riot player-array order and flip a map (turning a 2-0 into a 1-1).
+   *
+   * Per-map vote resolution is kept only as a fallback for the rare map whose
+   * roster does not carry over at all, and the series anchor as the last resort.
    */
+  const anchorTeamAPuuids = new Set(
+    first.players
+      .filter((p) => p.team === teamAValorantSide)
+      .map((p) => p.puuid)
+      .filter((puuid): puuid is string => Boolean(puuid))
+  )
+
   const maps = matches.map((match, index) => {
     const perMap = resolveSeries(match)
-
-    const sideForTeamA = perMap.ok
+    const perMapSide = perMap.ok
       ? perMap.resolution.teamAId === teamAId
         ? perMap.resolution.teamAValorantSide
-        : (match.teams.find((t) => t.id !== perMap.resolution.teamAValorantSide)?.id ??
-          teamAValorantSide)
-      : teamAValorantSide
+        : (match.teams.find((t) => t.id !== perMap.resolution.teamAValorantSide)?.id ?? null)
+      : null
+
+    const sideForTeamA =
+      sideForTeamAByContinuity(anchorTeamAPuuids, match.players) ?? perMapSide ?? teamAValorantSide
 
     return toImportMap(match, {
       teamAValorantSide: sideForTeamA,

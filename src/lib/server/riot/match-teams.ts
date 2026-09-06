@@ -150,6 +150,43 @@ export function resolveSeriesTeams(
 }
 
 /**
+ * Which Valorant side team A is on for one map, by roster continuity.
+ *
+ * Red/Blue swap between maps, but the same ten players carry across the series,
+ * so team A's side on any map is whichever side holds most of the players who
+ * were on team A's side on the anchor map (map 1). This reads the players alone
+ * — no league-roster lookup — so it stays correct even when the lobby is full of
+ * unregistered players or stand-ins, which is exactly when per-map vote
+ * resolution has nothing to decide on and would otherwise fall back to the Riot
+ * player-array order and flip a map's result.
+ *
+ * Returns null when neither side holds a clear majority of the anchor roster (a
+ * wholesale roster change between maps, or missing puuids), so the caller can
+ * fall back to another signal.
+ */
+export function sideForTeamAByContinuity(
+  anchorTeamAPuuids: Set<string>,
+  mapPlayers: Array<{ team: string; puuid?: string | null }>
+): string | null {
+  if (anchorTeamAPuuids.size === 0) return null
+
+  const overlap = new Map<string, number>()
+  for (const p of mapPlayers) {
+    if (p.puuid && anchorTeamAPuuids.has(p.puuid)) {
+      overlap.set(p.team, (overlap.get(p.team) ?? 0) + 1)
+    }
+  }
+
+  const ranked = [...overlap.entries()].sort((a, b) => b[1] - a[1])
+  const [best, runnerUp] = ranked
+  if (!best || best[1] === 0) return null
+  // A tie means the anchor roster is split evenly across both sides, so it can't
+  // say which side is team A's — leave it to the caller.
+  if (runnerUp && runnerUp[1] === best[1]) return null
+  return best[0]
+}
+
+/**
  * Resolve a series to two teams the admin picked by hand.
  *
  * Used when {@link resolveSeriesTeams} cannot identify the teams on its own —
