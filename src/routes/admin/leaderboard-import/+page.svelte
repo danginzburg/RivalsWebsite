@@ -6,21 +6,20 @@
   import { resolve } from '$app/paths'
   import { SvelteMap } from 'svelte/reactivity'
   import {
-    parseLeaderboardCsv,
-    type LeaderboardCsvLayout,
-    type LeaderboardCsvRow,
+    parseLeaderboardCsvWithMapping,
+    readCsvHeaders,
+    guessMapping,
+    missingRequiredFields,
+    LEADERBOARD_FIELDS,
+    type LeaderboardMapping,
   } from '$lib/admin/leaderboard-csv'
 
   let { data }: PageProps = $props()
   const seasons = $derived(data.seasons ?? [])
 
-  /** The shared row plus the preview-only match result this page shows. */
-  type ParsedRow = LeaderboardCsvRow & {
-    matchedTeamId: string | null
-  }
-
-  let parsedRows = $state<ParsedRow[]>([])
-  let csvLayout = $state<LeaderboardCsvLayout | null>(null)
+  let rawText = $state('')
+  let headers = $state<string[]>([])
+  let mapping = $state<LeaderboardMapping | null>(null)
   let fileName = $state('')
   let displayName = $state('')
   let seasonId = $state('')
@@ -66,6 +65,43 @@
       ''
   })
 
+  /** The dropdown for every field offers "none" plus each header in the file. */
+  const columnOptions = $derived([
+    { value: '', label: '— Not mapped —' },
+    ...headers.map((header) => ({ value: header, label: header })),
+  ])
+
+  const missingRequired = $derived(mapping ? missingRequiredFields(mapping) : [])
+
+  /**
+   * Rows and the ignored-column list are recomputed whenever the mapping
+   * changes, so adjusting a dropdown updates the preview live. Parsing throws
+   * only on a structurally unusable file (or an unmapped TEAM), surfaced as a
+   * parse error rather than a crash.
+   */
+  const parsed = $derived.by(() => {
+    if (!rawText || !mapping) {
+      return { rows: [], unmappedColumns: [] as string[], error: null as string | null }
+    }
+    try {
+      const result = parseLeaderboardCsvWithMapping(rawText, mapping)
+      return { rows: result.rows, unmappedColumns: result.unmappedColumns, error: null }
+    } catch (err) {
+      return {
+        rows: [],
+        unmappedColumns: [],
+        error: err instanceof Error ? err.message : 'Failed to parse leaderboard CSV',
+      }
+    }
+  })
+
+  const parsedRows = $derived(
+    parsed.rows.map((row) => ({
+      ...row,
+      matchedTeamId: teamMap.get(normalizeKey(row.team)) ?? null,
+    }))
+  )
+
   const stats = $derived.by(() => {
     const matched = parsedRows.filter((row) => row.matchedTeamId).length
     return {
@@ -75,34 +111,41 @@
     }
   })
 
-  function parseCSV(text: string) {
-    const parsed = parseLeaderboardCsv(text)
-    csvLayout = parsed.layout
-    parsedRows = parsed.rows.map((row) => ({
-      ...row,
-      matchedTeamId: teamMap.get(normalizeKey(row.team)) ?? null,
-    }))
+  function setMapping(field: string, value: string) {
+    if (!mapping) return
+    mapping = { ...mapping, [field]: value || null }
   }
 
   function handleFile(file: File) {
     parseError = null
     submitMessage = null
+    unmatchedTeams = []
     fileName = file.name
     if (!displayName.trim()) displayName = file.name
 
     const reader = new FileReader()
+    reader.onerror = () => {
+      parseError = 'Failed to read the CSV file'
+    }
     reader.onload = (event) => {
-      try {
-        parseCSV(String(event.target?.result ?? ''))
-      } catch (err) {
-        parseError = err instanceof Error ? err.message : 'Failed to parse leaderboard CSV'
-        parsedRows = []
+      const text = String(event.target?.result ?? '')
+      const fileHeaders = readCsvHeaders(text)
+      if (fileHeaders.length === 0) {
+        parseError = 'That CSV has no header row'
+        rawText = ''
+        headers = []
+        mapping = null
+        return
       }
+      rawText = text
+      headers = fileHeaders
+      mapping = guessMapping(fileHeaders)
     }
     reader.readAsText(file)
   }
 
   async function submitImport() {
+    if (!mapping) return
     isSubmitting = true
     submitMessage = null
 
@@ -117,7 +160,7 @@
           asOfDate,
           sourceFilename: fileName,
           displayName,
-          sourceLayout: csvLayout,
+          sourceMapping: mapping,
         }),
       })
 
@@ -128,7 +171,9 @@
       submitMessage = result.skipped
         ? `Imported ${result.imported} leaderboard rows and skipped ${result.skipped} unmatched team${result.skipped === 1 ? '' : 's'}.`
         : `Imported ${result.imported} leaderboard rows.`
-      parsedRows = []
+      rawText = ''
+      headers = []
+      mapping = null
       fileName = ''
       displayName = ''
     } catch (err) {
@@ -202,10 +247,9 @@
           </div>
         {/if}
 
-        {#if csvLayout === 'maps_only'}
-          <div class="admin-alert admin-alert-warn mt-3">
-            Older maps-only sheet detected. WINS/LOSSES are map results and there is no series
-            record, so the map figures are used for both.
+        {#if parsed.error}
+          <div class="admin-alert admin-alert-error mt-3">
+            {parsed.error}
           </div>
         {/if}
 
@@ -221,6 +265,43 @@
           </div>
         {/if}
       </section>
+
+      {#if headers.length > 0 && mapping}
+        <section class="admin-card admin-card-pad">
+          <div class="admin-section-title">Column Mapping</div>
+          <div class="admin-hint mt-1">
+            Each stat is matched to a column from your file automatically. Adjust any that guessed
+            wrong; the preview below updates as you go. Team and Points are required.
+          </div>
+
+          <div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {#each LEADERBOARD_FIELDS as field (field.id)}
+              <div>
+                <div class="admin-field-label">
+                  {field.label}{#if field.required}<span style="color: #fca5a5;"> *</span>{/if}
+                </div>
+                <CustomSelect
+                  options={columnOptions}
+                  value={mapping[field.id] ?? ''}
+                  onSelect={(value) => setMapping(field.id, value)}
+                />
+              </div>
+            {/each}
+          </div>
+
+          {#if missingRequired.length > 0}
+            <div class="admin-alert admin-alert-error mt-3">
+              Map a column for {missingRequired.map((field) => field.label).join(' and ')} before importing.
+            </div>
+          {/if}
+
+          {#if parsed.unmappedColumns.length > 0}
+            <div class="admin-alert admin-alert-warn mt-3">
+              These columns are not being imported: {parsed.unmappedColumns.join(', ')}
+            </div>
+          {/if}
+        </section>
+      {/if}
 
       <section class="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div class="admin-stat">
@@ -250,7 +331,7 @@
             type="button"
             class="admin-btn admin-btn-info flex-shrink-0"
             onclick={submitImport}
-            disabled={isSubmitting || parsedRows.length === 0}
+            disabled={isSubmitting || parsedRows.length === 0 || missingRequired.length > 0}
           >
             {#if isSubmitting}
               <span class="inline-flex items-center gap-2"

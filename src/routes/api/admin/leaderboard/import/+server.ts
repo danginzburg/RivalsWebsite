@@ -125,9 +125,12 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       as_of_date: asOfDate,
       season_name: season?.name ?? null,
       unmatched_teams: unresolved,
-      // Which sheet layout this came from. `maps_only` means the series
-      // columns are mirrored map figures, not a real series record.
-      source_layout: normalizeOptional(body.sourceLayout) ?? 'series_and_maps',
+      // How the CSV columns were mapped onto the canonical fields, kept for the
+      // import audit. Older imports carried a `source_layout` string instead;
+      // it is preserved when a client still sends one.
+      source_mapping:
+        body.sourceMapping && typeof body.sourceMapping === 'object' ? body.sourceMapping : null,
+      source_layout: normalizeOptional(body.sourceLayout),
     },
   })
 

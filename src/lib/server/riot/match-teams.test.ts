@@ -3,6 +3,7 @@ import {
   MIN_ROSTER_VOTES,
   resolveSeriesTeams,
   resolveSeriesTeamsManual,
+  sideForTeamAByContinuity,
   type SidePlayer,
 } from './match-teams'
 
@@ -134,6 +135,72 @@ describe('resolveSeriesTeams', () => {
     expect(result.ok).toBe(false)
     if (result.ok) return
     expect(result.failure.reason).toMatch(/found 1/)
+  })
+})
+
+describe('sideForTeamAByContinuity', () => {
+  // Five players carried from map 1's team-A side.
+  const anchor = new Set(['p1', 'p2', 'p3', 'p4', 'p5'])
+  const withPuuid = (team: string, puuid: string) => ({ team, puuid })
+
+  it('follows the anchor roster to whichever side it sits on after a swap', () => {
+    // Same five players, now on Red instead of Blue; the other five on Blue.
+    const players = [
+      withPuuid('Red', 'p1'),
+      withPuuid('Red', 'p2'),
+      withPuuid('Red', 'p3'),
+      withPuuid('Red', 'p4'),
+      withPuuid('Red', 'p5'),
+      withPuuid('Blue', 'q1'),
+      withPuuid('Blue', 'q2'),
+      withPuuid('Blue', 'q3'),
+      withPuuid('Blue', 'q4'),
+      withPuuid('Blue', 'q5'),
+    ]
+    expect(sideForTeamAByContinuity(anchor, players)).toBe('Red')
+  })
+
+  it('returns the same side when the roster has not swapped', () => {
+    const players = [
+      withPuuid('Blue', 'p1'),
+      withPuuid('Blue', 'p2'),
+      withPuuid('Blue', 'p3'),
+      withPuuid('Red', 'q1'),
+      withPuuid('Red', 'q2'),
+    ]
+    expect(sideForTeamAByContinuity(anchor, players)).toBe('Blue')
+  })
+
+  it('still decides on a majority when a stand-in replaces one anchor player', () => {
+    // Four of the five anchor players are on Red; a sub took the fifth slot.
+    const players = [
+      withPuuid('Red', 'p1'),
+      withPuuid('Red', 'p2'),
+      withPuuid('Red', 'p3'),
+      withPuuid('Red', 'p4'),
+      withPuuid('Red', 'sub'),
+      withPuuid('Blue', 'q1'),
+    ]
+    expect(sideForTeamAByContinuity(anchor, players)).toBe('Red')
+  })
+
+  it('returns null when the anchor roster is split evenly across both sides', () => {
+    const players = [
+      withPuuid('Red', 'p1'),
+      withPuuid('Red', 'p2'),
+      withPuuid('Blue', 'p3'),
+      withPuuid('Blue', 'p4'),
+    ]
+    expect(sideForTeamAByContinuity(anchor, players)).toBeNull()
+  })
+
+  it('returns null when none of the anchor roster is present', () => {
+    const players = [withPuuid('Red', 'x'), withPuuid('Blue', 'y')]
+    expect(sideForTeamAByContinuity(anchor, players)).toBeNull()
+  })
+
+  it('returns null for an empty anchor set', () => {
+    expect(sideForTeamAByContinuity(new Set(), [withPuuid('Red', 'p1')])).toBeNull()
   })
 })
 

@@ -1818,7 +1818,7 @@
     errorMessage = null
     successMessage = null
     try {
-      const { layout, rows } = await readLeaderboardCsvFile(file)
+      const { mapping, unmappedColumns, rows } = await readLeaderboardCsvFile(file)
       if (rows.length === 0) throw new Error('That CSV has no standings rows')
 
       const result = await adminJsonRequest<{
@@ -1836,7 +1836,7 @@
           asOfDate: season.ends_on ?? new Date().toISOString().slice(0, 10),
           sourceFilename: file.name,
           displayName: `${season.name} Final Standings`,
-          sourceLayout: layout,
+          sourceMapping: mapping,
         },
         fallbackMessage: 'Failed to import standings CSV',
       })
@@ -1855,11 +1855,12 @@
       }
 
       const unmatched = result.unmatchedTeams ?? []
-      const mapsOnlyNote =
-        layout === 'maps_only' ? ' Maps-only sheet: map W/L used as the season record.' : ''
+      const ignoredNote = unmappedColumns.length
+        ? ` Ignored columns: ${unmappedColumns.join(', ')}.`
+        : ''
       successMessage = unmatched.length
-        ? `Imported ${result.imported} rows for ${season.name}; skipped unmatched teams: ${unmatched.join(', ')}.${mapsOnlyNote} Save the season to pin it.`
-        : `Imported ${result.imported} rows for ${season.name}.${mapsOnlyNote} Save the season to pin it.`
+        ? `Imported ${result.imported} rows for ${season.name}; skipped unmatched teams: ${unmatched.join(', ')}.${ignoredNote} Save the season to pin it.`
+        : `Imported ${result.imported} rows for ${season.name}.${ignoredNote} Save the season to pin it.`
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Failed to import standings CSV'
     } finally {

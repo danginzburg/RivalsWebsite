@@ -70,11 +70,13 @@
       }
 
       // All tab groups by state so live and upcoming stay on top, with
-      // completed matches trailing behind in reverse-chronological order.
+      // completed matches trailing behind. Every group reads newest-first so
+      // the whole list is one consistent reverse-chronological timeline —
+      // upcoming shouldn't flip to soonest-first and break that order.
       if (activeTab === 'all') {
         const rankDiff = statusRank(a) - statusRank(b)
         if (rankDiff !== 0) return rankDiff
-        if (statusRank(a) === 2) return playedTime(b) - playedTime(a)
+        return playedTime(b) - playedTime(a)
       }
 
       // Live and upcoming: soonest first.
