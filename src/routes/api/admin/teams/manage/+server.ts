@@ -2,7 +2,7 @@ import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { logAdminAction } from '$lib/server/audit/admin-actions'
-import { resolveProfileIdForPlayerName } from '$lib/server/teams/membership'
+import { resolveRosterIdentity } from '$lib/server/teams/membership'
 
 function normalizeOptional(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -41,8 +41,25 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   const profileId = normalizeOptional(body.profileId)
   const playerName = normalizeOptional(body.playerName)
   const role = normalizeMembershipRole(body.role)
-  const resolvedProfileId =
-    profileId ?? (playerName ? await resolveProfileIdForPlayerName(playerName) : null)
+
+  // Resolve the typed identity to a profile + PUUID so the slot can be matched
+  // to imported stats by identity (see resolveRosterIdentity). An explicit
+  // profileId from a picker wins; otherwise the player name is resolved.
+  const identity = playerName
+    ? await resolveRosterIdentity(playerName)
+    : { profileId: null, puuid: null, playerName: '' }
+  const resolvedProfileId = profileId ?? identity.profileId
+  let resolvedPuuid = identity.puuid
+  // When the picker supplied a profile directly, pull its PUUID for matching.
+  if (profileId && !resolvedPuuid) {
+    const { data: primary } = await supabaseAdmin
+      .from('profile_riot_accounts')
+      .select('riot_puuid')
+      .eq('profile_id', profileId)
+      .eq('is_primary', true)
+      .maybeSingle()
+    resolvedPuuid = (primary?.riot_puuid as string | null) ?? null
+  }
 
   if (!teamId || (!resolvedProfileId && !playerName))
     throw error(400, 'Missing teamId and player identity')
@@ -133,6 +150,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       team_id: teamId,
       profile_id: resolvedProfileId,
       player_name: playerName,
+      puuid: resolvedPuuid,
       role,
       joined_at: today,
       is_active: true,

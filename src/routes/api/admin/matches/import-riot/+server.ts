@@ -30,6 +30,44 @@ function parseRegion(value: unknown): MatchRegion {
   return raw as MatchRegion
 }
 
+type ForfeitMapSpec = {
+  /** 1-based position in the series; the map is inserted at this order. */
+  order: number
+  /** Which resolved series team won the forfeit — 'a' is teamA, 'b' is teamB. */
+  winnerSide: 'a' | 'b'
+  winnerRounds: number
+  loserRounds: number
+  label: string | null
+}
+
+/**
+ * A forfeited map is optional and entirely hand-entered, so anything malformed
+ * is treated as "no forfeit map" rather than a hard error. Only the winning side
+ * is required; the scoreline defaults to a standard 13-0 concession.
+ */
+function parseForfeitMap(value: unknown): ForfeitMapSpec | null {
+  if (!value || typeof value !== 'object') return null
+  const raw = value as Record<string, unknown>
+  const winnerSide = raw.winnerSide === 'a' ? 'a' : raw.winnerSide === 'b' ? 'b' : null
+  if (!winnerSide) return null
+
+  const order = Number.isInteger(Number(raw.order)) ? Math.max(1, Number(raw.order)) : 1
+  const winnerRounds =
+    Number.isInteger(Number(raw.winnerRounds)) && Number(raw.winnerRounds) >= 0
+      ? Number(raw.winnerRounds)
+      : 13
+  const loserRounds =
+    Number.isInteger(Number(raw.loserRounds)) && Number(raw.loserRounds) >= 0
+      ? Number(raw.loserRounds)
+      : 0
+  if (winnerRounds <= loserRounds) {
+    throw error(400, 'The forfeit winner must have more rounds than the loser.')
+  }
+  const label = typeof raw.label === 'string' && raw.label.trim() ? raw.label.trim() : null
+
+  return { order, winnerSide, winnerRounds, loserRounds, label }
+}
+
 /**
  * Import a completed series straight from Riot match ids or tracker.gg links.
  *
@@ -60,11 +98,17 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     throw error(400, 'Pick two different teams.')
   }
 
+  // An optional forfeited map has no Riot match id — one team conceded it, so it
+  // is entered by hand: which side won, the scoreline, and where it sits in the
+  // series. It is spliced into the fetched maps and imported alongside them.
+  const forfeitMap = parseForfeitMap(body.forfeitMap)
+
   if (ids.length === 0) {
     throw error(400, 'No Riot match ids or tracker.gg match links found in that input.')
   }
-  if (ids.length > MAX_MAPS) {
-    throw error(400, `That is ${ids.length} matches — a series is at most ${MAX_MAPS} maps.`)
+  const totalMaps = ids.length + (forfeitMap ? 1 : 0)
+  if (totalMaps > MAX_MAPS) {
+    throw error(400, `That is ${totalMaps} maps — a series is at most ${MAX_MAPS} maps.`)
   }
 
   // Each map is one upstream request, so the budget is per-map not per-call.
@@ -219,19 +263,55 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     })
   })
 
+  // Splice the hand-entered forfeit map into the fetched series. It carries no
+  // players and no game id; its position in the array is its map order, and the
+  // winning side is stated relative to the resolved teamA/teamB.
+  type SeriesMap = (typeof maps)[number] & { isForfeit?: boolean; forfeitLabel?: string }
+  const seriesMaps: SeriesMap[] = [...maps]
+  const previewMaps = maps.map((map, index) => ({
+    matchId: matches[index].matchId as string | null,
+    mapName: map.mapName as string | null,
+    startedAt: map.scheduledAt,
+    score: `${map.teamARounds}-${map.teamBRounds}`,
+    playerCount: map.playerRows.length,
+    isForfeit: false,
+  }))
+
+  if (forfeitMap) {
+    const winnerIsA = forfeitMap.winnerSide === 'a'
+    const forfeitTeamARounds = winnerIsA ? forfeitMap.winnerRounds : forfeitMap.loserRounds
+    const forfeitTeamBRounds = winnerIsA ? forfeitMap.loserRounds : forfeitMap.winnerRounds
+    const insertAt = Math.min(Math.max(forfeitMap.order - 1, 0), seriesMaps.length)
+
+    seriesMaps.splice(insertAt, 0, {
+      sourceFilename: 'riot-forfeit-map.json',
+      mapName: null,
+      scheduledAt: first.startedAt,
+      teamAName,
+      teamBName,
+      teamARounds: forfeitTeamARounds,
+      teamBRounds: forfeitTeamBRounds,
+      playerRows: [],
+      isForfeit: true,
+      ...(forfeitMap.label ? { forfeitLabel: forfeitMap.label } : {}),
+    })
+    previewMaps.splice(insertAt, 0, {
+      matchId: null,
+      mapName: 'Forfeit',
+      startedAt: first.startedAt,
+      score: `${forfeitTeamARounds}-${forfeitTeamBRounds}`,
+      playerCount: 0,
+      isForfeit: true,
+    })
+  }
+
   const preview = {
     region,
     teamA: { id: teamAId, name: teamAName, rosterVotes: teamAVotes },
     teamB: { id: teamBId, name: teamBName, rosterVotes: teamBVotes },
     unmatchedPlayers: unmatched,
     unparsedInput: unparsed,
-    maps: maps.map((map, index) => ({
-      matchId: matches[index].matchId,
-      mapName: map.mapName,
-      startedAt: map.scheduledAt,
-      score: `${map.teamARounds}-${map.teamBRounds}`,
-      playerCount: map.playerRows.length,
-    })),
+    maps: previewMaps.map((map, index) => ({ ...map, matchId: map.matchId ?? `forfeit-${index}` })),
   }
 
   if (dryRun) return json({ success: true, dryRun: true, preview })
@@ -240,7 +320,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     payload: {
       displayName: `Riot import ${first.matchId}`,
       bestOf: body.bestOf,
-      maps,
+      maps: seriesMaps,
     },
     adminProfileId: admin.id,
   })

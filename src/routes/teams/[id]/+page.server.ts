@@ -24,13 +24,6 @@ type MembershipRow = {
   role?: string | null
 }
 
-type StatsBatchRow = {
-  id: string
-  season_id?: string | null
-  import_kind?: string | null
-  display_name?: string | null
-}
-
 export const load = async ({ params, locals }: { params: { id: string }; locals: App.Locals }) => {
   const teamId = params.id
   if (!UUID_RE.test(teamId)) throw error(404, 'Team not found')
@@ -133,12 +126,12 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
     )
   )
 
-  // Roster numbers describe the team's own season, not whichever file was
-  // uploaded most recently. Teams that predate season-scoping fall back to the
-  // active season.
-  const teamSeasonId = teamSeasonIdRaw ?? activeSeason?.id ?? null
+  // Roster numbers always describe the active season, regardless of which
+  // season the team itself belongs to. (Bracket seeds above still use the
+  // team's own season.)
+  const statsSeasonId = activeSeason?.id ?? null
 
-  const [{ data: profileRows }, { data: leaderboardEntry }, { data: teamSeason }] =
+  const [{ data: profileRows }, { data: leaderboardEntry }, { data: statsSeason }] =
     await Promise.all([
       profileIds.length > 0
         ? supabaseAdmin
@@ -154,11 +147,11 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
             .eq('team_id', teamId)
             .maybeSingle()
         : Promise.resolve({ data: null }),
-      teamSeasonId
+      statsSeasonId
         ? supabaseAdmin
             .from('seasons')
             .select('id, name, code, metadata')
-            .eq('id', teamSeasonId)
+            .eq('id', statsSeasonId)
             .maybeSingle()
         : Promise.resolve({ data: null }),
     ])
@@ -178,52 +171,26 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
     }
   })
 
-  // Every event of that season — for Season 4 that is Kickoff, the regular
-  // season, play-ins and playoffs — summed into one line per player.
-  let seasonBatchIds = resolveSeasonStatBatchIds(teamSeason)
+  // Every event of the active season — for Season 4 that is Kickoff, the regular
+  // season, play-ins and playoffs — summed into one line per player. The curated
+  // list (or a season's `metadata.stat_batches` override) wins when present.
+  let seasonBatchIds = resolveSeasonStatBatchIds(statsSeason)
 
-  // A season with no curated list (a brand new one, say) falls back to the old
-  // behaviour: the single aggregate import that covers the most of this roster.
-  // Recency alone picks whichever sub-event landed last, which leaves most of
-  // the roster blank.
-  if (seasonBatchIds.length === 0) {
-    const { data: statsBatches } = await supabaseAdmin
+  // A season with no curated list (a newer one run off auto-generated match
+  // batches, say) falls back to every generated stats batch scoped to *this*
+  // season. Generated batches carry a real `season_id`; CSV imports leave it
+  // NULL, so this stays inside the active season instead of borrowing another
+  // season's numbers the way the old coverage-based fallback did.
+  if (seasonBatchIds.length === 0 && statsSeasonId) {
+    const { data: seasonBatches } = await supabaseAdmin
       .from('stat_import_batches')
-      .select('id, season_id, import_kind, display_name, created_at, metadata')
+      .select('id')
       .filter('metadata->>import_type', 'eq', 'rivals_group_stats')
+      .eq('season_id', statsSeasonId)
       .eq('status', 'applied')
-      .order('created_at', { ascending: false })
-      .limit(50)
+      .gt('row_count', 0)
 
-    const candidateIds = ((statsBatches ?? []) as StatsBatchRow[])
-      .filter((batch) => batch.import_kind === 'aggregate')
-      .slice(0, 12)
-      .map((batch) => batch.id)
-
-    const { data: candidateStats } =
-      candidateIds.length > 0 && profileIds.length > 0
-        ? await supabaseAdmin
-            .from('rivals_group_stats')
-            .select('import_batch_id')
-            .in('import_batch_id', candidateIds)
-            .in('profile_id', profileIds)
-        : { data: [] }
-
-    const coverage = new Map<string, number>()
-    for (const row of (candidateStats ?? []) as Array<{ import_batch_id: string }>) {
-      coverage.set(row.import_batch_id, (coverage.get(row.import_batch_id) ?? 0) + 1)
-    }
-    // `candidateIds` is newest-first, so a tie resolves to the more recent import.
-    let best: string | null = null
-    let bestCoverage = 0
-    for (const id of candidateIds) {
-      const hits = coverage.get(id) ?? 0
-      if (hits > bestCoverage) {
-        bestCoverage = hits
-        best = id
-      }
-    }
-    seasonBatchIds = best ? [best] : []
+    seasonBatchIds = ((seasonBatches ?? []) as Array<{ id: string }>).map((b) => b.id)
   }
 
   const [{ data: seasonStatRows }, { data: seasonBatchRows }] = await Promise.all([
@@ -295,7 +262,7 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
     upcomingMatches: withTeamLogos(upcomingMatches ?? []),
     activeSeason: activeSeason ?? null,
     /** The season the roster numbers cover, so the page can say so. */
-    statsSeasonName: teamSeason?.name ?? null,
+    statsSeasonName: statsSeason?.name ?? null,
     /** Every event folded into those numbers, for the card's tooltip. */
     statsSources,
     leaderboard: leaderboardEntry

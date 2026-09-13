@@ -85,6 +85,7 @@
       win_pct: number | null
     }>
   )
+  const mapStatsScope = $derived((data.mapStatsScope ?? null) as string | null)
   const accolades = $derived(
     (data.accolades ?? []) as Array<{
       id: string
@@ -150,9 +151,13 @@
   <section class="card">
     <header class="card-head">
       <h2 class="card-title">{heading}</h2>
-      <span class="card-note-inline"
-        >All recorded maps — the batch selector above does not apply.</span
-      >
+      <span class="card-note-inline">
+        {#if mapStatsScope}
+          Scoped to {mapStatsScope}.
+        {:else}
+          All recorded maps — the batch selector above does not apply.
+        {/if}
+      </span>
     </header>
     <div class="table-scroll">
       <table class="data-table">
@@ -508,7 +513,12 @@
                   <span class="row-logo row-logo-empty"></span>
                 {/if}
 
-                <span class="row-name">{teamName(opp)}</span>
+                <span class="row-name">
+                  {teamName(opp)}
+                  {#if entry.is_sub}
+                    <span class="sub-badge" title="Played as a substitute in this match">SUB</span>
+                  {/if}
+                </span>
 
                 <span class="row-agents">
                   {#each parseAgents(entry.agents) as agent (agent)}
@@ -965,6 +975,20 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     transition: color 0.15s;
+  }
+
+  .sub-badge {
+    display: inline-block;
+    margin-left: 0.25rem;
+    padding: 0 0.3125rem;
+    border-radius: 0.25rem;
+    background: rgba(251, 191, 36, 0.16);
+    color: #fbbf24;
+    border: 1px solid rgba(251, 191, 36, 0.35);
+    font-size: 0.5625rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    vertical-align: middle;
   }
 
   /* Team history — same row rhythm as the match list above it. */

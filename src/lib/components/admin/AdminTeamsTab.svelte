@@ -387,12 +387,16 @@
                 <input
                   value={addState.playerName}
                   class="admin-input"
-                  placeholder="Enter player name as it should appear"
+                  placeholder="Full Riot ID (name#tag) — or an existing player name"
                   oninput={(e) =>
                     onAddPlayerChange(team.id, {
                       playerName: (e.currentTarget as HTMLInputElement).value,
                     })}
                 />
+                <p class="mt-1 text-[10px]" style="color: rgba(255,255,255,0.45);">
+                  Enter the full Riot ID (name#tag) so the slot links to the player's account —
+                  that's what lets their match stats and sub status be detected automatically.
+                </p>
               </div>
               <div>
                 <CustomSelect

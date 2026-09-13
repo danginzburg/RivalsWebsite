@@ -6,6 +6,7 @@
   import ReviewFlagButton from '$lib/components/ReviewFlagButton.svelte'
   import MatchPerformance from '$lib/components/MatchPerformance.svelte'
   import MatchReassignPanel from '$lib/components/MatchReassignPanel.svelte'
+  import MatchSubPanel from '$lib/components/MatchSubPanel.svelte'
   import TeamSeed from '$lib/components/TeamSeed.svelte'
   import {
     BarChart3,
@@ -34,6 +35,7 @@
       playerName: string
       profileId: string | null
       profileName: string | null
+      isSub: boolean
     }> = []
     for (const map of (match?.maps ?? []) as Array<{ stats?: any[] }>) {
       for (const row of map.stats ?? []) {
@@ -47,10 +49,24 @@
           playerName,
           profileId: (row.profile_id as string | null) ?? null,
           profileName: (row.profile_name as string | null) ?? null,
+          isSub: Boolean(row.is_sub),
         })
       }
     }
     return out
+  })
+
+  // Forced overrides, keyed the same way the panel keys players (puuid ?? name).
+  const subOverrideByKey = $derived.by(() => {
+    const map = new Map<string, boolean>()
+    for (const o of (match?.sub_overrides ?? []) as Array<{
+      puuid: string | null
+      player_name: string | null
+      is_sub: boolean
+    }>) {
+      map.set(o.puuid ?? String(o.player_name ?? ''), o.is_sub)
+    }
+    return map
   })
   let activeStatsTab = $state<'total' | string>('total')
 
@@ -276,6 +292,11 @@
                 <!-- playerHref() returns a resolve()-built URL (may include a query string) -->
                 <a href={playerHref(row)} class="player-link">{playerLabel(row)}</a>
                 <!-- eslint-enable svelte/no-navigation-without-resolve -->
+                {#if row.is_sub}
+                  <span class="sub-badge" title="Played as a substitute — not on this team's roster"
+                    >SUB</span
+                  >
+                {/if}
               </td>
               <td class="col-agent">
                 <span class="agents">
@@ -594,6 +615,11 @@
 
             {#if isAdmin && reassignRoster.length > 0}
               <MatchReassignPanel matchId={match.id} players={reassignRoster} />
+              <MatchSubPanel
+                matchId={match.id}
+                players={reassignRoster}
+                overrideByKey={subOverrideByKey}
+              />
             {/if}
           {/if}
         </div>
@@ -1384,6 +1410,21 @@
   .player-link:hover {
     color: var(--accent-text);
     text-decoration: underline;
+  }
+
+  .sub-badge {
+    display: inline-block;
+    margin-left: 0.375rem;
+    padding: 0 0.3125rem;
+    border-radius: 0.25rem;
+    background: rgba(251, 191, 36, 0.16);
+    color: #fbbf24;
+    border: 1px solid rgba(251, 191, 36, 0.35);
+    font-size: 0.5625rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    vertical-align: middle;
+    line-height: 1.4;
   }
 
   .agents {
