@@ -6,6 +6,7 @@ import { loadCommentThread } from '$lib/server/comments'
 import { getViewerProfileId } from '$lib/server/auth/viewer'
 import { getSeasonStandingsRanks } from '$lib/server/leaderboard/ranks'
 import { getValorantMapLookup, parseVetoLine, type VetoStep } from '$lib/server/valorant/maps'
+import { loadRosterSets, loadMatchSubOverrides, resolveIsSub } from '$lib/server/matches/subs'
 
 function normalizePlayerKey(
   teamId: string | null | undefined,
@@ -60,20 +61,29 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
     .eq('match_id', matchId)
     .order('is_primary', { ascending: false })
 
-  const [{ data: maps, error: mapsError }, { data: mapStats, error: mapStatsError }] =
-    await Promise.all([
-      supabaseAdmin
-        .from('match_maps')
-        .select('*')
-        .eq('match_id', matchId)
-        .order('map_order', { ascending: true }),
-      supabaseAdmin
-        .from('player_match_map_stats')
-        .select(
-          'match_map_id, profile_id, team_id, player_name, agents, acs, kills, deaths, assists, kd, adr, kast_pct, hs_pct, econ_rating, rounds, fk, fd, plants, defuses, mk_2k, mk_3k, mk_4k, mk_5k, clutches_won, clutches_attempted, metadata'
-        )
-        .eq('match_id', matchId),
-    ])
+  const [
+    { data: maps, error: mapsError },
+    { data: mapStats, error: mapStatsError },
+    rosterSets,
+    subOverrides,
+  ] = await Promise.all([
+    supabaseAdmin
+      .from('match_maps')
+      .select('*')
+      .eq('match_id', matchId)
+      .order('map_order', { ascending: true }),
+    supabaseAdmin
+      .from('player_match_map_stats')
+      .select(
+        'match_map_id, profile_id, team_id, player_name, agents, acs, kills, deaths, assists, kd, adr, kast_pct, hs_pct, econ_rating, rounds, fk, fd, plants, defuses, mk_2k, mk_3k, mk_4k, mk_5k, clutches_won, clutches_attempted, metadata'
+      )
+      .eq('match_id', matchId),
+    loadRosterSets((match as { season_id?: string | null }).season_id, [
+      match.team_a_id,
+      match.team_b_id,
+    ]),
+    loadMatchSubOverrides(matchId),
+  ])
 
   if (mapsError) throw error(500, 'Failed to load match maps')
   if (mapStatsError) throw error(500, 'Failed to load match map stats')
@@ -105,9 +115,17 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
         const profile = row.profile_id ? profileById.get(row.profile_id) : null
         const fallbackRounds = Number(map.team_a_rounds ?? 0) + Number(map.team_b_rounds ?? 0)
         const rowRounds = Number(row.rounds ?? 0)
+        const puuid = (row.metadata as Record<string, unknown> | null)?.puuid as string | null
         return {
           profile_id: row.profile_id,
           team_id: row.team_id,
+          is_sub: resolveIsSub({
+            overrides: subOverrides,
+            roster: row.team_id ? rosterSets.get(row.team_id) : undefined,
+            profileId: row.profile_id,
+            playerName: row.player_name,
+            puuid,
+          }),
           player_name:
             row.player_name ?? profile?.display_name ?? profile?.riot_id_base ?? 'Player',
           profile_name: profile?.display_name ?? profile?.riot_id_base ?? null,
@@ -135,7 +153,7 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
           clutches_won: row.clutches_won ?? null,
           clutches_attempted: row.clutches_attempted ?? null,
           // Riot puuid keys the head-to-head grid; the breakdown sizes clutches.
-          puuid: (row.metadata as Record<string, unknown> | null)?.puuid as string | null,
+          puuid,
           duels: ((row.metadata as Record<string, unknown> | null)?.duels ?? null) as Record<
             string,
             number
@@ -293,6 +311,8 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
   const totalStats = Array.from(totalByPlayer.values()).map((rows) => ({
     profile_id: rows[0].profile_id,
     team_id: rows[0].team_id,
+    // Sub status is per player, constant across their maps.
+    is_sub: rows[0].is_sub,
     player_name: rows[0].player_name,
     profile_name: rows[0].profile_name,
     agents: Array.from(
@@ -374,6 +394,9 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
       forfeit_display: forfeitDisplay,
       total_stats: totalStats,
       has_real_stats: hasRealStats,
+      // Admin panel shows the current forced overrides; the effective sub badge
+      // for everyone else rides on each stat row's is_sub.
+      sub_overrides: isAdmin ? subOverrides : [],
     },
   }
 }

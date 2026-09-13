@@ -13,10 +13,12 @@ import {
   type StatImportBatchRow,
 } from '$lib/server/stats/rivals-batch'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
+import { resolveSeasonStatBatchIds } from '$lib/server/stats/season-batches'
 import { rematchPlayerMatchMapStatsForBase } from '$lib/server/imports/matching'
 import { rankValue } from '$lib/ranks/ranks'
 import { loadCommentThread } from '$lib/server/comments'
 import { getViewerProfileId } from '$lib/server/auth/viewer'
+import { loadRosterSets, loadSubOverridesForMatches, resolveIsSub } from '$lib/server/matches/subs'
 import { listRiotAccounts, syncPrimaryRiotName } from '$lib/server/players/riot-accounts'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -168,6 +170,7 @@ type TeamLite = {
 
 type MatchRel = {
   id: string
+  season_id?: string | null
   status?: string | null
   approval_status?: string | null
   scheduled_at?: string | null
@@ -187,6 +190,7 @@ type ParticipatedRow = {
   profile_id?: string | null
   player_name?: string | null
   team_id?: string | null
+  metadata?: Record<string, unknown> | null
   agents?: string | null
   acs?: number | null
   kills?: number | null
@@ -202,6 +206,7 @@ type ParticipatedRow = {
 type MatchHistoryEntry = {
   match: MatchRel | null
   team_id: string | null
+  is_sub: boolean
   opponent: TeamLite | null
   score: { us: number; them: number }
   agents: string | null
@@ -236,6 +241,7 @@ type AggregatedStatEntry = {
 }
 
 type PerMapStatRow = {
+  match_id: string | null
   team_id: string | null
   agents: string | null
   acs: number | null
@@ -256,7 +262,11 @@ type PerMapStatRow = {
     is_voided: boolean
     team_a_rounds: number | null
     team_b_rounds: number | null
-    matches: { team_a_id: string | null; team_b_id: string | null } | null
+    matches: {
+      team_a_id: string | null
+      team_b_id: string | null
+      season_id?: string | null
+    } | null
   } | null
 }
 
@@ -389,6 +399,7 @@ export const load = async ({
     teamHistory,
     { data: approvedSignup },
     { data: statsRows },
+    { data: allSeasonsRaw },
   ] = await Promise.all([
     // Rosters are exclusive per season, so a player who has been backfilled into
     // past seasons carries several active memberships at once. The header wants
@@ -429,7 +440,18 @@ export const load = async ({
       .eq('profile_id', profileId)
       .order('imported_at', { ascending: false })
       .limit(200),
+    // For mapping an aggregate batch back to its season, so the Map/Agent
+    // breakdowns can scope to that season's matches.
+    supabaseAdmin.from('seasons').select('id, code, name, metadata'),
   ])
+
+  type SeasonMetaRow = {
+    id: string
+    code?: string | null
+    name?: string | null
+    metadata?: { stat_batches?: unknown } | null
+  }
+  const allSeasons = (allSeasonsRaw ?? []) as SeasonMetaRow[]
 
   type ActiveMembershipRow = {
     role?: string | null
@@ -497,11 +519,21 @@ export const load = async ({
     ? await supabaseAdmin
         .from('stat_import_batches')
         .select(
-          'id, display_name, source_filename, import_kind, week_label, created_at, metadata, sort_order'
+          'id, display_name, source_filename, import_kind, week_label, created_at, metadata, sort_order, season_id'
         )
         .in('id', batchIds)
         .order('created_at', { ascending: false })
     : { data: [] }
+
+  // Raw batch rows keyed by id, for the metadata/season lookup that scopes the
+  // match-based Map/Agent tables below.
+  type RawBatchRow = {
+    id: string
+    season_id?: string | null
+    metadata?: { source_match_ids?: unknown } | null
+  }
+  const rawBatchById = new Map<string, RawBatchRow>()
+  for (const b of (batches ?? []) as RawBatchRow[]) rawBatchById.set(b.id, b)
 
   const batchById = new Map<string, NormalizedRivalsGroupStatBatch>()
   for (const b of batches ?? []) {
@@ -607,6 +639,7 @@ export const load = async ({
       profile_id,
       player_name,
       team_id,
+      metadata,
       agents,
       acs,
       kills,
@@ -618,6 +651,7 @@ export const load = async ({
       hs_pct,
       matches (
         id,
+        season_id,
         status,
         approval_status,
         scheduled_at,
@@ -649,7 +683,7 @@ export const load = async ({
   )
 
   const perMapSelect =
-    'id, team_id, agents, acs, kills, deaths, assists, kd, adr, kast_pct, hs_pct, rounds, fk, fd, plants, defuses, match_maps(map_name, is_voided, team_a_rounds, team_b_rounds, matches(team_a_id, team_b_id))'
+    'id, match_id, team_id, agents, acs, kills, deaths, assists, kd, adr, kast_pct, hs_pct, rounds, fk, fd, plants, defuses, match_maps(map_name, is_voided, team_a_rounds, team_b_rounds, matches(team_a_id, team_b_id, season_id))'
 
   const [
     { data: accoladeAssignments },
@@ -738,10 +772,51 @@ export const load = async ({
     groupedParticipation.set(matchRel.id, current)
   }
 
+  // Sub detection for the history rows: a team's roster is judged in its own
+  // season, and each team belongs to one season, so rosters merge into a single
+  // team-keyed map without collision. Overrides are fetched once for all matches.
+  const seasonToTeams = new Map<string, Set<string>>()
+  const historyMatchIds: string[] = []
+  for (const rows of groupedParticipation.values()) {
+    const r = rows[0]
+    const matchRel = Array.isArray(r.matches) ? r.matches[0] : r.matches
+    if (matchRel?.id) historyMatchIds.push(matchRel.id)
+    const seasonKey = matchRel?.season_id ?? ''
+    const teamId = r.team_id ?? null
+    if (!teamId) continue
+    const set = seasonToTeams.get(seasonKey) ?? new Set<string>()
+    set.add(teamId)
+    seasonToTeams.set(seasonKey, set)
+  }
+
+  const rosterByTeam = new Map<
+    string,
+    { profileIds: Set<string>; names: Set<string>; puuids: Set<string> }
+  >()
+  const [subOverridesByMatch, ...rosterResults] = await Promise.all([
+    loadSubOverridesForMatches(historyMatchIds),
+    ...Array.from(seasonToTeams.entries()).map(([seasonKey, teams]) =>
+      loadRosterSets(seasonKey || null, Array.from(teams))
+    ),
+  ])
+  for (const result of rosterResults) {
+    for (const [teamId, roster] of result) rosterByTeam.set(teamId, roster)
+  }
+
   const matchHistory = Array.from(groupedParticipation.values())
     .map((rows): MatchHistoryEntry => {
       const r = rows[0]
       const matchRel = Array.isArray(r.matches) ? r.matches[0] : r.matches
+      const puuid = (r.metadata as Record<string, unknown> | null)?.puuid as string | null
+      const isSub = r.team_id
+        ? resolveIsSub({
+            overrides: matchRel?.id ? (subOverridesByMatch.get(matchRel.id) ?? []) : [],
+            roster: rosterByTeam.get(r.team_id),
+            profileId,
+            playerName: r.player_name,
+            puuid,
+          })
+        : false
       const perspectiveTeamId =
         activeTeam &&
         (activeTeam.id === matchRel?.team_a_id || activeTeam.id === matchRel?.team_b_id)
@@ -778,6 +853,7 @@ export const load = async ({
       return {
         match: matchRel ?? null,
         team_id: perspectiveTeamId ?? null,
+        is_sub: isSub,
         opponent,
         score,
         agents: agents || null,
@@ -818,8 +894,53 @@ export const load = async ({
     return mm && !mm.is_voided && mm.map_name
   })
 
+  // The Map/Agent breakdowns come from match imports, not leaderboard batches,
+  // so the batch selector can only scope them indirectly. A batch generated from
+  // matches carries the exact `source_match_ids` behind it — the precise scope.
+  // Older season aggregates have no such list, so they fall back to their season
+  // (curated mapping first, then the batch's own season_id column). Weekly CSV
+  // batches and "All Time" aggregates resolve to neither and leave the tables
+  // showing every recorded map.
+  let mapStatsScope: string | null = null
+  let scopedMatchIds: Set<string> | null = null
+  let scopedSeasonId: string | null = null
+
+  if (selected?.batch?.import_kind === 'aggregate' && selected.import_batch_id) {
+    const rawBatch = rawBatchById.get(selected.import_batch_id)
+    const sourceMatchIds = rawBatch?.metadata?.source_match_ids
+    if (Array.isArray(sourceMatchIds) && sourceMatchIds.length > 0) {
+      scopedMatchIds = new Set(sourceMatchIds.filter((id): id is string => typeof id === 'string'))
+      mapStatsScope = selected.batch.display_name ?? null
+    } else {
+      for (const s of allSeasons) {
+        if (resolveSeasonStatBatchIds(s).includes(selected.import_batch_id)) {
+          scopedSeasonId = s.id
+          mapStatsScope = s.name ?? s.code ?? null
+          break
+        }
+      }
+      if (!scopedSeasonId && rawBatch?.season_id) {
+        scopedSeasonId = rawBatch.season_id
+        const s = allSeasons.find((x) => x.id === scopedSeasonId)
+        mapStatsScope = s?.name ?? s?.code ?? selected.batch.display_name ?? null
+      }
+    }
+  }
+
+  const matchIdScope = scopedMatchIds
+  const seasonScope = scopedSeasonId
+  const scopedMapStats = matchIdScope
+    ? validMapStats.filter((r) => r.match_id != null && matchIdScope.has(r.match_id))
+    : seasonScope
+      ? validMapStats.filter((r) => {
+          const mm = Array.isArray(r.match_maps) ? r.match_maps[0] : r.match_maps
+          const match = mm && (Array.isArray(mm.matches) ? mm.matches[0] : mm.matches)
+          return match?.season_id === seasonScope
+        })
+      : validMapStats
+
   const byMap = new Map<string, PerMapStatRow[]>()
-  for (const r of validMapStats) {
+  for (const r of scopedMapStats) {
     const mm = Array.isArray(r.match_maps) ? r.match_maps[0] : r.match_maps
     const mapName = mm?.map_name ?? 'Unknown'
     const arr = byMap.get(mapName) ?? []
@@ -832,7 +953,7 @@ export const load = async ({
     .sort((a, b) => b.maps_played - a.maps_played)
 
   const byAgent = new Map<string, PerMapStatRow[]>()
-  for (const r of validMapStats) {
+  for (const r of scopedMapStats) {
     const agents = String(r.agents ?? '')
       .split(/\s+/)
       .map((a) => a.trim())
@@ -914,6 +1035,10 @@ export const load = async ({
     matchHistory,
     mapStats,
     agentStats,
+    // Non-null when the Map/Agent tables are scoped by the selected aggregate
+    // batch (to its source matches or season); null when they show every
+    // recorded map.
+    mapStatsScope,
   }
 }
 

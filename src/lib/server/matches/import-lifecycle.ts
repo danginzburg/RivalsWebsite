@@ -62,6 +62,13 @@ type MapInput = {
   teamBRounds?: unknown
   displayName?: unknown
   playerRows?: unknown
+  /**
+   * A forfeited map has a score but never happened — there is no game id and no
+   * scoreboard. It carries no player rows, contributes its result to the series
+   * score, and records who forfeited so the match page can label it.
+   */
+  isForfeit?: unknown
+  forfeitLabel?: unknown
 }
 
 type MatchRow = {
@@ -238,7 +245,9 @@ export async function importCompletedSeries({
     if (mapTeams[0] !== canonicalTeams[0] || mapTeams[1] !== canonicalTeams[1]) {
       throw error(400, `Map ${index + 1} teams do not match the rest of the series`)
     }
-    if (!Array.isArray(map.playerRows) || map.playerRows.length === 0) {
+    // A forfeited map has no scoreboard by design, so it is the one map allowed
+    // to arrive with no players.
+    if (map.isForfeit !== true && (!Array.isArray(map.playerRows) || map.playerRows.length === 0)) {
       throw error(400, `Map ${index + 1} has no player rows`)
     }
   }
@@ -331,7 +340,10 @@ export async function importCompletedSeries({
 
     const rawTeamARounds = parseInteger(map.teamARounds, `Map ${mapIndex + 1} Team A rounds`)
     const rawTeamBRounds = parseInteger(map.teamBRounds, `Map ${mapIndex + 1} Team B rounds`)
-    const rawRows = (map.playerRows as PlayerRowInput[]).map((row, index) => ({
+    const playerRowsInput = Array.isArray(map.playerRows)
+      ? (map.playerRows as PlayerRowInput[])
+      : []
+    const rawRows = playerRowsInput.map((row, index) => ({
       player_name: normalizeOptional(row.player_name) ?? `Player ${index + 1}`,
       agents: normalizeOptional(row.agents),
       side: row.side === 'b' ? 'b' : 'a',
@@ -374,6 +386,8 @@ export async function importCompletedSeries({
       rawTeamARounds,
       rawTeamBRounds,
       isFlippedOrder,
+      isForfeit: map.isForfeit === true,
+      forfeitLabel: normalizeOptional(map.forfeitLabel),
       footerTeamAId: isFlippedOrder ? importedTeamB.id : importedTeamA.id,
       footerTeamBId: isFlippedOrder ? importedTeamA.id : importedTeamB.id,
       rawRows,
@@ -469,6 +483,8 @@ export async function importCompletedSeries({
     return {
       sourceFilename: map.sourceFilename,
       mapName: map.mapName,
+      isForfeit: map.isForfeit,
+      forfeitLabel: map.forfeitLabel,
       rawTeamARounds: map.rawTeamARounds,
       rawTeamBRounds: map.rawTeamBRounds,
       mapTeamARounds: importMatchesTeamA ? canonicalTeamARounds : canonicalTeamBRounds,
@@ -586,7 +602,16 @@ export async function importCompletedSeries({
 
   for (const [mapIndex, map] of normalizedSeriesMaps.entries()) {
     const mapOrder = mapIndex + 1
-    const forfeitSlice = perMapForfeitMeta.get(mapOrder)
+    // A map imported as a forfeit records who conceded it (the team behind on the
+    // forfeit scoreline) regardless of any series-level override; otherwise the
+    // per-map slice from an admin-award override applies.
+    const forfeitSlice = map.isForfeit
+      ? {
+          forfeiting_team_id:
+            map.mapTeamARounds > map.mapTeamBRounds ? match.team_b_id : match.team_a_id,
+          ...(map.forfeitLabel ? { label: map.forfeitLabel } : {}),
+        }
+      : perMapForfeitMeta.get(mapOrder)
     const { data: createdMap, error: createMapError } = await supabaseAdmin
       .from('match_maps')
       .insert({
@@ -669,11 +694,14 @@ export async function importCompletedSeries({
       }
     })
 
-    const { error: insertStatsError } = await supabaseAdmin
-      .from('player_match_map_stats')
-      .insert(rowsToInsert)
-    if (insertStatsError)
-      throw error(500, `Failed to insert player map stats for map ${mapIndex + 1}`)
+    // A forfeited map has no scoreboard, so there is nothing to insert.
+    if (rowsToInsert.length > 0) {
+      const { error: insertStatsError } = await supabaseAdmin
+        .from('player_match_map_stats')
+        .insert(rowsToInsert)
+      if (insertStatsError)
+        throw error(500, `Failed to insert player map stats for map ${mapIndex + 1}`)
+    }
   }
 
   // Manual per-match overrides win over automatic matching, and are stored by

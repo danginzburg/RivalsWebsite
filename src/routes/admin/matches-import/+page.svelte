@@ -82,6 +82,18 @@
   let riotBestOf = $state('')
   let riotDryRun = $state(false)
 
+  /**
+   * A forfeited map has no Riot match id — one side conceded it, so it is entered
+   * by hand and folded into the series alongside the real maps. `winnerSide` is
+   * relative to the resolved teamA/teamB (shown once a preview identifies them).
+   */
+  let riotForfeitEnabled = $state(false)
+  let riotForfeitOrder = $state(1)
+  let riotForfeitWinnerSide = $state<'a' | 'b'>('a')
+  let riotForfeitWinnerRounds = $state(13)
+  let riotForfeitLoserRounds = $state(0)
+  let riotForfeitLabel = $state('')
+
   type RiotPreview = {
     teamA: { id: string; name: string; rosterVotes: number }
     teamB: { id: string; name: string; rosterVotes: number }
@@ -91,10 +103,16 @@
       mapName: string | null
       score: string
       playerCount: number
+      isForfeit?: boolean
     }>
   }
 
   let riotPreview = $state<RiotPreview | null>(null)
+
+  const riotForfeitWinnerOptions = $derived([
+    { value: 'a', label: `Team A${riotPreview ? ` — ${riotPreview.teamA.name}` : ''}` },
+    { value: 'b', label: `Team B${riotPreview ? ` — ${riotPreview.teamB.name}` : ''}` },
+  ])
 
   /**
    * When the rosters can't identify the teams the server asks for them by hand:
@@ -142,6 +160,18 @@
         ? { teamAId: riotManualTeamAId, teamBId: riotManualTeamBId }
         : {}
 
+    const forfeitMap = riotForfeitEnabled
+      ? {
+          forfeitMap: {
+            order: riotForfeitOrder,
+            winnerSide: riotForfeitWinnerSide,
+            winnerRounds: riotForfeitWinnerRounds,
+            loserRounds: riotForfeitLoserRounds,
+            ...(riotForfeitLabel.trim() ? { label: riotForfeitLabel.trim() } : {}),
+          },
+        }
+      : {}
+
     try {
       const response = await fetch('/api/admin/matches/import-riot', {
         method: 'POST',
@@ -152,6 +182,7 @@
           dryRun,
           ...(riotBestOf ? { bestOf: Number(riotBestOf) } : {}),
           ...manualTeams,
+          ...forfeitMap,
         }),
       })
       const payload = await response.json().catch(() => ({}))
@@ -648,6 +679,101 @@
               </button>
             </div>
 
+            <div class="mt-3 rounded-md border p-3" style="border-color: rgba(255,255,255,0.14);">
+              <label
+                class="inline-flex cursor-pointer items-center gap-2 text-sm"
+                style="color: var(--text);"
+              >
+                <input type="checkbox" bind:checked={riotForfeitEnabled} disabled={isSubmitting} />
+                <span class="font-semibold">Include a forfeited map (no game id)</span>
+              </label>
+              <p class="mt-1 text-xs leading-relaxed" style="color: rgba(255,255,255,0.6);">
+                For a map one team conceded, so there is no tracker link for it. It is added to the
+                series with its scoreline but no player stats.
+              </p>
+
+              {#if riotForfeitEnabled}
+                <div class="mt-3 flex flex-wrap items-end gap-3">
+                  <label class="block text-sm" style="color: var(--text);">
+                    <span
+                      class="mb-1 block text-xs font-semibold uppercase"
+                      style="color: rgba(255,255,255,0.7);">Map position</span
+                    >
+                    <input
+                      type="number"
+                      min="1"
+                      bind:value={riotForfeitOrder}
+                      class="admin-input w-24"
+                      disabled={isSubmitting}
+                    />
+                  </label>
+
+                  <label class="block text-sm" style="color: var(--text);">
+                    <span
+                      class="mb-1 block text-xs font-semibold uppercase"
+                      style="color: rgba(255,255,255,0.7);">Winner</span
+                    >
+                    <div class="w-56">
+                      <CustomSelect
+                        options={riotForfeitWinnerOptions}
+                        value={riotForfeitWinnerSide}
+                        onSelect={(v) => (riotForfeitWinnerSide = v === 'b' ? 'b' : 'a')}
+                        disabled={isSubmitting}
+                      />
+                    </div>
+                  </label>
+
+                  <label class="block text-sm" style="color: var(--text);">
+                    <span
+                      class="mb-1 block text-xs font-semibold uppercase"
+                      style="color: rgba(255,255,255,0.7);">Winner rounds</span
+                    >
+                    <input
+                      type="number"
+                      min="0"
+                      bind:value={riotForfeitWinnerRounds}
+                      class="admin-input w-24"
+                      disabled={isSubmitting}
+                    />
+                  </label>
+
+                  <label class="block text-sm" style="color: var(--text);">
+                    <span
+                      class="mb-1 block text-xs font-semibold uppercase"
+                      style="color: rgba(255,255,255,0.7);">Loser rounds</span
+                    >
+                    <input
+                      type="number"
+                      min="0"
+                      bind:value={riotForfeitLoserRounds}
+                      class="admin-input w-24"
+                      disabled={isSubmitting}
+                    />
+                  </label>
+                </div>
+
+                <label class="mt-3 block text-sm" style="color: var(--text);">
+                  <span
+                    class="mb-1 block text-xs font-semibold uppercase"
+                    style="color: rgba(255,255,255,0.7);">Note (optional)</span
+                  >
+                  <input
+                    bind:value={riotForfeitLabel}
+                    class="admin-input"
+                    placeholder="Shown on the match page for this map, e.g. Opponent no-show"
+                    disabled={isSubmitting}
+                  />
+                </label>
+
+                {#if !riotPreview}
+                  <p class="mt-2 text-xs" style="color: rgba(255,255,255,0.6);">
+                    Team A and Team B are identified when you Preview — check the winner side
+                    matches the names shown there before importing.
+                  </p>
+                {/if}
+              {/if}
+            </div>
+
             <p class="mt-3 text-xs leading-relaxed" style="color: rgba(255,255,255,0.6);">
               Riot keeps match details for roughly two months, so import a series while it is
               recent. Older matches are gone from Riot's side — use the map CSVs for those.
@@ -667,7 +793,13 @@
                     <li>
                       Map {index + 1}: <strong>{map.mapName ?? 'Unknown'}</strong>
                       {map.score}
-                      <span style="color: rgba(255,255,255,0.5);">({map.playerCount} players)</span>
+                      {#if map.isForfeit}
+                        <span style="color: #fbbf24;">(forfeit — no stats)</span>
+                      {:else}
+                        <span style="color: rgba(255,255,255,0.5);"
+                          >({map.playerCount} players)</span
+                        >
+                      {/if}
                     </li>
                   {/each}
                 </ul>
