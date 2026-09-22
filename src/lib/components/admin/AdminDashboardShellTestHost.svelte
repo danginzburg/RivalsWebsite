@@ -15,6 +15,7 @@
     moderation: 0,
     signups: 0,
   }}
+  pendingTotal={0}
   isLoading={false}
   errorMessage="Something went wrong"
   successMessage="Saved successfully"

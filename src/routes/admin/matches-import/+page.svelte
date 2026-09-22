@@ -1,7 +1,15 @@
 <script lang="ts">
   import PageContainer from '$lib/components/PageContainer.svelte'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
-  import { Upload, Loader2, AlertTriangle, CheckCircle2, Layers3, ArrowLeft } from 'lucide-svelte'
+  import {
+    Upload,
+    Loader2,
+    AlertTriangle,
+    CheckCircle2,
+    Layers3,
+    ArrowLeft,
+    Users,
+  } from 'lucide-svelte'
   import { resolve } from '$app/paths'
 
   const riotBestOfOptions = [
@@ -602,9 +610,14 @@
             while keeping played map scores.
           </p>
         </div>
-        <a href={resolve('/admin')} class="admin-back-link">
-          <ArrowLeft size={14} /> Admin
-        </a>
+        <div class="flex flex-wrap items-center gap-3">
+          <a href={resolve('/admin/riot-identities')} class="admin-back-link">
+            <Users size={14} /> Player identities
+          </a>
+          <a href={resolve('/admin')} class="admin-back-link">
+            <ArrowLeft size={14} /> Admin
+          </a>
+        </div>
       </header>
 
       <section class="admin-card admin-card-pad">

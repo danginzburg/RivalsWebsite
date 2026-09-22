@@ -65,26 +65,50 @@
       win_pct: number | null
     }>
   )
-  const agentStats = $derived(
-    (data.agentStats ?? []) as Array<{
-      key: string
-      maps_played: number
-      maps_won: number
-      maps_decided: number
-      rounds: number
-      acs: number | null
-      kills: number
-      deaths: number
-      assists: number
-      kd: number | null
-      adr: number | null
-      kast_pct: number | null
-      hs_pct: number | null
-      fk: number
-      fd: number
-      win_pct: number | null
-    }>
+  type BreakdownRow = {
+    key: string
+    maps_played: number
+    maps_won: number
+    maps_decided: number
+    rounds: number
+    acs: number | null
+    kills: number
+    deaths: number
+    assists: number
+    kd: number | null
+    adr: number | null
+    kast_pct: number | null
+    hs_pct: number | null
+    fk: number
+    fd: number
+    win_pct: number | null
+  }
+  const agentStats = $derived((data.agentStats ?? []) as BreakdownRow[])
+  const mapStatsMain = $derived((data.mapStatsMain ?? []) as BreakdownRow[])
+  const agentStatsMain = $derived((data.agentStatsMain ?? []) as BreakdownRow[])
+  const mapStatsSub = $derived((data.mapStatsSub ?? []) as BreakdownRow[])
+  const agentStatsSub = $derived((data.agentStatsSub ?? []) as BreakdownRow[])
+  const rosterSplit = $derived(
+    (data.rosterSplit ?? { subGames: 0, mainGames: 0 }) as { subGames: number; mainGames: number }
   )
+
+  // The All / Main / Sub filter only appears once the player has actually
+  // appeared in both roles; otherwise the split carries no information.
+  const canFilterRoster = $derived(rosterSplit.subGames > 0 && rosterSplit.mainGames > 0)
+  let rosterFilter = $state<'all' | 'main' | 'sub'>('all')
+
+  const shownMapStats = $derived(
+    rosterFilter === 'sub' ? mapStatsSub : rosterFilter === 'main' ? mapStatsMain : mapStats
+  )
+  const shownAgentStats = $derived(
+    rosterFilter === 'sub' ? agentStatsSub : rosterFilter === 'main' ? agentStatsMain : agentStats
+  )
+  const shownMatchHistory = $derived(
+    rosterFilter === 'all'
+      ? matchHistory
+      : matchHistory.filter((e) => (rosterFilter === 'sub' ? e.is_sub : !e.is_sub))
+  )
+
   const mapStatsScope = $derived((data.mapStatsScope ?? null) as string | null)
   const accolades = $derived(
     (data.accolades ?? []) as Array<{
@@ -147,7 +171,7 @@
 
 <svelte:head><title>{player.riot_id}</title></svelte:head>
 
-{#snippet breakdownTable(heading: string, label: string, rows: typeof mapStats, withIcon: boolean)}
+{#snippet breakdownTable(heading: string, label: string, rows: BreakdownRow[], withIcon: boolean)}
   <section class="card">
     <header class="card-head">
       <h2 class="card-title">{heading}</h2>
@@ -159,55 +183,62 @@
         {/if}
       </span>
     </header>
-    <div class="table-scroll">
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th class="col-left">{label}</th>
-            <th>Played</th>
-            <th>Win%</th>
-            <th>ACS</th>
-            <th>K/D</th>
-            <th>ADR</th>
-            <th>KAST</th>
-            <th>HS%</th>
-          </tr>
-        </thead>
-        <tbody>
-          {#each rows as entry (entry.key)}
+    {#if rows.length === 0}
+      <p class="card-empty">
+        No {label.toLowerCase()} data for {rosterFilter === 'sub' ? 'substitute' : 'main-roster'} appearances
+        in this scope.
+      </p>
+    {:else}
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead>
             <tr>
-              <td class="col-left">
-                <span class="entry-key">
-                  {#if withIcon && agentIconUrl(entry.key)}
-                    <img src={agentIconUrl(entry.key) ?? ''} alt="" class="agent-icon" />
-                  {/if}
-                  {entry.key}
-                </span>
-              </td>
-              <td class="num">{entry.maps_played}</td>
-              <td class="num">
-                {#if entry.win_pct != null}
-                  {fmt(entry.win_pct, 0)}%
-                  <span
-                    class="record"
-                    title="Maps won–lost. Maps with no recorded result are excluded."
-                  >
-                    {entry.maps_won}–{entry.maps_decided - entry.maps_won}
-                  </span>
-                {:else}
-                  —
-                {/if}
-              </td>
-              <td class="num num-strong">{fmt(entry.acs, 0)}</td>
-              <td class="num">{fmt(entry.kd, 2)}</td>
-              <td class="num">{fmt(entry.adr, 0)}</td>
-              <td class="num">{fmt(entry.kast_pct, 0)}%</td>
-              <td class="num">{fmt(entry.hs_pct, 0)}%</td>
+              <th class="col-left">{label}</th>
+              <th>Played</th>
+              <th>Win%</th>
+              <th>ACS</th>
+              <th>K/D</th>
+              <th>ADR</th>
+              <th>KAST</th>
+              <th>HS%</th>
             </tr>
-          {/each}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {#each rows as entry (entry.key)}
+              <tr>
+                <td class="col-left">
+                  <span class="entry-key">
+                    {#if withIcon && agentIconUrl(entry.key)}
+                      <img src={agentIconUrl(entry.key) ?? ''} alt="" class="agent-icon" />
+                    {/if}
+                    {entry.key}
+                  </span>
+                </td>
+                <td class="num">{entry.maps_played}</td>
+                <td class="num">
+                  {#if entry.win_pct != null}
+                    {fmt(entry.win_pct, 0)}%
+                    <span
+                      class="record"
+                      title="Maps won–lost. Maps with no recorded result are excluded."
+                    >
+                      {entry.maps_won}–{entry.maps_decided - entry.maps_won}
+                    </span>
+                  {:else}
+                    —
+                  {/if}
+                </td>
+                <td class="num num-strong">{fmt(entry.acs, 0)}</td>
+                <td class="num">{fmt(entry.kd, 2)}</td>
+                <td class="num">{fmt(entry.adr, 0)}</td>
+                <td class="num">{fmt(entry.kast_pct, 0)}%</td>
+                <td class="num">{fmt(entry.hs_pct, 0)}%</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    {/if}
   </section>
 {/snippet}
 
@@ -477,27 +508,66 @@
         </div>
       </section>
 
+      {#if canFilterRoster}
+        <div class="roster-filter">
+          <span class="section-label">Roster</span>
+          <div class="seg" role="group" aria-label="Filter stats by roster role">
+            <button
+              type="button"
+              class="seg-btn"
+              class:seg-on={rosterFilter === 'all'}
+              onclick={() => (rosterFilter = 'all')}
+            >
+              All
+            </button>
+            <button
+              type="button"
+              class="seg-btn"
+              class:seg-on={rosterFilter === 'main'}
+              onclick={() => (rosterFilter = 'main')}
+            >
+              Main <span class="seg-count">{rosterSplit.mainGames}</span>
+            </button>
+            <button
+              type="button"
+              class="seg-btn"
+              class:seg-on={rosterFilter === 'sub'}
+              onclick={() => (rosterFilter = 'sub')}
+            >
+              Sub <span class="seg-count">{rosterSplit.subGames}</span>
+            </button>
+          </div>
+          <span class="roster-note">
+            Filters Map, Agent &amp; Match History. Leaderboard stats above are not split.
+          </span>
+        </div>
+      {/if}
+
       {#if mapStats.length > 0}
-        {@render breakdownTable('Map Stats', 'Map', mapStats, false)}
+        {@render breakdownTable('Map Stats', 'Map', shownMapStats, false)}
       {/if}
 
       {#if agentStats.length > 0}
-        {@render breakdownTable('Agent Stats', 'Agent', agentStats, true)}
+        {@render breakdownTable('Agent Stats', 'Agent', shownAgentStats, true)}
       {/if}
 
       <section class="card">
         <header class="card-head">
           <h2 class="card-title">Match History</h2>
-          {#if matchHistory.length > 0}
-            <span class="card-count">{matchHistory.length}</span>
+          {#if shownMatchHistory.length > 0}
+            <span class="card-count">{shownMatchHistory.length}</span>
           {/if}
         </header>
 
         {#if matchHistory.length === 0}
           <p class="card-empty">No participation stats recorded yet.</p>
+        {:else if shownMatchHistory.length === 0}
+          <p class="card-empty">
+            No {rosterFilter === 'sub' ? 'substitute' : 'main-roster'} appearances recorded.
+          </p>
         {:else}
           <div class="match-rows">
-            {#each matchHistory as entry (entry.match.id)}
+            {#each shownMatchHistory as entry (entry.match.id)}
               {@const match = entry.match}
               {@const opp = entry.opponent}
               {@const score = entry.score}
@@ -778,6 +848,68 @@
     border-color: rgba(120, 67, 145, 0.6);
     background: var(--accent);
     color: var(--text);
+  }
+
+  /* Roster (All / Main / Sub) filter bar */
+  .roster-filter {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.625rem;
+  }
+
+  .seg {
+    display: inline-flex;
+    border-radius: 0.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(0, 0, 0, 0.25);
+    overflow: hidden;
+  }
+
+  .seg-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.375rem 0.75rem;
+    border: none;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.65);
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition:
+      background 0.15s,
+      color 0.15s;
+  }
+
+  .seg-btn + .seg-btn {
+    border-left: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .seg-btn:hover {
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .seg-on {
+    background: var(--accent);
+    color: var(--text);
+  }
+
+  .seg-count {
+    font-size: 0.625rem;
+    font-weight: 700;
+    padding: 0 0.3125rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.8);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .roster-note {
+    font-size: 0.6875rem;
+    color: rgba(255, 255, 255, 0.45);
   }
 
   /* KPI tiles */

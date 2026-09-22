@@ -111,6 +111,16 @@
     }
   })
 
+  // The preview only shows a stat column when its field was actually mapped, so
+  // it never displays a column of placeholder zeros for data the file lacks.
+  const showSeries = $derived(
+    Boolean(mapping?.series_played || mapping?.series_wins || mapping?.series_losses)
+  )
+  const showMaps = $derived(
+    Boolean(mapping?.maps_played || mapping?.map_wins || mapping?.map_losses)
+  )
+  const showRoundDiff = $derived(Boolean(mapping?.round_diff))
+
   function setMapping(field: string, value: string) {
     if (!mapping) return
     mapping = { ...mapping, [field]: value || null }
@@ -353,9 +363,9 @@
                   <th class="px-3 py-2">Rank</th>
                   <th class="px-3 py-2">Team</th>
                   <th class="px-3 py-2">Points</th>
-                  <th class="px-3 py-2">Series</th>
-                  <th class="px-3 py-2">Maps</th>
-                  <th class="px-3 py-2">Round Diff</th>
+                  {#if showSeries}<th class="px-3 py-2">Series</th>{/if}
+                  {#if showMaps}<th class="px-3 py-2">Maps</th>{/if}
+                  {#if showRoundDiff}<th class="px-3 py-2">Round Diff</th>{/if}
                   <th class="px-3 py-2">Match</th>
                 </tr>
               </thead>
@@ -365,11 +375,15 @@
                     <td class="px-3 py-2">{index + 1}</td>
                     <td class="px-3 py-2 font-semibold" style="color: var(--text);">{row.team}</td>
                     <td class="px-3 py-2">{row.points}</td>
-                    <td class="px-3 py-2"
-                      >{row.series_wins}-{row.series_losses} ({row.series_played})</td
-                    >
-                    <td class="px-3 py-2">{row.map_wins}-{row.map_losses} ({row.maps_played})</td>
-                    <td class="px-3 py-2">{row.round_diff}</td>
+                    {#if showSeries}
+                      <td class="px-3 py-2"
+                        >{row.series_wins}-{row.series_losses} ({row.series_played})</td
+                      >
+                    {/if}
+                    {#if showMaps}
+                      <td class="px-3 py-2">{row.map_wins}-{row.map_losses} ({row.maps_played})</td>
+                    {/if}
+                    {#if showRoundDiff}<td class="px-3 py-2">{row.round_diff}</td>{/if}
                     <td
                       class="px-3 py-2"
                       style={`color: ${row.matchedTeamId ? '#86efac' : '#fca5a5'};`}

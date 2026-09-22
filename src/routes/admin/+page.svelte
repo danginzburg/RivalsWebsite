@@ -639,6 +639,25 @@
       pendingBugReportCount
   )
 
+  /*
+   * The Moderation and Signups lists are only fetched when their tab is first
+   * opened, so their live counts are zero until then. Fall back to the counts
+   * the server computed on load, so the "needs attention" badges are correct
+   * the moment the dashboard renders and update to the live figure once the
+   * admin opens the tab. The moderation tab loads all three of its queues
+   * together, so there is no lingering partial state.
+   */
+  const moderationBadge = $derived(
+    commentReportsLoaded || reviewFlagsLoaded || bugReportsLoaded
+      ? pendingReportCount
+      : (data.pendingCounts?.moderation ?? 0)
+  )
+  const signupsBadge = $derived(
+    signupsLoaded ? pendingSignupCount : (data.pendingCounts?.signups ?? 0)
+  )
+  /** Drives the masthead pill and the browser-tab title. */
+  const pendingTotal = $derived(moderationBadge + signupsBadge)
+
   async function loadBugReports() {
     try {
       const result = await adminJsonRequest<{ reports?: BugReport[] }>(
@@ -2188,6 +2207,11 @@
   }
 </script>
 
+<svelte:head>
+  <!-- Prefix the count so an admin working in another tab sees pending items waiting. -->
+  <title>{pendingTotal > 0 ? `(${pendingTotal}) ` : ''}Admin Dashboard</title>
+</svelte:head>
+
 <PageContainer>
   <AdminDashboardShell
     {activeTab}
@@ -2199,9 +2223,10 @@
       pickems: (data.pickems ?? []).filter((p) => p.status !== 'draft').length,
       accolades: accolades.length,
       hallOfFame: hallOfFameEntries.length,
-      moderation: pendingReportCount,
-      signups: pendingSignupCount,
+      moderation: moderationBadge,
+      signups: signupsBadge,
     }}
+    {pendingTotal}
     {isLoading}
     {errorMessage}
     {successMessage}

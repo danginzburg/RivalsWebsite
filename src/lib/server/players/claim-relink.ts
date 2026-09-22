@@ -230,15 +230,17 @@ export async function relinkPlayerMatchMapStatsForClaim(profileId: string): Prom
     const qTag = quoteOrValue(`${base}#%`)
     orParts.push(`player_name.eq.${qEq}`, `player_name.eq.${qBase}`, `player_name.ilike.${qTag}`)
   }
-  // Rows imported from Riot carry the source PUUID in metadata; a renamed
-  // account still relinks by that key even when no stored name matches.
+  // Rows imported from Riot carry the source PUUID — in the indexed `puuid`
+  // column, and (for the richer breakdown) in metadata. A renamed account still
+  // relinks by that key even when no stored name matches.
   for (const puuid of puuids) {
+    orParts.push(`puuid.eq.${quoteOrValue(puuid)}`)
     orParts.push(`metadata->>puuid.eq.${quoteOrValue(puuid)}`)
   }
 
   const { data: candidates, error: candErr } = await supabaseAdmin
     .from('player_match_map_stats')
-    .select('id, match_id, player_name, metadata')
+    .select('id, match_id, player_name, puuid, metadata')
     .is('profile_id', null)
     .or(orParts.join(','))
     .limit(5000)
@@ -254,6 +256,8 @@ export async function relinkPlayerMatchMapStatsForClaim(profileId: string): Prom
   for (const row of candidates ?? []) {
     const name = String((row as { player_name?: string | null }).player_name ?? '')
     const rowPuuid = (() => {
+      const col = (row as { puuid?: string | null }).puuid
+      if (typeof col === 'string' && col.trim()) return col
       const meta = (row as { metadata?: unknown }).metadata
       if (meta && typeof meta === 'object') {
         const p = (meta as Record<string, unknown>).puuid

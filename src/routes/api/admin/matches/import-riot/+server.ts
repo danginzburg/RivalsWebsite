@@ -17,6 +17,7 @@ import {
   getRiotAccountsForImports,
 } from '$lib/server/imports/matching'
 import { backfillRiotAccountPuuids } from '$lib/server/imports/puuid-backfill'
+import { upsertRiotIdentities } from '$lib/server/players/riot-identities'
 import { importCompletedSeries } from '$lib/server/matches/import-lifecycle'
 
 /** A best-of-seven is the longest series the league runs. */
@@ -333,6 +334,16 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   )
   await backfillRiotAccountPuuids(playerPuuidPairs, profileMatcher).catch((err) => {
     console.warn('Failed to backfill Riot account PUUIDs after import:', err)
+  })
+
+  // Record every PUUID seen behind the scenes, whether or not it maps to a
+  // profile yet. This is what lets a player be tracked by identity through a
+  // rename even when nobody has linked them — the admin does that once, later,
+  // from the review queue. Best-effort: the match is already written.
+  await upsertRiotIdentities(
+    matches.flatMap((m) => m.players.map((p) => ({ puuid: p.puuid, name: p.name, tag: p.tag })))
+  ).catch((err) => {
+    console.warn('Failed to record Riot identities after import:', err)
   })
 
   return json({ success: true, dryRun: false, preview, result })
