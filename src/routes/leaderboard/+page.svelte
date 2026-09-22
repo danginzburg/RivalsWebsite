@@ -42,12 +42,6 @@
     if (rank === 3) return 'background: rgba(217,119,6,0.18); color: #fbbf24;'
     return 'background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.55);'
   }
-
-  function diffStyle(diff: number) {
-    if (diff > 0) return 'color: #86efac;'
-    if (diff < 0) return 'color: #fca5a5;'
-    return 'color: rgba(255,255,255,0.5);'
-  }
 </script>
 
 <svelte:head><title>Leaderboard</title></svelte:head>
@@ -143,7 +137,6 @@
                   <th class="col-num">Maps</th>
                   <th class="col-num">MW</th>
                   <th class="col-num">ML</th>
-                  <th class="col-num">Diff</th>
                 </tr>
               </thead>
               <tbody>
@@ -179,9 +172,6 @@
                     <td class="col-num tabular muted">{row.stats.maps_played}</td>
                     <td class="col-num tabular">{row.stats.map_wins}</td>
                     <td class="col-num tabular">{row.stats.map_losses}</td>
-                    <td class="col-num tabular" style={diffStyle(row.stats.round_diff)}>
-                      {row.stats.round_diff > 0 ? '+' : ''}{row.stats.round_diff}
-                    </td>
                   </tr>
                 {/each}
               </tbody>

@@ -646,6 +646,10 @@ export async function importCompletedSeries({
         profile_id: row.profile_id,
         team_id: teamId,
         player_name: row.player_name,
+        // First-class copy of the Riot PUUID (also kept in metadata for the
+        // richer breakdown). Indexed, so relinking a player's whole history by
+        // identity is a single indexed update rather than a jsonb scan.
+        puuid: puuidFromMetadata(row.metadata),
         agents: row.agents,
         games: row.games,
         games_won: row.games_won,

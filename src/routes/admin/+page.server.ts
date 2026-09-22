@@ -354,7 +354,43 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
       new Date(batch.created_at).toLocaleDateString(),
   }))
 
+  /*
+   * Pending-approval counts for the tab badges. The Moderation and Signups
+   * lists are lazy-loaded only when their tab is opened, so without these the
+   * "needs attention" badges read zero on a fresh dashboard and an admin has no
+   * way to know something is waiting. Cheap head-only counts let every badge be
+   * right the moment the page renders. A failed count falls back to zero rather
+   * than blocking the load.
+   */
+  const countPending = async (table: string): Promise<number> => {
+    const { count, error: countError } = await supabaseAdmin
+      .from(table)
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'pending')
+    if (countError) {
+      console.error(`Error counting pending ${table}:`, countError)
+      return 0
+    }
+    return count ?? 0
+  }
+
+  const [pendingSignups, pendingCommentReports, pendingReviewFlags, pendingBugReports] =
+    await Promise.all([
+      countPending('player_signups'),
+      countPending('comment_reports'),
+      countPending('review_flags'),
+      countPending('bug_reports'),
+    ])
+
+  const pendingCounts = {
+    signups: pendingSignups,
+    // The Moderation tab merges three queues into one badge, matching the
+    // client's `pendingReportCount`.
+    moderation: pendingCommentReports + pendingReviewFlags + pendingBugReports,
+  }
+
   return {
+    pendingCounts,
     users: users || [],
     seasons: (seasons ?? []).map((season) => ({
       ...season,

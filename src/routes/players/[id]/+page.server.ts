@@ -329,6 +329,42 @@ function aggregateStats(rows: PerMapStatRow[]): Omit<AggregatedStatEntry, 'key'>
   }
 }
 
+/** Group per-map rows by map and by agent, aggregating each group. */
+function buildBreakdowns(rows: PerMapStatRow[]): {
+  mapStats: AggregatedStatEntry[]
+  agentStats: AggregatedStatEntry[]
+} {
+  const byMap = new Map<string, PerMapStatRow[]>()
+  for (const r of rows) {
+    const mm = Array.isArray(r.match_maps) ? r.match_maps[0] : r.match_maps
+    const mapName = mm?.map_name ?? 'Unknown'
+    const arr = byMap.get(mapName) ?? []
+    arr.push(r)
+    byMap.set(mapName, arr)
+  }
+  const mapStats: AggregatedStatEntry[] = Array.from(byMap.entries())
+    .map(([mapName, rs]) => ({ key: mapName, ...aggregateStats(rs) }))
+    .sort((a, b) => b.maps_played - a.maps_played)
+
+  const byAgent = new Map<string, PerMapStatRow[]>()
+  for (const r of rows) {
+    const agents = String(r.agents ?? '')
+      .split(/\s+/)
+      .map((a) => a.trim())
+      .filter(Boolean)
+    for (const agent of agents.length > 0 ? agents : ['Unknown']) {
+      const arr = byAgent.get(agent) ?? []
+      arr.push(r)
+      byAgent.set(agent, arr)
+    }
+  }
+  const agentStats: AggregatedStatEntry[] = Array.from(byAgent.entries())
+    .map(([agent, rs]) => ({ key: agent, ...aggregateStats(rs) }))
+    .sort((a, b) => b.maps_played - a.maps_played)
+
+  return { mapStats, agentStats }
+}
+
 function kindOrder(kind: unknown): number {
   return kind === 'aggregate' ? 0 : kind === 'weekly' ? 1 : 2
 }
@@ -803,20 +839,32 @@ export const load = async ({
     for (const [teamId, roster] of result) rosterByTeam.set(teamId, roster)
   }
 
+  // One sub/starter verdict per match, decided once and reused for the match
+  // history rows and the Map/Agent breakdown split below. A player takes one
+  // team per match, so keying by match id is unambiguous.
+  const subByMatchId = new Map<string, boolean>()
+  for (const rows of groupedParticipation.values()) {
+    const r = rows[0]
+    const matchRel = Array.isArray(r.matches) ? r.matches[0] : r.matches
+    if (!matchRel?.id) continue
+    const puuid = (r.metadata as Record<string, unknown> | null)?.puuid as string | null
+    const isSub = r.team_id
+      ? resolveIsSub({
+          overrides: subOverridesByMatch.get(matchRel.id) ?? [],
+          roster: rosterByTeam.get(r.team_id),
+          profileId,
+          playerName: r.player_name,
+          puuid,
+        })
+      : false
+    subByMatchId.set(matchRel.id, isSub)
+  }
+
   const matchHistory = Array.from(groupedParticipation.values())
     .map((rows): MatchHistoryEntry => {
       const r = rows[0]
       const matchRel = Array.isArray(r.matches) ? r.matches[0] : r.matches
-      const puuid = (r.metadata as Record<string, unknown> | null)?.puuid as string | null
-      const isSub = r.team_id
-        ? resolveIsSub({
-            overrides: matchRel?.id ? (subOverridesByMatch.get(matchRel.id) ?? []) : [],
-            roster: rosterByTeam.get(r.team_id),
-            profileId,
-            playerName: r.player_name,
-            puuid,
-          })
-        : false
+      const isSub = matchRel?.id ? (subByMatchId.get(matchRel.id) ?? false) : false
       const perspectiveTeamId =
         activeTeam &&
         (activeTeam.id === matchRel?.team_a_id || activeTeam.id === matchRel?.team_b_id)
@@ -939,35 +987,23 @@ export const load = async ({
         })
       : validMapStats
 
-  const byMap = new Map<string, PerMapStatRow[]>()
-  for (const r of scopedMapStats) {
-    const mm = Array.isArray(r.match_maps) ? r.match_maps[0] : r.match_maps
-    const mapName = mm?.map_name ?? 'Unknown'
-    const arr = byMap.get(mapName) ?? []
-    arr.push(r)
-    byMap.set(mapName, arr)
+  // Split the scoped maps into starter and sub buckets by their match verdict.
+  // An unknown match id (no participation row on record) counts as a starter,
+  // matching the conservative default in autoIsSub.
+  const isSubMapRow = (r: PerMapStatRow) =>
+    Boolean(r.match_id && subByMatchId.get(r.match_id) === true)
+  const { mapStats, agentStats } = buildBreakdowns(scopedMapStats)
+  const subBreakdowns = buildBreakdowns(scopedMapStats.filter(isSubMapRow))
+  const mainBreakdowns = buildBreakdowns(scopedMapStats.filter((r) => !isSubMapRow(r)))
+
+  // How many matches fall in each bucket, so the client only offers the filter
+  // when the player has actually played both roles.
+  let subGames = 0
+  let mainGames = 0
+  for (const isSub of subByMatchId.values()) {
+    if (isSub) subGames += 1
+    else mainGames += 1
   }
-
-  const mapStats: AggregatedStatEntry[] = Array.from(byMap.entries())
-    .map(([mapName, rows]) => ({ key: mapName, ...aggregateStats(rows) }))
-    .sort((a, b) => b.maps_played - a.maps_played)
-
-  const byAgent = new Map<string, PerMapStatRow[]>()
-  for (const r of scopedMapStats) {
-    const agents = String(r.agents ?? '')
-      .split(/\s+/)
-      .map((a) => a.trim())
-      .filter(Boolean)
-    for (const agent of agents.length > 0 ? agents : ['Unknown']) {
-      const arr = byAgent.get(agent) ?? []
-      arr.push(r)
-      byAgent.set(agent, arr)
-    }
-  }
-
-  const agentStats: AggregatedStatEntry[] = Array.from(byAgent.entries())
-    .map(([agent, rows]) => ({ key: agent, ...aggregateStats(rows) }))
-    .sort((a, b) => b.maps_played - a.maps_played)
 
   let bestRank: string | null = null
   let bestRankValue = 0
@@ -1035,6 +1071,14 @@ export const load = async ({
     matchHistory,
     mapStats,
     agentStats,
+    // Same Map/Agent breakdowns split by the player's role in each match, so the
+    // profile can offer an All / Main / Sub filter. Match history rows carry
+    // their own `is_sub`, so the client filters those directly.
+    mapStatsMain: mainBreakdowns.mapStats,
+    agentStatsMain: mainBreakdowns.agentStats,
+    mapStatsSub: subBreakdowns.mapStats,
+    agentStatsSub: subBreakdowns.agentStats,
+    rosterSplit: { subGames, mainGames },
     // Non-null when the Map/Agent tables are scoped by the selected aggregate
     // batch (to its source matches or season); null when they show every
     // recorded map.

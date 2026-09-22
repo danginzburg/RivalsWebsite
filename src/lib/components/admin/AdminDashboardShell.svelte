@@ -11,6 +11,7 @@
     Award,
     Flag,
     ClipboardList,
+    Bell,
   } from 'lucide-svelte'
   import { resolve } from '$app/paths'
 
@@ -30,6 +31,8 @@
       moderation: number
       signups: number
     }
+    /** Total pending-approval items across every tab; drives the masthead cue. */
+    pendingTotal: number
     isLoading: boolean
     errorMessage: string | null
     successMessage: string | null
@@ -41,6 +44,7 @@
   let {
     activeTab,
     counts,
+    pendingTotal,
     isLoading,
     errorMessage,
     successMessage,
@@ -79,6 +83,7 @@
     { href: '/admin/leaderboard-import', label: 'Leaderboard', variant: 'admin-btn-warn' },
     { href: '/admin/matches-import', label: 'Matches', variant: 'admin-btn-accent' },
     { href: '/admin/stats-import', label: 'Stats', variant: 'admin-btn-info' },
+    { href: '/admin/riot-identities', label: 'Identities', variant: 'admin-btn-neutral' },
   ] as const
 </script>
 
@@ -88,6 +93,18 @@
       <div class="min-w-0">
         <p class="admin-eyebrow">Control panel</p>
         <h1 class="admin-title">Admin Dashboard</h1>
+        {#if pendingTotal > 0}
+          <!-- Jumps to whichever tab is waiting (Moderation takes precedence). -->
+          <button
+            type="button"
+            class="admin-pending-pill"
+            onclick={() => onTabChange(counts.moderation > 0 ? 'moderation' : 'signups')}
+            title="Items awaiting your review"
+          >
+            <Bell size={13} />
+            {pendingTotal} pending {pendingTotal === 1 ? 'item' : 'items'}
+          </button>
+        {/if}
       </div>
 
       <div class="admin-masthead-actions">
@@ -188,6 +205,30 @@
     font-weight: 700;
     line-height: 1.15;
     color: var(--title);
+  }
+
+  /* "Needs attention" cue: amber so it reads as pending, not as an error. */
+  .admin-pending-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    margin-top: 0.5rem;
+    padding: 0.25rem 0.625rem;
+    border: 1px solid rgba(251, 191, 36, 0.35);
+    border-radius: 9999px;
+    background: rgba(251, 191, 36, 0.14);
+    color: #fcd34d;
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition:
+      background 0.15s,
+      border-color 0.15s;
+  }
+
+  .admin-pending-pill:hover {
+    background: rgba(251, 191, 36, 0.22);
+    border-color: rgba(251, 191, 36, 0.55);
   }
 
   .admin-masthead-actions {
