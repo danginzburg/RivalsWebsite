@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { autoIsSub, overrideFor, resolveIsSub, type SubOverride, type TeamRoster } from './subs'
+import {
+  autoIsSub,
+  isShortStint,
+  matchRosterTime,
+  membershipMoment,
+  overrideFor,
+  resolveIsSub,
+  stintCovers,
+  type Stint,
+  type SubOverride,
+  type TeamRoster,
+} from './subs'
 
 const P_ROSTERED = '11111111-1111-1111-1111-111111111111'
 const P_OTHER = '22222222-2222-2222-2222-222222222222'
@@ -98,5 +109,79 @@ describe('resolveIsSub', () => {
         puuid: null,
       })
     ).toBe(false)
+  })
+})
+
+describe('stintCovers', () => {
+  const at = (iso: string) => Date.parse(iso)
+  const stint = (over: Partial<Stint> = {}): Stint => ({
+    id: 1,
+    team_id: 'team-a',
+    profile_id: P_ROSTERED,
+    player_name: null,
+    puuid: null,
+    joinedMs: at('2026-09-01T00:00:00Z'),
+    leftMs: null,
+    first: true,
+    ...over,
+  })
+
+  it('keeps a departed player main roster for matches played before they left', () => {
+    const old = stint({ leftMs: at('2026-09-20T18:00:00Z') })
+    expect(stintCovers(old, at('2026-09-10T01:00:00Z'))).toBe(true)
+    // Same day: the afternoon match was before the move, the evening one after.
+    expect(stintCovers(old, at('2026-09-20T17:00:00Z'))).toBe(true)
+    expect(stintCovers(old, at('2026-09-20T23:00:00Z'))).toBe(false)
+  })
+
+  it('starts a later stint at its join moment', () => {
+    const next = stint({ team_id: 'team-b', joinedMs: at('2026-09-20T18:00:00Z'), first: false })
+    expect(stintCovers(next, at('2026-09-20T17:00:00Z'))).toBe(false)
+    expect(stintCovers(next, at('2026-09-20T23:00:00Z'))).toBe(true)
+  })
+
+  it('lets a first (backfilled) stint reach back before its join moment', () => {
+    expect(stintCovers(stint({ joinedMs: at('2026-10-14T00:00:00Z') }), at('2026-08-01'))).toBe(
+      true
+    )
+  })
+
+  it('uses only open stints when the match has no time', () => {
+    expect(stintCovers(stint(), null)).toBe(true)
+    expect(stintCovers(stint({ leftMs: at('2026-09-20T18:00:00Z') }), null)).toBe(false)
+  })
+})
+
+describe('membershipMoment', () => {
+  it('reads timestamps as-is', () => {
+    expect(membershipMoment('2026-09-20T18:00:00+00:00', 'leave')).toBe(
+      Date.parse('2026-09-20T18:00:00Z')
+    )
+  })
+
+  it('reads a legacy bare day as covering that whole day', () => {
+    expect(membershipMoment('2026-09-20', 'join')).toBe(Date.parse('2026-09-20T00:00:00Z'))
+    expect(membershipMoment('2026-09-20', 'leave')).toBe(Date.parse('2026-09-21T00:00:00Z'))
+  })
+})
+
+describe('isShortStint', () => {
+  it('flags a slot closed within a day of opening', () => {
+    expect(isShortStint('2026-09-02T00:00:00+00:00', '2026-09-03T00:00:00+00:00')).toBe(true)
+    expect(isShortStint('2026-09-02T10:00:00+00:00', '2026-09-02T10:05:00+00:00')).toBe(true)
+    expect(isShortStint('2026-09-02T00:00:00+00:00', '2026-09-25T00:00:00+00:00')).toBe(false)
+    expect(isShortStint('2026-09-02T00:00:00+00:00', null)).toBe(false)
+  })
+})
+
+describe('matchRosterTime', () => {
+  it('uses the scheduled time over the import-stamped end time', () => {
+    expect(
+      matchRosterTime({ scheduled_at: '2026-09-20T23:00:00Z', ended_at: '2026-10-02T01:30:00Z' })
+    ).toBe(Date.parse('2026-09-20T23:00:00Z'))
+    expect(matchRosterTime({ ended_at: '2026-09-21T01:30:00Z' })).toBe(
+      Date.parse('2026-09-21T01:30:00Z')
+    )
+    expect(matchRosterTime({})).toBeNull()
   })
 })

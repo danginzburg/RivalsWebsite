@@ -3,6 +3,7 @@ import { requireAdmin } from '$lib/server/auth/profile'
 import { MatchLifecycleError, reviewResultReport } from '$lib/server/matches/lifecycle'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { createNotification } from '$lib/server/notifications'
+import { refreshStandingsForMatch } from '$lib/server/leaderboard/computed'
 
 function normalizeOptional(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -35,6 +36,10 @@ export const PATCH: RequestHandler = async ({ locals, request, params }) => {
       .select('match_id, reported_by_profile_id')
       .eq('id', reportId)
       .maybeSingle()
+
+    if (action === 'approve' && report?.match_id) {
+      await refreshStandingsForMatch(report.match_id, admin.id)
+    }
 
     if (report?.reported_by_profile_id) {
       await createNotification({

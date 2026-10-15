@@ -40,6 +40,8 @@
     onSave: (signupId: string) => void
     onSetStatus: (signupId: string, status: 'pending' | 'approved' | 'rejected') => void
     onDelete: (signupId: string, name: string) => void
+    /** An alternate Riot account was approved or rejected. */
+    onRiotAccountReviewed?: () => void
   }
 
   let {
@@ -61,6 +63,7 @@
     onSave,
     onSetStatus,
     onDelete,
+    onRiotAccountReviewed,
   }: Props = $props()
 
   let expandedId = $state<string | null>(null)
@@ -121,7 +124,7 @@
   }
 </script>
 
-<AdminRiotAccountsPanel />
+<AdminRiotAccountsPanel onReviewed={onRiotAccountReviewed} />
 
 <section class="admin-bordered p-3">
   <div class="mb-3 flex flex-wrap items-center justify-between gap-3">

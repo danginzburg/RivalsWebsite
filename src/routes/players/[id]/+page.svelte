@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { PageProps } from './$types'
+  import { formatLeftDay } from '$lib/players/roster-dates'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
   import CommentThread from '$lib/components/CommentThread.svelte'
@@ -554,13 +555,20 @@
       <section class="card">
         <header class="card-head">
           <h2 class="card-title">Match History</h2>
+          {#if mapStatsScope}
+            <span class="card-note-inline">Scoped to {mapStatsScope}.</span>
+          {/if}
           {#if shownMatchHistory.length > 0}
             <span class="card-count">{shownMatchHistory.length}</span>
           {/if}
         </header>
 
         {#if matchHistory.length === 0}
-          <p class="card-empty">No participation stats recorded yet.</p>
+          <p class="card-empty">
+            {mapStatsScope
+              ? `No matches recorded in ${mapStatsScope}.`
+              : 'No participation stats recorded yet.'}
+          </p>
         {:else if shownMatchHistory.length === 0}
           <p class="card-empty">
             No {rosterFilter === 'sub' ? 'substitute' : 'main-roster'} appearances recorded.
@@ -654,7 +662,12 @@
                   <span class="team-row-role">{entry.role}</span>
                 {/if}
 
-                <span class="team-row-season">{entry.season?.name ?? 'Unassigned season'}</span>
+                <span class="team-row-season">
+                  {#if entry.left_at}
+                    <span class="team-row-left">left {formatLeftDay(entry.left_at)} ·</span>
+                  {/if}
+                  {entry.season?.name ?? 'Unassigned season'}
+                </span>
               </a>
             {/each}
           </div>
@@ -1198,6 +1211,10 @@
     margin-left: auto;
     font-size: 0.75rem;
     color: rgba(255, 255, 255, 0.55);
+  }
+
+  .team-row-left {
+    color: rgba(255, 255, 255, 0.4);
   }
 
   .row-agents {

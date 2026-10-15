@@ -2,7 +2,7 @@ import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { logAdminAction } from '$lib/server/audit/admin-actions'
-import { resolveRosterIdentity } from '$lib/server/teams/membership'
+import { resolveRosterIdentity, resolveRosterIdentityByPuuid } from '$lib/server/teams/membership'
 
 function normalizeOptional(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -41,6 +41,9 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   const profileId = normalizeOptional(body.profileId)
   const playerName = normalizeOptional(body.playerName)
   const role = normalizeMembershipRole(body.role)
+  // A player moving teams mid-event: close their current stint instead of
+  // refusing, so the event keeps a record of both teams.
+  const transfer = body.transfer === true
 
   // Resolve the typed identity to a profile + PUUID so the slot can be matched
   // to imported stats by identity (see resolveRosterIdentity). An explicit
@@ -130,20 +133,39 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
   if (existingError) throw error(500, 'Failed to validate existing membership')
   if (existingByNameError) throw error(500, 'Failed to validate existing named membership')
-  if (existing) {
-    throw error(
-      409,
-      `Player is already on ${conflictLabel(existing)} this season (remove them first)`
-    )
+
+  const conflicts = [existing, existingByName].filter((row): row is ExistingMembershipRow =>
+    Boolean(row)
+  )
+  if (conflicts.some((row) => row.team_id === teamId)) {
+    throw error(409, 'Player is already on this team')
   }
-  if (existingByName) {
-    throw error(
-      409,
-      `That player name is already on ${conflictLabel(existingByName)} this season (remove them first)`
+  if (conflicts.length > 0 && !transfer) {
+    // `transferable` tells the admin UI it can offer to move the player rather
+    // than just reporting the clash.
+    const subject = existing ? 'Player is' : 'That player name is'
+    return json(
+      {
+        message: `${subject} already on ${conflictLabel(conflicts[0])} this season`,
+        transferable: true,
+        fromTeam: conflictLabel(conflicts[0]),
+      },
+      { status: 409 }
     )
   }
 
-  const today = new Date().toISOString().slice(0, 10)
+  const now = new Date().toISOString()
+  const closedIds = Array.from(new Set(conflicts.map((row) => row.id)))
+  if (closedIds.length > 0) {
+    // left_at marks the move; the old row stays so earlier matches in the event
+    // still see the player on the team they played for then.
+    const { error: closeError } = await supabaseAdmin
+      .from('team_memberships')
+      .update({ is_active: false, left_at: now })
+      .in('id', closedIds)
+    if (closeError) throw error(500, 'Failed to close previous team membership')
+  }
+
   const { data: created, error: createError } = await supabaseAdmin
     .from('team_memberships')
     .insert({
@@ -152,7 +174,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       player_name: playerName,
       puuid: resolvedPuuid,
       role,
-      joined_at: today,
+      joined_at: now,
       is_active: true,
     })
     .select('id')
@@ -162,19 +184,33 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
   await logAdminAction({
     adminProfileId: adminProfile.id,
-    actionType: 'team_player_added',
+    actionType: closedIds.length > 0 ? 'team_player_transferred' : 'team_player_added',
     targetTable: 'team_memberships',
     targetId: String(created.id),
-    details: { teamId, profileId: resolvedProfileId, playerName, role },
+    details: {
+      teamId,
+      profileId: resolvedProfileId,
+      playerName,
+      role,
+      ...(closedIds.length > 0
+        ? {
+            fromTeamIds: Array.from(new Set(conflicts.map((row) => row.team_id))),
+            closedMembershipIds: closedIds,
+          }
+        : {}),
+    },
   })
 
-  return json({ success: true })
+  return json({ success: true, transferred: closedIds.length > 0 })
 }
 
 export const DELETE: RequestHandler = async ({ locals, request }) => {
   const adminProfile = await requireAdmin(locals.user)
   const body = await request.json()
   const teamId = normalizeOptional(body.teamId)
+  // Disbanding keeps the team approved so its matches, stats and page history
+  // stay visible; removal also pulls it out of the approved set.
+  const disbandOnly = body.disband === true
 
   if (!teamId) {
     throw error(400, 'Missing teamId')
@@ -182,12 +218,42 @@ export const DELETE: RequestHandler = async ({ locals, request }) => {
 
   const { data: existingTeam, error: existingTeamError } = await supabaseAdmin
     .from('teams')
-    .select('id, name, approval_status')
+    .select('id, name, approval_status, status')
     .eq('id', teamId)
     .single()
 
   if (existingTeamError || !existingTeam) {
     throw error(404, 'Team not found')
+  }
+
+  if (disbandOnly) {
+    const { error: disbandError } = await supabaseAdmin
+      .from('teams')
+      .update({ status: 'disbanded' })
+      .eq('id', teamId)
+
+    if (disbandError) {
+      throw error(500, 'Failed to disband team')
+    }
+
+    await supabaseAdmin
+      .from('team_memberships')
+      .update({ is_active: false, left_at: new Date().toISOString() })
+      .eq('team_id', teamId)
+      .eq('is_active', true)
+
+    await logAdminAction({
+      adminProfileId: adminProfile.id,
+      actionType: 'team_disbanded',
+      targetTable: 'teams',
+      targetId: teamId,
+      details: {
+        teamName: existingTeam.name,
+        previousStatus: existingTeam.status,
+      },
+    })
+
+    return json({ success: true })
   }
 
   const { error: updateError } = await supabaseAdmin
@@ -207,7 +273,7 @@ export const DELETE: RequestHandler = async ({ locals, request }) => {
 
   await supabaseAdmin
     .from('team_memberships')
-    .update({ is_active: false, left_at: new Date().toISOString().slice(0, 10) })
+    .update({ is_active: false, left_at: new Date().toISOString() })
     .eq('team_id', teamId)
     .eq('is_active', true)
 
@@ -262,7 +328,7 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
     .from('team_memberships')
     .update({
       is_active: false,
-      left_at: new Date().toISOString().slice(0, 10),
+      left_at: new Date().toISOString(),
     })
     .eq('id', membership.id)
 
@@ -284,4 +350,88 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
   })
 
   return json({ success: true })
+}
+
+/**
+ * Re-point an existing roster slot at a Riot ID, in place.
+ *
+ * Roster slots typed as bare handles ("Penguinz") rarely match the Riot IDs in
+ * the stats ("Penguin#1234"), which marks the real player a sub. Resolving the
+ * Riot ID captures its PUUID from Riot even for a player who has never signed
+ * in, and that is enough to match their stats; their profile attaches later
+ * through claim-relink when they connect the account.
+ *
+ * Unlike remove-and-re-add, this keeps the slot's dates, so it works on closed
+ * slots and disbanded teams and leaves no false departure in the team history.
+ */
+export const PUT: RequestHandler = async ({ locals, request }) => {
+  const adminProfile = await requireAdmin(locals.user)
+  const body = await request.json().catch(() => ({}))
+
+  const membershipId = Number(body.membershipId)
+  const riotId = normalizeOptional(body.riotId)
+  // Set when the admin picked an account seen in the team's matches.
+  const knownPuuid = normalizeOptional(body.puuid)
+  if (!Number.isFinite(membershipId) || !riotId) {
+    throw error(400, 'Missing membershipId or riotId')
+  }
+
+  const { data: membership, error: membershipError } = await supabaseAdmin
+    .from('team_memberships')
+    .select('id, team_id, profile_id, player_name, puuid')
+    .eq('id', membershipId)
+    .maybeSingle()
+
+  if (membershipError) throw error(500, 'Failed to load roster slot')
+  if (!membership) throw error(404, 'Roster slot not found')
+
+  const identity = knownPuuid
+    ? await resolveRosterIdentityByPuuid(riotId, knownPuuid)
+    : await resolveRosterIdentity(riotId)
+  const next = {
+    player_name: identity.playerName,
+    puuid: identity.puuid,
+    profile_id: identity.profileId ?? membership.profile_id ?? null,
+  }
+
+  const { error: updateError } = await supabaseAdmin
+    .from('team_memberships')
+    .update(next)
+    .eq('id', membershipId)
+
+  if (updateError) {
+    if (updateError.code === '23505') {
+      throw error(
+        409,
+        `${identity.playerName} already holds an open roster spot on another team this season; a player can only hold one at a time`
+      )
+    }
+    throw error(500, 'Failed to update roster slot')
+  }
+
+  await logAdminAction({
+    adminProfileId: adminProfile.id,
+    actionType: 'team_player_identity_set',
+    targetTable: 'team_memberships',
+    targetId: String(membershipId),
+    details: {
+      teamId: membership.team_id,
+      previous: {
+        playerName: membership.player_name ?? null,
+        puuid: membership.puuid ?? null,
+        profileId: membership.profile_id ?? null,
+      },
+      next: { playerName: next.player_name, puuid: next.puuid, profileId: next.profile_id },
+    },
+  })
+
+  return json({
+    success: true,
+    slot: {
+      playerName: next.player_name,
+      puuid: next.puuid,
+      hasPuuid: Boolean(next.puuid),
+      hasProfile: Boolean(next.profile_id),
+    },
+  })
 }

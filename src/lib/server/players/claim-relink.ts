@@ -162,7 +162,7 @@ export async function relinkTeamMembershipsForClaim(profileId: string): Promise<
   if (toDeactivate.length > 0) {
     const { error: deactErr } = await supabaseAdmin
       .from('team_memberships')
-      .update({ is_active: false, left_at: new Date().toISOString().slice(0, 10) })
+      .update({ is_active: false, left_at: new Date().toISOString() })
       .in('id', toDeactivate)
 
     if (deactErr) {

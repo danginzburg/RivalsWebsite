@@ -51,6 +51,8 @@ function normalizeSort(value: string | null): string {
     'mk_3k',
     'mk_4k',
     'mk_5k',
+    'mk_6k',
+    'mk_7k',
     'clutches_won',
     'clutches_attempted',
   ])

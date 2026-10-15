@@ -95,6 +95,29 @@ export async function resolveRosterIdentity(input: string): Promise<{
   return { profileId, puuid, playerName }
 }
 
+/**
+ * The identity for a roster slot when its PUUID is already known (picked from
+ * the Riot accounts seen in the team's matches), so no Riot lookup is needed.
+ * The profile comes from a registered Riot account, else a linked identity.
+ */
+export async function resolveRosterIdentityByPuuid(
+  input: string,
+  puuid: string
+): Promise<{ profileId: string | null; puuid: string; playerName: string }> {
+  const playerName = String(input ?? '').trim()
+  const [{ data: account }, { data: identity }] = await Promise.all([
+    supabaseAdmin
+      .from('profile_riot_accounts')
+      .select('profile_id')
+      .eq('riot_puuid', puuid)
+      .maybeSingle(),
+    supabaseAdmin.from('riot_identities').select('profile_id').eq('puuid', puuid).maybeSingle(),
+  ])
+  const profileId =
+    (account?.profile_id as string | null) ?? (identity?.profile_id as string | null) ?? null
+  return { profileId, puuid, playerName }
+}
+
 export async function getActiveMemberships(profileId: string) {
   const { data, error } = await supabaseAdmin
     .from('team_memberships')

@@ -201,7 +201,9 @@
         <div class="min-w-0">
           <h1 class="admin-import-title">Leaderboard Import</h1>
           <p class="admin-hint mt-1">
-            Upload standings by team tag. The newest import becomes the public leaderboard.
+            Upload standings by team tag. Standings are normally calculated from imported matches
+            (see <a href={resolve('/admin/standings')} class="underline">Standings</a>). A CSV
+            import is the fallback: it shows only for a season with no matches to calculate from.
           </p>
         </div>
         <a href={resolve('/admin')} class="admin-back-link">

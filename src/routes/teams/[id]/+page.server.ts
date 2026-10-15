@@ -1,7 +1,9 @@
 import { error } from '@sveltejs/kit'
+import { pickStandingsBatch } from '$lib/server/leaderboard/batch'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
 import { getSeasonSeeds } from '$lib/server/seasons/seeds'
+import { isShortStint } from '$lib/server/matches/subs'
 import {
   aggregateRoster,
   resolveSeasonStatBatchIds,
@@ -19,9 +21,14 @@ type ProfileRow = {
 }
 
 type MembershipRow = {
+  id: number
   profile_id?: string | null
   player_name?: string | null
   role?: string | null
+  joined_at?: string | null
+  left_at?: string | null
+  is_active?: boolean | null
+  metadata?: { hidden_from_history?: boolean } | null
 }
 
 export const load = async ({ params, locals }: { params: { id: string }; locals: App.Locals }) => {
@@ -51,16 +58,17 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
     { data: membershipRows, error: membershipError },
     { data: matchHistory },
     { data: upcomingMatches },
-    { data: leaderboardBatch },
+    { data: leaderboardBatches },
     { data: activeSeason },
     teamSeeds,
   ] = await Promise.all([
     supabaseAdmin
       .from('team_memberships')
-      .select('profile_id, player_name, role')
+      .select('id, profile_id, player_name, role, joined_at, left_at, is_active, metadata')
       .eq('team_id', teamId)
-      .eq('is_active', true)
-      .is('left_at', null),
+      // Closed stints too: they are the players who left this team mid-event.
+      .or('is_active.eq.true,left_at.not.is.null')
+      .order('left_at', { ascending: false, nullsFirst: true }),
     supabaseAdmin
       .from('matches')
       .select(
@@ -107,18 +115,25 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
       .limit(10),
     supabaseAdmin
       .from('stat_import_batches')
-      .select('id, display_name, created_at, metadata')
+      .select('id, season_id, display_name, created_at, metadata')
       .filter('metadata->>import_type', 'eq', 'leaderboard_entries')
       .eq('status', 'applied')
       .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
+      .limit(50),
     supabaseAdmin.from('seasons').select('id, name, code').eq('is_active', true).maybeSingle(),
     // Seed comes from the bracket of the season this team belongs to.
     getSeasonSeeds(teamSeasonIdRaw),
   ])
 
   if (membershipError) throw error(500, 'Failed to load team roster')
+
+  // The team's season's calculated standings when it has them; otherwise the
+  // newest import, as before.
+  const batchList = leaderboardBatches ?? []
+  const leaderboardBatch =
+    pickStandingsBatch(batchList.filter((b) => b.season_id === teamSeasonIdRaw)) ??
+    batchList[0] ??
+    null
 
   const profileIds = Array.from(
     new Set(
@@ -159,7 +174,7 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
   const profileById = new Map<string, ProfileRow>()
   for (const p of profileRows ?? []) profileById.set(p.id, p)
 
-  const roster = ((membershipRows ?? []) as MembershipRow[]).map((m) => {
+  const toPlayer = (m: MembershipRow) => {
     const p = profileById.get(m.profile_id ?? '')
     return {
       profile_id: m.profile_id,
@@ -169,7 +184,46 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
       display_name: p?.display_name ?? null,
       email: p?.email ?? null,
     }
-  })
+  }
+
+  const memberships = (membershipRows ?? []) as MembershipRow[]
+  const openMemberships = memberships.filter((m) => m.is_active && !m.left_at)
+  const roster = openMemberships.map(toPlayer)
+
+  // Players who left this team: one row each, at their latest departure. A
+  // closed row for someone still on the roster is a retired duplicate slot,
+  // and one closed within a day of opening is a mis-entry; neither is a departure.
+  // An admin can also hide an entry (a player entered twice under another name);
+  // `membership_ids` carries every closed stint folded into the row so hiding
+  // it hides them all, and hidden entries still reach admins to be restored.
+  const memberKey = (m: MembershipRow) =>
+    m.profile_id ? `p:${m.profile_id}` : `n:${(m.player_name ?? '').trim().toLowerCase()}`
+  const onRoster = new Set(openMemberships.map(memberKey))
+  type FormerPlayer = ReturnType<typeof toPlayer> & {
+    joined_at: string | null
+    left_at: string
+    membership_ids: number[]
+    hidden: boolean
+  }
+  const formerByKey = new Map<string, FormerPlayer>()
+  for (const m of memberships) {
+    const key = memberKey(m)
+    if (!m.left_at || isShortStint(m.joined_at, m.left_at) || onRoster.has(key)) continue
+    const existing = formerByKey.get(key)
+    if (existing) {
+      existing.membership_ids.push(m.id)
+      existing.hidden &&= Boolean(m.metadata?.hidden_from_history)
+      continue
+    }
+    formerByKey.set(key, {
+      ...toPlayer(m),
+      joined_at: m.joined_at ?? null,
+      left_at: m.left_at,
+      membership_ids: [m.id],
+      hidden: Boolean(m.metadata?.hidden_from_history),
+    })
+  }
+  const formerPlayers = [...formerByKey.values()].filter((p) => isAdmin || !p.hidden)
 
   // Every event of the active season — for Season 4 that is Kickoff, the regular
   // season, play-ins and playoffs — summed into one line per player. The curated
@@ -257,6 +311,7 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
       ...player,
       stats: rosterStats[index],
     })),
+    formerPlayers,
     seeds: teamSeeds,
     matchHistory: withTeamLogos(matchHistory ?? []),
     upcomingMatches: withTeamLogos(upcomingMatches ?? []),

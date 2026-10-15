@@ -47,6 +47,18 @@ function fallbackErrorMessage(
   return fallbackMessage
 }
 
+/** A failed admin request, carrying the HTTP status and response body. */
+export class AdminRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly payload: unknown
+  ) {
+    super(message)
+    this.name = 'AdminRequestError'
+  }
+}
+
 export async function adminJsonRequest<T>(
   input: string,
   {
@@ -67,8 +79,10 @@ export async function adminJsonRequest<T>(
   const payload = await parsePayload(response)
 
   if (!response.ok) {
-    throw new Error(
-      fallbackErrorMessage(payload, response, fallbackMessage, includeHttpStatusInError)
+    throw new AdminRequestError(
+      fallbackErrorMessage(payload, response, fallbackMessage, includeHttpStatusInError),
+      response.status,
+      payload
     )
   }
 

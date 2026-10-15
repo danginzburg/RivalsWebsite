@@ -18,7 +18,14 @@ import { rematchPlayerMatchMapStatsForBase } from '$lib/server/imports/matching'
 import { rankValue } from '$lib/ranks/ranks'
 import { loadCommentThread } from '$lib/server/comments'
 import { getViewerProfileId } from '$lib/server/auth/viewer'
-import { loadRosterSets, loadSubOverridesForMatches, resolveIsSub } from '$lib/server/matches/subs'
+import {
+  loadRosterTimeline,
+  loadSubOverridesForMatches,
+  matchRosterTime,
+  resolveIsSub,
+  isShortStint,
+  type RosterTimeline,
+} from '$lib/server/matches/subs'
 import { listRiotAccounts, syncPrimaryRiotName } from '$lib/server/players/riot-accounts'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -54,6 +61,8 @@ type TeamHistoryRow = {
   season: { name: string; code: string | null } | null
   role: string | null
   joined_at: string | null
+  /** When the player left this team; null while any stint on it is still open. */
+  left_at: string | null
   /** Sort key: when this team's season began, empty for an unassigned team. */
   season_started_on: string
 }
@@ -68,10 +77,12 @@ type TeamHistoryRow = {
  * second membership rather than reviving the first — so stints are collapsed to
  * one row per team. A genuine move between two teams still shows as two rows.
  *
- * The list makes no current-versus-former distinction. Rosters are season-scoped,
+ * An open membership is not read as "current team". Rosters are season-scoped,
  * so a backfilled past season leaves its memberships open indefinitely and an
  * open membership says nothing about where the player is today; the season column
- * carries that information instead.
+ * carries that information instead. A closed one does carry a fact, though: the
+ * player left that team, typically by moving to another mid-event, so its
+ * departure date is kept for the row.
  */
 async function loadTeamHistory(profileId: string): Promise<TeamHistoryRow[]> {
   // `seasons` has three FKs back to `teams` (season_id, winner, runner-up), so
@@ -109,9 +120,12 @@ async function loadTeamHistory(profileId: string): Promise<TeamHistoryRow[]> {
   }
 
   const byTeam = new Map<string, TeamHistoryRow>()
+  const openTeams = new Set<string>()
   for (const row of (data ?? []) as Row[]) {
     const team = Array.isArray(row.teams) ? row.teams[0] : row.teams
     if (!team || team.approval_status !== 'approved') continue
+    // Closed within a day of opening: a roster mis-entry, not a stint on the team.
+    if (isShortStint(row.joined_at, row.left_at)) continue
 
     const seasonRel = Array.isArray(team.seasons) ? team.seasons[0] : team.seasons
     const isOpen = Boolean(row.is_active) && !row.left_at
@@ -124,6 +138,10 @@ async function loadTeamHistory(profileId: string): Promise<TeamHistoryRow[]> {
       }
       // An open stint's role is the one worth showing.
       if (isOpen && row.role) existing.role = row.role
+      if (isOpen) openTeams.add(team.id)
+      else if (row.left_at && (!existing.left_at || row.left_at > existing.left_at)) {
+        existing.left_at = row.left_at
+      }
       continue
     }
 
@@ -137,8 +155,14 @@ async function loadTeamHistory(profileId: string): Promise<TeamHistoryRow[]> {
       season: seasonRel ? { name: seasonRel.name ?? 'Season', code: seasonRel.code ?? null } : null,
       role: row.role ?? null,
       joined_at: row.joined_at ?? null,
+      left_at: isOpen ? null : (row.left_at ?? null),
       season_started_on: seasonRel?.starts_on ?? '',
     })
+    if (isOpen) openTeams.add(team.id)
+  }
+  for (const teamId of openTeams) {
+    const entry = byTeam.get(teamId)
+    if (entry) entry.left_at = null
   }
 
   // Newest season first; within a season, the most recent roster first.
@@ -809,8 +833,9 @@ export const load = async ({
   }
 
   // Sub detection for the history rows: a team's roster is judged in its own
-  // season, and each team belongs to one season, so rosters merge into a single
-  // team-keyed map without collision. Overrides are fetched once for all matches.
+  // season and as of the match day, so a player who moved teams mid-event stays
+  // a starter in the old team's earlier matches. Overrides are fetched once for
+  // all matches.
   const seasonToTeams = new Map<string, Set<string>>()
   const historyMatchIds: string[] = []
   for (const rows of groupedParticipation.values()) {
@@ -825,19 +850,16 @@ export const load = async ({
     seasonToTeams.set(seasonKey, set)
   }
 
-  const rosterByTeam = new Map<
-    string,
-    { profileIds: Set<string>; names: Set<string>; puuids: Set<string> }
-  >()
-  const [subOverridesByMatch, ...rosterResults] = await Promise.all([
+  const seasonKeys = Array.from(seasonToTeams.keys())
+  const [subOverridesByMatch, ...timelines] = await Promise.all([
     loadSubOverridesForMatches(historyMatchIds),
-    ...Array.from(seasonToTeams.entries()).map(([seasonKey, teams]) =>
-      loadRosterSets(seasonKey || null, Array.from(teams))
+    ...seasonKeys.map((seasonKey) =>
+      loadRosterTimeline(seasonKey || null, Array.from(seasonToTeams.get(seasonKey) ?? []))
     ),
   ])
-  for (const result of rosterResults) {
-    for (const [teamId, roster] of result) rosterByTeam.set(teamId, roster)
-  }
+  const timelineBySeason = new Map<string, RosterTimeline>(
+    seasonKeys.map((seasonKey, index) => [seasonKey, timelines[index] as RosterTimeline])
+  )
 
   // One sub/starter verdict per match, decided once and reused for the match
   // history rows and the Map/Agent breakdown split below. A player takes one
@@ -851,7 +873,10 @@ export const load = async ({
     const isSub = r.team_id
       ? resolveIsSub({
           overrides: subOverridesByMatch.get(matchRel.id) ?? [],
-          roster: rosterByTeam.get(r.team_id),
+          roster: timelineBySeason
+            .get(matchRel.season_id ?? '')
+            ?.at(matchRosterTime(matchRel))
+            .get(r.team_id),
           profileId,
           playerName: r.player_name,
           puuid,
@@ -860,18 +885,64 @@ export const load = async ({
     subByMatchId.set(matchRel.id, isSub)
   }
 
+  // The Map/Agent breakdowns and match history come from match imports, not
+  // leaderboard batches, so the batch selector can only scope them indirectly. A batch generated from
+  // matches carries the exact `source_match_ids` behind it — the precise scope.
+  // Older season aggregates have no such list, so they fall back to their season
+  // (curated mapping first, then the batch's own season_id column). Weekly CSV
+  // batches and "All Time" aggregates resolve to neither and leave the tables
+  // showing every recorded map.
+  let mapStatsScope: string | null = null
+  let scopedMatchIds: Set<string> | null = null
+  let scopedSeasonId: string | null = null
+
+  if (selected?.batch?.import_kind === 'aggregate' && selected.import_batch_id) {
+    const rawBatch = rawBatchById.get(selected.import_batch_id)
+    const sourceMatchIds = rawBatch?.metadata?.source_match_ids
+    if (Array.isArray(sourceMatchIds) && sourceMatchIds.length > 0) {
+      scopedMatchIds = new Set(sourceMatchIds.filter((id): id is string => typeof id === 'string'))
+      mapStatsScope = selected.batch.display_name ?? null
+    } else {
+      for (const s of allSeasons) {
+        if (resolveSeasonStatBatchIds(s).includes(selected.import_batch_id)) {
+          scopedSeasonId = s.id
+          mapStatsScope = s.name ?? s.code ?? null
+          break
+        }
+      }
+      if (!scopedSeasonId && rawBatch?.season_id) {
+        scopedSeasonId = rawBatch.season_id
+        const s = allSeasons.find((x) => x.id === scopedSeasonId)
+        mapStatsScope = s?.name ?? s?.code ?? selected.batch.display_name ?? null
+      }
+    }
+  }
+
+  const matchIdScope = scopedMatchIds
+  const seasonScope = scopedSeasonId
+  const isMatchInScope = (
+    matchId: string | null | undefined,
+    seasonId: string | null | undefined
+  ) =>
+    matchIdScope
+      ? matchId != null && matchIdScope.has(matchId)
+      : seasonScope
+        ? seasonId === seasonScope
+        : true
+
   const matchHistory = Array.from(groupedParticipation.values())
     .map((rows): MatchHistoryEntry => {
       const r = rows[0]
       const matchRel = Array.isArray(r.matches) ? r.matches[0] : r.matches
       const isSub = matchRel?.id ? (subByMatchId.get(matchRel.id) ?? false) : false
+      // The side the player actually played on comes from the stat rows. The
+      // current team is only a fallback: after a move between two teams that met,
+      // it would frame the old matches from the opponent's side.
+      const isSide = (id: string | null | undefined) =>
+        Boolean(id) && (id === matchRel?.team_a_id || id === matchRel?.team_b_id)
+      const playedTeamId = rows.map((entry) => entry.team_id).find(isSide) ?? null
       const perspectiveTeamId =
-        activeTeam &&
-        (activeTeam.id === matchRel?.team_a_id || activeTeam.id === matchRel?.team_b_id)
-          ? activeTeam.id
-          : r.team_id === matchRel?.team_a_id || r.team_id === matchRel?.team_b_id
-            ? r.team_id
-            : null
+        playedTeamId ?? (activeTeam && isSide(activeTeam.id) ? activeTeam.id : null)
       const rawOpponent =
         matchRel?.team_a_id === perspectiveTeamId
           ? matchRel?.team_b
@@ -917,7 +988,9 @@ export const load = async ({
     })
     .filter(
       (x): x is MatchHistoryEntry & { match: MatchRel } =>
-        Boolean(x.match) && x.match?.approval_status === 'approved'
+        Boolean(x.match) &&
+        x.match?.approval_status === 'approved' &&
+        isMatchInScope(x.match.id, x.match.season_id)
     )
     .sort((a, b) => {
       const at = a.match.scheduled_at ?? a.match.ended_at ?? ''
@@ -942,50 +1015,11 @@ export const load = async ({
     return mm && !mm.is_voided && mm.map_name
   })
 
-  // The Map/Agent breakdowns come from match imports, not leaderboard batches,
-  // so the batch selector can only scope them indirectly. A batch generated from
-  // matches carries the exact `source_match_ids` behind it — the precise scope.
-  // Older season aggregates have no such list, so they fall back to their season
-  // (curated mapping first, then the batch's own season_id column). Weekly CSV
-  // batches and "All Time" aggregates resolve to neither and leave the tables
-  // showing every recorded map.
-  let mapStatsScope: string | null = null
-  let scopedMatchIds: Set<string> | null = null
-  let scopedSeasonId: string | null = null
-
-  if (selected?.batch?.import_kind === 'aggregate' && selected.import_batch_id) {
-    const rawBatch = rawBatchById.get(selected.import_batch_id)
-    const sourceMatchIds = rawBatch?.metadata?.source_match_ids
-    if (Array.isArray(sourceMatchIds) && sourceMatchIds.length > 0) {
-      scopedMatchIds = new Set(sourceMatchIds.filter((id): id is string => typeof id === 'string'))
-      mapStatsScope = selected.batch.display_name ?? null
-    } else {
-      for (const s of allSeasons) {
-        if (resolveSeasonStatBatchIds(s).includes(selected.import_batch_id)) {
-          scopedSeasonId = s.id
-          mapStatsScope = s.name ?? s.code ?? null
-          break
-        }
-      }
-      if (!scopedSeasonId && rawBatch?.season_id) {
-        scopedSeasonId = rawBatch.season_id
-        const s = allSeasons.find((x) => x.id === scopedSeasonId)
-        mapStatsScope = s?.name ?? s?.code ?? selected.batch.display_name ?? null
-      }
-    }
-  }
-
-  const matchIdScope = scopedMatchIds
-  const seasonScope = scopedSeasonId
-  const scopedMapStats = matchIdScope
-    ? validMapStats.filter((r) => r.match_id != null && matchIdScope.has(r.match_id))
-    : seasonScope
-      ? validMapStats.filter((r) => {
-          const mm = Array.isArray(r.match_maps) ? r.match_maps[0] : r.match_maps
-          const match = mm && (Array.isArray(mm.matches) ? mm.matches[0] : mm.matches)
-          return match?.season_id === seasonScope
-        })
-      : validMapStats
+  const scopedMapStats = validMapStats.filter((r) => {
+    const mm = Array.isArray(r.match_maps) ? r.match_maps[0] : r.match_maps
+    const match = mm && (Array.isArray(mm.matches) ? mm.matches[0] : mm.matches)
+    return isMatchInScope(r.match_id, match?.season_id)
+  })
 
   // Split the scoped maps into starter and sub buckets by their match verdict.
   // An unknown match id (no participation row on record) counts as a starter,
@@ -997,11 +1031,14 @@ export const load = async ({
   const mainBreakdowns = buildBreakdowns(scopedMapStats.filter((r) => !isSubMapRow(r)))
 
   // How many matches fall in each bucket, so the client only offers the filter
-  // when the player has actually played both roles.
+  // when the player has actually played both roles in the selected scope.
   let subGames = 0
   let mainGames = 0
-  for (const isSub of subByMatchId.values()) {
-    if (isSub) subGames += 1
+  for (const rows of groupedParticipation.values()) {
+    const r = rows[0]
+    const matchRel = Array.isArray(r.matches) ? r.matches[0] : r.matches
+    if (!matchRel?.id || !isMatchInScope(matchRel.id, matchRel.season_id)) continue
+    if (subByMatchId.get(matchRel.id)) subGames += 1
     else mainGames += 1
   }
 

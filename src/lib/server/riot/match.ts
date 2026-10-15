@@ -185,6 +185,8 @@ export function toImportMap(
     mk_3k: player.multiKills.k3,
     mk_4k: player.multiKills.k4,
     mk_5k: player.multiKills.k5,
+    mk_6k: player.multiKills.k6,
+    mk_7k: player.multiKills.k7,
     clutches_won: player.clutches.totalWon,
     clutches_attempted: player.clutches.totalAttempted,
     // The per-size breakdown has no columns of its own — a 1v1 and a 1v5 are

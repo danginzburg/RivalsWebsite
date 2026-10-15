@@ -48,7 +48,11 @@
     {:else}
       <div class="season-list">
         {#each seasons as season (season.id)}
-          <a href={resolve(`/events/${season.code}`)} class="season-card">
+          <a
+            href={resolve(`/events/${season.code}`)}
+            class="season-card"
+            class:season-card-active={season.is_active}
+          >
             {#if season.logo_url}
               <img src={season.logo_url} alt="" class="season-logo" />
             {:else}
@@ -57,11 +61,10 @@
             <div class="season-main">
               <div class="season-head">
                 <div class="season-title-row">
-                  <span class="season-code">{season.code}</span>
-                  <h2 class="season-name">{season.name}</h2>
                   {#if season.is_active}
-                    <span class="badge badge-active">Active</span>
+                    <span class="live-dot" title="Active season" aria-label="Active season"></span>
                   {/if}
+                  <h2 class="season-name">{season.name}</h2>
                 </div>
                 <p class="season-dates">{formatRange(season.starts_on, season.ends_on)}</p>
               </div>
@@ -155,6 +158,44 @@
     background: rgba(255, 255, 255, 0.03);
   }
 
+  /* The active season gets a soft green edge and tint instead of a badge. */
+  .season-card-active {
+    border-color: rgba(74, 222, 128, 0.28);
+    background: linear-gradient(90deg, rgba(74, 222, 128, 0.07), rgba(0, 0, 0, 0.2) 55%);
+    box-shadow: inset 3px 0 0 rgba(74, 222, 128, 0.55);
+  }
+
+  .season-card-active:hover {
+    border-color: rgba(74, 222, 128, 0.45);
+    background: linear-gradient(90deg, rgba(74, 222, 128, 0.1), rgba(255, 255, 255, 0.03) 55%);
+  }
+
+  .live-dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 9999px;
+    background: #4ade80;
+    box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.18);
+    flex-shrink: 0;
+    animation: live-pulse 2.4s ease-in-out infinite;
+  }
+
+  @keyframes live-pulse {
+    0%,
+    100% {
+      box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.18);
+    }
+    50% {
+      box-shadow: 0 0 0 5px rgba(74, 222, 128, 0.06);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .live-dot {
+      animation: none;
+    }
+  }
+
   .season-logo {
     width: 3rem;
     height: 3rem;
@@ -189,35 +230,10 @@
     flex-wrap: wrap;
   }
 
-  .season-code {
-    font-size: 0.6875rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--accent-text);
-    background: rgba(120, 67, 145, 0.16);
-    padding: 0.1875rem 0.4375rem;
-    border-radius: 0.25rem;
-  }
-
   .season-name {
     font-size: 1.0625rem;
     font-weight: 700;
     color: var(--title);
-  }
-
-  .badge {
-    font-size: 0.625rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    padding: 0.1875rem 0.4375rem;
-    border-radius: 9999px;
-  }
-
-  .badge-active {
-    background: rgba(74, 222, 128, 0.16);
-    color: #86efac;
   }
 
   .season-dates {

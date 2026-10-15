@@ -2,11 +2,17 @@ import { error } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { average, sum, weightedAverage } from '$lib/server/math'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
+import { resolveMatchStageKey } from '$lib/stats/sections'
 import { loadCommentThread } from '$lib/server/comments'
 import { getViewerProfileId } from '$lib/server/auth/viewer'
 import { getSeasonStandingsRanks } from '$lib/server/leaderboard/ranks'
 import { getValorantMapLookup, parseVetoLine, type VetoStep } from '$lib/server/valorant/maps'
-import { loadRosterSets, loadMatchSubOverrides, resolveIsSub } from '$lib/server/matches/subs'
+import {
+  loadRosterSets,
+  loadMatchSubOverrides,
+  matchRosterTime,
+  resolveIsSub,
+} from '$lib/server/matches/subs'
 
 function normalizePlayerKey(
   teamId: string | null | undefined,
@@ -44,6 +50,7 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
       team_a_score,
       team_b_score,
       winner_team_id,
+      stage,
       metadata,
       team_a:teams!matches_team_a_id_fkey (id, name, tag, logo_path),
       team_b:teams!matches_team_b_id_fkey (id, name, tag, logo_path)
@@ -75,13 +82,14 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
     supabaseAdmin
       .from('player_match_map_stats')
       .select(
-        'match_map_id, profile_id, team_id, player_name, agents, acs, kills, deaths, assists, kd, adr, kast_pct, hs_pct, econ_rating, rounds, fk, fd, plants, defuses, mk_2k, mk_3k, mk_4k, mk_5k, clutches_won, clutches_attempted, metadata'
+        'match_map_id, profile_id, team_id, player_name, agents, acs, kills, deaths, assists, kd, adr, kast_pct, hs_pct, econ_rating, rounds, fk, fd, plants, defuses, mk_2k, mk_3k, mk_4k, mk_5k, mk_6k, mk_7k, clutches_won, clutches_attempted, metadata'
       )
       .eq('match_id', matchId),
-    loadRosterSets((match as { season_id?: string | null }).season_id, [
-      match.team_a_id,
-      match.team_b_id,
-    ]),
+    loadRosterSets(
+      (match as { season_id?: string | null }).season_id,
+      [match.team_a_id, match.team_b_id],
+      matchRosterTime(match)
+    ),
     loadMatchSubOverrides(matchId),
   ])
 
@@ -150,6 +158,8 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
           mk_3k: row.mk_3k ?? null,
           mk_4k: row.mk_4k ?? null,
           mk_5k: row.mk_5k ?? null,
+          mk_6k: row.mk_6k ?? null,
+          mk_7k: row.mk_7k ?? null,
           clutches_won: row.clutches_won ?? null,
           clutches_attempted: row.clutches_attempted ?? null,
           // Riot puuid keys the head-to-head grid; the breakdown sizes clutches.
@@ -246,6 +256,8 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
     mk_3k: number | null
     mk_4k: number | null
     mk_5k: number | null
+    mk_6k: number | null
+    mk_7k: number | null
     clutches_won: number | null
     clutches_attempted: number | null
     puuid: string | null
@@ -299,6 +311,8 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
       mk_3k: addCounts('mk_3k'),
       mk_4k: addCounts('mk_4k'),
       mk_5k: addCounts('mk_5k'),
+      mk_6k: addCounts('mk_6k'),
+      mk_7k: addCounts('mk_7k'),
       clutches_won: addCounts('clutches_won'),
       clutches_attempted: addCounts('clutches_attempted'),
       // The same player keeps one puuid across the series.
@@ -389,6 +403,8 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
       streams: streams ?? [],
       vod_url: match.metadata?.youtube_vod_url ?? null,
       designation: (matchMeta?.designation as string | null) ?? null,
+      // Admin-only flag: an unfiled match is skipped by stage-filtered stat batches.
+      missing_stage: isAdmin && resolveMatchStageKey(match.stage, matchMeta?.designation) === null,
       map_vetoes: mapVetoes,
       maps: normalizedMapsWithForfeitNames,
       forfeit_display: forfeitDisplay,

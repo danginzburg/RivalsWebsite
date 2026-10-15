@@ -10,6 +10,8 @@ import { supabaseAdmin } from '$lib/supabase/admin'
 import { logAdminAction } from '$lib/server/audit/admin-actions'
 import { resolveTargetSeasonId } from '$lib/server/seasons/resolve'
 import { normalizeSectionKey } from '$lib/stats/sections'
+import { refreshStandingsForSeason } from '$lib/server/leaderboard/computed'
+import { refreshLiveBatchesForMatch } from '$lib/server/stats/from-matches'
 
 function normalizeOptional(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -29,6 +31,33 @@ function parseScheduledAt(value: unknown): string | null {
   return d.toISOString()
 }
 
+async function loadMatchSeasonId(matchId: string): Promise<string | null> {
+  const { data } = await supabaseAdmin
+    .from('matches')
+    .select('season_id')
+    .eq('id', matchId)
+    .maybeSingle()
+  return (data?.season_id as string | null | undefined) ?? null
+}
+
+/**
+ * Standings and live stat batches follow every result edit. An update can
+ * re-file the match into another season or stage, so the season it left is
+ * recalculated too, and batches it moves into or out of are rebuilt.
+ */
+async function refreshStandingsAfterEdit(
+  matchId: string,
+  previousSeasonId: string | null,
+  adminProfileId: string
+) {
+  const currentSeasonId = await loadMatchSeasonId(matchId)
+  await refreshStandingsForSeason(currentSeasonId, adminProfileId)
+  if (previousSeasonId && previousSeasonId !== currentSeasonId) {
+    await refreshStandingsForSeason(previousSeasonId, adminProfileId)
+  }
+  await refreshLiveBatchesForMatch({ matchId, adminProfileId })
+}
+
 function parseMapVetoes(value: unknown): string[] {
   if (typeof value !== 'string') return []
   return value
@@ -46,9 +75,12 @@ export const PATCH: RequestHandler = async ({ locals, request, params }) => {
   const action = normalizeOptional(body.action)
   if (!action) throw error(400, 'Missing action')
 
+  const previousSeasonId = await loadMatchSeasonId(matchId)
+
   try {
     if (action === 'cancel') {
       const updated = await cancelMatch({ matchId, adminProfileId: admin.id })
+      await refreshStandingsAfterEdit(matchId, previousSeasonId, admin.id)
       return json({ success: true, match: updated })
     }
 
@@ -75,6 +107,7 @@ export const PATCH: RequestHandler = async ({ locals, request, params }) => {
         seasonId:
           body.seasonId === undefined ? undefined : await resolveTargetSeasonId(body.seasonId),
       })
+      await refreshStandingsAfterEdit(matchId, previousSeasonId, admin.id)
       return json({ success: true, match: updated })
     }
 
@@ -86,6 +119,7 @@ export const PATCH: RequestHandler = async ({ locals, request, params }) => {
         teamBScore: Number(body.teamBScore),
         winnerTeamId: normalizeOptional(body.winnerTeamId),
       })
+      await refreshStandingsAfterEdit(matchId, previousSeasonId, admin.id)
       return json({ success: true, match: updated })
     }
   } catch (err) {
@@ -128,6 +162,7 @@ export const PATCH: RequestHandler = async ({ locals, request, params }) => {
       },
     })
 
+    await refreshStandingsAfterEdit(matchId, previousSeasonId, admin.id)
     return json({ success: true })
   }
 
@@ -135,11 +170,14 @@ export const PATCH: RequestHandler = async ({ locals, request, params }) => {
 }
 
 export const DELETE: RequestHandler = async ({ locals, params }) => {
-  await requireAdmin(locals.user)
+  const admin = await requireAdmin(locals.user)
 
   const matchId = params.id
+  const seasonId = matchId ? await loadMatchSeasonId(matchId) : null
   const { error: deleteError } = await supabaseAdmin.from('matches').delete().eq('id', matchId)
   if (deleteError) throw error(500, 'Failed to delete match')
+
+  await refreshStandingsForSeason(seasonId, admin.id)
 
   return json({ success: true })
 }

@@ -61,6 +61,16 @@
     })
   }
 
+  // Teams that folded mid-event stay listed but are set apart, and sink to the
+  // end of the teams grid so the active field reads first.
+  const disbandedIds = $derived(
+    new Set(teams.filter((t: any) => t.disbanded).map((t: any) => t.id))
+  )
+  const sortedTeams = $derived(
+    [...teams].sort((a: any, b: any) => Number(a.disbanded) - Number(b.disbanded))
+  )
+  const isDisbanded = (id: string | null | undefined) => Boolean(id) && disbandedIds.has(id!)
+
   const completedCount = $derived(matches.filter((m: any) => m.status === 'completed').length)
 </script>
 
@@ -80,14 +90,7 @@
       {/if}
       <div class="season-header-main">
         <div class="title-row">
-          <span class="season-code">{season.code}</span>
           <h1 class="season-name">{season.name}</h1>
-          {#if season.is_active}
-            <span class="badge badge-active">Active</span>
-          {/if}
-          {#if season.kind === 'external'}
-            <span class="badge badge-external">External</span>
-          {/if}
         </div>
         <p class="season-dates">{formatRange(season.starts_on, season.ends_on)}</p>
         {#if externalLinks.length > 0}
@@ -288,8 +291,12 @@
 
 {#snippet teamsGrid()}
   <div class="team-grid">
-    {#each teams as team (team.id)}
-      <a href={resolve(`/teams/${team.id}`)} class="team-card">
+    {#each sortedTeams as team (team.id)}
+      <a
+        href={resolve(`/teams/${team.id}`)}
+        class="team-card"
+        class:team-card-disbanded={team.disbanded}
+      >
         {#if team.logo_url}
           <img src={team.logo_url} alt="" class="team-card-logo" />
         {:else}
@@ -302,6 +309,9 @@
               <span class="team-card-tag">[{team.tag}]</span>
             {/if}
             <TeamSeed seed={bracket.seeds?.[team.id] ?? null} />
+            {#if team.disbanded}
+              <span class="disbanded-chip">Disbanded</span>
+            {/if}
           </div>
         </div>
       </a>
@@ -338,7 +348,7 @@
       </thead>
       <tbody>
         {#each leaderboard as row, i (row.team?.id ?? i)}
-          <tr>
+          <tr class:row-disbanded={isDisbanded(row.team?.id)}>
             <td class="col-rank tabular">{row.rank || i + 1}</td>
             <td>
               {#if row.team}
@@ -348,6 +358,9 @@
                   {/if}
                   {row.team.name}
                 </a>
+                {#if isDisbanded(row.team.id)}
+                  <span class="disbanded-chip">Disbanded</span>
+                {/if}
               {:else}
                 <span class="muted">Unknown team</span>
               {/if}
@@ -375,6 +388,8 @@
           <span
             class="match-team match-team-a"
             class:match-winner={match.winner_team_id === match.team_a?.id}
+            class:match-team-disbanded={isDisbanded(match.team_a?.id)}
+            title={isDisbanded(match.team_a?.id) ? 'Disbanded during this event' : undefined}
           >
             {match.team_a?.name ?? 'TBD'}
             <TeamSeed seed={bracket.seeds?.[match.team_a?.id ?? ''] ?? null} variant="bare" />
@@ -391,6 +406,8 @@
           <span
             class="match-team match-team-b"
             class:match-winner={match.winner_team_id === match.team_b?.id}
+            class:match-team-disbanded={isDisbanded(match.team_b?.id)}
+            title={isDisbanded(match.team_b?.id) ? 'Disbanded during this event' : undefined}
           >
             <TeamSeed seed={bracket.seeds?.[match.team_b?.id ?? ''] ?? null} variant="bare" />
             {match.team_b?.name ?? 'TBD'}
@@ -447,41 +464,11 @@
     flex-wrap: wrap;
   }
 
-  .season-code {
-    font-size: 0.6875rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--accent-text);
-    background: rgba(120, 67, 145, 0.16);
-    padding: 0.1875rem 0.4375rem;
-    border-radius: 0.25rem;
-  }
-
   .season-name {
     font-size: 1.625rem;
     font-weight: 700;
     color: var(--title);
     line-height: 1.2;
-  }
-
-  .badge {
-    font-size: 0.625rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    padding: 0.1875rem 0.4375rem;
-    border-radius: 9999px;
-  }
-
-  .badge-active {
-    background: rgba(74, 222, 128, 0.16);
-    color: #86efac;
-  }
-
-  .badge-external {
-    background: rgba(96, 165, 250, 0.16);
-    color: #93c5fd;
   }
 
   .season-dates {
@@ -810,6 +797,37 @@
     color: rgba(255, 255, 255, 0.56);
   }
 
+  /* Disbanded teams: dimmed, with a muted red chip. Dimming the row rather
+     than hiding it keeps their results on record. */
+  .disbanded-chip {
+    display: inline-block;
+    font-size: 0.5625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #fca5a5;
+    background: rgba(248, 113, 113, 0.12);
+    border: 1px solid rgba(248, 113, 113, 0.25);
+    padding: 0.0625rem 0.3125rem;
+    border-radius: 0.25rem;
+    white-space: nowrap;
+    vertical-align: middle;
+  }
+
+  .row-disbanded td {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .row-disbanded .team-cell {
+    color: rgba(255, 255, 255, 0.5);
+    text-decoration: line-through;
+    text-decoration-color: rgba(248, 113, 113, 0.5);
+  }
+
+  .row-disbanded .disbanded-chip {
+    margin-left: 0.4375rem;
+  }
+
   /* Match list */
   /**
    * The list owns the columns so every row shares them. The designation and
@@ -896,6 +914,12 @@
   .match-winner {
     color: #86efac;
     font-weight: 700;
+  }
+
+  .match-team-disbanded {
+    text-decoration: line-through;
+    text-decoration-color: rgba(248, 113, 113, 0.55);
+    opacity: 0.6;
   }
 
   /* Without subgrid the rows cannot share tracks, so fall back to fixed
@@ -1001,6 +1025,23 @@
     background: rgba(255, 255, 255, 0.045);
   }
 
+  .team-card-disbanded {
+    border-style: dashed;
+    border-color: rgba(248, 113, 113, 0.22);
+    background: rgba(0, 0, 0, 0.15);
+  }
+
+  .team-card-disbanded .team-card-logo {
+    filter: grayscale(1);
+    opacity: 0.5;
+  }
+
+  .team-card-disbanded .team-card-name {
+    color: rgba(255, 255, 255, 0.5);
+    text-decoration: line-through;
+    text-decoration-color: rgba(248, 113, 113, 0.5);
+  }
+
   .team-card-logo {
     width: 2rem;
     height: 2rem;
@@ -1027,6 +1068,7 @@
 
   .team-card-meta {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 0.375rem;
     margin-top: 0.0625rem;

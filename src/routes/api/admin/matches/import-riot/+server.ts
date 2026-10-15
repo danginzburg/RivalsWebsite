@@ -19,6 +19,7 @@ import {
 import { backfillRiotAccountPuuids } from '$lib/server/imports/puuid-backfill'
 import { upsertRiotIdentities } from '$lib/server/players/riot-identities'
 import { importCompletedSeries } from '$lib/server/matches/import-lifecycle'
+import { loadRosterTimeline, matchRosterTime } from '$lib/server/matches/subs'
 
 /** A best-of-seven is the longest series the league runs. */
 const MAX_MAPS = 7
@@ -159,18 +160,21 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     .from('teams')
     .select('id')
     .eq('season_id', activeSeason?.id ?? '')
-  const activeTeamIds = new Set((activeTeams ?? []).map((t) => String(t.id)))
+  const activeTeamIds = (activeTeams ?? []).map((t) => String(t.id))
 
-  const { data: memberships } = await supabaseAdmin
-    .from('team_memberships')
-    .select('profile_id, team_id')
-    .eq('is_active', true)
+  // Rosters as they stood when the game was played, not today: a player who
+  // has since moved teams must still resolve onto the team they played for.
+  // Without a start time this falls back to the current roster.
+  const rosters =
+    activeTeamIds.length > 0
+      ? (await loadRosterTimeline(activeSeason?.id ?? null, activeTeamIds)).at(
+          matchRosterTime({ scheduled_at: matches[0]?.startedAt ?? null })
+        )
+      : new Map()
 
   const teamByProfileId = new Map<string, string>()
-  for (const row of memberships ?? []) {
-    if (row.profile_id && activeTeamIds.has(String(row.team_id))) {
-      teamByProfileId.set(String(row.profile_id), String(row.team_id))
-    }
+  for (const [teamId, roster] of rosters) {
+    for (const profileId of roster.profileIds) teamByProfileId.set(profileId, teamId)
   }
 
   const resolveTeamId = (riotId: string, puuid?: string | null) => {
@@ -321,6 +325,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     payload: {
       displayName: `Riot import ${first.matchId}`,
       bestOf: body.bestOf,
+      stage: body.stage,
       maps: seriesMaps,
     },
     adminProfileId: admin.id,

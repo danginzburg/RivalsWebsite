@@ -318,6 +318,7 @@ type ConfirmationFields = {
 
 export type PendingActionConfirmation =
   | ({ kind: 'remove_team'; teamId: string; teamName: string } & ConfirmationFields)
+  | ({ kind: 'disband_team'; teamId: string; teamName: string } & ConfirmationFields)
   | ({
       kind: 'remove_player'
       teamId: string

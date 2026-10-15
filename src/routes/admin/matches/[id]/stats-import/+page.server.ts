@@ -9,6 +9,7 @@ import {
   rematchPlayerMatchMapStatsForBase,
 } from '$lib/server/imports/matching'
 import { errorMessage } from '$lib/server/errors'
+import { loadRosterTimeline, matchRosterTime } from '$lib/server/matches/subs'
 
 type MatchMapRow = {
   id: string
@@ -382,10 +383,16 @@ export const actions: Actions = {
 
     const { data: match, error: matchError } = await supabaseAdmin
       .from('matches')
-      .select('id, team_a_id, team_b_id')
+      .select('id, team_a_id, team_b_id, season_id, scheduled_at, ended_at')
       .eq('id', matchId)
       .maybeSingle()
     if (matchError || !match) throw error(404, 'Match not found')
+
+    // The rosters as they stood on the match day: a player who has since left
+    // (or whose team disbanded) is still credited to the team they played for.
+    const matchDayRosters = (
+      await loadRosterTimeline(match.season_id, [match.team_a_id, match.team_b_id])
+    ).at(matchRosterTime(match))
 
     const { data: existing, error: existingError } = await supabaseAdmin
       .from('match_maps')
@@ -421,18 +428,9 @@ export const actions: Actions = {
       }
     }
 
-    const profileIds = parsed.map((r) => r.matched_profile_id!).filter(Boolean)
-    const { data: memberships } = await supabaseAdmin
-      .from('team_memberships')
-      .select('profile_id, team_id')
-      .in('profile_id', profileIds)
-      .in('team_id', [match.team_a_id, match.team_b_id])
-      .eq('is_active', true)
-      .is('left_at', null)
-
     const teamByProfileId = new Map<string, string>()
-    for (const m of memberships ?? []) {
-      teamByProfileId.set(m.profile_id, m.team_id)
+    for (const [teamId, roster] of matchDayRosters) {
+      for (const profileId of roster.profileIds) teamByProfileId.set(profileId, teamId)
     }
 
     let matchMapId: string
@@ -550,14 +548,8 @@ export const actions: Actions = {
         ...new Set(rowsToInsert.map((r) => r.profile_id).filter(Boolean) as string[]),
       ]
       const teamProfileIds = new Set(linkedProfileIds)
-      const { data: members } = await supabaseAdmin
-        .from('team_memberships')
-        .select('profile_id')
-        .in('team_id', [match.team_a_id, match.team_b_id])
-        .eq('is_active', true)
-        .is('left_at', null)
-      for (const m of members ?? []) {
-        if (m.profile_id) teamProfileIds.add(m.profile_id)
+      for (const roster of matchDayRosters.values()) {
+        for (const profileId of roster.profileIds) teamProfileIds.add(profileId)
       }
       for (const pid of teamProfileIds) {
         const profile = profiles.find((p) => p.id === pid)
