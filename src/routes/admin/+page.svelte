@@ -1,7 +1,12 @@
 <script lang="ts">
   import PageContainer from '$lib/components/PageContainer.svelte'
   import { teamName, toDatetimeLocal } from '$lib/admin/match-ui'
-  import { adminDashboardFetchAdapter, adminFormRequest, adminJsonRequest } from '$lib/admin/api'
+  import {
+    AdminRequestError,
+    adminDashboardFetchAdapter,
+    adminFormRequest,
+    adminJsonRequest,
+  } from '$lib/admin/api'
   import { createAdminDashboardState } from '$lib/admin/dashboard/state'
   import { readLeaderboardCsvFile } from '$lib/admin/leaderboard-csv'
   import {
@@ -341,8 +346,6 @@
   let signupEditForm = $state<Record<string, SignupEditState>>({})
   let processingSignupId = $state<string | null>(null)
 
-  const pendingSignupCount = $derived(playerSignups.filter((s) => s.status === 'pending').length)
-
   async function loadSignups() {
     try {
       const result = await adminJsonRequest<{ signups?: PlayerSignup[] }>(
@@ -562,7 +565,7 @@
         (report.stoppedEarly
           ? ` Ran out of time with ${report.remaining} left — run it again to continue.`
           : '')
-      await loadSignups()
+      await Promise.all([loadSignups(), refreshPendingCounts()])
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Bulk import failed'
     } finally {
@@ -584,7 +587,7 @@
         fallbackMessage: 'Failed to update signup',
       })
       successMessage = status ? `Signup ${status}.` : 'Signup updated.'
-      await loadSignups()
+      await Promise.all([loadSignups(), refreshPendingCounts()])
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Failed to update signup'
     } finally {
@@ -604,7 +607,7 @@
         fallbackMessage: 'Failed to delete signup',
       })
       successMessage = 'Signup deleted.'
-      await loadSignups()
+      await Promise.all([loadSignups(), refreshPendingCounts()])
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Failed to delete signup'
     } finally {
@@ -623,38 +626,35 @@
   let reviewFlagsLoaded = $state(false)
   let processingFlagId = $state<string | null>(null)
 
-  const pendingFlagCount = $derived(reviewFlags.filter((f) => f.status === 'pending').length)
-
   // ---- Bug reports (site-wide "something's broken" reports) ----
   let bugReports = $state<BugReport[]>([])
   let bugReportsLoaded = $state(false)
   let processingBugReportId = $state<string | null>(null)
 
-  const pendingBugReportCount = $derived(bugReports.filter((r) => r.status === 'pending').length)
-
-  /** Pending comments + data flags + bug reports drive the badge on the Moderation tab. */
-  const pendingReportCount = $derived(
-    commentReports.filter((r) => r.status === 'pending').length +
-      pendingFlagCount +
-      pendingBugReportCount
-  )
-
   /*
-   * The Moderation and Signups lists are only fetched when their tab is first
-   * opened, so their live counts are zero until then. Fall back to the counts
-   * the server computed on load, so the "needs attention" badges are correct
-   * the moment the dashboard renders and update to the live figure once the
-   * admin opens the tab. The moderation tab loads all three of its queues
-   * together, so there is no lingering partial state.
+   * Tab badges come from server-side counts, never from the loaded rows: the
+   * Moderation and Signups lists are lazy and filtered by status, so counting
+   * them read zero before the tab was opened and again whenever the filter
+   * left "pending". The Signups count also covers the alternate Riot accounts
+   * panel, which loads its own rows. Seeded from the page load and re-read
+   * after every action that can change a queue.
    */
-  const moderationBadge = $derived(
-    commentReportsLoaded || reviewFlagsLoaded || bugReportsLoaded
-      ? pendingReportCount
-      : (data.pendingCounts?.moderation ?? 0)
-  )
-  const signupsBadge = $derived(
-    signupsLoaded ? pendingSignupCount : (data.pendingCounts?.signups ?? 0)
-  )
+  // Writable derived: resets to fresh server counts whenever page data is invalidated.
+  let pendingCounts = $derived({ ...data.pendingCounts })
+
+  async function refreshPendingCounts() {
+    try {
+      pendingCounts = await adminJsonRequest<typeof pendingCounts>('/api/admin/pending-counts', {
+        fallbackMessage: 'Failed to load pending counts',
+      })
+    } catch (err) {
+      // Badges keep their last value; a stale count is not worth an error banner.
+      console.warn('Failed to refresh pending counts:', err)
+    }
+  }
+
+  const moderationBadge = $derived(pendingCounts.moderation)
+  const signupsBadge = $derived(pendingCounts.signups)
   /** Drives the masthead pill and the browser-tab title. */
   const pendingTotal = $derived(moderationBadge + signupsBadge)
 
@@ -686,7 +686,7 @@
         fallbackMessage: 'Bug report action failed',
       })
       successMessage = successText
-      await loadBugReports()
+      await Promise.all([loadBugReports(), refreshPendingCounts()])
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Bug report action failed'
     } finally {
@@ -726,7 +726,7 @@
         fallbackMessage: 'Flag action failed',
       })
       successMessage = successText
-      await loadReviewFlags()
+      await Promise.all([loadReviewFlags(), refreshPendingCounts()])
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Flag action failed'
     } finally {
@@ -770,7 +770,7 @@
         fallbackMessage: 'Moderation action failed',
       })
       successMessage = successText
-      await loadCommentReports()
+      await Promise.all([loadCommentReports(), refreshPendingCounts()])
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Moderation action failed'
     } finally {
@@ -1392,6 +1392,8 @@
       reviewFlagsLoaded ? loadReviewFlags() : Promise.resolve(),
       bugReportsLoaded ? loadBugReports() : Promise.resolve(),
       signupsLoaded ? loadSignups() : Promise.resolve(),
+      // Badges cover every queue, opened or not.
+      refreshPendingCounts(),
     ])
   }
 
@@ -1990,14 +1992,34 @@
     errorMessage = null
     successMessage = null
 
-    try {
-      await adminJsonRequest('/api/admin/teams/manage', {
+    const send = (transfer: boolean) =>
+      adminJsonRequest<{ transferred?: boolean }>('/api/admin/teams/manage', {
         method: 'POST',
-        body: { teamId, playerName: state.playerName.trim(), role: state.role },
+        body: { teamId, playerName: state.playerName.trim(), role: state.role, transfer },
         fallbackMessage: 'Failed to add player',
       })
 
-      successMessage = 'Player added to team.'
+    try {
+      let result: { transferred?: boolean }
+      try {
+        result = await send(false)
+      } catch (err) {
+        // Already on another team this event: offer a move, which closes the
+        // old roster spot (kept as history) and opens this one.
+        const payload = err instanceof AdminRequestError ? err.payload : null
+        const fromTeam = (payload as { fromTeam?: string } | null)?.fromTeam ?? 'another team'
+        if (
+          !(err instanceof AdminRequestError) ||
+          err.status !== 409 ||
+          !(payload as { transferable?: boolean } | null)?.transferable ||
+          !window.confirm(`${err.message}. Move them from ${fromTeam} to this team?`)
+        ) {
+          throw err
+        }
+        result = await send(true)
+      }
+
+      successMessage = result.transferred ? 'Player moved to team.' : 'Player added to team.'
       updateAddPlayerForm(teamId, { playerName: '', role: 'player' })
       await refreshData()
     } catch (err) {
@@ -2086,6 +2108,47 @@
     }
   }
 
+  function disbandApprovedTeam(teamId: string, teamName: string) {
+    pendingActionConfirmation = {
+      kind: 'disband_team',
+      teamId,
+      teamName,
+      title: 'Confirm Disband',
+      message: `Disband "${teamName}"? Its roster will be ended, but the team, its matches and its stats stay on record.`,
+      confirmLabel: 'Disband Team',
+    }
+    showActionConfirmation = true
+  }
+
+  async function executeDisbandApprovedTeam(teamId: string, teamName: string) {
+    processingTeamId = teamId
+    errorMessage = null
+    successMessage = null
+
+    try {
+      await adminJsonRequest('/api/admin/teams/manage', {
+        method: 'DELETE',
+        body: { teamId, disband: true },
+        fallbackMessage: 'Failed to disband team',
+      })
+
+      approvedTeams = approvedTeams.map((team) =>
+        team.id === teamId ? { ...team, status: 'disbanded', roster: [], roster_count: 0 } : team
+      )
+      if (teamEditForm[teamId]) {
+        teamEditForm = {
+          ...teamEditForm,
+          [teamId]: { ...teamEditForm[teamId], status: 'disbanded' },
+        }
+      }
+      successMessage = `Disbanded team ${teamName}.`
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to disband team'
+    } finally {
+      processingTeamId = null
+    }
+  }
+
   function removeApprovedTeamPlayer(
     teamId: string,
     membershipId: number | null,
@@ -2158,6 +2221,11 @@
 
     if (action.kind === 'remove_team') {
       await executeRemoveApprovedTeam(action.teamId, action.teamName)
+      return
+    }
+
+    if (action.kind === 'disband_team') {
+      await executeDisbandApprovedTeam(action.teamId, action.teamName)
       return
     }
 
@@ -2282,6 +2350,7 @@
         onAddPlayer={addPlayerToTeam}
         onRemovePlayer={removeApprovedTeamPlayer}
         onRemoveTeam={removeApprovedTeam}
+        onDisbandTeam={disbandApprovedTeam}
       />
     {/if}
 
@@ -2517,6 +2586,7 @@
         onSave={(signupId) => saveSignup(signupId)}
         onSetStatus={(signupId, status) => saveSignup(signupId, status)}
         onDelete={deleteSignup}
+        onRiotAccountReviewed={refreshPendingCounts}
       />
     {/if}
   </AdminDashboardShell>

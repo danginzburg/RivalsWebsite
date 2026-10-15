@@ -10,6 +10,7 @@
     streamStatusOptions,
   } from '$lib/admin/options'
   import { teamName, toDatetimeLocal } from '$lib/admin/match-ui'
+  import { resolveMatchStageKey } from '$lib/stats/sections'
   import type { AdminMatch, MatchEditState, MatchStreamFormState } from '$lib/admin/types'
 
   interface Props {
@@ -312,6 +313,15 @@
                 </div>
               </div>
               <div class="flex items-center gap-2">
+                {#if resolveMatchStageKey(match.stage, match.metadata?.designation) === null}
+                  <span
+                    class="rounded-full px-2 py-1 text-xs font-bold"
+                    style="background: rgba(248,113,113,0.16); color: #f87171;"
+                    title="Not assigned to a stage, so stage-filtered stat batches leave it out"
+                  >
+                    No stage
+                  </span>
+                {/if}
                 <span
                   class="rounded-full px-2 py-1 text-xs font-bold"
                   style="background: rgba(255,255,255,0.12); color: var(--text);"

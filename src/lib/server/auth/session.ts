@@ -4,6 +4,12 @@ import { env } from '$env/dynamic/private'
 
 const COOKIE_NAME = 'app_session'
 
+/** How long a login lasts. The cookie persists across browser restarts. */
+export const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30 // 30 days
+
+/** Re-issue the cookie once less than this much lifetime remains (sliding expiry). */
+const RENEW_BELOW_SECONDS = 60 * 60 * 24 * 15 // 15 days
+
 type SessionPayload = {
   sub: string
   email?: string
@@ -26,7 +32,7 @@ export async function setSessionCookie(cookies: Cookies, payload: SessionPayload
   const jwt = await new SignJWT(payload as unknown as JWTPayload)
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
-    .setExpirationTime(payload.exp) // use token exp
+    .setExpirationTime(payload.exp)
     .sign(secretKey())
 
   cookies.set(COOKIE_NAME, jwt, {
@@ -34,7 +40,16 @@ export async function setSessionCookie(cookies: Cookies, payload: SessionPayload
     sameSite: 'lax',
     secure: true,
     path: '/',
+    // Without maxAge the browser drops the cookie when it closes.
+    maxAge: Math.max(0, payload.exp - Math.floor(Date.now() / 1000)),
   })
+}
+
+/** Extend an active session so regular visitors never get logged out. */
+export async function renewSessionCookieIfStale(cookies: Cookies, session: SessionPayload) {
+  const now = Math.floor(Date.now() / 1000)
+  if (session.exp - now > RENEW_BELOW_SECONDS) return
+  await setSessionCookie(cookies, { ...session, exp: now + SESSION_TTL_SECONDS })
 }
 
 export async function clearSessionCookie(cookies: Cookies) {

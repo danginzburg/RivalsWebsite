@@ -72,8 +72,22 @@ describe('multikills', () => {
       )
     )
 
-    expect(statsFor(result, 'red0').multiKills).toEqual({ k2: 1, k3: 1, k4: 0, k5: 0 })
-    expect(statsFor(result, 'red1').multiKills).toEqual({ k2: 0, k3: 0, k4: 0, k5: 0 })
+    expect(statsFor(result, 'red0').multiKills).toEqual({
+      k2: 1,
+      k3: 1,
+      k4: 0,
+      k5: 0,
+      k6: 0,
+      k7: 0,
+    })
+    expect(statsFor(result, 'red1').multiKills).toEqual({
+      k2: 0,
+      k3: 0,
+      k4: 0,
+      k5: 0,
+      k6: 0,
+      k7: 0,
+    })
   })
 
   it('records an ace as a 5k', () => {
@@ -85,6 +99,32 @@ describe('multikills', () => {
     )
 
     expect(statsFor(result, 'red0').multiKills.k5).toBe(1)
+  })
+
+  it('records a sixth kill on a revived opponent as a 6k, not an ace', () => {
+    const result = derivePlayerStats(
+      match(
+        [{ winning_team: 'Red' }],
+        // blue0 is resurrected and killed again.
+        [0, 1, 2, 3, 4, 0].map((i, n) => kill(0, 1000 * (n + 1), 'red0', `blue${i}`))
+      )
+    )
+
+    expect(statsFor(result, 'red0').multiKills).toMatchObject({ k5: 0, k6: 1, k7: 0 })
+  })
+
+  it('does not count a teamkill toward a multikill', () => {
+    const result = derivePlayerStats(
+      match(
+        [{ winning_team: 'Red' }],
+        [
+          ...[0, 1, 2, 3, 4].map((i) => kill(0, 1000 * (i + 1), 'red0', `blue${i}`)),
+          kill(0, 500, 'red0', 'red1'),
+        ]
+      )
+    )
+
+    expect(statsFor(result, 'red0').multiKills).toMatchObject({ k5: 1, k6: 0 })
   })
 
   it('ignores a self-inflicted death, which the API records as killer = victim', () => {

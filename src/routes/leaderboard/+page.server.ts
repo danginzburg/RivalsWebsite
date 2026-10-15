@@ -3,6 +3,8 @@ import { safeNumber } from '$lib/server/parse'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
 import { publicDataCache } from '$lib/server/cache'
 import { getSeasonSeeds, type SeedMap } from '$lib/server/seasons/seeds'
+import { pickStandingsBatch } from '$lib/server/leaderboard/batch'
+import { roundDiffDecidesTies } from '$lib/server/leaderboard/compute'
 
 type TeamRel = {
   id: string
@@ -31,6 +33,8 @@ export type StandingsRow = {
   tag: string | null
   logo_url: string | null
   org: string | null
+  /** Folded during the season; listed, but never ranked. */
+  disbanded: boolean
   /** Null when the team has no entry in the current standings. */
   stats: {
     /** Null before the season's first import, when nothing is ranked yet. */
@@ -67,7 +71,8 @@ type BatchRow = {
 }
 
 /**
- * The newest applied leaderboard import belonging to the running season.
+ * The running season's current standings batch: the table calculated from its
+ * matches, falling back to the newest applied import (see `pickStandingsBatch`).
  *
  * Which season a batch belongs to is decided by the season of the teams in it,
  * not by `stat_import_batches.season_id` — that column is NULL on the Google
@@ -90,17 +95,15 @@ async function loadCurrentBatch(activeSeasonId: string | null): Promise<BatchRow
   )
   if (candidateIds.length === 0) return null
 
-  const { data: batch } = await supabaseAdmin
+  const { data: batches } = await supabaseAdmin
     .from('stat_import_batches')
     .select('id, display_name, source_filename, created_at, metadata')
     .in('id', candidateIds)
     .filter('metadata->>import_type', 'eq', 'leaderboard_entries')
     .eq('status', 'applied')
     .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
 
-  return (batch as BatchRow | null) ?? null
+  return pickStandingsBatch((batches ?? []) as BatchRow[])
 }
 
 /**
@@ -116,7 +119,7 @@ async function loadCurrentBatch(activeSeasonId: string | null): Promise<BatchRow
 async function loadStandings() {
   const { data: activeSeason } = await supabaseAdmin
     .from('seasons')
-    .select('id, name')
+    .select('id, name, kind')
     .eq('is_active', true)
     .maybeSingle()
 
@@ -126,6 +129,7 @@ async function loadStandings() {
     return {
       rows: [] as StandingsRow[],
       seeds: {} as SeedMap,
+      showRoundDiff: false,
       season: null,
       batch: null,
     }
@@ -137,7 +141,7 @@ async function loadStandings() {
     loadCurrentBatch(activeSeasonId),
     supabaseAdmin
       .from('teams')
-      .select('id, name, tag, logo_path, metadata')
+      .select('id, name, tag, logo_path, status, metadata')
       .eq('season_id', activeSeasonId)
       .eq('approval_status', 'approved')
       .order('name', { ascending: true }),
@@ -162,7 +166,9 @@ async function loadStandings() {
   for (const entry of (entries ?? []) as EntryRow[]) entryByTeam.set(entry.team_id, entry)
 
   const rows: StandingsRow[] = (teams ?? []).map((team) => {
-    const entry = entryByTeam.get(team.id)
+    const disbanded = team.status === 'disbanded'
+    // A disbanded team is never ranked, even if an older import listed it.
+    const entry = disbanded ? undefined : entryByTeam.get(team.id)
     return {
       id: team.id,
       name: team.name,
@@ -171,6 +177,7 @@ async function loadStandings() {
       org: (team.metadata as Record<string, unknown> | null)?.org
         ? String((team.metadata as Record<string, unknown>).org)
         : null,
+      disbanded,
       stats: entry
         ? {
             rank: safeNumber(entry.rank),
@@ -189,7 +196,7 @@ async function loadStandings() {
            * missing from standings that do not exist yet. Once an import lands,
            * a team absent from it really is outside the standings.
            */
-          batch
+          batch || disbanded
           ? null
           : ZEROED_STATS,
     }
@@ -203,10 +210,34 @@ async function loadStandings() {
     return a.name.localeCompare(b.name)
   })
 
+  // Round diff is shown only when it actually broke a tie in this table.
+  const showRoundDiff = roundDiffDecidesTies(
+    rows.flatMap((row) =>
+      row.stats?.rank
+        ? [
+            {
+              points: row.stats.points,
+              wins: row.stats.series_wins,
+              losses: row.stats.series_losses,
+              map_wins: row.stats.map_wins,
+              map_losses: row.stats.map_losses,
+              round_diff: row.stats.round_diff,
+            },
+          ]
+        : []
+    )
+  )
+
   return {
     rows,
     seeds,
-    season: { id: activeSeasonId, name: (activeSeason?.name as string | undefined) ?? null },
+    showRoundDiff,
+    season: {
+      id: activeSeasonId,
+      name: (activeSeason?.name as string | undefined) ?? null,
+      // Points are an external-tournament rule; Rivals seasons rank on record.
+      showPoints: activeSeason?.kind === 'external',
+    },
     batch: batch
       ? {
           display_name:
@@ -264,6 +295,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
   return {
     rows: standings.rows,
     seeds: standings.seeds,
+    showRoundDiff: standings.showRoundDiff,
     batch: standings.batch,
     season: standings.season,
     myTeam,

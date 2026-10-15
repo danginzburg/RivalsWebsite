@@ -80,7 +80,7 @@
   ])
 
   const imports = [
-    { href: '/admin/leaderboard-import', label: 'Leaderboard', variant: 'admin-btn-warn' },
+    { href: '/admin/standings', label: 'Standings', variant: 'admin-btn-warn' },
     { href: '/admin/matches-import', label: 'Matches', variant: 'admin-btn-accent' },
     { href: '/admin/stats-import', label: 'Stats', variant: 'admin-btn-info' },
     { href: '/admin/riot-identities', label: 'Identities', variant: 'admin-btn-neutral' },

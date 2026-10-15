@@ -241,6 +241,8 @@
     { key: 'mk_3k', label: '3K', digits: 0 },
     { key: 'mk_4k', label: '4K', digits: 0 },
     { key: 'mk_5k', label: '5K', digits: 0 },
+    { key: 'mk_6k', label: '6K', digits: 0 },
+    { key: 'mk_7k', label: '7K', digits: 0 },
     { key: 'clutches_won', label: 'Clutch W', digits: 0 },
     { key: 'clutches_attempted', label: 'Clutch A', digits: 0 },
     { key: 'clutch_win_pct', label: 'Clutch%', digits: 1 },

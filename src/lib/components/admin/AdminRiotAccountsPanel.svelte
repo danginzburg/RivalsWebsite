@@ -11,6 +11,8 @@
     profile: { id: string; name: string }
   }
 
+  let { onReviewed }: { onReviewed?: () => void } = $props()
+
   let accounts = $state<PendingAccount[]>([])
   let loaded = $state(false)
   let busyId = $state<string | null>(null)
@@ -47,6 +49,7 @@
         return
       }
       accounts = accounts.filter((a) => a.id !== id)
+      onReviewed?.()
     } finally {
       busyId = null
     }

@@ -129,6 +129,15 @@ export function inferMatchStageFromLabel(raw: unknown): SectionKey | null {
 }
 
 /**
+ * The stage a match is filed under: the explicit column when set, otherwise a
+ * guess from its designation. Null means the stats batch generator will leave
+ * it out of every stage-filtered batch.
+ */
+export function resolveMatchStageKey(stage: unknown, designation: unknown): SectionKey | null {
+  return normalizeSectionKey(stage) ?? inferMatchStageFromLabel(designation)
+}
+
+/**
  * The section a batch should show under, given everything known about it.
  *
  * `section` is the stored answer. Weekly imports are a bucket of their own even

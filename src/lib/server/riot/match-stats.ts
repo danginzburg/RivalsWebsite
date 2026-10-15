@@ -67,6 +67,13 @@ export type MultiKills = {
   k3: number
   k4: number
   k5: number
+  /**
+   * Only reachable when a Sage resurrect puts an opponent back in the round.
+   * Kept apart from k5 so an ace is still exactly an ace.
+   */
+  k6: number
+  /** Seven or more, so nothing past six silently folds into a smaller bucket. */
+  k7: number
 }
 
 /** How many opponents were alive when the clutch began. */
@@ -267,9 +274,13 @@ function computeClutches(
   return records
 }
 
-/** Rounds in which each player got exactly 2/3/4/5 kills. */
-function computeMultiKills(roundKills: Map<number, RiotKillEvent[]>): Map<string, MultiKills> {
+/** Rounds in which each player got exactly 2/3/4/5/6 kills, or 7+. */
+function computeMultiKills(
+  match: RiotMatch,
+  roundKills: Map<number, RiotKillEvent[]>
+): Map<string, MultiKills> {
   const result = new Map<string, MultiKills>()
+  const teamOf = new Map(match.players.map((p) => [p.puuid, p.team_id]))
 
   for (const kills of roundKills.values()) {
     const perKiller = new Map<string, number>()
@@ -277,16 +288,22 @@ function computeMultiKills(roundKills: Map<number, RiotKillEvent[]>): Map<string
       // Self-inflicted deaths are recorded with the victim as killer; they are
       // not kills and would otherwise inflate a round's tally.
       if (kill.killer!.puuid === kill.victim!.puuid) continue
+      // Neither is a teamkill — counting it would let a mis-click turn an ace
+      // into a 6k.
+      const killerTeam = teamOf.get(kill.killer!.puuid)
+      if (killerTeam && killerTeam === teamOf.get(kill.victim!.puuid)) continue
       perKiller.set(kill.killer!.puuid, (perKiller.get(kill.killer!.puuid) ?? 0) + 1)
     }
 
     for (const [puuid, count] of perKiller) {
       if (count < 2) continue
-      const entry = result.get(puuid) ?? { k2: 0, k3: 0, k4: 0, k5: 0 }
+      const entry = result.get(puuid) ?? { k2: 0, k3: 0, k4: 0, k5: 0, k6: 0, k7: 0 }
       if (count === 2) entry.k2 += 1
       else if (count === 3) entry.k3 += 1
       else if (count === 4) entry.k4 += 1
-      else entry.k5 += 1
+      else if (count === 5) entry.k5 += 1
+      else if (count === 6) entry.k6 += 1
+      else entry.k7 += 1
       result.set(puuid, entry)
     }
   }
@@ -377,7 +394,7 @@ export function derivePlayerStats(match: RiotMatch): DerivedPlayerStats[] {
 
   const kastRounds = computeKastRounds(match, roundKills, roundCount)
   const clutches = computeClutches(match, roundKills)
-  const multiKills = computeMultiKills(roundKills)
+  const multiKills = computeMultiKills(match, roundKills)
   const { firstKills, firstDeaths } = computeOpeningDuels(roundKills)
   const duels = computeDuels(match, roundKills)
   const { plants, defuses } = computeSpikeActions(match)
@@ -421,7 +438,7 @@ export function derivePlayerStats(match: RiotMatch): DerivedPlayerStats[] {
       defuses: defuses.get(player.puuid) ?? 0,
       econRating: spend > 0 ? round2((damage / spend) * 1000) : 0,
 
-      multiKills: multiKills.get(player.puuid) ?? { k2: 0, k3: 0, k4: 0, k5: 0 },
+      multiKills: multiKills.get(player.puuid) ?? { k2: 0, k3: 0, k4: 0, k5: 0, k6: 0, k7: 0 },
       clutches: clutches.get(player.puuid) ?? emptyClutches(),
       duels: duels.get(player.puuid) ?? {},
     }

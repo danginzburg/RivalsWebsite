@@ -5,17 +5,44 @@
   import { Users, CalendarDays, History } from 'lucide-svelte'
   import TeamSeed from '$lib/components/TeamSeed.svelte'
   import { resolve } from '$app/paths'
+  import { formatLeftDay } from '$lib/players/roster-dates'
+  import { invalidateAll } from '$app/navigation'
 
   let { data }: PageProps = $props()
 
   const team = $derived(data.team)
   const isAdmin = $derived(data.viewer?.isAdmin ?? false)
   const roster = $derived(data.roster ?? [])
+  const formerPlayers = $derived(data.formerPlayers ?? [])
   const upcomingMatches = $derived(data.upcomingMatches ?? [])
   const matchHistory = $derived(data.matchHistory ?? [])
   const leaderboard = $derived(data.leaderboard ?? null)
   const activeSeason = $derived(data.activeSeason ?? null)
   const seeds = $derived((data.seeds ?? {}) as Record<string, number>)
+
+  let formerBusy = $state<string | null>(null)
+  let formerError = $state<string | null>(null)
+
+  /** Hide a duplicate or mis-entered departure from the list, or bring it back. */
+  async function setFormerHidden(membershipIds: number[], hidden: boolean) {
+    formerBusy = membershipIds.join(',')
+    formerError = null
+    try {
+      const res = await fetch('/api/admin/former-players', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ teamId: team.id, membershipIds, hidden }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        formerError = body?.message ?? 'Failed to update former player'
+        return
+      }
+      await invalidateAll()
+    } finally {
+      formerBusy = null
+    }
+  }
 
   const statsSources = $derived(data.statsSources ?? [])
   /** Label for where the roster numbers come from, e.g. "Season 4 · 4 events". */
@@ -216,6 +243,48 @@
               {/if}
             </svelte:element>
           {/each}
+        </div>
+      {/if}
+
+      {#if formerPlayers.length > 0}
+        <div class="former">
+          <h3 class="former-title">Former players</h3>
+          <ul class="former-list">
+            {#each formerPlayers as player, fi (player.profile_id ?? `former-${fi}`)}
+              <li class="former-row" class:former-hidden={player.hidden}>
+                {#if player.profile_id}
+                  <a href={resolve(`/players/${player.profile_id}`)} class="former-name">
+                    {playerName(player)}
+                  </a>
+                {:else}
+                  <span class="former-name">{playerName(player)}</span>
+                {/if}
+                <span class="former-trail">
+                  <span class="former-dates">
+                    {player.hidden ? 'Hidden · ' : ''}Left {formatLeftDay(player.left_at)}
+                  </span>
+                  {#if isAdmin}
+                    <button
+                      type="button"
+                      class="former-action"
+                      disabled={formerBusy !== null}
+                      title={player.hidden
+                        ? 'Show this player in the list again'
+                        : 'Hide from this list (duplicate or mis-entered name)'}
+                      onclick={() => setFormerHidden(player.membership_ids, !player.hidden)}
+                    >
+                      {formerBusy === player.membership_ids.join(',')
+                        ? '…'
+                        : player.hidden
+                          ? 'Restore'
+                          : 'Hide'}
+                    </button>
+                  {/if}
+                </span>
+              </li>
+            {/each}
+          </ul>
+          {#if formerError}<p class="former-error">{formerError}</p>{/if}
         </div>
       {/if}
 
@@ -523,6 +592,96 @@
     font-size: 0.75rem;
     line-height: 1.5;
     color: rgba(255, 255, 255, 0.5);
+  }
+
+  /* Players who left mid-event — quieter than the live roster above. */
+  .former {
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    padding: 0.75rem 1rem;
+  }
+
+  .former-title {
+    margin: 0 0 0.375rem;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .former-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .former-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+    font-size: 0.8125rem;
+    min-width: 0;
+  }
+
+  .former-name {
+    color: rgba(255, 255, 255, 0.7);
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  a.former-name:hover {
+    color: var(--accent-text);
+  }
+
+  .former-trail {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    flex-shrink: 0;
+  }
+
+  .former-hidden .former-name {
+    text-decoration: line-through;
+    opacity: 0.5;
+  }
+
+  .former-action {
+    padding: 0.0625rem 0.375rem;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 0.25rem;
+    background: transparent;
+    font-size: 0.6875rem;
+    color: rgba(255, 255, 255, 0.55);
+    cursor: pointer;
+  }
+
+  .former-action:hover:not(:disabled) {
+    color: #93c5fd;
+    border-color: rgba(147, 197, 253, 0.4);
+  }
+
+  .former-action:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  .former-error {
+    margin: 0.375rem 0 0;
+    font-size: 0.75rem;
+    color: #fca5a5;
+  }
+
+  .former-dates {
+    flex-shrink: 0;
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.45);
+    font-variant-numeric: tabular-nums;
   }
 
   /* Roster — one row per player, stats trailing on the right. */

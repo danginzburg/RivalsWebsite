@@ -13,6 +13,8 @@
     mk_3k: number | null
     mk_4k: number | null
     mk_5k: number | null
+    mk_6k: number | null
+    mk_7k: number | null
     clutches_won: number | null
     clutches_attempted: number | null
     clutch_breakdown: { won: Record<string, number>; attempted: Record<string, number> } | null
@@ -161,6 +163,8 @@
                   <th title="Rounds with exactly three kills">3K</th>
                   <th title="Rounds with exactly four kills">4K</th>
                   <th title="Aces">5K</th>
+                  <th title="Rounds with exactly six kills (an opponent was revived)">6K</th>
+                  <th title="Rounds with seven or more kills">7K</th>
                   {#each CLUTCH_SIZES as size (size)}
                     <th
                       class="col-clutch"
@@ -179,6 +183,8 @@
                     <td class="num" class:hot={(row.mk_3k ?? 0) > 0}>{fmt(row.mk_3k)}</td>
                     <td class="num" class:hot={(row.mk_4k ?? 0) > 0}>{fmt(row.mk_4k)}</td>
                     <td class="num" class:ace={(row.mk_5k ?? 0) > 0}>{fmt(row.mk_5k)}</td>
+                    <td class="num" class:ace={(row.mk_6k ?? 0) > 0}>{fmt(row.mk_6k)}</td>
+                    <td class="num" class:ace={(row.mk_7k ?? 0) > 0}>{fmt(row.mk_7k)}</td>
                     {#each CLUTCH_SIZES as size (size)}
                       {@const c = clutchAt(row, size)}
                       <td

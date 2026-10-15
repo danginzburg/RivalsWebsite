@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { TtlCache } from '$lib/server/cache'
+import { orderStandingsBatches } from '$lib/server/leaderboard/batch'
 
 /**
  * Standings position, keyed by team id.
@@ -18,7 +19,7 @@ const rankCache = new TtlCache<RankMap>({ ttlMs: 5 * 60_000, maxEntries: 50 })
 const batchIndexCache = new TtlCache<Map<string, string[]>>({ ttlMs: 5 * 60_000, maxEntries: 1 })
 
 type EntryRow = { team_id: string; rank: number | null; import_batch_id: string | null }
-type BatchRow = { id: string; season_id: string | null }
+type BatchRow = { id: string; season_id: string | null; metadata: Record<string, unknown> | null }
 
 function toRankMap(rows: EntryRow[] | null | undefined): RankMap {
   const map: RankMap = {}
@@ -55,13 +56,21 @@ async function fetchBatchIndex(): Promise<Map<string, string[]>> {
   ])
 
   const activeSeasonId = activeSeason?.id ?? null
-  const index = new Map<string, string[]>()
+  const bySeason = new Map<string, BatchRow[]>()
   for (const batch of (batches ?? []) as BatchRow[]) {
     const seasonId = batch.season_id ?? activeSeasonId
     if (!seasonId) continue
-    const list = index.get(seasonId)
-    if (list) list.push(batch.id)
-    else index.set(seasonId, [batch.id])
+    const list = bySeason.get(seasonId)
+    if (list) list.push(batch)
+    else bySeason.set(seasonId, [batch])
+  }
+  // Calculated standings go first; imports follow newest-first as fallbacks.
+  const index = new Map<string, string[]>()
+  for (const [seasonId, list] of bySeason) {
+    index.set(
+      seasonId,
+      orderStandingsBatches(list).map((b) => b.id)
+    )
   }
   return index
 }
@@ -94,7 +103,7 @@ async function fetchSeasonRanks(seasonId: string): Promise<RankMap> {
     else byBatch.set(row.import_batch_id, [row])
   }
 
-  // `candidates` is newest-first.
+  // `candidates` is in preference order: calculated, then newest import.
   for (const batchId of candidates) {
     const rows = byBatch.get(batchId)
     if (rows && rows.length > 0) return toRankMap(rows)

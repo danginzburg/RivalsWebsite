@@ -338,6 +338,14 @@
             {formatStatus(match.status)}
           </span>
         {/if}
+        {#if match.missing_stage}
+          <span
+            class="sb-no-stage"
+            title="Not assigned to a stage, so stage-filtered stat batches leave it out"
+          >
+            No stage
+          </span>
+        {/if}
         {#if isAdmin}
           <AdminEditLink href="/admin?tab=matches" label="Edit Match" class="sb-admin" />
         {/if}
@@ -680,6 +688,17 @@
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.09);
     color: rgba(255, 255, 255, 0.7);
+  }
+
+  .sb-no-stage {
+    font-size: 0.625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 0.1875rem 0.5rem;
+    border-radius: 999px;
+    background: rgba(248, 113, 113, 0.16);
+    color: #f87171;
   }
 
   .sb-status-live {

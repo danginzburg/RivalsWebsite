@@ -1,5 +1,5 @@
 import { redirect, type Handle } from '@sveltejs/kit'
-import { readSessionCookie } from '$lib/server/auth/session'
+import { readSessionCookie, renewSessionCookieIfStale } from '$lib/server/auth/session'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { profileRoleCache } from '$lib/server/cache'
 import { enforceRateLimit } from '$lib/server/rate-limit'
@@ -55,6 +55,8 @@ export const handle: Handle = async ({ event, resolve }) => {
   event.locals.session = session
 
   if (session) {
+    await renewSessionCookieIfStale(event.cookies, session)
+
     // Cached: this lookup runs on every authenticated request, and a role
     // changes far less often than a page is loaded.
     const profile = await profileRoleCache.wrap(session.sub, async () => {

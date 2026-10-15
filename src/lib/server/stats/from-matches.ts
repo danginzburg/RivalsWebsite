@@ -1,6 +1,6 @@
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { average, sum } from '$lib/server/math'
-import { inferMatchStageFromLabel, normalizeSectionKey, type SectionKey } from '$lib/stats/sections'
+import { normalizeSectionKey, resolveMatchStageKey, type SectionKey } from '$lib/stats/sections'
 
 /**
  * Build a `rivals_group_stats` batch from Riot-imported match data.
@@ -80,6 +80,8 @@ type MapStatRow = {
   mk_3k: number | null
   mk_4k: number | null
   mk_5k: number | null
+  mk_6k: number | null
+  mk_7k: number | null
   clutches_won: number | null
   clutches_attempted: number | null
 }
@@ -118,9 +120,7 @@ function weightedByRounds(rows: MapStatRow[], key: keyof MapStatRow): number | n
  * can be split into sections without editing every match by hand first.
  */
 export function resolveMatchStage(match: MatchRow): SectionKey | null {
-  const explicit = normalizeSectionKey(match.stage)
-  if (explicit) return explicit
-  return inferMatchStageFromLabel((match.metadata ?? {})?.designation)
+  return resolveMatchStageKey(match.stage, (match.metadata ?? {})?.designation)
 }
 
 /**
@@ -203,7 +203,7 @@ async function buildStatRows(
   const { data: mapStats, error: statsError } = await supabaseAdmin
     .from('player_match_map_stats')
     .select(
-      'match_id, profile_id, team_id, player_name, agents, games, games_won, games_lost, rounds, rounds_won, rounds_lost, acs, kd, kast_pct, adr, kills, deaths, assists, fk, fd, hs_pct, econ_rating, plants, defuses, mk_2k, mk_3k, mk_4k, mk_5k, clutches_won, clutches_attempted'
+      'match_id, profile_id, team_id, player_name, agents, games, games_won, games_lost, rounds, rounds_won, rounds_lost, acs, kd, kast_pct, adr, kills, deaths, assists, fk, fd, hs_pct, econ_rating, plants, defuses, mk_2k, mk_3k, mk_4k, mk_5k, mk_6k, mk_7k, clutches_won, clutches_attempted'
     )
     .in('match_id', matchIds)
     .not('clutches_attempted', 'is', null)
@@ -306,6 +306,8 @@ async function buildStatRows(
       mk_3k: addAdvanced('mk_3k'),
       mk_4k: addAdvanced('mk_4k'),
       mk_5k: addAdvanced('mk_5k'),
+      mk_6k: addAdvanced('mk_6k'),
+      mk_7k: addAdvanced('mk_7k'),
       clutches_won: addAdvanced('clutches_won'),
       clutches_attempted: addAdvanced('clutches_attempted'),
     }
@@ -389,6 +391,7 @@ type GeneratedBatchRow = {
     auto_refresh?: boolean
     source_season_id?: string | null
     source_stages?: unknown
+    source_match_ids?: unknown
   } | null
 }
 
@@ -564,7 +567,13 @@ export async function refreshLiveBatchesForMatch(options: {
 
   for (const row of (batches ?? []) as GeneratedBatchRow[]) {
     const scope = batchScope(row)
-    if (!batchCoversMatch(scope, { seasonId: matchSeasonId, stage: matchStage })) continue
+    // A batch that already holds the match is rebuilt too, so an edit that moves
+    // the match to another stage or season takes it out of the old batch.
+    const alreadyHolds =
+      Array.isArray(row.metadata?.source_match_ids) &&
+      row.metadata.source_match_ids.includes(matchId)
+    if (!alreadyHolds && !batchCoversMatch(scope, { seasonId: matchSeasonId, stage: matchStage }))
+      continue
 
     const result = await regenerateStatsBatch({ batchId: row.id, adminProfileId })
     refreshed.push({

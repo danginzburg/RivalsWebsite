@@ -37,6 +37,8 @@ const SUM_FIELDS = [
   'mk_3k',
   'mk_4k',
   'mk_5k',
+  'mk_6k',
+  'mk_7k',
   'clutches_won',
   'clutches_attempted',
 ] as const
@@ -192,6 +194,8 @@ export function aggregateFullSeasonRows(
       mk_3k: s.mk_3k,
       mk_4k: s.mk_4k,
       mk_5k: s.mk_5k,
+      mk_6k: s.mk_6k,
+      mk_7k: s.mk_7k,
       clutches_won: s.clutches_won,
       clutches_attempted: s.clutches_attempted,
       acs: weighted('acs'),

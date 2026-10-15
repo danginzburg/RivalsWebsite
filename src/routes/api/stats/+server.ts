@@ -13,7 +13,7 @@ import { aggregateFullSeasonRows } from '$lib/server/stats/aggregate-full-season
 
 /** Columns read from `rivals_group_stats`, shared by direct and aggregated reads. */
 const STATS_ROW_SELECT =
-  'id, player_name, profile_id, agents, games, games_won, games_lost, rounds, rounds_won, rounds_lost, acs, kd, kast_pct, adr, kills, deaths, assists, fk, fd, hs_pct, econ_rating, kpg, kpr, dpg, dpr, apg, apr, fkpg, fdpg, plants, plants_per_game, defuses, defuses_per_game, league_rank, mk_2k, mk_3k, mk_4k, mk_5k, clutches_won, clutches_attempted, import_batch_id, imported_at'
+  'id, player_name, profile_id, agents, games, games_won, games_lost, rounds, rounds_won, rounds_lost, acs, kd, kast_pct, adr, kills, deaths, assists, fk, fd, hs_pct, econ_rating, kpg, kpr, dpg, dpr, apg, apr, fkpg, fdpg, plants, plants_per_game, defuses, defuses_per_game, league_rank, mk_2k, mk_3k, mk_4k, mk_5k, mk_6k, mk_7k, clutches_won, clutches_attempted, import_batch_id, imported_at'
 
 /** The `rivals_group_stats` column a sort key maps to; anything else falls to ACS. */
 function sortColumn(sort: string): 'acs' | 'kd' | 'kast_pct' | 'adr' {

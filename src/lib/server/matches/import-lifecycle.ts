@@ -18,7 +18,10 @@ import {
   rebuildPlayerMatchStats,
 } from '$lib/server/imports/matching'
 import { applyMatchStatReassignments } from '$lib/server/matches/reassignments'
+import { loadRosterTimeline, matchRosterTime } from '$lib/server/matches/subs'
 import { refreshLiveBatchesForMatch } from '$lib/server/stats/from-matches'
+import { refreshStandingsForMatch } from '$lib/server/leaderboard/computed'
+import { MATCH_STAGES, normalizeSectionKey, type SectionKey } from '$lib/stats/sections'
 
 type PlayerRowInput = {
   player_name?: unknown
@@ -47,6 +50,8 @@ type PlayerRowInput = {
   mk_3k?: unknown
   mk_4k?: unknown
   mk_5k?: unknown
+  mk_6k?: unknown
+  mk_7k?: unknown
   clutches_won?: unknown
   clutches_attempted?: unknown
   metadata?: unknown
@@ -91,6 +96,21 @@ function puuidFromMetadata(metadata: unknown): string | null {
   if (!metadata || typeof metadata !== 'object') return null
   const puuid = (metadata as Record<string, unknown>).puuid
   return typeof puuid === 'string' && puuid.trim() ? puuid.trim() : null
+}
+
+/**
+ * The competition stage the admin filed the import under (regular season,
+ * playoffs, …). Blank means "don't say" — a new match is left unfiled and an
+ * existing one keeps whatever stage it already had. Anything that isn't a match
+ * stage is rejected rather than silently dropped, so a typo can't unfile it.
+ */
+function parseImportStage(value: unknown): SectionKey | null {
+  if (value === null || value === undefined || value === '') return null
+  const key = normalizeSectionKey(value)
+  if (!key || !MATCH_STAGES.some((s) => s.key === key)) {
+    throw error(400, `stage must be one of ${MATCH_STAGES.map((s) => s.key).join(', ')}`)
+  }
+  return key
 }
 
 function parseInteger(value: unknown, fieldName: string) {
@@ -153,10 +173,9 @@ export function pickNearestMatch<T extends { scheduled_at: string | null }>(
   }, pool[0])
 }
 
+/** Only Bo3 and Bo5 exist; four or more maps can only be a Bo5. */
 function inferBestOf(mapCount: number) {
-  if (mapCount >= 5) return 5
-  if (mapCount >= 3) return 3
-  return 1
+  return mapCount >= 4 ? 5 : 3
 }
 
 function normalizeTeamKey(value: string | null | undefined) {
@@ -228,9 +247,10 @@ export async function importCompletedSeries({
     normalizeOptional(firstMap.sourceFilename) ??
     'match-import'
   const primarySourceFilename = normalizeOptional(firstMap.sourceFilename) ?? 'match.csv'
-  const bestOf = [1, 3, 5, 7].includes(Number(body.bestOf))
+  const bestOf = [3, 5].includes(Number(body.bestOf))
     ? Number(body.bestOf)
     : inferBestOf(normalizedMaps.length)
+  const stage = parseImportStage(body.stage)
 
   if (!teamAName || !teamBName) throw error(400, 'Both team names are required')
   if (teamAName === teamBName) throw error(400, 'Teams must be different')
@@ -308,6 +328,7 @@ export async function importCompletedSeries({
         approved_by_profile_id: adminProfileId,
         approved_at: new Date().toISOString(),
         season_id: activeSeason?.id ?? null,
+        stage,
         metadata: {
           imported_from_csv: true,
           has_series_result: true,
@@ -372,6 +393,8 @@ export async function importCompletedSeries({
       mk_3k: optionalInteger(row.mk_3k),
       mk_4k: optionalInteger(row.mk_4k),
       mk_5k: optionalInteger(row.mk_5k),
+      mk_6k: optionalInteger(row.mk_6k),
+      mk_7k: optionalInteger(row.mk_7k),
       clutches_won: optionalInteger(row.clutches_won),
       clutches_attempted: optionalInteger(row.clutches_attempted),
       metadata:
@@ -402,21 +425,18 @@ export async function importCompletedSeries({
     )
   ) as string[]
 
-  let importedTeamByProfileId = new Map<string, string>()
+  // Judged against the rosters as of the match day, so importing a match from
+  // before a mid-event move credits the player to the team they were on then.
+  const importedTeamByProfileId = new Map<string, string>()
   if (resolvedProfileIds.length > 0) {
-    const { data: memberships, error: membershipsError } = await supabaseAdmin
-      .from('team_memberships')
-      .select('profile_id, team_id')
-      .in('profile_id', resolvedProfileIds)
-      .in('team_id', [importedTeamA.id, importedTeamB.id])
-      .eq('is_active', true)
-      .is('left_at', null)
-
-    if (membershipsError) throw error(500, 'Failed to resolve imported player teams')
-
-    importedTeamByProfileId = new Map(
-      (memberships ?? []).map((membership) => [membership.profile_id, membership.team_id])
-    )
+    const rosters = (
+      await loadRosterTimeline(null, [importedTeamA.id, importedTeamB.id]).catch(() => {
+        throw error(500, 'Failed to resolve imported player teams')
+      })
+    ).at(matchRosterTime(match))
+    for (const [teamId, roster] of rosters) {
+      for (const profileId of roster.profileIds) importedTeamByProfileId.set(profileId, teamId)
+    }
   }
 
   const normalizedSeriesMaps = preliminarySeriesMaps.map((map) => {
@@ -684,6 +704,8 @@ export async function importCompletedSeries({
         mk_3k: row.mk_3k,
         mk_4k: row.mk_4k,
         mk_5k: row.mk_5k,
+        mk_6k: row.mk_6k,
+        mk_7k: row.mk_7k,
         clutches_won: row.clutches_won,
         clutches_attempted: row.clutches_attempted,
         metadata: {
@@ -726,6 +748,7 @@ export async function importCompletedSeries({
       team_a_score: seriesTeamAScore,
       team_b_score: seriesTeamBScore,
       winner_team_id: winnerTeamId,
+      ...(stage ? { stage } : {}),
       metadata: {
         ...metaBase,
         imported_from_csv: true,
@@ -750,6 +773,7 @@ export async function importCompletedSeries({
     console.error('Failed to refresh live stat batches after match import:', err)
     return []
   })
+  await refreshStandingsForMatch(match.id, adminProfileId)
 
   return json({
     success: true,
@@ -789,7 +813,8 @@ export async function importNoShowForfeit({
   if (!Number.isInteger(teamBScore) || teamBScore < 0)
     throw error(400, 'teamBScore must be a non-negative integer')
 
-  const bestOf = [1, 3, 5, 7].includes(Number(body.bestOf)) ? Number(body.bestOf) : 3
+  const bestOf = [3, 5].includes(Number(body.bestOf)) ? Number(body.bestOf) : 3
+  const stage = parseImportStage(body.stage)
 
   const { data: activeSeasonForForfeit } = await supabaseAdmin
     .from('seasons')
@@ -852,6 +877,7 @@ export async function importNoShowForfeit({
         approved_by_profile_id: adminProfileId,
         approved_at: new Date().toISOString(),
         season_id: activeSeasonForForfeit?.id ?? null,
+        stage,
         metadata: {
           imported_from_csv: true,
           has_series_result: true,
@@ -896,6 +922,7 @@ export async function importNoShowForfeit({
       team_a_score: canonicalAScore,
       team_b_score: canonicalBScore,
       winner_team_id: winnerTeamId,
+      ...(stage ? { stage } : {}),
       metadata: {
         ...metaBase,
         imported_from_csv: true,
@@ -910,6 +937,8 @@ export async function importNoShowForfeit({
     .eq('id', match.id)
 
   if (updateMatchError) throw error(500, 'Failed to update forfeit match')
+
+  await refreshStandingsForMatch(match.id, adminProfileId)
 
   return json({
     success: true,

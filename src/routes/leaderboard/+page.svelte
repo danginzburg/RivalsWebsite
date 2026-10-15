@@ -130,13 +130,16 @@
                 <tr>
                   <th class="col-rank">#</th>
                   <th class="col-team">Team</th>
-                  <th class="col-num">Pts</th>
+                  {#if season?.showPoints}<th class="col-num">Pts</th>{/if}
                   <th class="col-num">Series</th>
                   <th class="col-num">W</th>
                   <th class="col-num">L</th>
                   <th class="col-num">Maps</th>
                   <th class="col-num">MW</th>
                   <th class="col-num">ML</th>
+                  {#if data.showRoundDiff}
+                    <th class="col-num" title="Round differential — used to break ties">RD</th>
+                  {/if}
                 </tr>
               </thead>
               <tbody>
@@ -165,13 +168,22 @@
                         </span>
                       </a>
                     </td>
-                    <td class="col-num tabular col-points">{row.stats.points}</td>
+                    {#if season?.showPoints}
+                      <td class="col-num tabular col-points">{row.stats.points}</td>
+                    {/if}
                     <td class="col-num tabular muted">{row.stats.series_played}</td>
                     <td class="col-num tabular">{row.stats.series_wins}</td>
                     <td class="col-num tabular">{row.stats.series_losses}</td>
                     <td class="col-num tabular muted">{row.stats.maps_played}</td>
                     <td class="col-num tabular">{row.stats.map_wins}</td>
                     <td class="col-num tabular">{row.stats.map_losses}</td>
+                    {#if data.showRoundDiff}
+                      <td class="col-num tabular">
+                        {row.stats.round_diff > 0
+                          ? `+${row.stats.round_diff}`
+                          : row.stats.round_diff}
+                      </td>
+                    {/if}
                   </tr>
                 {/each}
               </tbody>
@@ -200,6 +212,7 @@
                   {/if}
                   <div class="team-card-body">
                     <div class="team-card-name">{row.name}</div>
+                    {#if row.disbanded}<div class="team-card-disbanded">Disbanded</div>{/if}
                     <div class="team-card-meta">
                       {#if row.tag}
                         <span class="team-card-tag">[{String(row.tag).toUpperCase()}]</span>
@@ -218,6 +231,13 @@
 </PageContainer>
 
 <style>
+  .team-card-disbanded {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #fca5a5;
+  }
+
   /* Viewer's team */
   .my-team {
     display: flex;

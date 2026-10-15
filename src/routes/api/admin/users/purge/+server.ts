@@ -40,10 +40,10 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     .eq('profile_id', userId)
   if (observerError) throw error(500, 'Failed to remove observer registration')
 
-  const today = new Date().toISOString().slice(0, 10)
+  const now = new Date().toISOString()
   const { error: membershipsError } = await supabaseAdmin
     .from('team_memberships')
-    .update({ is_active: false, left_at: today })
+    .update({ is_active: false, left_at: now })
     .eq('profile_id', userId)
     .eq('is_active', true)
     .is('left_at', null)

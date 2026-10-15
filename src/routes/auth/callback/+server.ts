@@ -1,6 +1,6 @@
 import { redirect } from '@sveltejs/kit'
 import type { RequestHandler } from './$types'
-import { setSessionCookie } from '$lib/server/auth/session'
+import { setSessionCookie, SESSION_TTL_SECONDS } from '$lib/server/auth/session'
 import { createClient } from '@supabase/supabase-js'
 import { env as publicEnv } from '$env/dynamic/public'
 import { env } from '$env/dynamic/private'
@@ -83,7 +83,8 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
     access_token: tokens.access_token,
     id_token: tokens.id_token,
     refresh_token: tokens.refresh_token,
-    exp: Math.floor(Date.now() / 1000) + tokens.expires_in,
+    // Our session outlives the Auth0 tokens; they are only used during login.
+    exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
   })
 
   // Sync profile to Supabase using service role (bypasses RLS)

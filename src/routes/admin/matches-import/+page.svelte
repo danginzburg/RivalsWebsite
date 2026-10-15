@@ -11,10 +11,20 @@
     Users,
   } from 'lucide-svelte'
   import { resolve } from '$app/paths'
+  import { MATCH_STAGES } from '$lib/stats/sections'
+
+  /**
+   * Which part of the competition the imported series belongs to. It decides
+   * whether the match counts toward the standings and which stat batches it
+   * feeds. Blank leaves a new match unfiled and an existing one as it was.
+   */
+  const stageOptions = [
+    { value: '', label: 'Not set (keep existing)' },
+    ...MATCH_STAGES.map((stage) => ({ value: stage.key, label: stage.label })),
+  ]
 
   const riotBestOfOptions = [
     { value: '', label: 'Auto' },
-    { value: '1', label: 'Bo1' },
     { value: '3', label: 'Bo3' },
     { value: '5', label: 'Bo5' },
   ]
@@ -29,10 +39,8 @@
   ]
 
   const forfeitBestOfOptions = [
-    { value: '1', label: 'Bo1' },
     { value: '3', label: 'Bo3' },
     { value: '5', label: 'Bo5' },
-    { value: '7', label: 'Bo7' },
   ]
 
   import type { PageProps } from './$types'
@@ -80,12 +88,14 @@
    */
   let importMode = $state<ImportMode>('riot_links')
 
+  /** Kept between imports: a run of playoff series is usually entered together. */
+  let stage = $state('')
+
   let riotInput = $state('')
   let riotRegion = $state('na')
   /**
-   * Empty means infer from the map count, which is right only when the series
-   * went the distance: a Bo5 won 3-1 has four maps and would otherwise be
-   * recorded as a Bo3, and a Bo3 won 2-0 as a Bo1.
+   * Empty means infer from the map count: four or more maps is a Bo5, anything
+   * less a Bo3. Only a Bo5 swept 3-0 needs to be picked by hand.
    */
   let riotBestOf = $state('')
   let riotDryRun = $state(false)
@@ -189,6 +199,7 @@
           region: riotRegion,
           dryRun,
           ...(riotBestOf ? { bestOf: Number(riotBestOf) } : {}),
+          ...(stage ? { stage } : {}),
           ...manualTeams,
           ...forfeitMap,
         }),
@@ -532,6 +543,7 @@
             teamAScore: ffTeamAScore,
             teamBScore: ffTeamBScore,
             bestOf: ffBestOf,
+            ...(stage ? { stage } : {}),
           }),
         })
         const result = await response.json().catch(() => ({}))
@@ -570,8 +582,9 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           displayName,
-          bestOf: seriesMaps.length >= 5 ? 5 : 3,
+          bestOf: seriesMaps.length >= 4 ? 5 : 3,
           maps: seriesMaps,
+          ...(stage ? { stage } : {}),
           ...(sendOfficial && officialTeamId ? { officialWinnerTeamId: officialTeamId } : {}),
           ...(sendOfficial && forfeitReason.trim() ? { forfeitReason: forfeitReason.trim() } : {}),
           ...(sendOfficial && mapNotes && Object.keys(mapNotes).length > 0 ? { mapNotes } : {}),
@@ -1022,10 +1035,20 @@
           </label>
         {/if}
 
-        <label class="mt-4 block">
-          <div class="admin-field-label">Display Name</div>
-          <input bind:value={displayName} class="admin-input" placeholder="Series Import" />
-        </label>
+        <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-[16rem_1fr]">
+          <label class="block">
+            <div class="admin-field-label">Stage</div>
+            <CustomSelect options={stageOptions} bind:value={stage} disabled={isSubmitting} />
+          </label>
+          <label class="block">
+            <div class="admin-field-label">Display Name</div>
+            <input bind:value={displayName} class="admin-input" placeholder="Series Import" />
+          </label>
+        </div>
+        <p class="mt-1 text-xs" style="color: rgba(255,255,255,0.6);">
+          Only Regular Season (and unset) matches count toward the standings. The stage also picks
+          which live stat batches the match feeds.
+        </p>
 
         {#if parseError}
           <div class="admin-alert admin-alert-error mt-3">

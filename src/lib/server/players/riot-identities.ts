@@ -96,16 +96,41 @@ export async function upsertRiotIdentities(observations: RiotObservation[]): Pro
  * profile yet, ranked by how much they have played (the map count is computed
  * live from the stat rows, so it is right regardless of re-imports).
  */
-export async function listUnlinkedIdentities(limit = 200): Promise<UnlinkedIdentity[]> {
-  const { data: identities, error } = await supabaseAdmin
-    .from('riot_identities')
-    .select('puuid, latest_name, latest_tag, first_seen_at, last_seen_at')
-    .is('profile_id', null)
-    .order('last_seen_at', { ascending: false })
-    .limit(limit)
+export async function listUnlinkedIdentities(
+  limit = 200,
+  opts: { seasonId?: string | null } = {}
+): Promise<UnlinkedIdentity[]> {
+  let rows: Array<{
+    puuid: string
+    latest_name: string | null
+    latest_tag: string | null
+    first_seen_at: string | null
+    last_seen_at: string | null
+  }> = []
 
-  if (error) throw new Error('Failed to load unlinked identities')
-  const rows = identities ?? []
+  if (opts.seasonId !== undefined) {
+    // Season-scoped: only identities that played a match in that season.
+    const seasonPuuids = await puuidsSeenInSeason(opts.seasonId)
+    for (let i = 0; i < seasonPuuids.length; i += 100) {
+      const { data, error } = await supabaseAdmin
+        .from('riot_identities')
+        .select('puuid, latest_name, latest_tag, first_seen_at, last_seen_at')
+        .is('profile_id', null)
+        .in('puuid', seasonPuuids.slice(i, i + 100))
+      if (error) throw new Error('Failed to load unlinked identities')
+      rows.push(...(data ?? []))
+    }
+  } else {
+    const { data: identities, error } = await supabaseAdmin
+      .from('riot_identities')
+      .select('puuid, latest_name, latest_tag, first_seen_at, last_seen_at')
+      .is('profile_id', null)
+      .order('last_seen_at', { ascending: false })
+      .limit(limit)
+
+    if (error) throw new Error('Failed to load unlinked identities')
+    rows = identities ?? []
+  }
   if (rows.length === 0) return []
 
   // Count each identity's map appearances in one grouped read rather than a
@@ -132,6 +157,29 @@ export async function listUnlinkedIdentities(limit = 200): Promise<UnlinkedIdent
       maps_seen: mapsByPuuid.get(row.puuid) ?? 0,
     }))
     .sort((a, b) => b.maps_seen - a.maps_seen)
+}
+
+/** Every PUUID that appears in the stats of a match filed under the season. */
+async function puuidsSeenInSeason(seasonId: string | null): Promise<string[]> {
+  if (!seasonId) return []
+  const { data: matches, error: matchesError } = await supabaseAdmin
+    .from('matches')
+    .select('id')
+    .eq('season_id', seasonId)
+  if (matchesError) throw new Error('Failed to load season matches')
+  const matchIds = (matches ?? []).map((m) => m.id as string)
+
+  const puuids = new Set<string>()
+  for (let i = 0; i < matchIds.length; i += 100) {
+    const { data, error } = await supabaseAdmin
+      .from('player_match_map_stats')
+      .select('puuid')
+      .in('match_id', matchIds.slice(i, i + 100))
+      .not('puuid', 'is', null)
+    if (error) throw new Error('Failed to load season player stats')
+    for (const row of data ?? []) if (row.puuid) puuids.add(row.puuid as string)
+  }
+  return Array.from(puuids)
 }
 
 /**

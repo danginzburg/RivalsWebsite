@@ -10,6 +10,7 @@ import { loadLegacyBracket } from '$lib/server/seasons/legacyBracket'
 import { isUnreachableError } from '$lib/server/supabase/unreachable'
 import { getValorantMapLookup, resolveMapPool, type MapPoolEntry } from '$lib/server/valorant/maps'
 import { resolveSeasonProfile } from '$lib/seasons/profile'
+import { pickStandingsBatch } from '$lib/server/leaderboard/batch'
 
 type TeamRel = { id: string; name: string; tag?: string | null; logo_path?: string | null }
 type ProfileRel = { id: string; display_name: string | null; riot_id_base: string | null }
@@ -65,7 +66,7 @@ export const load = async ({
   const [{ data: teamRows }, { data: matchRows }] = await Promise.all([
     supabaseAdmin
       .from('teams')
-      .select('id, name, tag, logo_path, created_at')
+      .select('id, name, tag, logo_path, status, created_at')
       .eq('season_id', season.id)
       .eq('approval_status', 'approved')
       .order('name', { ascending: true }),
@@ -96,6 +97,8 @@ export const load = async ({
     name: team.name,
     tag: team.tag ?? null,
     logo_url: getTeamLogoUrl(team),
+    // Teams are season-scoped, so a disbanded team here folded during this event.
+    disbanded: team.status === 'disbanded',
   }))
 
   // The bracket lives in the season's pick'em event. Its teams are looked up by
@@ -115,6 +118,7 @@ export const load = async ({
         name: team.name,
         tag: team.tag,
         logo_url: team.logo_url ?? null,
+        disbanded: false,
       }
     }
   }
@@ -175,6 +179,7 @@ export const load = async ({
         name: team.name,
         tag: team.tag ?? null,
         logo_url: getTeamLogoUrl(team),
+        disbanded: false,
       }
     }
   }
@@ -243,15 +248,15 @@ export const load = async ({
     )
 
     if (candidateIds.length > 0) {
-      const { data: latestBatch } = await supabaseAdmin
+      const { data: candidateBatches } = await supabaseAdmin
         .from('stat_import_batches')
         .select('id, display_name, metadata')
         .in('id', candidateIds)
         .filter('metadata->>import_type', 'eq', 'leaderboard_entries')
         .eq('status', 'applied')
         .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
+      // Calculated standings first, the newest import as the fallback.
+      const latestBatch = pickStandingsBatch(candidateBatches ?? [])
       batchId = latestBatch?.id ?? null
       leaderboardLabel = latestBatch
         ? (latestBatch.metadata?.display_name ?? latestBatch.display_name ?? 'Latest standings')

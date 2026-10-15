@@ -10,6 +10,7 @@
     name: string
     tag?: string | null
     logo_url?: string | null
+    status?: string | null
     roster_count?: number
     captain_profile?: unknown
     roster?: Array<{
@@ -64,6 +65,7 @@
       role: string
     ) => void
     onRemoveTeam: (teamId: string, teamName: string) => void
+    onDisbandTeam: (teamId: string, teamName: string) => void
   }
 
   let {
@@ -90,6 +92,7 @@
     onAddPlayer,
     onRemovePlayer,
     onRemoveTeam,
+    onDisbandTeam,
   }: Props = $props()
 
   let createTeamLogoInput: HTMLInputElement | null = null
@@ -420,6 +423,16 @@
           </div>
 
           <div class="mt-3 flex justify-end gap-2">
+            {#if team.status !== 'disbanded'}
+              <button
+                type="button"
+                class="admin-btn admin-btn-sm admin-btn-warn"
+                disabled={processingTeamId === team.id}
+                onclick={() => onDisbandTeam(team.id, team.name)}
+              >
+                Disband Team
+              </button>
+            {/if}
             <button
               type="button"
               class="admin-btn admin-btn-sm admin-btn-danger"
