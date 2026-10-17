@@ -55,6 +55,7 @@ function normalizeSort(value: string | null): string {
     'mk_7k',
     'clutches_won',
     'clutches_attempted',
+    'slr',
   ])
   return allowed.has(v) ? v : 'acs'
 }
@@ -157,6 +158,7 @@ export const load: PageServerLoad = async ({ fetch, url, locals }) => {
   return {
     batchId: body.batchId ?? null,
     batch: body.batch ?? null,
+    isExternal: body.seasonKind === 'external',
     rows: body.rows ?? [],
     batches,
     viewer,
