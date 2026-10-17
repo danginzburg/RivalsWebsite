@@ -35,13 +35,14 @@ export const GET: RequestHandler = async ({ url }) => {
   if (seasonCode) {
     const { data: season } = await supabaseAdmin
       .from('seasons')
-      .select('code, name, metadata')
+      .select('code, name, kind, metadata')
       .eq('code', seasonCode)
       .maybeSingle()
 
     const sourceIds = resolveSeasonStatBatchIds(season ?? { code: seasonCode })
+    const seasonKind = season?.kind === 'external' ? 'external' : 'rivals'
     if (sourceIds.length === 0) {
-      return json({ batchId: batchId, batch: null, rows: [] })
+      return json({ batchId: batchId, batch: null, seasonKind, rows: [] })
     }
 
     let query = supabaseAdmin
@@ -72,6 +73,7 @@ export const GET: RequestHandler = async ({ url }) => {
         week_label: null,
         section: 'full',
       },
+      seasonKind,
       rows: aggregated.slice(0, limit),
     })
   }
@@ -136,7 +138,9 @@ export const GET: RequestHandler = async ({ url }) => {
   let batch: NormalizedRivalsGroupStatBatch | null = null
   const { data: batchRow, error: batchError } = await supabaseAdmin
     .from('stat_import_batches')
-    .select('id, source_filename, display_name, import_kind, week_label, created_at, metadata')
+    .select(
+      'id, source_filename, display_name, import_kind, week_label, created_at, metadata, season_id'
+    )
     .eq('id', effectiveBatchId)
     .maybeSingle()
 
@@ -144,6 +148,22 @@ export const GET: RequestHandler = async ({ url }) => {
     batch = normalizeRivalsGroupStatBatchFromDb(batchRow as StatImportBatchRow, {
       displayNameFallback: 'source_filename',
     })
+  }
+
+  // Only batches generated from matches carry a season; CSV-era rivals batches
+  // have a NULL season_id and are always treated as rivals.
+  let seasonKind: 'rivals' | 'external' = 'rivals'
+  const batchSeasonId =
+    (batchRow?.metadata as { source_season_id?: string | null } | null)?.source_season_id ??
+    (batchRow?.season_id as string | null | undefined) ??
+    null
+  if (batchSeasonId) {
+    const { data: season } = await supabaseAdmin
+      .from('seasons')
+      .select('kind')
+      .eq('id', batchSeasonId)
+      .maybeSingle()
+    if (season?.kind === 'external') seasonKind = 'external'
   }
 
   let query = supabaseAdmin
@@ -167,6 +187,7 @@ export const GET: RequestHandler = async ({ url }) => {
   return json({
     batchId: effectiveBatchId,
     batch,
+    seasonKind,
     rows: rows ?? [],
   })
 }

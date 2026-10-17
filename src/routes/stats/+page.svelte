@@ -39,12 +39,39 @@
     return (w / t) * 100
   }
 
+  /** External events (Shitter League) get their own rating column. */
+  const isExternal = $derived(Boolean(data.isExternal))
+
+  /**
+   * SLR = 0.898·KPR + 0.228·APR − 0.434·DPR + 0.5·KAST + 0.0005·ACS
+   *     + 0.0005·ADR + 0.005·FKPG + 0.175, rounded to 3 dp.
+   * KAST is stored as a percentage (72.5), so it is scaled to a fraction first.
+   * Any missing input yields null rather than a misleadingly low rating.
+   */
+  function slr(row: Record<string, unknown>): number | null {
+    const inputs = [row.kpr, row.apr, row.dpr, row.kast_pct, row.acs, row.adr, row.fkpg]
+    if (inputs.some((v) => v === null || v === undefined || v === '')) return null
+    const [kpr, apr, dpr, kastPct, acs, adr, fkpg] = inputs.map(Number)
+    if (![kpr, apr, dpr, kastPct, acs, adr, fkpg].every(Number.isFinite)) return null
+    const value =
+      0.898 * kpr +
+      0.228 * apr -
+      0.434 * dpr +
+      0.5 * (kastPct / 100) +
+      0.0005 * acs +
+      0.0005 * adr +
+      0.005 * fkpg +
+      0.175
+    return Math.round(value * 1000) / 1000
+  }
+
   const rows = $derived(
     (data.rows ?? []).map((row: Record<string, unknown>) => ({
       ...row,
       win_pct: ratePct(row.games_won, row.games, row.games_won, row.games_lost),
       round_win_pct: ratePct(row.rounds_won, row.rounds, row.rounds_won, row.rounds_lost),
       clutch_win_pct: ratePct(row.clutches_won, row.clutches_attempted),
+      slr: isExternal ? slr(row) : null,
     }))
   )
   const viewer = $derived(
@@ -203,7 +230,7 @@
     return Array.from(new Set(tokens))
   }
 
-  const allColumns = [
+  const baseColumns = [
     { key: 'agents', label: 'Agents', digits: 0 },
     { key: 'games', label: 'Games', digits: 0 },
     { key: 'games_won', label: 'W', digits: 0 },
@@ -248,7 +275,20 @@
     { key: 'clutch_win_pct', label: 'Clutch%', digits: 1 },
   ]
 
+  // SLR sits just before ACS, and only exists for external events.
+  const allColumns = $derived.by(() => {
+    if (!isExternal) return baseColumns
+    const at = baseColumns.findIndex((c) => c.key === 'acs')
+    return [
+      ...baseColumns.slice(0, at),
+      { key: 'slr', label: 'SLR', digits: 3 },
+      ...baseColumns.slice(at),
+    ]
+  })
+
+  // `slr` is harmless on rivals batches — it has no column there to show.
   const defaultVisible = new Set([
+    'slr',
     'agents',
     'games',
     'win_pct',
@@ -547,7 +587,10 @@
         <summary class="columns-summary">
           <span class="columns-chevron">▶</span>
           <span class="columns-title">Visible columns</span>
-          <span class="columns-count">{visibleColumns.length}/{allColumns.length}</span>
+          <span class="columns-count"
+            >{allColumns.filter((c) => visibleColumns.includes(c.key))
+              .length}/{allColumns.length}</span
+          >
           <span class="columns-actions">
             <button
               type="button"
