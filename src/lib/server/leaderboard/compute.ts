@@ -178,9 +178,10 @@ function compareLines(
     b.line.points - a.line.points ||
     b.line.wins - a.line.wins ||
     a.line.losses - b.line.losses ||
+    // Tiebreakers: map differential, then raw map wins, then round differential.
     b.line.map_wins - b.line.map_losses - (a.line.map_wins - a.line.map_losses) ||
-    b.line.round_diff - a.line.round_diff ||
     b.line.map_wins - a.line.map_wins ||
+    b.line.round_diff - a.line.round_diff ||
     a.name.localeCompare(b.name)
   )
 }
@@ -252,8 +253,8 @@ type TiebreakLine = Pick<
 
 /**
  * Whether round difference separated any two neighbouring teams, i.e. they
- * were level on everything ranked before it (points, record, map difference)
- * and their round differences differ. `lines` must be in rank order.
+ * were level on everything ranked before it (points, record, map difference,
+ * map wins) and their round differences differ. `lines` must be in rank order.
  *
  * The leaderboard only shows the column when this is true — otherwise it is a
  * number that changed nothing.
@@ -267,6 +268,7 @@ export function roundDiffDecidesTies(lines: TiebreakLine[]): boolean {
       a.wins === b.wins &&
       a.losses === b.losses &&
       a.map_wins - a.map_losses === b.map_wins - b.map_losses &&
+      a.map_wins === b.map_wins &&
       a.round_diff !== b.round_diff
     ) {
       return true

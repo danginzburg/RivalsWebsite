@@ -121,6 +121,41 @@ describe('computeStandings', () => {
     ])
   })
 
+  it('breaks map-diff ties on raw map wins before round diff', () => {
+    const rows = computeStandings(
+      teams,
+      [
+        // Both +2 map diff; A has the better round diff, C the more map wins.
+        match({
+          team_a_id: 'a',
+          team_b_id: 'b',
+          team_a_score: 2,
+          team_b_score: 0,
+          maps: [
+            { team_a_rounds: 13, team_b_rounds: 0 },
+            { team_a_rounds: 13, team_b_rounds: 0 },
+          ],
+        }),
+        match({
+          team_a_id: 'c',
+          team_b_id: 'b',
+          winner_team_id: 'c',
+          team_a_score: 3,
+          team_b_score: 1,
+          maps: [
+            { team_a_rounds: 13, team_b_rounds: 11 },
+            { team_a_rounds: 11, team_b_rounds: 13 },
+            { team_a_rounds: 13, team_b_rounds: 11 },
+            { team_a_rounds: 13, team_b_rounds: 11 },
+          ],
+        }),
+      ],
+      [],
+      { awardPoints: false }
+    )
+    expect(rows.map((r) => r.team_id)).toEqual(['c', 'a', 'b'])
+  })
+
   it('places pinned teams in their slot and fills around them', () => {
     const rows = computeStandings(
       teams,
@@ -143,12 +178,16 @@ describe('roundDiffDecidesTies', () => {
   })
 
   it('is true when level teams are split only by round diff', () => {
+    expect(roundDiffDecidesTies([line({ round_diff: 17 }), line({ round_diff: 13 })])).toBe(true)
+  })
+
+  it('is false when raw map wins split teams level on map diff', () => {
     expect(
       roundDiffDecidesTies([
-        line({ round_diff: 17 }),
-        line({ map_wins: 6, map_losses: 3, round_diff: 13 }),
+        line({ round_diff: 13 }),
+        line({ map_wins: 6, map_losses: 3, round_diff: 17 }),
       ])
-    ).toBe(true)
+    ).toBe(false)
   })
 
   it('is false when an earlier tiebreak already separated them', () => {
