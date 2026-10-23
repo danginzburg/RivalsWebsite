@@ -1,17 +1,27 @@
-import { error, redirect, type Actions } from '@sveltejs/kit'
+import { error, fail, redirect, type Actions } from '@sveltejs/kit'
 import type { PageServerLoad } from './$types'
 import { supabaseAdmin } from '$lib/supabase/admin'
-import { normalizeRiotBase, isValidRiotBase } from '$lib/server/riot-id'
+import { normalizeRiotTag } from '$lib/server/riot-id'
 import { supabaseErrorMessageIncludes } from '$lib/server/supabase/errors'
 import { claimRelinkAfterProfileUpdate } from '$lib/server/players/claim-relink'
-import { syncPrimaryRiotName } from '$lib/server/players/riot-accounts'
+import {
+  RiotAccountError,
+  hasLinkedPrimaryAccount,
+  linkPrimaryRiotAccount,
+} from '$lib/server/players/riot-accounts'
 
-export const load: PageServerLoad = async ({ locals }) => {
+/** Only same-site paths; anything else falls back to the player page. */
+function safeReturnTo(value: unknown): string | null {
+  const v = String(value ?? '')
+  return v.startsWith('/') && !v.startsWith('//') ? v : null
+}
+
+export const load: PageServerLoad = async ({ locals, url }) => {
   if (!locals.user) throw redirect(303, '/auth/login?returnTo=/account')
 
   const { data: profile, error: profileError } = await supabaseAdmin
     .from('profiles')
-    .select('id, display_name, email, role, riot_id_base')
+    .select('id, display_name, display_name_is_custom, riot_id_base, riot_tag')
     .eq('auth0_sub', locals.user.sub)
     .maybeSingle()
 
@@ -24,17 +34,54 @@ export const load: PageServerLoad = async ({ locals }) => {
   }
   if (!profile) throw error(404, 'Profile not found')
 
-  // Treat /account as a setup entrypoint; player page hosts the full view.
-  throw redirect(303, `/players/${profile.id}`)
+  const returnTo = safeReturnTo(url.searchParams.get('returnTo'))
+
+  // Once the Riot account is linked, /account is just a door to the player
+  // page; `?edit` reopens the prompt to change it.
+  if (!url.searchParams.has('edit') && (await hasLinkedPrimaryAccount(profile.id))) {
+    throw redirect(303, returnTo ?? `/players/${profile.id}`)
+  }
+
+  const riotId =
+    profile.riot_id_base && profile.riot_tag
+      ? `${profile.riot_id_base}#${profile.riot_tag}`
+      : (profile.riot_id_base ?? '')
+
+  return {
+    profile: {
+      id: profile.id as string,
+      riotId,
+      // Only a name the player chose is pre-filled; a seeded Riot name is not an
+      // "alternate" display name.
+      displayName: profile.display_name_is_custom ? (profile.display_name ?? '') : '',
+    },
+    returnTo,
+  }
 }
 
 export const actions: Actions = {
   default: async ({ locals, request }) => {
     if (!locals.user) throw redirect(303, '/auth/login?returnTo=/account')
     const form = await request.formData()
-    const riotIdBase = normalizeRiotBase(form.get('riot_id_base'))
-    if (!isValidRiotBase(riotIdBase)) {
-      return { success: false, message: 'Enter a valid Riot ID base name (no #tag).' }
+
+    const rawRiotId = String(form.get('riot_id') ?? '').trim()
+    const displayName = String(form.get('display_name') ?? '')
+      .trim()
+      .slice(0, 40)
+    const returnTo = safeReturnTo(form.get('returnTo'))
+    const values = { riotId: rawRiotId, displayName }
+
+    const hash = rawRiotId.lastIndexOf('#')
+    const riotName = hash > 0 ? rawRiotId.slice(0, hash).trim() : ''
+    const riotTag = hash > 0 ? normalizeRiotTag(rawRiotId.slice(hash + 1)) : null
+    if (riotName.length < 3 || riotName.length > 16 || !riotTag) {
+      return fail(400, {
+        ...values,
+        message: 'Enter your full Riot ID, e.g. Name#TAG (name 3–16 characters, tag 3–5).',
+      })
+    }
+    if (displayName.length === 1) {
+      return fail(400, { ...values, message: 'Display names need at least 2 characters.' })
     }
 
     const { data: profile } = await supabaseAdmin
@@ -42,39 +89,36 @@ export const actions: Actions = {
       .select('id')
       .eq('auth0_sub', locals.user.sub)
       .maybeSingle()
-
     if (!profile?.id) throw error(404, 'Profile not found')
 
-    // Check uniqueness (case-insensitive)
-    const { data: existing } = await supabaseAdmin
-      .from('profiles')
-      .select('id')
-      .ilike('riot_id_base', riotIdBase)
-      .neq('id', profile.id)
-      .maybeSingle()
-
-    if (existing?.id) {
-      return { success: false, message: 'That Riot ID is already claimed by another account.' }
+    let linked
+    try {
+      linked = await linkPrimaryRiotAccount({ profileId: profile.id, riotName, riotTag })
+    } catch (err) {
+      if (err instanceof RiotAccountError)
+        return fail(err.status, { ...values, message: err.message })
+      throw err
     }
 
+    // Keep the legacy columns in step; name-based matching still reads them.
     const { error: updateError } = await supabaseAdmin
       .from('profiles')
-      .update({ riot_id_base: riotIdBase })
+      .update({ riot_id_base: linked.riotName, riot_tag: linked.riotTag })
       .eq('id', profile.id)
+    if (updateError) return fail(500, { ...values, message: updateError.message })
 
-    if (updateError) return { success: false, message: updateError.message }
-
-    try {
-      await syncPrimaryRiotName(profile.id, riotIdBase)
-    } catch (err) {
-      console.warn('Failed to sync primary Riot account name:', err)
+    if (displayName) {
+      await supabaseAdmin
+        .from('profiles')
+        .update({ display_name: displayName, display_name_is_custom: true })
+        .eq('id', profile.id)
+    } else {
+      // No alternate name: show the Riot name, as everywhere else does by default.
+      await supabaseAdmin
+        .from('profiles')
+        .update({ display_name: linked.riotName, display_name_is_custom: false })
+        .eq('id', profile.id)
     }
-
-    await supabaseAdmin
-      .from('profiles')
-      .update({ display_name: riotIdBase })
-      .eq('id', profile.id)
-      .eq('display_name_is_custom', false)
 
     try {
       await claimRelinkAfterProfileUpdate(profile.id)
@@ -82,6 +126,6 @@ export const actions: Actions = {
       console.warn('claimRelinkAfterProfileUpdate failed:', err)
     }
 
-    throw redirect(303, `/players/${profile.id}`)
+    throw redirect(303, returnTo ?? `/players/${profile.id}`)
   },
 }

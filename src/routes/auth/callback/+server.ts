@@ -6,6 +6,7 @@ import { env as publicEnv } from '$env/dynamic/public'
 import { env } from '$env/dynamic/private'
 import { rematchNamedTeamMemberships } from '$lib/server/teams/membership'
 import { claimRelinkAfterProfileUpdate } from '$lib/server/players/claim-relink'
+import { hasLinkedPrimaryAccount } from '$lib/server/players/riot-accounts'
 
 export const GET: RequestHandler = async ({ url, cookies }) => {
   const code = url.searchParams.get('code')
@@ -133,6 +134,16 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
     } catch (err) {
       console.warn('Failed to relink match stats during login:', err)
     }
+
+    // No PUUID-linked Riot account yet: ask for the full Riot ID first, then
+    // carry on to wherever they were headed.
+    let linked = true
+    try {
+      linked = await hasLinkedPrimaryAccount(syncedProfile.id)
+    } catch (err) {
+      console.warn('Failed to check Riot account link during login:', err)
+    }
+    if (!linked) redirect(303, `/account?returnTo=${encodeURIComponent(returnTo)}`)
   }
 
   redirect(303, returnTo)

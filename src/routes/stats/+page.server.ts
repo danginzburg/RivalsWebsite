@@ -88,6 +88,30 @@ export const load: PageServerLoad = async ({ fetch, url, locals }) => {
 
   const body = await res.json().catch(() => ({}))
 
+  // Stat rows carry the Riot name from the import; claimed players are shown
+  // under their chosen profile name instead, like everywhere else on the site.
+  const rows = body.rows ?? []
+  const profileIds = Array.from(
+    new Set(
+      (rows as Record<string, unknown>[])
+        .map((r) => r.profile_id)
+        .filter((id): id is string => typeof id === 'string')
+    )
+  )
+  if (profileIds.length > 0) {
+    const { data: profiles } = await supabaseAdmin
+      .from('profiles')
+      .select('id, display_name, riot_id_base')
+      .in('id', profileIds)
+    const nameById = new Map(
+      (profiles ?? []).map((p) => [p.id as string, p.display_name || p.riot_id_base || null])
+    )
+    for (const r of rows as Record<string, unknown>[]) {
+      r.profile_name =
+        typeof r.profile_id === 'string' ? (nameById.get(r.profile_id) ?? null) : null
+    }
+  }
+
   let viewer: { profileId: string; displayName: string | null } | null = null
   if (locals.user) {
     const { data: profile } = await supabaseAdmin
@@ -159,7 +183,7 @@ export const load: PageServerLoad = async ({ fetch, url, locals }) => {
     batchId: body.batchId ?? null,
     batch: body.batch ?? null,
     isExternal: body.seasonKind === 'external',
-    rows: body.rows ?? [],
+    rows,
     batches,
     viewer,
     initialQ,

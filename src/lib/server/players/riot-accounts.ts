@@ -110,6 +110,78 @@ export async function upsertPrimaryRiotAccount(opts: {
   return { puuid: 'riot_puuid' in withPuuid ? (withPuuid.riot_puuid ?? null) : null }
 }
 
+/**
+ * True once the profile's primary Riot account has a PUUID. Login sends anyone
+ * without one through the Riot ID prompt, since PUUID is what links stats.
+ */
+export async function hasLinkedPrimaryAccount(profileId: string): Promise<boolean> {
+  const { data } = await supabaseAdmin
+    .from('profile_riot_accounts')
+    .select('riot_puuid')
+    .eq('profile_id', profileId)
+    .eq('is_primary', true)
+    .maybeSingle()
+  return Boolean(data?.riot_puuid)
+}
+
+/**
+ * Link a profile's primary Riot account from a full Riot ID, strictly: the
+ * account must resolve against Riot and its PUUID must not belong to anyone
+ * else. Unlike `upsertPrimaryRiotAccount`, a failed lookup is an error here,
+ * because the PUUID is the whole point of the login prompt.
+ */
+export async function linkPrimaryRiotAccount(opts: {
+  profileId: string
+  riotName: string
+  riotTag: string
+}): Promise<{ riotName: string; riotTag: string; puuid: string }> {
+  let account
+  try {
+    account = await fetchAccount(opts.riotName, opts.riotTag)
+  } catch (err) {
+    if (err instanceof RiotLookupError) throw new RiotAccountError(err.status, err.message)
+    throw err
+  }
+  if (!account.puuid) {
+    throw new RiotAccountError(502, 'Riot did not return an account ID. Try again shortly.')
+  }
+
+  // Riot's own casing, so the stored name matches what imports report.
+  const riotName = account.name || opts.riotName
+  const riotTag = (account.tag || opts.riotTag).toUpperCase()
+
+  if (await riotIdOwnedByOther(riotName, riotTag, opts.profileId)) {
+    throw new RiotAccountError(409, 'That Riot ID is already linked to another account.')
+  }
+  if (await puuidOwnedByOther(account.puuid, opts.profileId)) {
+    throw new RiotAccountError(409, 'That Riot account is already linked to another player.')
+  }
+
+  const row = {
+    profile_id: opts.profileId,
+    riot_name: riotName,
+    riot_tag: riotTag,
+    riot_puuid: account.puuid,
+    is_primary: true,
+    status: 'approved' as const,
+    verified_at: new Date().toISOString(),
+  }
+
+  const { data: existing } = await supabaseAdmin
+    .from('profile_riot_accounts')
+    .select('id')
+    .eq('profile_id', opts.profileId)
+    .eq('is_primary', true)
+    .maybeSingle()
+
+  const { error } = existing?.id
+    ? await supabaseAdmin.from('profile_riot_accounts').update(row).eq('id', existing.id)
+    : await supabaseAdmin.from('profile_riot_accounts').insert(row)
+  if (error) throw new RiotAccountError(409, 'That Riot account is already linked to an account.')
+
+  return { riotName, riotTag, puuid: account.puuid }
+}
+
 async function puuidOwnedByOther(puuid: string, profileId: string): Promise<boolean> {
   const { data } = await supabaseAdmin
     .from('profile_riot_accounts')
