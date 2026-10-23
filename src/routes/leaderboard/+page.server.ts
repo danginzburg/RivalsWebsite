@@ -4,7 +4,6 @@ import { getTeamLogoUrl } from '$lib/server/teams/logo'
 import { publicDataCache } from '$lib/server/cache'
 import { getSeasonSeeds, type SeedMap } from '$lib/server/seasons/seeds'
 import { pickStandingsBatch } from '$lib/server/leaderboard/batch'
-import { roundDiffDecidesTies } from '$lib/server/leaderboard/compute'
 
 type TeamRel = {
   id: string
@@ -129,7 +128,6 @@ async function loadStandings() {
     return {
       rows: [] as StandingsRow[],
       seeds: {} as SeedMap,
-      showRoundDiff: false,
       season: null,
       batch: null,
     }
@@ -210,28 +208,9 @@ async function loadStandings() {
     return a.name.localeCompare(b.name)
   })
 
-  // Round diff is shown only when it actually broke a tie in this table.
-  const showRoundDiff = roundDiffDecidesTies(
-    rows.flatMap((row) =>
-      row.stats?.rank
-        ? [
-            {
-              points: row.stats.points,
-              wins: row.stats.series_wins,
-              losses: row.stats.series_losses,
-              map_wins: row.stats.map_wins,
-              map_losses: row.stats.map_losses,
-              round_diff: row.stats.round_diff,
-            },
-          ]
-        : []
-    )
-  )
-
   return {
     rows,
     seeds,
-    showRoundDiff,
     season: {
       id: activeSeasonId,
       name: (activeSeason?.name as string | undefined) ?? null,
@@ -295,7 +274,6 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
   return {
     rows: standings.rows,
     seeds: standings.seeds,
-    showRoundDiff: standings.showRoundDiff,
     batch: standings.batch,
     season: standings.season,
     myTeam,

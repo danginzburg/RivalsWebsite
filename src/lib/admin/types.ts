@@ -236,7 +236,7 @@ export type AdminMatch = {
   scheduled_at: string | null
   ended_at: string | null
   metadata:
-    | { map_vetoes?: string[] | null; designation?: string | null }
+    | { map_vetoes?: string[] | null; designation?: string | null; out_of_group?: boolean }
     | Record<string, unknown>
     | null
   team_a_id: string
@@ -273,6 +273,8 @@ export type MatchEditState = {
   designation: string
   /** Section key the match is filed under; '' leaves it unfiled. */
   stage: string
+  /** Left out of the calculated standings; its points are entered by hand. */
+  outOfGroup: boolean
 }
 
 export type MatchStreamFormState = {

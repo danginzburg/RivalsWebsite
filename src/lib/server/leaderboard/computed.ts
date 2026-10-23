@@ -6,6 +6,7 @@ import { resolveMatchStage } from '$lib/server/stats/from-matches'
 import {
   computeStandings,
   countsTowardStandings,
+  isOutOfGroup,
   type ComputedStandingsRow,
   type StandingsAdjustment,
   type StandingsMatch,
@@ -44,6 +45,8 @@ export type SeasonStandings = {
   rows: Array<ComputedStandingsRow & { team_name: string; team_tag: string | null }>
   /** Matches that fed the table (regular season and unfiled). */
   matchCount: number
+  /** Regular-season matches left out as out-of-group games. */
+  outOfGroupCount: number
   /** External tournaments award points; Rivals seasons do not. */
   awardPoints: boolean
   /** Left out of the ranking. */
@@ -119,6 +122,7 @@ export async function calculateSeasonStandings(seasonId: string): Promise<Season
     team_a_score: m.team_a_score,
     team_b_score: m.team_b_score,
     winner_team_id: m.winner_team_id,
+    out_of_group: isOutOfGroup(m.metadata),
     maps: m.match_maps ?? [],
   }))
 
@@ -133,7 +137,8 @@ export async function calculateSeasonStandings(seasonId: string): Promise<Season
   return {
     seasonId,
     rows,
-    matchCount: matches.filter((m) => countsTowardStandings(m.stage)).length,
+    matchCount: matches.filter((m) => countsTowardStandings(m.stage) && !m.out_of_group).length,
+    outOfGroupCount: matches.filter((m) => countsTowardStandings(m.stage) && m.out_of_group).length,
     awardPoints,
     disbandedTeams: allTeams
       .filter((t) => t.status === 'disbanded')

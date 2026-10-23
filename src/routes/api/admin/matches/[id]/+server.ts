@@ -103,6 +103,7 @@ export const PATCH: RequestHandler = async ({ locals, request, params }) => {
         // the batch generator, and a typo should leave the match unfiled, not
         // fail the whole edit.
         stage: normalizeSectionKey(body.stage),
+        outOfGroup: typeof body.outOfGroup === 'boolean' ? body.outOfGroup : undefined,
         // Absent leaves the season alone; present re-files the match.
         seasonId:
           body.seasonId === undefined ? undefined : await resolveTargetSeasonId(body.seasonId),

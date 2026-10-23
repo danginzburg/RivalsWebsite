@@ -163,6 +163,7 @@ export function createAdminDashboardState({ fetchAdapter }: { fetchAdapter: Fetc
           mapVetoes: state.mapVetoes || '',
           designation: state.designation || null,
           stage: state.stage || null,
+          outOfGroup: state.outOfGroup,
         },
         fallbackMessage: 'Failed to update match',
       })

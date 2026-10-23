@@ -10,6 +10,7 @@ import {
 } from '$lib/server/stats/rivals-batch'
 import { parseFullSeasonBatchId, resolveSeasonStatBatchIds } from '$lib/server/stats/season-batches'
 import { aggregateFullSeasonRows } from '$lib/server/stats/aggregate-full-season'
+import { fetchAllRows } from '$lib/server/supabase/fetch-all'
 
 /** Columns read from `rivals_group_stats`, shared by direct and aggregated reads. */
 const STATS_ROW_SELECT =
@@ -45,16 +46,22 @@ export const GET: RequestHandler = async ({ url }) => {
       return json({ batchId: batchId, batch: null, seasonKind, rows: [] })
     }
 
-    let query = supabaseAdmin
-      .from('rivals_group_stats')
-      .select(STATS_ROW_SELECT)
-      .in('import_batch_id', sourceIds)
-    if (onlyMatched) query = query.not('profile_id', 'is', null)
+    // Every phase batch's rows together can pass PostgREST's 1000-row cap.
+    let sourceRows
+    try {
+      sourceRows = await fetchAllRows(() => {
+        let query = supabaseAdmin
+          .from('rivals_group_stats')
+          .select(STATS_ROW_SELECT)
+          .in('import_batch_id', sourceIds)
+        if (onlyMatched) query = query.not('profile_id', 'is', null)
+        return query.order('id')
+      })
+    } catch {
+      throw error(500, 'Failed to load stats')
+    }
 
-    const { data: sourceRows, error: rowsError } = await query
-    if (rowsError) throw error(500, 'Failed to load stats')
-
-    const aggregated = aggregateFullSeasonRows(sourceRows ?? [], batchId!)
+    const aggregated = aggregateFullSeasonRows(sourceRows, batchId!)
     const col = sortColumn(sort)
     aggregated.sort((a, b) => {
       const av = a[col] == null ? -Infinity : Number(a[col])

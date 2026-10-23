@@ -1027,8 +1027,16 @@ export const load = async ({
   const isSubMapRow = (r: PerMapStatRow) =>
     Boolean(r.match_id && subByMatchId.get(r.match_id) === true)
   const { mapStats, agentStats } = buildBreakdowns(scopedMapStats)
-  const subBreakdowns = buildBreakdowns(scopedMapStats.filter(isSubMapRow))
-  const mainBreakdowns = buildBreakdowns(scopedMapStats.filter((r) => !isSubMapRow(r)))
+  const subMapRows = scopedMapStats.filter(isSubMapRow)
+  const mainMapRows = scopedMapStats.filter((r) => !isSubMapRow(r))
+  const subBreakdowns = buildBreakdowns(subMapRows)
+  const mainBreakdowns = buildBreakdowns(mainMapRows)
+  // Overall per-role totals for the KPI tiles. Leaderboard batches carry no
+  // starter/sub split, so the Main / Sub views are rebuilt from per-map rows.
+  const rosterTotals = {
+    main: aggregateStats(mainMapRows),
+    sub: aggregateStats(subMapRows),
+  }
 
   // How many matches fall in each bucket, so the client only offers the filter
   // when the player has actually played both roles in the selected scope.
@@ -1116,6 +1124,7 @@ export const load = async ({
     mapStatsSub: subBreakdowns.mapStats,
     agentStatsSub: subBreakdowns.agentStats,
     rosterSplit: { subGames, mainGames },
+    rosterTotals,
     // Non-null when the Map/Agent tables are scoped by the selected aggregate
     // batch (to its source matches or season); null when they show every
     // recorded map.

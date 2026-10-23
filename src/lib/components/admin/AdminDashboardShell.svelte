@@ -239,12 +239,11 @@
   }
 
   /*
-   * Hidden below the tablet breakpoint, matching AdminEditLink: every import
-   * screen behind these is a management task for a large display, and the group
-   * took most of the masthead on a phone. Shown from 768px up.
+   * One row at every width. On a phone it shares the actions row with Refresh
+   * and scrolls sideways rather than wrapping into a block over the title.
    */
   .admin-import-group {
-    display: none;
+    display: flex;
     align-items: center;
     gap: 0.375rem;
     min-width: 0;
@@ -252,12 +251,17 @@
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 0.625rem;
     background: rgba(0, 0, 0, 0.22);
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
   }
 
-  @media (min-width: 768px) {
-    .admin-import-group {
-      display: flex;
-    }
+  .admin-import-group::-webkit-scrollbar {
+    display: none;
+  }
+
+  .admin-import-group > :global(*) {
+    flex-shrink: 0;
   }
 
   .admin-import-label {
@@ -404,6 +408,11 @@
     /* Actions get their own full-width row instead of squeezing the title. */
     .admin-masthead-actions {
       width: 100%;
+      flex-wrap: nowrap;
+    }
+
+    .admin-import-group {
+      flex: 1;
     }
   }
 </style>

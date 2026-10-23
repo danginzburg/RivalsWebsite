@@ -104,6 +104,57 @@
   const shownAgentStats = $derived(
     rosterFilter === 'sub' ? agentStatsSub : rosterFilter === 'main' ? agentStatsMain : agentStats
   )
+  const rosterTotals = $derived(
+    (data.rosterTotals ?? null) as {
+      main: Omit<BreakdownRow, 'key'>
+      sub: Omit<BreakdownRow, 'key'>
+    } | null
+  )
+
+  // Swaps the overall KPI tiles for a Main vs Sub comparison. Leaderboard
+  // batches carry no starter/sub split, so both sides come from per-map stats.
+  let compareRoster = $state(false)
+  const rosterCompare = $derived.by(() => {
+    if (!compareRoster || !canFilterRoster || !rosterTotals) return null
+    const { main, sub } = rosterTotals
+    return [
+      {
+        label: 'Matches',
+        main: rosterSplit.mainGames,
+        sub: rosterSplit.subGames,
+        digits: 0,
+        higher: null,
+      },
+      { label: 'ACS', main: main.acs, sub: sub.acs, digits: 0, higher: true },
+      { label: 'K/D', main: main.kd, sub: sub.kd, digits: 2, higher: true },
+      { label: 'ADR', main: main.adr, sub: sub.adr, digits: 0, higher: true },
+      { label: 'HS%', main: main.hs_pct, sub: sub.hs_pct, digits: 0, higher: true },
+      { label: 'Win%', main: main.win_pct, sub: sub.win_pct, digits: 0, higher: true },
+    ] as Array<{
+      label: string
+      main: number | null
+      sub: number | null
+      digits: number
+      higher: boolean | null
+    }>
+  })
+
+  // Which side of a comparison row is better, for highlighting; null on a tie,
+  // a missing value, or a row (like match count) that has no "better".
+  // Compared at display precision so two values that read the same never differ.
+  function betterSide(row: {
+    main: number | null
+    sub: number | null
+    digits: number
+    higher: boolean | null
+  }) {
+    if (row.higher == null || row.main == null || row.sub == null) return null
+    const m = Number(row.main.toFixed(row.digits))
+    const s = Number(row.sub.toFixed(row.digits))
+    if (m === s) return null
+    return m > s ? 'main' : 'sub'
+  }
+
   const shownMatchHistory = $derived(
     rosterFilter === 'all'
       ? matchHistory
@@ -171,6 +222,101 @@
 </script>
 
 <svelte:head><title>{player.riot_id}</title></svelte:head>
+
+<!-- One Main / Sub value pair inside a comparison table cell. -->
+{#snippet pairCell(
+  main: number | null | undefined,
+  sub: number | null | undefined,
+  digits: number,
+  suffix: string,
+  ranked: boolean
+)}
+  {@const better = ranked
+    ? betterSide({ main: main ?? null, sub: sub ?? null, digits, higher: true })
+    : null}
+  <span class="pair">
+    <span class="pair-val" class:compare-better={better === 'main'}
+      >{main == null ? '—' : `${fmt(main, digits)}${suffix}`}</span
+    >
+    <span class="pair-val pair-sub" class:compare-better={better === 'sub'}
+      >{sub == null ? '—' : `${fmt(sub, digits)}${suffix}`}</span
+    >
+  </span>
+{/snippet}
+
+<!-- Map / Agent breakdown with each stat split into Main and Sub columns. Rows
+     follow the combined table's order so toggling keeps rows where they were. -->
+{#snippet compareTable(
+  heading: string,
+  label: string,
+  rows: BreakdownRow[],
+  mainRows: BreakdownRow[],
+  subRows: BreakdownRow[],
+  withIcon: boolean
+)}
+  {@const mainByKey = new Map(mainRows.map((r) => [r.key, r]))}
+  {@const subByKey = new Map(subRows.map((r) => [r.key, r]))}
+  <section class="card">
+    <header class="card-head">
+      <h2 class="card-title">{heading}</h2>
+      <span class="card-note-inline">
+        Main vs Sub{mapStatsScope ? ` · scoped to ${mapStatsScope}` : ' · all recorded maps'}.
+      </span>
+    </header>
+    <div class="table-scroll">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th class="col-left">{label}</th>
+            <th>Played</th>
+            <th>Win%</th>
+            <th>ACS</th>
+            <th>K/D</th>
+            <th>ADR</th>
+            <th>KAST</th>
+            <th>HS%</th>
+          </tr>
+          <tr class="pair-head">
+            <th class="col-left"></th>
+            {#each Array(7) as _, i (i)}
+              <th>
+                <span class="pair"
+                  ><span class="pair-val">Main</span><span class="pair-val pair-sub">Sub</span
+                  ></span
+                >
+              </th>
+            {/each}
+          </tr>
+        </thead>
+        <tbody>
+          {#each rows as entry (entry.key)}
+            {@const m = mainByKey.get(entry.key)}
+            {@const s = subByKey.get(entry.key)}
+            <tr>
+              <td class="col-left">
+                <span class="entry-key">
+                  {#if withIcon && agentIconUrl(entry.key)}
+                    <img src={agentIconUrl(entry.key) ?? ''} alt="" class="agent-icon" />
+                  {/if}
+                  {entry.key}
+                </span>
+              </td>
+              <td class="num"
+                >{@render pairCell(m?.maps_played ?? 0, s?.maps_played ?? 0, 0, '', false)}</td
+              >
+              <td class="num">{@render pairCell(m?.win_pct, s?.win_pct, 0, '%', true)}</td>
+              <td class="num num-strong">{@render pairCell(m?.acs, s?.acs, 0, '', true)}</td>
+              <td class="num">{@render pairCell(m?.kd, s?.kd, 2, '', true)}</td>
+              <td class="num">{@render pairCell(m?.adr, s?.adr, 0, '', true)}</td>
+              <td class="num">{@render pairCell(m?.kast_pct, s?.kast_pct, 0, '%', true)}</td>
+              <td class="num">{@render pairCell(m?.hs_pct, s?.hs_pct, 0, '%', true)}</td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{/snippet}
 
 {#snippet breakdownTable(heading: string, label: string, rows: BreakdownRow[], withIcon: boolean)}
   <section class="card">
@@ -439,6 +585,17 @@
               <span class="stats-batch">{selectedBatchLabel}</span>
             {/if}
             <div class="stats-controls">
+              {#if canFilterRoster && rosterTotals}
+                <button
+                  type="button"
+                  class="toggle-btn"
+                  class:toggle-btn-on={compareRoster}
+                  aria-pressed={compareRoster}
+                  onclick={() => (compareRoster = !compareRoster)}
+                >
+                  Main vs Sub
+                </button>
+              {/if}
               {#if hasAnyWeeks}
                 <button
                   type="button"
@@ -462,7 +619,37 @@
             </div>
           </div>
 
-          {#if !selected}
+          {#if rosterCompare}
+            <!-- Same tiles as the overall row, each holding a Main / Sub pair
+                 like the comparison tables below. -->
+            <div class="kpi-row kpi-row-compare">
+              {#each rosterCompare as row (row.label)}
+                {@const better = betterSide(row)}
+                {@const suffix = row.label.endsWith('%') ? '%' : ''}
+                <div class="kpi">
+                  <span class="kpi-label">{row.label}</span>
+                  <span class="kpi-pair">
+                    <span class="kpi-pair-side">
+                      <span class="kpi-value" class:compare-better={better === 'main'}
+                        >{row.main == null ? '—' : `${fmt(row.main, row.digits)}${suffix}`}</span
+                      >
+                      <span class="kpi-pair-tag">Main</span>
+                    </span>
+                    <span class="kpi-pair-side">
+                      <span class="kpi-value kpi-value-sub" class:compare-better={better === 'sub'}
+                        >{row.sub == null ? '—' : `${fmt(row.sub, row.digits)}${suffix}`}</span
+                      >
+                      <span class="kpi-pair-tag">Sub</span>
+                    </span>
+                  </span>
+                </div>
+              {/each}
+            </div>
+            <p class="compare-note">
+              From recorded matches{mapStatsScope ? ` in ${mapStatsScope}` : ''}, not the
+              leaderboard batch.
+            </p>
+          {:else if !selected}
             <p class="muted">No imported stats found for this player.</p>
           {:else}
             <div class="kpi-row">
@@ -487,7 +674,9 @@
                 <span class="kpi-value">{fmt(selected.hs_pct, 0)}</span>
               </div>
             </div>
+          {/if}
 
+          {#if !rosterCompare && selected}
             {#if parseAgents(selected.agents).length > 0}
               <div class="agent-pool">
                 <span class="section-label">Agents</span>
@@ -539,17 +728,36 @@
             </button>
           </div>
           <span class="roster-note">
-            Filters Map, Agent &amp; Match History. Leaderboard stats above are not split.
+            {#if rosterCompare}
+              Filters Match History. Turn off Main vs Sub to filter Map &amp; Agent stats.
+            {:else}
+              Filters Map, Agent &amp; Match History. Use Main vs Sub above to compare side by side.
+            {/if}
           </span>
         </div>
       {/if}
 
       {#if mapStats.length > 0}
-        {@render breakdownTable('Map Stats', 'Map', shownMapStats, false)}
+        {#if rosterCompare}
+          {@render compareTable('Map Stats', 'Map', mapStats, mapStatsMain, mapStatsSub, false)}
+        {:else}
+          {@render breakdownTable('Map Stats', 'Map', shownMapStats, false)}
+        {/if}
       {/if}
 
       {#if agentStats.length > 0}
-        {@render breakdownTable('Agent Stats', 'Agent', shownAgentStats, true)}
+        {#if rosterCompare}
+          {@render compareTable(
+            'Agent Stats',
+            'Agent',
+            agentStats,
+            agentStatsMain,
+            agentStatsSub,
+            true
+          )}
+        {:else}
+          {@render breakdownTable('Agent Stats', 'Agent', shownAgentStats, true)}
+        {/if}
       {/if}
 
       <section class="card">
@@ -871,6 +1079,43 @@
     gap: 0.625rem;
   }
 
+  /* Main vs Sub comparison (replaces the KPI tiles when toggled) */
+  .compare-better {
+    color: #4ade80;
+  }
+
+  /* Main / Sub pairs inside the comparison tables */
+  .pair {
+    display: inline-grid;
+    grid-template-columns: repeat(2, minmax(2.25rem, auto));
+    gap: 0.375rem;
+    justify-content: end;
+  }
+
+  .pair-val {
+    text-align: right;
+  }
+
+  .pair-sub {
+    color: rgba(255, 255, 255, 0.6);
+  }
+
+  .pair-val.compare-better {
+    color: #4ade80;
+  }
+
+  .pair-head th {
+    padding-top: 0;
+    font-size: 0.5625rem;
+    color: rgba(255, 255, 255, 0.4);
+  }
+
+  .compare-note {
+    margin-top: 0.375rem;
+    font-size: 0.6875rem;
+    color: rgba(255, 255, 255, 0.45);
+  }
+
   .seg {
     display: inline-flex;
     border-radius: 0.5rem;
@@ -932,6 +1177,41 @@
     gap: 0.625rem;
   }
 
+  /* Six tiles (adds Win%); the breakpoints below still reflow it to 3 / 2. */
+  .kpi-row-compare {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  .kpi-pair {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+
+  /* Two values share a tile, so they run a step smaller than a lone KPI. */
+  .kpi-pair .kpi-value {
+    font-size: 1.125rem;
+  }
+
+  .kpi-pair-side {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .kpi-pair-side + .kpi-pair-side {
+    align-items: flex-end;
+  }
+
+  .kpi-pair-tag {
+    font-size: 0.5625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.4);
+  }
+
   .kpi {
     display: flex;
     flex-direction: column;
@@ -956,6 +1236,14 @@
     line-height: 1;
     color: var(--text);
     font-variant-numeric: tabular-nums;
+  }
+
+  .kpi-value-sub {
+    color: rgba(255, 255, 255, 0.6);
+  }
+
+  .kpi-value.compare-better {
+    color: #4ade80;
   }
 
   .agent-pool {
