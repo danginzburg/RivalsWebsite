@@ -321,11 +321,16 @@
     visibleColumns = Array.from(defaultVisible)
   }
 
+  /** A claimed player's profile name wins over the Riot name the stats were imported under. */
+  function rowName(r: Record<string, unknown>): string {
+    return displayPlayerName(r?.profile_name ?? r?.player_name)
+  }
+
   function compareValues(a: Record<string, unknown>, b: Record<string, unknown>, key: string) {
     const av = a?.[key]
     const bv = b?.[key]
     if (key === 'player_name') {
-      return String(av ?? '').localeCompare(String(bv ?? ''), undefined, { sensitivity: 'base' })
+      return rowName(a).localeCompare(rowName(b), undefined, { sensitivity: 'base' })
     }
     if (key === 'agents') {
       return parseAgents(av).length - parseAgents(bv).length
@@ -370,7 +375,8 @@
     return rows.filter((r: Record<string, unknown>) => {
       const nameOk = !q
         ? true
-        : String(r.player_name ?? '')
+        : rowName(r).toLowerCase().includes(q) ||
+          String(r.player_name ?? '')
             .toLowerCase()
             .includes(q)
 
@@ -702,7 +708,7 @@
                   <td class="col-player">
                     {#if row.profile_id}
                       <a class="player-link" href={resolve(`/players/${row.profile_id}`)}>
-                        {displayPlayerName(row.player_name)}
+                        {rowName(row)}
                       </a>
                     {:else}
                       <!-- eslint-disable svelte/no-navigation-without-resolve -->

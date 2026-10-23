@@ -3,15 +3,16 @@
   import PageContainer from '$lib/components/PageContainer.svelte'
   import PageHeading from '$lib/components/PageHeading.svelte'
   import { User } from 'lucide-svelte'
+  import { resolve } from '$app/paths'
 
   import { enhance } from '$app/forms'
 
-  /** GET always redirects; `profile` is only used if load data is ever returned. */
-  type AccountPageData = { profile: { riot_id_base?: string | null } }
   let { data, form }: PageProps = $props()
-  const profile = $derived((data as unknown as AccountPageData).profile)
 
-  let value = $derived(profile.riot_id_base ?? '')
+  // A failed submit echoes the typed values back so nothing is lost.
+  let riotId = $derived(form?.riotId ?? data.profile.riotId)
+  let displayName = $derived(form?.displayName ?? data.profile.displayName)
+  let submitting = $state(false)
 </script>
 
 <PageContainer>
@@ -19,8 +20,8 @@
     <div class="w-full max-w-xl">
       <div class="mb-6">
         <PageHeading
-          title="Account"
-          subtitle="Set your Riot ID base name (name before #tag) so match stats can link to you."
+          title="Link your Riot account"
+          subtitle="Your Riot ID links match stats to you. Pick a different name to show on the site if you like."
           icon={User}
         />
       </div>
@@ -29,51 +30,89 @@
         class="rounded-md border p-4"
         style="border-color: rgba(255,255,255,0.12); background: rgba(0,0,0,0.2);"
       >
-        <form method="POST" use:enhance>
+        <form
+          method="POST"
+          use:enhance={() => {
+            submitting = true
+            return async ({ update }) => {
+              await update({ reset: false })
+              submitting = false
+            }
+          }}
+        >
+          {#if data.returnTo}
+            <input type="hidden" name="returnTo" value={data.returnTo} />
+          {/if}
+
           <label
-            for="riot-id-base"
+            for="riot-id"
             class="block text-xs font-semibold tracking-wide uppercase"
             style="color: rgba(255,255,255,0.72);"
           >
-            Riot ID Base Name
+            Riot ID
           </label>
           <input
-            id="riot-id-base"
-            name="riot_id_base"
+            id="riot-id"
+            name="riot_id"
+            required
+            autocomplete="off"
             class="mt-2 w-full rounded-md border px-3 py-2 text-sm"
             style="border-color: rgba(255,255,255,0.45); background: rgba(0,0,0,0.25); color: var(--text);"
-            placeholder="Example: Ginzburg"
-            bind:value
+            placeholder="Name#TAG"
+            bind:value={riotId}
           />
           <p class="mt-2 text-xs" style="color: rgba(255,255,255,0.65);">
-            Do not include the #tag. Stats imports use this field for matching.
+            Your full Riot ID including the #tag. We check it with Riot to link your account.
           </p>
 
-          {#if form?.success === false}
+          <label
+            for="display-name"
+            class="mt-5 block text-xs font-semibold tracking-wide uppercase"
+            style="color: rgba(255,255,255,0.72);"
+          >
+            Display name <span style="text-transform: none; font-weight: 400;">(optional)</span>
+          </label>
+          <input
+            id="display-name"
+            name="display_name"
+            maxlength="40"
+            class="mt-2 w-full rounded-md border px-3 py-2 text-sm"
+            style="border-color: rgba(255,255,255,0.45); background: rgba(0,0,0,0.25); color: var(--text);"
+            placeholder="Defaults to your Riot name"
+            bind:value={displayName}
+          />
+          <p class="mt-2 text-xs" style="color: rgba(255,255,255,0.65);">
+            The name shown on the site instead of your Riot name. Leave blank to use your Riot name.
+          </p>
+
+          {#if form?.message}
             <div
               class="mt-3 rounded-md border p-3 text-sm"
               style="border-color: rgba(248,113,113,0.35); background: rgba(248,113,113,0.08); color: #fecaca;"
             >
-              {form.message ?? 'Failed to update'}
-            </div>
-          {/if}
-
-          {#if form?.success === true}
-            <div
-              class="mt-3 rounded-md border p-3 text-sm"
-              style="border-color: rgba(34,197,94,0.30); background: rgba(34,197,94,0.08); color: #86efac;"
-            >
-              Saved.
+              {form.message}
             </div>
           {/if}
 
           <button
             type="submit"
-            class="mt-4 w-full rounded-md px-4 py-3 text-base font-bold transition-opacity hover:opacity-90"
+            disabled={submitting}
+            class="mt-4 w-full rounded-md px-4 py-3 text-base font-bold transition-opacity hover:opacity-90 disabled:opacity-60"
             style="background: var(--accent); color: var(--text);"
           >
-            Save
+            {submitting ? 'Checking with Riot…' : 'Save'}
           </button>
+
+          <!-- eslint-disable svelte/no-navigation-without-resolve -->
+          <!-- returnTo is a server-validated same-site path -->
+          <a
+            href={data.returnTo ?? resolve(`/players/${data.profile.id}`)}
+            class="mt-3 block text-center text-xs underline"
+            style="color: rgba(255,255,255,0.6);"
+          >
+            Skip for now
+          </a>
+          <!-- eslint-enable svelte/no-navigation-without-resolve -->
         </form>
       </section>
     </div>
