@@ -6,6 +6,7 @@ import { getTeamLogoUrl } from '$lib/server/teams/logo'
 import { getSeasonLogoUrl } from '$lib/server/seasons/logo'
 import { getValorantMapList } from '$lib/server/valorant/maps'
 import { getAdminPendingCounts } from '$lib/server/admin/pending-counts'
+import { listAdminUsers } from '$lib/server/admin/users'
 import type { MatchStreamRow } from '$lib/server/db-rows'
 
 type RosterProfileRow = {
@@ -22,15 +23,11 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
 
   await requireAdmin(locals.user)
 
-  // Fetch all users
-  const { data: users, error: usersError } = await supabaseAdmin
-    .from('profiles')
-    .select('id, email, display_name, role, riot_id_base, created_at')
-    .order('created_at', { ascending: false })
-
-  if (usersError) {
-    console.error('Error fetching users:', usersError)
-  }
+  // Same list the Refresh button fetches from /api/admin/users.
+  const users = await listAdminUsers().catch((err) => {
+    console.error('Error fetching users:', err)
+    return []
+  })
 
   const { data: seasons, error: seasonsError } = await supabaseAdmin
     .from('seasons')

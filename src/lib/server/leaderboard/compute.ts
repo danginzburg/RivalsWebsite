@@ -3,8 +3,8 @@
  *
  * Points are not a league-wide rule: only external tournaments award them
  * (3 per series win, nothing for a loss). Rivals seasons rank on series record
- * and carry zero points. Either way ties fall to map difference, then round
- * difference, then map wins — anything subtler (head to head, an admin ruling)
+ * and carry zero points. Either way ties fall to map difference, then map
+ * wins, then round difference — anything subtler (head to head, an admin ruling)
  * is what `rank_override` is for.
  */
 
@@ -184,12 +184,16 @@ function applyAdjustment(
 
 function compareLines(
   a: { line: StandingsLine; name: string },
-  b: { line: StandingsLine; name: string }
+  b: { line: StandingsLine; name: string },
+  { awardPoints }: ScoringOptions
 ): number {
+  // Points already price the record in, so a points table goes straight to the
+  // tiebreakers: a team that has played a game more is not behind for its
+  // extra loss. Without points the record is the ranking.
+  const record = awardPoints ? 0 : b.line.wins - a.line.wins || a.line.losses - b.line.losses
   return (
     b.line.points - a.line.points ||
-    b.line.wins - a.line.wins ||
-    a.line.losses - b.line.losses ||
+    record ||
     // Tiebreakers: map differential, then raw map wins, then round differential.
     b.line.map_wins - b.line.map_losses - (a.line.map_wins - a.line.map_losses) ||
     b.line.map_wins - a.line.map_wins ||
@@ -227,7 +231,7 @@ export function computeStandings(
       line: applyAdjustment(auto, adjustment, scoring),
     }
   })
-  entries.sort(compareLines)
+  entries.sort((a, b) => compareLines(a, b, scoring))
 
   const size = entries.length
   const slots: Array<(typeof entries)[number] | null> = new Array(size).fill(null)

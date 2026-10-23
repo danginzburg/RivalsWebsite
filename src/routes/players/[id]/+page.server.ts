@@ -26,7 +26,7 @@ import {
   isShortStint,
   type RosterTimeline,
 } from '$lib/server/matches/subs'
-import { listRiotAccounts, syncPrimaryRiotName } from '$lib/server/players/riot-accounts'
+import { listProfileRiotAccounts, syncPrimaryRiotName } from '$lib/server/players/riot-accounts'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -1070,7 +1070,7 @@ export const load = async ({
     viewerProfileId,
   })
 
-  const riotAccounts = await listRiotAccounts(profileId)
+  const riotAccounts = await listProfileRiotAccounts(profileId)
 
   return {
     player: {

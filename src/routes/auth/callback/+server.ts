@@ -6,7 +6,7 @@ import { env as publicEnv } from '$env/dynamic/public'
 import { env } from '$env/dynamic/private'
 import { rematchNamedTeamMemberships } from '$lib/server/teams/membership'
 import { claimRelinkAfterProfileUpdate } from '$lib/server/players/claim-relink'
-import { hasLinkedPrimaryAccount } from '$lib/server/players/riot-accounts'
+import { hasLinkedRiotAccount } from '$lib/server/players/riot-accounts'
 
 export const GET: RequestHandler = async ({ url, cookies }) => {
   const code = url.searchParams.get('code')
@@ -139,7 +139,7 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
     // carry on to wherever they were headed.
     let linked = true
     try {
-      linked = await hasLinkedPrimaryAccount(syncedProfile.id)
+      linked = await hasLinkedRiotAccount(syncedProfile.id)
     } catch (err) {
       console.warn('Failed to check Riot account link during login:', err)
     }

@@ -149,8 +149,20 @@ export type AdminUser = {
   display_name: string | null
   role: string
   riot_id_base: string | null
+  riot_tag?: string | null
+  /** Full PUUID-backed Riot ID when linked, else the legacy `riot_id_base` label. */
+  riot_id?: string | null
+  /** A PUUID is linked by import, the identities tab or the login prompt. */
+  riot_linked?: boolean
+  /**
+   * Never logged in: a match identity with no profile. Its id is
+   * `IDENTITY_USER_PREFIX + puuid` and only the display name can be edited.
+   */
+  unclaimed?: boolean
   created_at: string
 }
+
+export const IDENTITY_USER_PREFIX = 'identity:'
 
 /** Approved teams across every season, for the Seasons tab's per-season pickers. */
 export type SeasonTeamEntry = {
@@ -342,8 +354,8 @@ export type PendingActionConfirmation =
   | ({ kind: 'delete_match'; matchId: string } & ConfirmationFields)
   | ({ kind: 'delete_stream'; matchId: string; streamId: string } & ConfirmationFields)
   | ({
-      kind: 'save_user_riot'
+      kind: 'save_user_display_name'
       userId: string
       userName: string
-      riotIdBase: string
+      displayName: string
     } & ConfirmationFields)

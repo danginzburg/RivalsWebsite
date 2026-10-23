@@ -164,6 +164,26 @@ describe('computeStandings', () => {
     expect(rows.map((r) => r.team_id)).toEqual(['c', 'a', 'b'])
   })
 
+  it('ranks a points table on points and maps, not the losses column', () => {
+    const rows = computeStandings(
+      [...teams, { id: 'd', name: 'Delta' }],
+      [
+        // C is 1-1 and A is 1-0, both on 3 points and +1 maps; C has more map wins.
+        match({ team_a_id: 'c', team_b_id: 'b', winner_team_id: 'c' }),
+        match({
+          team_a_id: 'd',
+          team_b_id: 'c',
+          winner_team_id: 'd',
+          team_a_score: 2,
+          team_b_score: 1,
+        }),
+        match({ team_a_score: 2, team_b_score: 1 }),
+      ],
+      []
+    )
+    expect(rows.map((r) => r.team_id)).toEqual(['c', 'a', 'd', 'b'])
+  })
+
   it('places pinned teams in their slot and fills around them', () => {
     const rows = computeStandings(
       teams,

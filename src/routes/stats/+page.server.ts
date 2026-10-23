@@ -1,6 +1,7 @@
 import type { PageServerLoad } from './$types'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { safeInt } from '$lib/server/parse'
+import { loadIdentityDisplayNames } from '$lib/server/players/riot-identities'
 import {
   normalizeRivalsGroupStatBatchFromDb,
   withSectionFallback,
@@ -109,6 +110,24 @@ export const load: PageServerLoad = async ({ fetch, url, locals }) => {
     for (const r of rows as Record<string, unknown>[]) {
       r.profile_name =
         typeof r.profile_id === 'string' ? (nameById.get(r.profile_id) ?? null) : null
+    }
+  }
+
+  // Unclaimed rows: players who never logged in may still have a name an admin
+  // set on their match identity.
+  if ((rows as Record<string, unknown>[]).some((r) => !r.profile_id)) {
+    const identityNames = await loadIdentityDisplayNames().catch((err) => {
+      console.warn('Failed to load identity display names for stats:', err)
+      return new Map<string, string>()
+    })
+    if (identityNames.size > 0) {
+      for (const r of rows as Record<string, unknown>[]) {
+        if (r.profile_id) continue
+        const key = String(r.player_name ?? '')
+          .trim()
+          .toLowerCase()
+        r.profile_name = identityNames.get(key) ?? identityNames.get(key.split('#')[0]) ?? null
+      }
     }
   }
 

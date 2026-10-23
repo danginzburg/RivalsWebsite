@@ -718,7 +718,7 @@
                         href={unclaimedHref(String(row.player_name ?? 'Player'))}
                         title="Unclaimed player"
                       >
-                        {displayPlayerName(row.player_name)}
+                        {rowName(row)}
                       </a>
                       <!-- eslint-enable svelte/no-navigation-without-resolve -->
                     {/if}
