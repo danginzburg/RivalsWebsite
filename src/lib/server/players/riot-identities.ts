@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { claimRelinkAfterProfileUpdate } from '$lib/server/players/claim-relink'
+import { fetchAllRows } from '$lib/server/supabase/fetch-all'
 
 /**
  * Service layer for `riot_identities` — the PUUID registry that tracks a
@@ -159,6 +160,99 @@ export async function listUnlinkedIdentities(
     .sort((a, b) => b.maps_seen - a.maps_seen)
 }
 
+export type UnclaimedIdentity = {
+  puuid: string
+  latest_name: string | null
+  latest_tag: string | null
+  display_name: string | null
+  first_seen_at: string | null
+  last_seen_at: string | null
+}
+
+/**
+ * Every identity no profile owns yet — players who have never logged in. An
+ * identity counts as owned once it is linked here or its PUUID is on an
+ * approved Riot account (the login prompt links the account, not the identity).
+ */
+export async function listUnclaimedIdentities(): Promise<UnclaimedIdentity[]> {
+  const [identities, accounts] = await Promise.all([
+    fetchAllRows<UnclaimedIdentity>(() =>
+      supabaseAdmin
+        .from('riot_identities')
+        .select('puuid, latest_name, latest_tag, display_name, first_seen_at, last_seen_at')
+        .is('profile_id', null)
+        .order('last_seen_at', { ascending: false })
+        .order('puuid')
+    ),
+    fetchAllRows<{ riot_puuid: string | null }>(() =>
+      supabaseAdmin
+        .from('profile_riot_accounts')
+        .select('riot_puuid')
+        .eq('status', 'approved')
+        .not('riot_puuid', 'is', null)
+        .order('id')
+    ),
+  ])
+  const owned = new Set(accounts.map((a) => a.riot_puuid))
+  return identities.filter((i) => !owned.has(i.puuid))
+}
+
+/** Set (or clear, with null) the admin-chosen name of an unclaimed identity. */
+export async function setIdentityDisplayName(
+  puuid: string,
+  displayName: string | null
+): Promise<void> {
+  const { data, error } = await supabaseAdmin
+    .from('riot_identities')
+    .update({ display_name: displayName })
+    .eq('puuid', puuid)
+    .select('puuid')
+  if (error) throw new RiotIdentityError(500, 'Failed to update display name.')
+  if (!data?.length) throw new RiotIdentityError(404, 'No such identity.')
+}
+
+/**
+ * Admin-set names of unclaimed identities, keyed by lowercased `name#tag` and
+ * bare name, so stat rows (Riot imports carry the tag, CSV rows do not) can be
+ * shown under them.
+ */
+export async function loadIdentityDisplayNames(): Promise<Map<string, string>> {
+  const identities = (await listUnclaimedIdentities()).filter((i) => i.display_name)
+  const names = new Map<string, string>()
+  for (const i of identities) {
+    const base = i.latest_name?.trim().toLowerCase()
+    if (!base) continue
+    const tag = i.latest_tag?.trim().toLowerCase()
+    if (tag) names.set(`${base}#${tag}`, i.display_name!)
+    if (!names.has(base)) names.set(base, i.display_name!)
+  }
+  return names
+}
+
+/** The admin-set name waiting on this PUUID, if any. */
+export async function identityDisplayName(puuid: string): Promise<string | null> {
+  const { data } = await supabaseAdmin
+    .from('riot_identities')
+    .select('display_name')
+    .eq('puuid', puuid)
+    .maybeSingle()
+  return data?.display_name?.trim() || null
+}
+
+/**
+ * Carry an identity's admin-set name over to the profile that now owns it,
+ * unless the player already chose a name of their own.
+ */
+async function adoptIdentityDisplayName(profileId: string, puuid: string): Promise<void> {
+  const name = await identityDisplayName(puuid)
+  if (!name) return
+  await supabaseAdmin
+    .from('profiles')
+    .update({ display_name: name, display_name_is_custom: true })
+    .eq('id', profileId)
+    .or('display_name_is_custom.is.null,display_name_is_custom.eq.false')
+}
+
 /** Every PUUID that appears in the stats of a match filed under the season. */
 async function puuidsSeenInSeason(seasonId: string | null): Promise<string[]> {
   if (!seasonId) return []
@@ -301,6 +395,12 @@ export async function linkRiotIdentity(opts: {
     .is('profile_id', null)
 
   if (updateError) throw new RiotIdentityError(500, 'Failed to link identity.')
+
+  try {
+    await adoptIdentityDisplayName(opts.profileId, puuid)
+  } catch (err) {
+    console.warn('adoptIdentityDisplayName failed after identity link:', err)
+  }
 
   // Pool the identity's history into the profile: map stats (by PUUID), series
   // aggregates, leaderboard rows and rosters. Best-effort — the link itself is

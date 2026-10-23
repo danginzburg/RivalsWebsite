@@ -6,9 +6,10 @@ import { supabaseErrorMessageIncludes } from '$lib/server/supabase/errors'
 import { claimRelinkAfterProfileUpdate } from '$lib/server/players/claim-relink'
 import {
   RiotAccountError,
-  hasLinkedPrimaryAccount,
+  hasLinkedRiotAccount,
   linkPrimaryRiotAccount,
 } from '$lib/server/players/riot-accounts'
+import { identityDisplayName } from '$lib/server/players/riot-identities'
 
 /** Only same-site paths; anything else falls back to the player page. */
 function safeReturnTo(value: unknown): string | null {
@@ -38,7 +39,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 
   // Once the Riot account is linked, /account is just a door to the player
   // page; `?edit` reopens the prompt to change it.
-  if (!url.searchParams.has('edit') && (await hasLinkedPrimaryAccount(profile.id))) {
+  if (!url.searchParams.has('edit') && (await hasLinkedRiotAccount(profile.id))) {
     throw redirect(303, returnTo ?? `/players/${profile.id}`)
   }
 
@@ -107,10 +108,13 @@ export const actions: Actions = {
       .eq('id', profile.id)
     if (updateError) return fail(500, { ...values, message: updateError.message })
 
-    if (displayName) {
+    // A name an admin set before the player ever logged in stands in when they
+    // leave the alternate name blank.
+    const chosenName = displayName || (await identityDisplayName(linked.puuid).catch(() => null))
+    if (chosenName) {
       await supabaseAdmin
         .from('profiles')
-        .update({ display_name: displayName, display_name_is_custom: true })
+        .update({ display_name: chosenName, display_name_is_custom: true })
         .eq('id', profile.id)
     } else {
       // No alternate name: show the Riot name, as everywhere else does by default.

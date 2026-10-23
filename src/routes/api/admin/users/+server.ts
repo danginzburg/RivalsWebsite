@@ -3,34 +3,18 @@ import type { RequestHandler } from './$types'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { normalizeRiotBaseNullable, isValidRiotBaseLenient } from '$lib/server/riot-id'
-import { queryProfilesWithOptionalRiotIdBase } from '$lib/server/supabase/profiles'
+import { listAdminUsers } from '$lib/server/admin/users'
 import { claimRelinkAfterProfileUpdate } from '$lib/server/players/claim-relink'
 import { rematchPlayerMatchMapStatsForBase } from '$lib/server/imports/matching'
 import { invalidateProfileRole } from '$lib/server/cache'
-
-type AdminUserRow = {
-  id: string
-  email: string | null
-  display_name: string | null
-  role: string | null
-  riot_id_base: string | null
-  created_at: string | null
-}
+import { loadRiotLinks } from '$lib/server/players/riot-accounts'
+import { RiotIdentityError, setIdentityDisplayName } from '$lib/server/players/riot-identities'
+import { IDENTITY_USER_PREFIX } from '$lib/admin/types'
 
 // GET all users
 export const GET: RequestHandler = async ({ locals }) => {
   await requireAdmin(locals.user)
-
-  const users = await queryProfilesWithOptionalRiotIdBase<AdminUserRow>({
-    selectWithRiot: 'id, email, display_name, role, riot_id_base, created_at',
-    selectWithoutRiot: 'id, email, display_name, role, created_at',
-    order: { column: 'created_at', ascending: false },
-    fatalMessage: 'Failed to fetch users',
-  })
-
-  return json({
-    users: users || [],
-  })
+  return json({ users: await listAdminUsers() })
 }
 
 // PATCH update user role
@@ -54,15 +38,38 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
 
   if (!isValidRiotBaseLenient(riotIdBase)) throw error(400, 'Invalid Riot ID base')
 
+  // Blank resets to the Riot name; otherwise the same 2–40 rule as the player page.
+  const hasDisplayName = 'displayName' in body
+  const displayName = String(body.displayName ?? '')
+    .trim()
+    .slice(0, 40)
+  if (hasDisplayName && displayName.length === 1) {
+    throw error(400, 'Display names need at least 2 characters')
+  }
+
+  // A player who has never logged in: only their identity's name can be set.
+  if (typeof userId === 'string' && userId.startsWith(IDENTITY_USER_PREFIX)) {
+    if (!hasDisplayName || newRole || 'riotIdBase' in body) {
+      throw error(400, 'Only the display name can be changed before a player logs in')
+    }
+    try {
+      await setIdentityDisplayName(userId.slice(IDENTITY_USER_PREFIX.length), displayName || null)
+    } catch (err) {
+      if (err instanceof RiotIdentityError) throw error(err.status, err.message)
+      throw err
+    }
+    return json({ success: true, message: 'User updated successfully' })
+  }
+
   // Prevent admin from changing their own role (safety measure)
-  if (userId === profile.id) {
+  if (newRole && userId === profile.id) {
     throw error(400, 'You cannot change your own role')
   }
 
   // Check the target user's current role
   const { data: targetUser, error: targetError } = await supabaseAdmin
     .from('profiles')
-    .select('role')
+    .select('role, riot_id_base')
     .eq('id', userId)
     .single()
 
@@ -91,6 +98,18 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
   const updatePayload: Record<string, unknown> = {}
   if (newRole) updatePayload.role = newRole
   if ('riotIdBase' in body) updatePayload.riot_id_base = riotIdBase
+  if (hasDisplayName) {
+    if (displayName) {
+      // Custom, so signup / Riot ID flows never overwrite it.
+      updatePayload.display_name = displayName
+      updatePayload.display_name_is_custom = true
+    } else {
+      const link = (await loadRiotLinks([userId])).get(userId)
+      const riotName = link?.riotId.split('#')[0] || targetUser.riot_id_base || null
+      updatePayload.display_name = riotName
+      updatePayload.display_name_is_custom = false
+    }
+  }
 
   if (Object.keys(updatePayload).length === 0) {
     throw error(400, 'No user updates provided')

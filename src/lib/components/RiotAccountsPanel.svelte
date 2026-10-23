@@ -11,6 +11,8 @@
     is_primary: boolean
     status: 'pending' | 'approved' | 'rejected'
     label: string | null
+    /** `identity`: an admin link from the identities tab with no account row. */
+    source?: 'account' | 'identity'
   }
 
   let {
@@ -86,6 +88,12 @@
   }
 </script>
 
+{#snippet linkedMark()}
+  <span class="linked-mark" title="Linked by Riot account ID, so stats follow it through renames"
+    >Linked</span
+  >
+{/snippet}
+
 <section class="panel">
   <div class="panel-head">
     <span class="panel-title">Riot accounts</span>
@@ -148,6 +156,7 @@
         <span class="row-value">
           {primary.riot_name}{#if primary.riot_tag}<span class="tag">#{primary.riot_tag}</span>{/if}
         </span>
+        {#if primary.riot_puuid}{@render linkedMark()}{/if}
       </div>
     </div>
   {/if}
@@ -160,9 +169,12 @@
           {alt.riot_name}{#if alt.riot_tag}<span class="tag">#{alt.riot_tag}</span>{/if}
           {#if alt.label}<span class="alt-label">{alt.label}</span>{/if}
         </span>
-        <span class="status-pill" style={statusStyle[alt.status] ?? ''}>{alt.status}</span>
+        {#if alt.riot_puuid}{@render linkedMark()}{/if}
+        {#if alt.status !== 'approved'}
+          <span class="status-pill" style={statusStyle[alt.status] ?? ''}>{alt.status}</span>
+        {/if}
       </div>
-      {#if canEdit}
+      {#if canEdit && alt.source !== 'identity'}
         <button
           type="button"
           class="icon-btn"
@@ -275,6 +287,16 @@
     letter-spacing: 0.06em;
     padding: 0.125rem 0.4375rem;
     border-radius: 9999px;
+  }
+  .linked-mark {
+    font-size: 0.5625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 0.125rem 0.4375rem;
+    border-radius: 9999px;
+    background: rgba(74, 222, 128, 0.16);
+    color: #86efac;
   }
   .link-btn {
     display: inline-flex;

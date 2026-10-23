@@ -228,9 +228,13 @@
     })),
   ])
 
+  // Users with a profile; `users` also lists never-logged-in players, who
+  // cannot be picked anywhere a profile id is stored.
+  const profileUsers = $derived(users.filter((u) => !u.unclaimed))
+
   const hofPlayerOptions = $derived([
     { value: '', label: '— None —' },
-    ...(users ?? []).map((u) => ({
+    ...profileUsers.map((u) => ({
       value: u.id,
       label: u.display_name ?? u.riot_id_base ?? u.email ?? 'Player',
     })),
@@ -1336,7 +1340,7 @@
   let pendingRoleChange = $state<PendingRoleChange | null>(null)
   let isUpdatingRole = $state(false)
   let usersSearch = $state('')
-  let userRiotIdForm = $state<Record<string, string>>({})
+  let userDisplayNameForm = $state<Record<string, string>>({})
   let teamsSearch = $state('')
   let processingTeamId = $state<string | null>(null)
   let showActionConfirmation = $state(false)
@@ -1347,7 +1351,7 @@
     return users.filter((user) => {
       if (!search) return true
       const haystack =
-        `${user.display_name ?? ''} ${user.email ?? ''} ${user.role ?? ''}`.toLowerCase()
+        `${user.display_name ?? ''} ${user.riot_id ?? ''} ${user.email ?? ''} ${user.role ?? ''}`.toLowerCase()
       return haystack.includes(search)
     })
   })
@@ -1355,14 +1359,14 @@
   $effect(() => {
     const next: Record<string, string> = {}
     for (const user of users ?? []) {
-      next[user.id] = userRiotIdForm[user.id] ?? user.riot_id_base ?? ''
+      next[user.id] = userDisplayNameForm[user.id] ?? user.display_name ?? ''
     }
     const keys = Object.keys(next)
-    const currentKeys = Object.keys(userRiotIdForm)
+    const currentKeys = Object.keys(userDisplayNameForm)
     const changed =
       keys.length !== currentKeys.length ||
-      keys.some((key) => (userRiotIdForm[key] ?? '') !== (next[key] ?? ''))
-    if (changed) userRiotIdForm = next
+      keys.some((key) => (userDisplayNameForm[key] ?? '') !== (next[key] ?? ''))
+    if (changed) userDisplayNameForm = next
   })
 
   const displayedApprovedTeams = $derived.by(() => {
@@ -1924,35 +1928,35 @@
     }
   }
 
-  function requestUserRiotIdSave(userId: string, userName: string) {
-    const riotIdBase = (userRiotIdForm[userId] ?? '').trim()
+  function requestUserDisplayNameSave(userId: string, userName: string) {
+    const displayName = (userDisplayNameForm[userId] ?? '').trim()
     pendingActionConfirmation = {
-      kind: 'save_user_riot',
+      kind: 'save_user_display_name',
       userId,
       userName,
-      riotIdBase,
-      title: 'Confirm Riot ID Update',
-      message: riotIdBase
-        ? `Set ${userName}'s Riot ID to ${riotIdBase}?`
-        : `Clear ${userName}'s Riot ID?`,
-      confirmLabel: 'Save Riot ID',
+      displayName,
+      title: 'Confirm Display Name Update',
+      message: displayName
+        ? `Show ${userName} as ${displayName} across the site?`
+        : `Reset ${userName}'s display name to their Riot name?`,
+      confirmLabel: 'Save Display Name',
     }
     showActionConfirmation = true
   }
 
-  async function executeSaveUserRiotId(userId: string, riotIdBase: string) {
+  async function executeSaveUserDisplayName(userId: string, displayName: string) {
     errorMessage = null
     successMessage = null
     try {
       await adminJsonRequest('/api/admin/users', {
         method: 'PATCH',
-        body: { userId, riotIdBase },
-        fallbackMessage: 'Failed to update Riot ID',
+        body: { userId, displayName },
+        fallbackMessage: 'Failed to update display name',
       })
-      successMessage = 'Riot ID updated.'
+      successMessage = 'Display name updated.'
       await refreshData()
     } catch (err) {
-      errorMessage = err instanceof Error ? err.message : 'Failed to update Riot ID'
+      errorMessage = err instanceof Error ? err.message : 'Failed to update display name'
     }
   }
 
@@ -2261,8 +2265,8 @@
       return
     }
 
-    if (action.kind === 'save_user_riot') {
-      await executeSaveUserRiotId(action.userId, action.riotIdBase)
+    if (action.kind === 'save_user_display_name') {
+      await executeSaveUserDisplayName(action.userId, action.displayName)
       return
     }
 
@@ -2308,15 +2312,15 @@
         {users}
         {displayedUsers}
         {usersSearch}
-        {userRiotIdForm}
+        {userDisplayNameForm}
         onUsersSearchChange={(value) => (usersSearch = value)}
-        onUserRiotIdInput={(userId, value) =>
-          (userRiotIdForm = {
-            ...userRiotIdForm,
+        onUserDisplayNameInput={(userId, value) =>
+          (userDisplayNameForm = {
+            ...userDisplayNameForm,
             [userId]: value,
           })}
         onRequestRoleChange={requestRoleChange}
-        onRequestUserRiotIdSave={requestUserRiotIdSave}
+        onRequestUserDisplayNameSave={requestUserDisplayNameSave}
       />
     {/if}
 
@@ -2428,7 +2432,7 @@
       <AdminSeasonsTab
         {seasons}
         {seasonTeams}
-        players={users}
+        players={profileUsers}
         {leaderboardBatches}
         valorantMaps={data.valorantMaps ?? []}
         {createSeasonCode}
