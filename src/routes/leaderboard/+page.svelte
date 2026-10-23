@@ -137,9 +137,7 @@
                   <th class="col-num">Maps</th>
                   <th class="col-num">MW</th>
                   <th class="col-num">ML</th>
-                  {#if data.showRoundDiff}
-                    <th class="col-num" title="Round differential — used to break ties">RD</th>
-                  {/if}
+                  <th class="col-num" title="Round differential — used to break ties">RD</th>
                 </tr>
               </thead>
               <tbody>
@@ -177,13 +175,9 @@
                     <td class="col-num tabular muted">{row.stats.maps_played}</td>
                     <td class="col-num tabular">{row.stats.map_wins}</td>
                     <td class="col-num tabular">{row.stats.map_losses}</td>
-                    {#if data.showRoundDiff}
-                      <td class="col-num tabular">
-                        {row.stats.round_diff > 0
-                          ? `+${row.stats.round_diff}`
-                          : row.stats.round_diff}
-                      </td>
-                    {/if}
+                    <td class="col-num tabular">
+                      {row.stats.round_diff > 0 ? `+${row.stats.round_diff}` : row.stats.round_diff}
+                    </td>
                   </tr>
                 {/each}
               </tbody>

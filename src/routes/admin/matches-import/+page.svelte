@@ -16,12 +16,9 @@
   /**
    * Which part of the competition the imported series belongs to. It decides
    * whether the match counts toward the standings and which stat batches it
-   * feeds. Blank leaves a new match unfiled and an existing one as it was.
+   * feeds. Required before any import is saved.
    */
-  const stageOptions = [
-    { value: '', label: 'Not set (keep existing)' },
-    ...MATCH_STAGES.map((stage) => ({ value: stage.key, label: stage.label })),
-  ]
+  const stageOptions = MATCH_STAGES.map((stage) => ({ value: stage.key, label: stage.label }))
 
   const riotBestOfOptions = [
     { value: '', label: 'Auto' },
@@ -168,6 +165,10 @@
 
   /** Preview first, then import — the failure worth catching is wrong teams. */
   async function runRiotImport(dryRun: boolean) {
+    if (!dryRun && !stage) {
+      parseError = 'Select a stage before importing.'
+      return
+    }
     isSubmitting = true
     riotDryRun = dryRun
     parseError = null
@@ -521,6 +522,11 @@
   }
 
   async function submitImport() {
+    if (!stage) {
+      submitMessage = null
+      parseError = 'Select a stage before importing.'
+      return
+    }
     isSubmitting = true
     submitMessage = null
     try {
@@ -916,6 +922,7 @@
                     class="admin-btn admin-btn-info text-sm"
                     onclick={() => runRiotImport(false)}
                     disabled={isSubmitting ||
+                      !stage ||
                       !riotManualTeamAId ||
                       !riotManualTeamBId ||
                       riotManualTeamAId === riotManualTeamBId}
@@ -1038,7 +1045,12 @@
         <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-[16rem_1fr]">
           <label class="block">
             <div class="admin-field-label">Stage</div>
-            <CustomSelect options={stageOptions} bind:value={stage} disabled={isSubmitting} />
+            <CustomSelect
+              options={stageOptions}
+              bind:value={stage}
+              placeholder="Select a stage (required)"
+              disabled={isSubmitting}
+            />
           </label>
           <label class="block">
             <div class="admin-field-label">Display Name</div>
@@ -1046,8 +1058,8 @@
           </label>
         </div>
         <p class="mt-1 text-xs" style="color: rgba(255,255,255,0.6);">
-          Only Regular Season (and unset) matches count toward the standings. The stage also picks
-          which live stat batches the match feeds.
+          A stage is required to import. Only Regular Season matches count toward the standings. The
+          stage also picks which live stat batches the match feeds.
         </p>
 
         {#if parseError}
@@ -1121,6 +1133,7 @@
             class="admin-btn admin-btn-info text-sm"
             onclick={() => (importMode === 'riot_links' ? runRiotImport(false) : submitImport())}
             disabled={isSubmitting ||
+              !stage ||
               (importMode === 'series_csv' && seriesMaps.length === 0) ||
               (importMode === 'riot_links' && riotInput.trim().length === 0) ||
               (importMode === 'forfeit_no_show' &&

@@ -100,15 +100,15 @@ function puuidFromMetadata(metadata: unknown): string | null {
 
 /**
  * The competition stage the admin filed the import under (regular season,
- * playoffs, …). Blank means "don't say" — a new match is left unfiled and an
- * existing one keeps whatever stage it already had. Anything that isn't a match
- * stage is rejected rather than silently dropped, so a typo can't unfile it.
+ * playoffs, …). It is required: the stage decides whether the match counts
+ * toward the standings and which stat batches it feeds, so an unfiled import
+ * would silently land in the wrong place. Anything that isn't a match stage is
+ * rejected rather than silently dropped.
  */
-function parseImportStage(value: unknown): SectionKey | null {
-  if (value === null || value === undefined || value === '') return null
+function parseImportStage(value: unknown): SectionKey {
   const key = normalizeSectionKey(value)
   if (!key || !MATCH_STAGES.some((s) => s.key === key)) {
-    throw error(400, `stage must be one of ${MATCH_STAGES.map((s) => s.key).join(', ')}`)
+    throw error(400, `Select a stage — one of ${MATCH_STAGES.map((s) => s.key).join(', ')}`)
   }
   return key
 }
@@ -748,7 +748,7 @@ export async function importCompletedSeries({
       team_a_score: seriesTeamAScore,
       team_b_score: seriesTeamBScore,
       winner_team_id: winnerTeamId,
-      ...(stage ? { stage } : {}),
+      stage,
       metadata: {
         ...metaBase,
         imported_from_csv: true,
@@ -922,7 +922,7 @@ export async function importNoShowForfeit({
       team_a_score: canonicalAScore,
       team_b_score: canonicalBScore,
       winner_team_id: winnerTeamId,
-      ...(stage ? { stage } : {}),
+      stage,
       metadata: {
         ...metaBase,
         imported_from_csv: true,

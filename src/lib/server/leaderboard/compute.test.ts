@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  computeStandings,
-  roundDiffDecidesTies,
-  tallyMatches,
-  type StandingsMatch,
-} from './compute'
+import { computeStandings, tallyMatches, type StandingsMatch } from './compute'
 
 const teams = [
   { id: 'a', name: 'Alpha' },
@@ -73,6 +68,19 @@ describe('tallyMatches', () => {
     ])
     expect(lines.get('a')).toMatchObject({ matches_played: 1, round_diff: 0 })
     expect(lines.get('c')).toMatchObject({ wins: 1 })
+  })
+})
+
+describe('out-of-group games', () => {
+  it('leave the record, maps, rounds and points untouched', () => {
+    const lines = tallyMatches([
+      match({}),
+      match({
+        out_of_group: true,
+        maps: [{ team_a_rounds: 13, team_b_rounds: 0 }],
+      }),
+    ])
+    expect(lines.get('a')).toEqual(tallyMatches([match({})]).get('a'))
   })
 })
 
@@ -163,40 +171,5 @@ describe('computeStandings', () => {
       [adjustment('b', { rank_override: 1 }), adjustment('c', { rank_override: 99 })]
     )
     expect(rows.map((r) => r.team_id)).toEqual(['b', 'a', 'c'])
-  })
-})
-
-describe('roundDiffDecidesTies', () => {
-  const line = (extra: Partial<Record<string, number>>) => ({
-    points: 9,
-    wins: 3,
-    losses: 1,
-    map_wins: 7,
-    map_losses: 4,
-    round_diff: 0,
-    ...extra,
-  })
-
-  it('is true when level teams are split only by round diff', () => {
-    expect(roundDiffDecidesTies([line({ round_diff: 17 }), line({ round_diff: 13 })])).toBe(true)
-  })
-
-  it('is false when raw map wins split teams level on map diff', () => {
-    expect(
-      roundDiffDecidesTies([
-        line({ round_diff: 13 }),
-        line({ map_wins: 6, map_losses: 3, round_diff: 17 }),
-      ])
-    ).toBe(false)
-  })
-
-  it('is false when an earlier tiebreak already separated them', () => {
-    expect(
-      roundDiffDecidesTies([line({ round_diff: 5 }), line({ losses: 2, round_diff: 9 })])
-    ).toBe(false)
-  })
-
-  it('is false when the tied teams share a round diff too', () => {
-    expect(roundDiffDecidesTies([line({ round_diff: 2 }), line({ round_diff: 2 })])).toBe(false)
   })
 })

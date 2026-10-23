@@ -4,7 +4,13 @@ import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { enforceRateLimit } from '$lib/server/rate-limit'
 import { RiotLookupError } from '$lib/server/riot/henrik'
-import { fetchMatch, toImportMap, MATCH_REGIONS, type MatchRegion } from '$lib/server/riot/match'
+import {
+  fetchMatch,
+  roundStartTime,
+  toImportMap,
+  MATCH_REGIONS,
+  type MatchRegion,
+} from '$lib/server/riot/match'
 import { parseMatchIdList } from '$lib/server/riot/match-id'
 import {
   resolveSeriesTeams,
@@ -88,6 +94,11 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
   const region = parseRegion(body.region)
   const dryRun = body.dryRun === true
+  // importCompletedSeries enforces this too; checking up front saves the Riot
+  // fetches on a save that would be rejected anyway. Previews don't need it.
+  if (!dryRun && (typeof body.stage !== 'string' || !body.stage.trim())) {
+    throw error(400, 'Select a stage before importing.')
+  }
   const { ids, unparsed } = parseMatchIdList(typeof body.input === 'string' ? body.input : '')
 
   // When the rosters can't identify the teams, the admin picks them by hand and
@@ -291,7 +302,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     seriesMaps.splice(insertAt, 0, {
       sourceFilename: 'riot-forfeit-map.json',
       mapName: null,
-      scheduledAt: first.startedAt,
+      scheduledAt: roundStartTime(first.startedAt),
       teamAName,
       teamBName,
       teamARounds: forfeitTeamARounds,
@@ -303,7 +314,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     previewMaps.splice(insertAt, 0, {
       matchId: null,
       mapName: 'Forfeit',
-      startedAt: first.startedAt,
+      startedAt: roundStartTime(first.startedAt),
       score: `${forfeitTeamARounds}-${forfeitTeamBRounds}`,
       playerCount: 0,
       isForfeit: true,

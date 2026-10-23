@@ -1199,6 +1199,7 @@
         mapVetoes: '',
         designation: '',
         stage: '',
+        outOfGroup: false,
       } as const)
     matchEditForm = {
       ...matchEditForm,
@@ -1226,6 +1227,7 @@
           : '',
         designation: (match.metadata?.designation as string | undefined) ?? '',
         stage: match.stage ?? '',
+        outOfGroup: match.metadata?.out_of_group === true,
       }
     }
     const keys = Object.keys(next)

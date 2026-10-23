@@ -280,6 +280,7 @@
               ? match.metadata.map_vetoes.join('\n')
               : '',
             designation: match.metadata?.designation ?? '',
+            outOfGroup: match.metadata?.out_of_group === true,
           }}
           {@const streamState = streamForm[match.id] ?? {
             platform: 'twitch',
@@ -313,6 +314,15 @@
                 </div>
               </div>
               <div class="flex items-center gap-2">
+                {#if match.metadata?.out_of_group === true}
+                  <span
+                    class="rounded-full px-2 py-1 text-xs font-bold"
+                    style="background: rgba(252,211,77,0.16); color: #fcd34d;"
+                    title="Out-of-group game: left out of the calculated standings"
+                  >
+                    OOG
+                  </span>
+                {/if}
                 {#if resolveMatchStageKey(match.stage, match.metadata?.designation) === null}
                   <span
                     class="rounded-full px-2 py-1 text-xs font-bold"
@@ -472,6 +482,27 @@
                       />
                     </div>
                   </div>
+                  <label
+                    class="flex items-start gap-2 text-xs md:col-span-4"
+                    style="color: rgba(255,255,255,0.82);"
+                  >
+                    <input
+                      type="checkbox"
+                      class="mt-0.5"
+                      checked={editState.outOfGroup}
+                      onchange={(e) =>
+                        onUpdateMatchEditForm(match.id, {
+                          outOfGroup: (e.currentTarget as HTMLInputElement).checked,
+                        })}
+                    />
+                    <span>
+                      Out-of-group game
+                      <span class="block" style="color: rgba(255,255,255,0.55);"
+                        >Left out of the calculated standings: no series, maps or rounds. Add its
+                        points by hand under Standings → Correct.</span
+                      >
+                    </span>
+                  </label>
                   <label class="text-xs" style="color: rgba(255,255,255,0.82);">
                     Team A Score
                     <input

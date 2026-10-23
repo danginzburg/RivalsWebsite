@@ -18,6 +18,16 @@ export const POINTS_PER_SERIES_WIN = 3
  */
 export const STANDINGS_STAGES: ReadonlyArray<string | null> = ['regular', null]
 
+/**
+ * Out-of-group games (`matches.metadata.out_of_group`) count for nothing in the
+ * calculated table: not the record, the maps or the rounds. They are worth
+ * 1/2/3 points by where the opponent stood at the time, which is not stored,
+ * so those points are entered by hand as a correction.
+ */
+export function isOutOfGroup(metadata: Record<string, unknown> | null | undefined): boolean {
+  return metadata?.out_of_group === true
+}
+
 export type StandingsMatch = {
   id: string
   stage: string | null
@@ -26,6 +36,8 @@ export type StandingsMatch = {
   team_a_score: number | null
   team_b_score: number | null
   winner_team_id: string | null
+  /** Left out of the table entirely; see `isOutOfGroup`. */
+  out_of_group?: boolean
   maps: Array<{
     team_a_rounds: number | null
     team_b_rounds: number | null
@@ -108,7 +120,7 @@ export function tallyMatches(
   }
 
   for (const match of matches) {
-    if (!countsTowardStandings(match.stage)) continue
+    if (!countsTowardStandings(match.stage) || match.out_of_group) continue
     const a = lineFor(match.team_a_id)
     const b = lineFor(match.team_b_id)
     a.matches_played += 1
@@ -244,35 +256,4 @@ export function computeStandings(
     auto: entry!.auto,
     adjustment: entry!.adjustment,
   }))
-}
-
-type TiebreakLine = Pick<
-  StandingsLine,
-  'points' | 'wins' | 'losses' | 'map_wins' | 'map_losses' | 'round_diff'
->
-
-/**
- * Whether round difference separated any two neighbouring teams, i.e. they
- * were level on everything ranked before it (points, record, map difference,
- * map wins) and their round differences differ. `lines` must be in rank order.
- *
- * The leaderboard only shows the column when this is true — otherwise it is a
- * number that changed nothing.
- */
-export function roundDiffDecidesTies(lines: TiebreakLine[]): boolean {
-  for (let i = 1; i < lines.length; i += 1) {
-    const a = lines[i - 1]
-    const b = lines[i]
-    if (
-      a.points === b.points &&
-      a.wins === b.wins &&
-      a.losses === b.losses &&
-      a.map_wins - a.map_losses === b.map_wins - b.map_losses &&
-      a.map_wins === b.map_wins &&
-      a.round_diff !== b.round_diff
-    ) {
-      return true
-    }
-  }
-  return false
 }

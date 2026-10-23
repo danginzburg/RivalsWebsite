@@ -28,10 +28,13 @@
     map_wins: 0,
     map_losses: 0,
     round_diff: 0,
+    /** The team's final points total, not a delta; see pointsDelta. */
     points: 0,
     rank_override: '' as string | number,
     note: '',
   })
+  /** The total and stored bonus the editor opened with. */
+  let pointsBase = $state({ total: 0, bonus: 0 })
   let isSaving = $state(false)
 
   /**
@@ -47,7 +50,6 @@
     { id: 'map_wins', label: 'Map W' },
     { id: 'map_losses', label: 'Map L' },
     { id: 'round_diff', label: 'Round Diff' },
-    { id: 'points', label: 'Bonus Pts' },
   ] as const
 
   function signed(n: number) {
@@ -68,10 +70,26 @@
       map_wins: adj?.map_wins ?? 0,
       map_losses: adj?.map_losses ?? 0,
       round_diff: adj?.round_diff ?? 0,
-      points: adj?.points ?? 0,
+      points: row.points,
       rank_override: adj?.rank_override ?? '',
       note: adj?.note ?? '',
     }
+    pointsBase = { total: row.points, bonus: adj?.points ?? 0 }
+  }
+
+  /**
+   * The stored points correction is a delta on top of the calculated points
+   * (and, in point-scoring seasons, 3 per adjusted series win), so it survives
+   * the next import. Left untouched, the existing bonus is kept and adjusted
+   * wins still move the total; otherwise the delta lands exactly on the total.
+   */
+  function pointsDelta(row: Row) {
+    const total = Number(draft.points)
+    if (draft.points === null || !Number.isFinite(total) || total === pointsBase.total) {
+      return pointsBase.bonus
+    }
+    const winPoints = data.standings?.awardPoints ? Number(draft.wins || 0) * 3 : 0
+    return total - row.auto.points - winPoints
   }
 
   async function send(method: 'POST' | 'PUT', body: Record<string, unknown>) {
@@ -186,6 +204,12 @@
           <div class="admin-hint mt-3">
             {data.standings.matchCount} completed match{data.standings.matchCount === 1 ? '' : 'es'}
             counted (playoffs, play-ins and kickoff are not).
+            {#if data.standings.outOfGroupCount > 0}
+              {data.standings.outOfGroupCount} out-of-group game{data.standings.outOfGroupCount ===
+              1
+                ? ''
+                : 's'} left out; add their points with a correction.
+            {/if}
             {data.standings.awardPoints
               ? 'Points are awarded (external tournament).'
               : 'No points (Rivals season).'}
@@ -315,9 +339,9 @@
                           >
                             <div class="admin-hint mb-2">
                               Amounts are added to the calculated numbers (use negatives to take
-                              away).{#if data.standings.awardPoints}
-                                Each series win adjusted here is also worth 3 points; Bonus Pts is
-                                for anything else.{/if}
+                              away), except Points, which is the final total.{#if data.standings.awardPoints}
+                                Each series win adjusted here is worth 3 points unless you change
+                                Points yourself.{/if}
                             </div>
                             <div class="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
                               {#each ADJUST_FIELDS as field (field.id)}
@@ -331,6 +355,16 @@
                                   />
                                 </label>
                               {/each}
+                              <label class="block">
+                                <div class="admin-field-label">Points</div>
+                                <input
+                                  type="number"
+                                  step="1"
+                                  class="admin-input"
+                                  title="Final points total (auto {row.auto.points})"
+                                  bind:value={draft.points}
+                                />
+                              </label>
                               <label class="block">
                                 <div class="admin-field-label">Pin Rank</div>
                                 <input
@@ -356,7 +390,11 @@
                                 type="button"
                                 class="admin-btn admin-btn-info"
                                 disabled={isSaving}
-                                onclick={() => saveCorrection(row.team_id, draft)}
+                                onclick={() =>
+                                  saveCorrection(row.team_id, {
+                                    ...draft,
+                                    points: pointsDelta(row),
+                                  })}
                               >
                                 {isSaving ? 'Saving...' : 'Save correction'}
                               </button>

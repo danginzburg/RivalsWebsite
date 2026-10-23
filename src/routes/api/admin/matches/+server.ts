@@ -57,9 +57,10 @@ export const GET: RequestHandler = async ({ locals, url }) => {
     query = query.eq('season_id', seasonId)
   }
 
-  const { data: matches, error: matchesError } = await query.order('created_at', {
-    ascending: false,
-  })
+  // Match the initial page load's ordering so a post-save refetch doesn't reshuffle the list.
+  const { data: matches, error: matchesError } = await query
+    .order('scheduled_at', { ascending: true, nullsFirst: false })
+    .order('created_at', { ascending: true })
 
   if (matchesError) throw error(500, 'Failed to load matches')
 

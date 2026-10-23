@@ -184,6 +184,8 @@ export async function updateMatchDetails(
      * than another free-text metadata field like `designation`.
      */
     stage: string | null
+    /** Out-of-group game, left out of the standings. Omitted keeps the current flag. */
+    outOfGroup?: boolean
     /** Omitted leaves the match where it is; null files it under no season. */
     seasonId?: string | null | undefined
   },
@@ -223,6 +225,7 @@ export async function updateMatchDetails(
         youtube_vod_url: input.youtubeVodUrl,
         map_vetoes: input.mapVetoes,
         designation: input.designation,
+        ...(input.outOfGroup !== undefined ? { out_of_group: input.outOfGroup } : {}),
       },
       approved_by_profile_id: input.adminProfileId,
       approved_at: repo.now(),

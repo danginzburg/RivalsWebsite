@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { average, sum } from '$lib/server/math'
+import { fetchAllRows } from '$lib/server/supabase/fetch-all'
 import { normalizeSectionKey, resolveMatchStageKey, type SectionKey } from '$lib/stats/sections'
 
 /**
@@ -133,14 +134,18 @@ export function resolveMatchStage(match: MatchRow): SectionKey | null {
 async function filterToAdvancedStatMatches(matchIds: string[]): Promise<Set<string>> {
   if (matchIds.length === 0) return new Set()
 
-  const { data, error } = await supabaseAdmin
-    .from('player_match_map_stats')
-    .select('match_id')
-    .in('match_id', matchIds)
-    .not('clutches_attempted', 'is', null)
-
-  if (error) throw new Error(`Failed to check advanced stats: ${error.message}`)
-  return new Set((data ?? []).map((r) => r.match_id as string))
+  // One row per player per map, so a season passes 1000 quickly — page it.
+  const data = await fetchAllRows<{ match_id: string }>(() =>
+    supabaseAdmin
+      .from('player_match_map_stats')
+      .select('match_id')
+      .in('match_id', matchIds)
+      .not('clutches_attempted', 'is', null)
+      .order('id')
+  ).catch((err: Error) => {
+    throw new Error(`Failed to check advanced stats: ${err.message}`)
+  })
+  return new Set(data.map((r) => r.match_id))
 }
 
 /**
@@ -200,17 +205,20 @@ async function buildStatRows(
     return { statRows: [], includedMatchIds: [], now }
   }
 
-  const { data: mapStats, error: statsError } = await supabaseAdmin
-    .from('player_match_map_stats')
-    .select(
-      'match_id, profile_id, team_id, player_name, agents, games, games_won, games_lost, rounds, rounds_won, rounds_lost, acs, kd, kast_pct, adr, kills, deaths, assists, fk, fd, hs_pct, econ_rating, plants, defuses, mk_2k, mk_3k, mk_4k, mk_5k, mk_6k, mk_7k, clutches_won, clutches_attempted'
-    )
-    .in('match_id', matchIds)
-    .not('clutches_attempted', 'is', null)
-
-  if (statsError) throw new Error(`Failed to load map stats: ${statsError.message}`)
-
-  const rows = (mapStats ?? []) as MapStatRow[]
+  // Paged: a single select stops at 1000 rows without saying so, which once
+  // dropped every map past the 1000th from the season's totals.
+  const rows = await fetchAllRows<MapStatRow>(() =>
+    supabaseAdmin
+      .from('player_match_map_stats')
+      .select(
+        'match_id, profile_id, team_id, player_name, agents, games, games_won, games_lost, rounds, rounds_won, rounds_lost, acs, kd, kast_pct, adr, kills, deaths, assists, fk, fd, hs_pct, econ_rating, plants, defuses, mk_2k, mk_3k, mk_4k, mk_5k, mk_6k, mk_7k, clutches_won, clutches_attempted'
+      )
+      .in('match_id', matchIds)
+      .not('clutches_attempted', 'is', null)
+      .order('id')
+  ).catch((err: Error) => {
+    throw new Error(`Failed to load map stats: ${err.message}`)
+  })
   if (rows.length === 0) {
     if (!allowEmpty) {
       throw new Error(
