@@ -179,6 +179,8 @@ export const DELETE: RequestHandler = async ({ locals, params }) => {
   if (deleteError) throw error(500, 'Failed to delete match')
 
   await refreshStandingsForSeason(seasonId, admin.id)
+  // The match row is gone, so this rebuilds the batches that held it.
+  if (matchId) await refreshLiveBatchesForMatch({ matchId, adminProfileId: admin.id })
 
   return json({ success: true })
 }

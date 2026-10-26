@@ -224,7 +224,7 @@
           tag: team.tag ?? '',
           status: 'active',
         }}
-        <article class="admin-card p-3">
+        <article id="admin-team-{team.id}" class="admin-card scroll-mt-24 p-3">
           <div class="mb-2 flex items-center gap-3">
             {#if team.logo_url}
               <img src={team.logo_url} alt="Team logo" class="h-10 w-10 rounded object-contain" />

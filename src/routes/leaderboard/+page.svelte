@@ -2,20 +2,32 @@
   import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import PageHeading from '$lib/components/PageHeading.svelte'
-  import AdminEditLink from '$lib/components/AdminEditLink.svelte'
-  import { Trophy, Search, ChevronRight } from 'lucide-svelte'
+  import { Trophy, Search, ChevronRight, Lock, SlidersHorizontal } from 'lucide-svelte'
   import TeamSeed from '$lib/components/TeamSeed.svelte'
+  import ArchiveBracket from '$lib/components/ArchiveBracket.svelte'
+  import StandingsZonesEditor from '$lib/components/StandingsZonesEditor.svelte'
   import { resolve } from '$app/paths'
+  import {
+    EMPTY_STANDINGS_CONFIG,
+    ZONE_TONE_COLORS,
+    zoneForTeam,
+    zoneRangeLabel,
+  } from '$lib/seasons/standingsZones'
 
   let { data }: PageProps = $props()
 
   const rows = $derived(data.rows ?? [])
-  const batch = $derived(data.batch ?? null)
   // The page is scoped to the running season; between seasons there is none.
   const season = $derived(data.season ?? null)
   const myTeam = $derived(data.myTeam ?? null)
   const seeds = $derived((data.seeds ?? {}) as Record<string, number>)
+  const zones = $derived(data.zones ?? EMPTY_STANDINGS_CONFIG)
+  const bracket = $derived(data.bracket ?? null)
   const isAdmin = $derived(data.viewer?.isAdmin ?? false)
+  /** Playoffs with a bracket to draw: the bracket leads and the table steps back. */
+  const inPlayoffs = $derived(zones.stage === 'playoffs' && bracket != null)
+
+  let editingZones = $state(false)
 
   type Row = (typeof rows)[number]
   /** A row that has an entry in the current standings. */
@@ -35,6 +47,11 @@
   const ranked = $derived(filtered.filter((r): r is RankedRow => r.stats != null))
   const unranked = $derived(filtered.filter((r) => r.stats == null))
 
+  /** The ranks zones end on, for drawing a cutoff line under those rows. */
+  const zoneEnds = $derived(
+    new Set(zones.zones.map((z) => z.to).filter((to): to is number => to != null))
+  )
+
   /** Medal colouring for the top three. */
   function rankStyle(rank: number | null) {
     if (rank === 1) return 'background: rgba(252,211,77,0.16); color: #fcd34d;'
@@ -50,17 +67,9 @@
   <div class="page-content py-6">
     <PageHeading
       title="Leaderboard"
-      subtitle={season?.name
-        ? `${season.name} standings and every team in the league.`
-        : 'Standings and every team in the league.'}
+      subtitle={season?.name ? `${season.name} standings` : 'Standings'}
       icon={Trophy}
-    >
-      {#snippet actions()}
-        {#if isAdmin}
-          <AdminEditLink href="/admin?tab=teams" label="Manage Teams" />
-        {/if}
-      {/snippet}
-    </PageHeading>
+    ></PageHeading>
 
     {#if !season}
       <!-- Off-season: no standings, no roster, nothing to search. -->
@@ -102,14 +111,31 @@
           <span class="search-icon"><Search size={14} /></span>
           <input bind:value={search} class="search-input" placeholder="Search teams..." />
         </div>
-        {#if batch}
-          <span class="batch-note">
-            {batch.display_name}{#if batch.as_of_date}<span class="batch-date">
-                · as of {batch.as_of_date}</span
-              >{/if}
-          </span>
+        {#if isAdmin && !editingZones}
+          <button type="button" class="zones-btn" onclick={() => (editingZones = true)}>
+            <SlidersHorizontal size={14} /> Edit zones
+          </button>
         {/if}
       </div>
+
+      {#if isAdmin && editingZones}
+        <StandingsZonesEditor
+          seasonId={season.id}
+          config={zones}
+          teams={rows
+            .filter((r) => r.stats != null)
+            .map((r) => ({ id: r.id, name: r.name, rank: r.stats?.rank ?? null }))}
+          onClose={() => (editingZones = false)}
+        />
+      {/if}
+
+      {#if inPlayoffs && bracket}
+        <section class="bracket-block">
+          <h2 class="section-title">Playoffs</h2>
+          <ArchiveBracket slots={bracket.slots} teams={bracket.teams} {seeds} />
+        </section>
+        <h2 class="section-title">Regular season standings</h2>
+      {/if}
 
       {#if rows.length === 0}
         <div class="empty-state">
@@ -124,7 +150,21 @@
       {:else}
         <!-- Standings -->
         {#if ranked.length > 0}
-          <div class="table-wrap">
+          {#if zones.zones.length > 0}
+            <div class="zone-legend">
+              {#each zones.zones as zone (zone.id)}
+                <span class="zone-key">
+                  <span class="zone-dot" style="background: {ZONE_TONE_COLORS[zone.tone]};"></span>
+                  {zone.label}
+                  <span class="zone-range">{zoneRangeLabel(zone)}</span>
+                </span>
+              {/each}
+              {#if Object.keys(zones.locked).length > 0}
+                <span class="zone-key zone-key-lock"><Lock size={11} /> Locked in</span>
+              {/if}
+            </div>
+          {/if}
+          <div class="table-wrap" class:table-compact={inPlayoffs}>
             <table class="standings">
               <thead>
                 <tr>
@@ -143,8 +183,17 @@
               <tbody>
                 {#each ranked as row (row.id)}
                   {@const isMine = myTeam?.id === row.id}
-                  <tr class:row-mine={isMine}>
-                    <td class="col-rank">
+                  {@const placed = zoneForTeam(zones, row.id, row.stats.rank)}
+                  <tr
+                    class:row-mine={isMine}
+                    class:zone-cut={!search.trim() &&
+                      row.stats.rank != null &&
+                      zoneEnds.has(row.stats.rank)}
+                    style={placed.zone
+                      ? `--zone-color: ${ZONE_TONE_COLORS[placed.zone.tone]};`
+                      : undefined}
+                  >
+                    <td class="col-rank" class:zoned={placed.zone != null}>
                       <span class="rank-badge" style={rankStyle(row.stats.rank)}>
                         <!-- No rank until the season's first import. -->
                         {row.stats.rank ?? '—'}
@@ -163,6 +212,12 @@
                             <span class="team-tag">[{String(row.tag).toUpperCase()}]</span>
                           {/if}
                           <TeamSeed seed={seeds[row.id] ?? null} label="Playoff seed" />
+                          {#if placed.locked && placed.zone}
+                            <span class="zone-chip" title="Locked in — decided regardless of rank">
+                              <Lock size={10} />
+                              {placed.zone.label}
+                            </span>
+                          {/if}
                         </span>
                       </a>
                     </td>
@@ -348,13 +403,104 @@
     border-color: var(--hover);
   }
 
-  .batch-note {
-    font-size: 0.6875rem;
-    color: rgba(255, 255, 255, 0.62);
+  /* Admin zone editor toggle */
+  .zones-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.4375rem 0.75rem;
+    border-radius: 0.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.55);
+    cursor: pointer;
   }
 
-  .batch-date {
-    color: rgba(255, 255, 255, 0.52);
+  .zones-btn:hover {
+    border-color: rgba(255, 255, 255, 0.16);
+    color: rgba(255, 255, 255, 0.85);
+  }
+
+  /* Playoffs stage */
+  .bracket-block {
+    margin-bottom: 1.25rem;
+    padding: 1rem;
+    border-radius: 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    background: rgba(0, 0, 0, 0.2);
+  }
+
+  .section-title {
+    font-size: 0.6875rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.64);
+    margin-bottom: 0.625rem;
+  }
+
+  .table-compact .standings {
+    font-size: 0.75rem;
+  }
+
+  .table-compact .standings td {
+    padding-top: 0.3125rem;
+    padding-bottom: 0.3125rem;
+  }
+
+  /* Zones */
+  .zone-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem 1rem;
+    margin-bottom: 0.5rem;
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.78);
+  }
+
+  .zone-key {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+  }
+
+  .zone-key-lock {
+    color: rgba(255, 255, 255, 0.6);
+  }
+
+  .zone-dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 9999px;
+  }
+
+  .zone-range {
+    color: rgba(255, 255, 255, 0.5);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .standings td.zoned {
+    box-shadow: inset 3px 0 0 var(--zone-color);
+  }
+
+  .standings tbody tr.zone-cut td {
+    border-bottom: 1px dashed rgba(255, 255, 255, 0.28);
+  }
+
+  .zone-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.0625rem 0.375rem;
+    border-radius: 9999px;
+    font-size: 0.625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--zone-color);
+    background: color-mix(in srgb, var(--zone-color) 14%, transparent);
+    flex-shrink: 0;
+    align-self: center;
   }
 
   /* Standings table */

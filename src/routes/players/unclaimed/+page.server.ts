@@ -7,9 +7,11 @@ import { normalizeRiotBase, isValidRiotBase } from '$lib/server/riot-id'
 import { toBatchLabel } from '$lib/server/stats/batch-label'
 import {
   normalizeRivalsGroupStatBatchFromDb,
+  withSectionFallback,
   type NormalizedRivalsGroupStatBatch,
   type StatImportBatchRow,
 } from '$lib/server/stats/rivals-batch'
+import { isWeekBatch } from '$lib/stats/sections'
 import { claimRelinkAfterProfileUpdate } from '$lib/server/players/claim-relink'
 import { rankValue } from '$lib/ranks/ranks'
 
@@ -65,7 +67,7 @@ function quoteOrValue(value: string): string {
 }
 
 function kindOrder(kind: unknown): number {
-  return kind === 'aggregate' ? 0 : kind === 'weekly' ? 1 : 2
+  return kind === 'aggregate' ? 0 : 1
 }
 
 export const load: PageServerLoad = async ({ url, locals }) => {
@@ -119,25 +121,26 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 
   const batchById = new Map<string, NormalizedRivalsGroupStatBatch>()
   if (batchIds.length > 0) {
-    const { data: batchRows, error: batchError } = await supabaseAdmin
-      .from('stat_import_batches')
-      .select(
-        'id, display_name, source_filename, import_kind, week_label, created_at, metadata, sort_order'
-      )
-      .in('id', batchIds)
-      .limit(500)
+    const { data: batchRows, error: batchError } = await withSectionFallback<StatImportBatchRow[]>(
+      (select) =>
+        supabaseAdmin
+          .from('stat_import_batches')
+          .select(select)
+          .in('id', batchIds)
+          .limit(500)
+          .returns<StatImportBatchRow[]>()
+    )
 
     if (batchError) {
       console.error('Failed to load batch metadata:', batchError)
     }
 
     for (const b of batchRows ?? []) {
-      batchById.set(
-        b.id,
-        normalizeRivalsGroupStatBatchFromDb(b as StatImportBatchRow, {
-          displayNameFallback: 'source_filename',
-        })
-      )
+      const normalized = normalizeRivalsGroupStatBatchFromDb(b, {
+        displayNameFallback: 'source_filename',
+      })
+      // Week batches are not shown on the site.
+      if (!isWeekBatch(normalized)) batchById.set(b.id, normalized)
     }
   }
 
@@ -163,7 +166,6 @@ export const load: PageServerLoad = async ({ url, locals }) => {
       label: toBatchLabel(b),
       value: b.id,
       import_kind: b.import_kind ?? null,
-      week_label: b.week_label ?? null,
     }))
 
   const batchId =

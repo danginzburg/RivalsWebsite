@@ -52,7 +52,7 @@
     TeamEditState,
   } from '$lib/admin/types'
   import { resolveSeasonProfile } from '$lib/seasons/profile'
-  import { onMount } from 'svelte'
+  import { onMount, tick } from 'svelte'
   import type { PageData, PageProps } from './$types'
 
   let { data: pageData }: PageProps = $props()
@@ -98,6 +98,19 @@
   }
 
   onMount(() => {
+    // Deep links (`?tab=matches&match=<id>`, `?tab=teams&team=<id>`) from the
+    // public match/team pages win over the remembered tab.
+    const params = new URL(window.location.href).searchParams
+    const linkedTab = params.get('tab')
+    if (linkedTab && ADMIN_TAB_IDS.includes(linkedTab as AdminTabId)) {
+      if (linkedTab !== activeTab) selectTab(linkedTab as AdminTabId)
+      const matchId = params.get('match')
+      const teamId = params.get('team')
+      if (linkedTab === 'matches' && matchId) void focusAdminMatch(matchId)
+      if (linkedTab === 'teams' && teamId) void focusAdminTeam(teamId)
+      return
+    }
+
     let stored: string | null = null
     try {
       stored = localStorage.getItem(ACTIVE_TAB_STORAGE_KEY)
@@ -108,6 +121,42 @@
       selectTab(stored as AdminTabId)
     }
   })
+
+  async function scrollToAdminCard(elementId: string) {
+    await tick()
+    document.getElementById(elementId)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  /** Opens one match's editor: widens filters until it is listed, expands it, scrolls to it. */
+  async function focusAdminMatch(matchId: string) {
+    if (!matches.some((m) => m.id === matchId) && adminMatchSeasonId !== '') {
+      // The list is scoped to one season; the linked match may be in another.
+      await onMatchSeasonChange('')
+    }
+    const match = matches.find((m) => m.id === matchId)
+    if (!match) {
+      errorMessage = 'That match could not be found in the admin list.'
+      return
+    }
+    matchSearchQuery = ''
+    if (match.status === 'completed') showCompletedAdminMatches = true
+    expandedAdminMatchId = matchId
+    void fetchMatchMaps(matchId)
+    await scrollToAdminCard(`admin-match-${matchId}`)
+  }
+
+  /** Scrolls to one team's edit card, clearing the search and season filter if they hide it. */
+  async function focusAdminTeam(teamId: string) {
+    if (!approvedTeams.some((t) => t.id === teamId) && adminMatchSeasonId !== '') {
+      await onMatchSeasonChange('')
+    }
+    if (!approvedTeams.some((t) => t.id === teamId)) {
+      errorMessage = 'That team could not be found in the admin list.'
+      return
+    }
+    teamsSearch = ''
+    await scrollToAdminCard(`admin-team-${teamId}`)
+  }
   let errorMessage = $state<string | null>(null)
   let successMessage = $state<string | null>(null)
 
@@ -1911,23 +1960,6 @@
     }
   }
 
-  async function scorePickem(seasonId: string) {
-    errorMessage = null
-    successMessage = null
-    try {
-      const result = await adminJsonRequest<{
-        summary?: { submissionsScored?: number; completedMatches?: number }
-      }>(`/api/admin/pickems/${seasonId}`, {
-        method: 'POST',
-        fallbackMessage: "Failed to score pick'em",
-      })
-      successMessage = `Scored ${result.summary?.submissionsScored ?? 0} entries from ${result.summary?.completedMatches ?? 0} completed matches.`
-      await invalidateAll()
-    } catch (err) {
-      errorMessage = err instanceof Error ? err.message : "Failed to score pick'em"
-    }
-  }
-
   function requestUserDisplayNameSave(userId: string, userName: string) {
     const displayName = (userDisplayNameForm[userId] ?? '').trim()
     pendingActionConfirmation = {
@@ -2470,8 +2502,8 @@
         {seasonTeams}
         {seasonMatches}
         pickems={data.pickems ?? []}
+        standings={data.pickemStandings ?? {}}
         onSavePickem={savePickem}
-        onScorePickem={scorePickem}
       />
     {/if}
 

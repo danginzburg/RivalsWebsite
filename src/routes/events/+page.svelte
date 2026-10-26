@@ -2,13 +2,11 @@
   import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import PageHeading from '$lib/components/PageHeading.svelte'
-  import AdminEditLink from '$lib/components/AdminEditLink.svelte'
   import { CalendarClock, Trophy, Crown, Users, Swords, ChevronRight } from 'lucide-svelte'
   import { resolve } from '$app/paths'
 
   let { data }: PageProps = $props()
   const seasons = $derived(data.seasons ?? [])
-  const isAdmin = $derived(data.viewer?.isAdmin ?? false)
 
   function formatRange(startsOn: string | null, endsOn: string | null) {
     if (!startsOn && !endsOn) return 'Dates TBD'
@@ -31,13 +29,7 @@
       title="Events"
       subtitle="Every season, its champions, and how it played out."
       icon={CalendarClock}
-    >
-      {#snippet actions()}
-        {#if isAdmin}
-          <AdminEditLink href="/admin?tab=seasons" label="Manage Seasons" />
-        {/if}
-      {/snippet}
-    </PageHeading>
+    ></PageHeading>
 
     {#if seasons.length === 0}
       <div class="empty-state">

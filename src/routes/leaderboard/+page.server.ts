@@ -4,6 +4,12 @@ import { getTeamLogoUrl } from '$lib/server/teams/logo'
 import { publicDataCache } from '$lib/server/cache'
 import { getSeasonSeeds, type SeedMap } from '$lib/server/seasons/seeds'
 import { pickStandingsBatch } from '$lib/server/leaderboard/batch'
+import { loadSeasonBracket, type SeasonBracket } from '$lib/server/seasons/bracket'
+import {
+  EMPTY_STANDINGS_CONFIG,
+  sanitizeStandingsConfig,
+  type StandingsConfig,
+} from '$lib/seasons/standingsZones'
 
 type TeamRel = {
   id: string
@@ -118,7 +124,7 @@ async function loadCurrentBatch(activeSeasonId: string | null): Promise<BatchRow
 async function loadStandings() {
   const { data: activeSeason } = await supabaseAdmin
     .from('seasons')
-    .select('id, name, kind')
+    .select('id, name, kind, metadata')
     .eq('is_active', true)
     .maybeSingle()
 
@@ -130,12 +136,19 @@ async function loadStandings() {
       seeds: {} as SeedMap,
       season: null,
       batch: null,
+      zones: EMPTY_STANDINGS_CONFIG as StandingsConfig,
+      bracket: null as SeasonBracket | null,
     }
   }
 
+  // Playoff zones and stage are entered by hand per event; see standingsZones.
+  const zones = sanitizeStandingsConfig(
+    (activeSeason?.metadata as Record<string, unknown> | null)?.standings
+  )
+
   // The batch, the team directory and the bracket seeds are independent of one
   // another; only the entries query needs to wait on them.
-  const [batch, { data: teams }, seeds] = await Promise.all([
+  const [batch, { data: teams }, seeds, bracket] = await Promise.all([
     loadCurrentBatch(activeSeasonId),
     supabaseAdmin
       .from('teams')
@@ -145,6 +158,8 @@ async function loadStandings() {
       .order('name', { ascending: true }),
     // Seeds come from the active season's bracket, matching the team list.
     getSeasonSeeds(activeSeasonId),
+    // Only drawn once the event has moved on to playoffs.
+    zones.stage === 'playoffs' ? loadSeasonBracket(activeSeasonId) : null,
   ])
 
   const teamIds = (teams ?? []).map((t) => t.id)
@@ -211,6 +226,8 @@ async function loadStandings() {
   return {
     rows,
     seeds,
+    zones,
+    bracket,
     season: {
       id: activeSeasonId,
       name: (activeSeason?.name as string | undefined) ?? null,
@@ -276,6 +293,8 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     seeds: standings.seeds,
     batch: standings.batch,
     season: standings.season,
+    zones: standings.zones,
+    bracket: standings.bracket,
     myTeam,
     viewer: { isAdmin: locals.user?.role === 'admin' },
   }

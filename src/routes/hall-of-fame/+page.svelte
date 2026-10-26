@@ -2,7 +2,6 @@
   import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import PageHeading from '$lib/components/PageHeading.svelte'
-  import AdminEditLink from '$lib/components/AdminEditLink.svelte'
   import { Award, Trophy, Crown, Flame, Zap, ExternalLink } from 'lucide-svelte'
   import { resolve } from '$app/paths'
 
@@ -12,7 +11,6 @@
   const moments = $derived(data.moments ?? [])
   const awards = $derived(data.awards ?? [])
   const seasonChampions = $derived(data.seasonChampions ?? [])
-  const isAdmin = $derived(data.viewer?.isAdmin ?? false)
 
   const isEmpty = $derived(
     records.length === 0 &&
@@ -30,13 +28,7 @@
       title="Hall of Fame"
       subtitle="Records, champions, and the moments worth remembering."
       icon={Award}
-    >
-      {#snippet actions()}
-        {#if isAdmin}
-          <AdminEditLink href="/admin?tab=hall-of-fame" label="Manage Entries" />
-        {/if}
-      {/snippet}
-    </PageHeading>
+    ></PageHeading>
 
     {#if isEmpty}
       <div class="empty-state">

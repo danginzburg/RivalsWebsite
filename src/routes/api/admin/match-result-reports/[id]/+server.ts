@@ -4,6 +4,7 @@ import { MatchLifecycleError, reviewResultReport } from '$lib/server/matches/lif
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { createNotification } from '$lib/server/notifications'
 import { refreshStandingsForMatch } from '$lib/server/leaderboard/computed'
+import { refreshLiveBatchesForMatch } from '$lib/server/stats/from-matches'
 
 function normalizeOptional(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -39,6 +40,7 @@ export const PATCH: RequestHandler = async ({ locals, request, params }) => {
 
     if (action === 'approve' && report?.match_id) {
       await refreshStandingsForMatch(report.match_id, admin.id)
+      await refreshLiveBatchesForMatch({ matchId: report.match_id, adminProfileId: admin.id })
     }
 
     if (report?.reported_by_profile_id) {

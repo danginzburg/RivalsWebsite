@@ -1,7 +1,6 @@
 <script lang="ts">
   import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
-  import AdminEditLink from '$lib/components/AdminEditLink.svelte'
   import ArchiveBracket from '$lib/components/ArchiveBracket.svelte'
   import CommentThread from '$lib/components/CommentThread.svelte'
   import TeamSeed from '$lib/components/TeamSeed.svelte'
@@ -16,7 +15,6 @@
   const leaderboard = $derived(data.leaderboard ?? [])
   const bracket = $derived(data.bracket)
   const mapPool = $derived(season.map_pool ?? [])
-  const isAdmin = $derived(data.viewer?.isAdmin ?? false)
 
   // Presentation profile: which sections show + outbound links. Defaults to
   // everything on, so rivals events are unaffected.
@@ -106,9 +104,6 @@
           </div>
         {/if}
       </div>
-      {#if isAdmin}
-        <AdminEditLink href="/admin?tab=seasons" label="Manage Season" />
-      {/if}
     </div>
 
     <!-- Podium -->

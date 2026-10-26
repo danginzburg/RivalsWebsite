@@ -292,11 +292,124 @@ export function rankPickemLeaderboardEntries<
 }
 
 /**
- * The canonical 8-team, single-QF double-elimination template. `Generate` in
- * the admin writes these rows (teams left to seeds/propagation). Default QF
- * pairing is 1v8 / 4v5 / 2v7 / 3v6.
+ * A real match as result detection sees it. `winnerId` only counts once
+ * `completed` is true.
  */
-export function standardDoubleElim8Template(): PickemMatch[] {
+export type PickemRealMatch = {
+  id: string
+  teamAId: string
+  teamBId: string
+  winnerId: string | null
+  completed: boolean
+}
+
+export type PickemResults = {
+  /** Teams/winner per slot, from its manually linked or detected real match. */
+  linkedResults: Record<string, PickemLinkedResult>
+  /** Winners of completed real matches, keyed by slot — the scoreable results. */
+  actualWinners: Record<string, string>
+  /** Which real match decided each slot. */
+  sourceMatchIds: Record<string, string>
+}
+
+/**
+ * Work out every unit's real result without the admin linking each one.
+ *
+ * Units are walked in `sortOrder`. A unit with a manual link uses that match;
+ * otherwise, once both its teams are known (assigned, seeded, or propagated
+ * from earlier real results) it takes the earliest unused candidate between
+ * that pair. Candidates must be in chronological order — that is what lets a
+ * rematch (an upper final replayed in the grand final) land on the right unit,
+ * since the later unit always depends on the earlier one.
+ */
+export function resolvePickemResults(
+  event: Pick<PickemEvent, 'seeds'>,
+  matches: PickemMatch[],
+  real: { linked: Record<string, PickemRealMatch>; candidates: PickemRealMatch[] }
+): PickemResults {
+  const sorted = [...matches].sort((a, b) => a.sortOrder - b.sortOrder)
+  const linkedResults: Record<string, PickemLinkedResult> = {}
+  const actualWinners: Record<string, string> = {}
+  const sourceMatchIds: Record<string, string> = {}
+  const used = new Set(sorted.map((m) => m.linkedMatchId).filter(Boolean))
+
+  for (const m of sorted) {
+    let result: PickemLinkedResult | null = null
+    let source: PickemRealMatch | undefined
+
+    if (m.linkedMatchId) {
+      source = real.linked[m.linkedMatchId]
+      if (source) result = { teamAId: source.teamAId, teamBId: source.teamBId }
+    } else {
+      const slot = buildPickemSlots(event, sorted, { picks: {} }, linkedResults).find(
+        (s) => s.id === m.slotKey
+      )
+      const a = slot?.teamAId
+      const b = slot?.teamBId
+      if (a && b) {
+        source = real.candidates.find(
+          (c) =>
+            !used.has(c.id) &&
+            ((c.teamAId === a && c.teamBId === b) || (c.teamAId === b && c.teamBId === a))
+        )
+        // Keep the bracket's own side order; the real match may list them swapped.
+        if (source) result = { teamAId: a, teamBId: b }
+      }
+    }
+
+    if (!source || !result) continue
+    used.add(source.id)
+    sourceMatchIds[m.slotKey] = source.id
+    const winnerId = source.completed ? source.winnerId : null
+    linkedResults[m.slotKey] = { ...result, winnerId }
+    if (winnerId) actualWinners[m.slotKey] = winnerId
+  }
+
+  return { linkedResults, actualWinners, sourceMatchIds }
+}
+
+/** Every pickable unit has a real result — the pick'em is final. */
+export function isPickemComplete(matches: PickemMatch[], actualWinners: Record<string, string>) {
+  const pickable = matches.filter((m) => !m.actualWinnerId)
+  return pickable.length > 0 && pickable.every((m) => Boolean(actualWinners[m.slotKey]))
+}
+
+/** The seeds that pick their quarter-final opponent; seeding stops here. */
+export const DE8_TOP_SEEDS = [1, 2, 3, 4] as const
+
+/**
+ * Which upper quarter-final each top seed plays in. 1 and 4 share a half, as
+ * do 2 and 3, so the top two seeds cannot meet before the upper final.
+ */
+export const DE8_QF_SLOT_BY_SEED: Record<number, string> = {
+  1: 'ub_qf_1',
+  4: 'ub_qf_2',
+  2: 'ub_qf_3',
+  3: 'ub_qf_4',
+}
+
+/** Each top seed's chosen opponent (seed → team id), read back from the QF rows. */
+export function bracketOpponents(
+  event: Pick<PickemEvent, 'seeds'>,
+  matches: PickemMatch[]
+): Record<number, string | null> {
+  const slots = new Map(buildPickemSlots(event, matches).map((s) => [s.id, s]))
+  const opponents: Record<number, string | null> = {}
+  for (const seed of DE8_TOP_SEEDS) {
+    opponents[seed] = slots.get(DE8_QF_SLOT_BY_SEED[seed]!)?.teamBId ?? null
+  }
+  return opponents
+}
+
+/**
+ * The canonical 8-team, single-QF double-elimination template. Seeds 1–4 sit
+ * on side A of their QF; side B is the opponent each one picked, or — when
+ * none is given — the default 1v8 / 4v5 / 2v7 / 3v6 seed pairing (kept for
+ * brackets saved before opponents were picked).
+ */
+export function standardDoubleElim8Template(
+  opponents: Record<number, string | null> = {}
+): PickemMatch[] {
   const seed = (n: number): PickemFeed => ({ type: 'seed', seed: n })
   const win = (of: string): PickemFeed => ({ type: 'winner', of })
   const lose = (of: string): PickemFeed => ({ type: 'loser', of })
@@ -418,14 +531,78 @@ export function standardDoubleElim8Template(): PickemMatch[] {
     },
   ]
 
-  return rows.map((row, i) => ({
-    ...row,
-    sortOrder: i,
-    teamAId: null,
-    teamBId: null,
-    linkedMatchId: null,
-    actualWinnerId: null,
-  }))
+  return rows.map((row, i) => {
+    const topSeed = row.feedA?.type === 'seed' ? row.feedA.seed : null
+    const opponent = topSeed != null ? (opponents[topSeed] ?? null) : null
+    return {
+      ...row,
+      sortOrder: i,
+      teamAId: null,
+      teamBId: opponent,
+      feedB: opponent ? null : row.feedB,
+      linkedMatchId: null,
+      actualWinnerId: null,
+    }
+  })
+}
+
+/**
+ * The team(s) that finished 3rd in a decided bracket, read off its topology.
+ *
+ * A slot labelled as a 3rd-place match settles it outright. Otherwise 3rd goes
+ * to whoever was knocked out deepest without reaching the final: a slot whose
+ * loser is not fed anywhere eliminates that loser, and the deepest such slot
+ * short of the final is the last elimination before it — the Lower Final in a
+ * double-elim bracket. In single elimination both semi-final losers sit at the
+ * same depth, so they share 3rd.
+ *
+ * Returns an empty list until that slot has a winner.
+ */
+export function bracketThirdPlaceTeamIds(matches: PickemMatch[], slots: PickemSlot[]): string[] {
+  const slotById = new Map(slots.map((s) => [s.id, s]))
+  const loserOf = (slot: PickemSlot | undefined) =>
+    slot?.winnerId && slot.teamAId && slot.teamBId
+      ? slot.winnerId === slot.teamAId
+        ? slot.teamBId
+        : slot.teamAId
+      : null
+
+  const isThirdPlaceMatch = (m: PickemMatch) => /\b(3rd|third)\b/i.test(`${m.slotKey} ${m.label}`)
+  const thirdPlaceMatch = matches.find(isThirdPlaceMatch)
+  if (thirdPlaceMatch) {
+    const winner = slotById.get(thirdPlaceMatch.slotKey)?.winnerId
+    return winner ? [winner] : []
+  }
+
+  // Longest path from the seeds, walked in sort order so feeds resolve first.
+  const sorted = [...matches].sort((a, b) => a.sortOrder - b.sortOrder)
+  const depth = new Map<string, number>()
+  const winnerFed = new Set<string>()
+  const loserFed = new Set<string>()
+  for (const m of sorted) {
+    let d = 0
+    for (const feed of [m.feedA, m.feedB]) {
+      if (!feed || feed.type === 'seed') continue
+      ;(feed.type === 'winner' ? winnerFed : loserFed).add(feed.of)
+      d = Math.max(d, depth.get(feed.of) ?? 0)
+    }
+    depth.set(m.slotKey, d + 1)
+  }
+
+  // The final is the deepest slot whose result goes nowhere.
+  const terminal = sorted.filter((m) => !winnerFed.has(m.slotKey) && !loserFed.has(m.slotKey))
+  if (terminal.length === 0) return []
+  const final = terminal.reduce((a, b) => (depth.get(b.slotKey)! > depth.get(a.slotKey)! ? b : a))
+
+  const eliminations = sorted.filter((m) => m !== final && !loserFed.has(m.slotKey))
+  if (eliminations.length === 0) return []
+  const deepest = Math.max(...eliminations.map((m) => depth.get(m.slotKey)!))
+  const losers = eliminations
+    .filter((m) => depth.get(m.slotKey) === deepest)
+    .map((m) => loserOf(slotById.get(m.slotKey)))
+
+  // Every slot at that depth has to be decided, or 3rd is not settled yet.
+  return losers.every(Boolean) ? (losers as string[]) : []
 }
 
 /** Slot keys of the standard bracket, in display order. */

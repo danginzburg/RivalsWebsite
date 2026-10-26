@@ -347,7 +347,11 @@
           </span>
         {/if}
         {#if isAdmin}
-          <AdminEditLink href="/admin?tab=matches" label="Edit Match" class="sb-admin" />
+          <AdminEditLink
+            href="/admin?tab=matches&match={match.id}"
+            label="Edit Match"
+            class="sb-admin"
+          />
         {/if}
       </div>
 
@@ -544,6 +548,9 @@
                   >
                     <span class="map-tab-label">{tab.label}</span>
                     {#if tab.subLabel}<span class="map-tab-sub">{tab.subLabel}</span>{/if}
+                    {#if !tab.isTotal}
+                      <span class="map-tab-score">{tab.team_a_rounds}–{tab.team_b_rounds}</span>
+                    {/if}
                     {#if tab.isVoided}<span class="map-tab-ff">FF</span>{/if}
                   </button>
                 {/each}
@@ -586,21 +593,6 @@
                 <span>{teamName(match.team_a)}</span>
                 <b>{activeStats.team_a_rounds}–{activeStats.team_b_rounds}</b>
                 <span>{teamName(match.team_b)}</span>
-              </div>
-            {:else if (match.maps ?? []).length > 0}
-              <div class="map-summary">
-                {#each match.maps as map (map.id)}
-                  <div class="map-chip" class:map-chip-void={map.is_voided}>
-                    <div class="map-chip-head">
-                      {map.map_label}
-                      {#if map.is_voided}<span class="map-tab-ff">FF</span>{/if}
-                    </div>
-                    <div class="map-chip-name">{map.map_name ?? 'Map'}</div>
-                    <div class="map-chip-score">
-                      {map.team_a_rounds}–{map.team_b_rounds}
-                    </div>
-                  </div>
-                {/each}
               </div>
             {/if}
 
@@ -1252,6 +1244,13 @@
     opacity: 0.7;
   }
 
+  .map-tab-score {
+    margin-left: 0.125rem;
+    font-weight: 700;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+
   .map-tab-void .map-tab-label,
   .map-tab-void .map-tab-sub {
     text-decoration: line-through;
@@ -1292,49 +1291,6 @@
     border-radius: 0.25rem;
     background: rgba(248, 113, 113, 0.18);
     color: #fca5a5;
-  }
-
-  .map-summary {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    margin-bottom: 1rem;
-  }
-
-  .map-chip {
-    padding: 0.5rem 0.875rem;
-    border-radius: 0.5rem;
-    border: 1px solid rgba(255, 255, 255, 0.09);
-    background: rgba(255, 255, 255, 0.03);
-    min-width: 6.5rem;
-  }
-
-  .map-chip-void {
-    border-color: rgba(248, 113, 113, 0.22);
-    background: rgba(248, 113, 113, 0.05);
-    opacity: 0.65;
-  }
-
-  .map-chip-head {
-    display: flex;
-    align-items: baseline;
-    gap: 0.3125rem;
-    font-size: 0.75rem;
-    font-weight: 700;
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .map-chip-name {
-    font-size: 0.6875rem;
-    color: rgba(255, 255, 255, 0.5);
-  }
-
-  .map-chip-score {
-    margin-top: 0.1875rem;
-    font-size: 0.9375rem;
-    font-weight: 700;
-    color: var(--text);
-    font-variant-numeric: tabular-nums;
   }
 
   /* Stat tables */

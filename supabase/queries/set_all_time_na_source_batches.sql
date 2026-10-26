@@ -26,6 +26,14 @@
 --
 -- EMEA batches are excluded on purpose: this batch is the NA all-time table.
 --
+-- Seasons 5+ (match imports)
+-- --------------------------
+-- This list is CSV-era history only and should not grow. Every later Rivals
+-- season is read straight from imported match maps by
+-- `src/lib/server/stats/all-time.ts`, which rebuilds the batch on each match
+-- import (or via Regenerate on /admin/stats-import). Running the refresh SQL
+-- below instead would drop those seasons from the batch.
+--
 -- How to use
 -- ----------
 -- 1) Decide whether Season 4 Kickoff counts (see the commented line below).

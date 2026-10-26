@@ -146,7 +146,11 @@
           </h1>
           <TeamSeed seed={data.seed ?? null} />
           {#if isAdmin}
-            <AdminEditLink href="/admin?tab=teams" label="Edit Team" class="hero-admin" />
+            <AdminEditLink
+              href="/admin?tab=teams&team={team.id}"
+              label="Edit Team"
+              class="hero-admin"
+            />
           {/if}
         </div>
 

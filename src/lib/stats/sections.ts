@@ -141,8 +141,7 @@ export function resolveMatchStageKey(stage: unknown, designation: unknown): Sect
  * The section a batch should show under, given everything known about it.
  *
  * `section` is the stored answer. Weekly imports are a bucket of their own even
- * without one — that is what the stats page's "Hide weeks" toggle has always
- * keyed off. Otherwise fall back to reading the name.
+ * without one. Otherwise fall back to reading the name.
  */
 export function resolveBatchSection(batch: {
   section?: string | null
@@ -154,4 +153,43 @@ export function resolveBatchSection(batch: {
   if (explicit) return explicit
   if (batch.import_kind === 'weekly' || batch.week_label) return 'weeks'
   return inferSectionFromLabel(batch.display_name) ?? 'other'
+}
+
+/**
+ * Week batches (single weeks and cumulative "Weeks 1-N" snapshots) are no
+ * longer shown anywhere on the site. The rows stay in the database; every
+ * visitor-facing batch list drops them through this check.
+ */
+export function isWeekBatch(batch: Parameters<typeof resolveBatchSection>[0]): boolean {
+  return resolveBatchSection(batch) === 'weeks'
+}
+
+/**
+ * The event a batch belongs to, read from its name: "Season 4 [NA] Play-ins +
+ * Playoffs" and "Season 4 Kickoff (NA)" are both "Season 4". The stats picker
+ * groups on this, then offers the phases inside it.
+ *
+ * NA is this league's home region and is dropped; any other region stays part
+ * of the event, so "Season 2 (EMEA)" is not mixed into "Season 2".
+ */
+export function eventLabelFromBatchName(raw: unknown): string {
+  if (typeof raw !== 'string') return 'Other'
+  const region = raw.match(/[([]\s*([a-z]{2,6})\s*[)\]]/i)?.[1]?.toUpperCase()
+  const base = raw
+    .replace(/[([][^)\]]*[)\]]/g, ' ')
+    .replace(/play[\s-]?ins?|play[\s-]?offs?|kick[\s-]?off|regular(\s+season)?/gi, ' ')
+    .replace(/\s[+—–-](?=\s)/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!base) return 'Other'
+  return region && region !== 'NA' && region !== 'FULL' ? `${base} (${region})` : base
+}
+
+/** Short tab label for a batch within its event — "Kickoff", "Playoffs" and so on. */
+export function phaseLabel(batch: Parameters<typeof resolveBatchSection>[0]): string {
+  const name = batch.display_name ?? ''
+  if (/play[\s-]?ins?\s*\+\s*play[\s-]?offs?/i.test(name)) return 'Play-ins + Playoffs'
+  const section = resolveBatchSection(batch)
+  if (section === 'other') return 'Overall'
+  return sectionLabel(section)
 }
