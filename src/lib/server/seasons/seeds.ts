@@ -32,6 +32,7 @@ export async function getSeasonSeeds(seasonId: string | null | undefined): Promi
       .from('pickem_events')
       .select('config')
       .eq('season_id', seasonId)
+      .neq('status', 'draft')
       .maybeSingle()
 
     return toSeedMap(data?.config)
@@ -48,6 +49,7 @@ export async function getActiveSeasonSeeds(): Promise<SeedMap> {
       .from('pickem_events')
       .select('config, seasons!inner (is_active)')
       .eq('seasons.is_active', true)
+      .neq('status', 'draft')
       .maybeSingle()
 
     return toSeedMap(data?.config)

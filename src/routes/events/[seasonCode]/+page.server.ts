@@ -1,7 +1,11 @@
 import { error } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
-import { buildPickemSlots, getLinkedResults, getPickemContextBySeasonId } from '$lib/server/pickems'
+import {
+  buildPickemSlots,
+  getPickemResults,
+  getPublishedPickemContextBySeasonId,
+} from '$lib/server/pickems'
 import { safeNumber } from '$lib/server/parse'
 import { loadCommentThread } from '$lib/server/comments'
 import { getViewerProfileId } from '$lib/server/auth/viewer'
@@ -105,7 +109,7 @@ export const load = async ({
   // id and may include teams from other seasons (brackets configured before
   // season-scoping), so start the map from the roster and backfill anything the
   // bracket references but the roster is missing.
-  const pickemCtx = await getPickemContextBySeasonId(season.id)
+  const pickemCtx = await getPublishedPickemContextBySeasonId(season.id)
   const isBracketEvent = pickemCtx.event?.format === 'bracket' && pickemCtx.matches.length > 0
 
   const teamMap: Record<string, (typeof teams)[number]> = {}
@@ -124,13 +128,16 @@ export const load = async ({
   }
 
   /**
-   * The bracket's winners come from the real matches its slots are linked to,
+   * The bracket's winners come from the real matches behind its slots,
    * not from the admin-resolved winners — those are only filled in for games
    * decided before the pick'em opened, so on their own they leave most of an
    * already-played bracket showing TBD. `buildPickemSlots` layers the resolved
    * winners on top, so an explicit admin resolution still wins over a link.
    */
-  const linkedResults = isBracketEvent ? await getLinkedResults(pickemCtx.matches) : {}
+  const linkedResults =
+    isBracketEvent && pickemCtx.event
+      ? (await getPickemResults(pickemCtx.event, pickemCtx.matches)).linkedResults
+      : {}
 
   let bracketSlots =
     isBracketEvent && pickemCtx.event
@@ -141,8 +148,11 @@ export const load = async ({
   let bracketSeeds = Object.fromEntries(
     (pickemCtx.event?.seeds ?? []).filter((s) => s.teamId).map((s) => [s.teamId, s.seed])
   ) as Record<string, number>
-  // Seeds actually assigned a team — how many made playoffs.
-  let bracketTeamCount = pickemCtx.event?.seeds.filter((seed) => Boolean(seed.teamId)).length ?? 0
+  // Teams in the bracket — how many made playoffs. Only the top seeds are
+  // seeded, so count the teams the slots hold rather than the seeds.
+  let bracketTeamCount = new Set(
+    bracketSlots.flatMap((slot) => [slot.teamAId, slot.teamBId]).filter(Boolean)
+  ).size
 
   /**
    * Fallback for archived seasons: their bracket predates the pick'em rework and

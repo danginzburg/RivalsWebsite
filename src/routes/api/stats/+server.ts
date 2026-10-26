@@ -5,9 +5,11 @@ import {
   extractNumericLabel,
   isLatestLabel,
   normalizeRivalsGroupStatBatchFromDb,
+  withSectionFallback,
   type NormalizedRivalsGroupStatBatch,
   type StatImportBatchRow,
 } from '$lib/server/stats/rivals-batch'
+import { isWeekBatch } from '$lib/stats/sections'
 import { parseFullSeasonBatchId, resolveSeasonStatBatchIds } from '$lib/server/stats/season-batches'
 import { aggregateFullSeasonRows } from '$lib/server/stats/aggregate-full-season'
 import { fetchAllRows } from '$lib/server/supabase/fetch-all'
@@ -103,8 +105,7 @@ export const GET: RequestHandler = async ({ url }) => {
         normalizeRivalsGroupStatBatchFromDb(b, { displayNameFallback: 'empty' })
     )
 
-    const aggregates = normalized.filter((b) => b.import_kind === 'aggregate')
-    const weeklies = normalized.filter((b) => b.import_kind === 'weekly')
+    const aggregates = normalized.filter((b) => b.import_kind === 'aggregate' && !isWeekBatch(b))
 
     const pickFrom = (arr: typeof normalized) => {
       if (arr.length === 0) return null
@@ -136,25 +137,36 @@ export const GET: RequestHandler = async ({ url }) => {
       return copy[0]
     }
 
-    const pick = pickFrom(aggregates) ?? pickFrom(weeklies)
+    const pick = pickFrom(aggregates)
     effectiveBatchId = pick?.id ?? null
   }
 
   if (!effectiveBatchId) return json({ batchId: null, batch: null, rows: [] })
 
   let batch: NormalizedRivalsGroupStatBatch | null = null
-  const { data: batchRow, error: batchError } = await supabaseAdmin
-    .from('stat_import_batches')
-    .select(
-      'id, source_filename, display_name, import_kind, week_label, created_at, metadata, season_id'
-    )
-    .eq('id', effectiveBatchId)
-    .maybeSingle()
+  type BatchRow = StatImportBatchRow & {
+    season_id?: string | null
+    metadata?: StatImportBatchRow['metadata'] & { source_season_id?: string | null }
+  }
+  const { data: batchRow, error: batchError } = await withSectionFallback<BatchRow>((select) =>
+    supabaseAdmin
+      .from('stat_import_batches')
+      .select(`${select}, season_id`)
+      .eq('id', effectiveBatchId)
+      .returns<BatchRow>()
+      .maybeSingle()
+  )
 
   if (!batchError && batchRow) {
     batch = normalizeRivalsGroupStatBatchFromDb(batchRow as StatImportBatchRow, {
       displayNameFallback: 'source_filename',
     })
+  }
+
+  // Week batches are not shown on the site. Answer an old link (or a
+  // remembered cookie) to one as unknown, so /stats falls back to the default.
+  if (batch && isWeekBatch(batch)) {
+    return json({ batchId: null, batch: null, rows: [] })
   }
 
   // Only batches generated from matches carry a season; CSV-era rivals batches

@@ -1,7 +1,6 @@
 <script lang="ts">
   // Extracted from /add-stats to live under /admin.
   import PageContainer from '$lib/components/PageContainer.svelte'
-  import CustomSelect from '$lib/components/CustomSelect.svelte'
   import { FileSpreadsheet, Loader2, Trash2, ArrowLeft } from 'lucide-svelte'
   import { resolve } from '$app/paths'
   import { SvelteMap } from 'svelte/reactivity'
@@ -53,8 +52,6 @@
   let parsedRows = $state<ParsedRow[]>([])
   let fileName = $state<string | null>(null)
   let displayName = $state('')
-  let importKind = $state<'weekly' | 'aggregate'>('weekly')
-  let weekLabel = $state('')
   let parseError = $state<string | null>(null)
   let isSubmitting = $state(false)
   let submitResult = $state<{ success: boolean; message: string } | null>(null)
@@ -103,15 +100,6 @@
       avgACS,
       avgKD,
     }
-  })
-
-  const weekLabelSuggestions = $derived.by(() => {
-    const raw = (data.weekLabels ?? []) as unknown
-    if (!Array.isArray(raw)) return [] as string[]
-    return raw
-      .map((v) => String(v ?? '').trim())
-      .filter(Boolean)
-      .slice(0, 30)
   })
 
   function parseNumber(value: string): number {
@@ -367,16 +355,9 @@
     parsedRows = []
     fileName = null
     displayName = ''
-    importKind = 'weekly'
-    weekLabel = ''
     parseError = null
     submitResult = null
   }
-
-  const importKindOptions = [
-    { label: 'Weekly', value: 'weekly' },
-    { label: 'Aggregate', value: 'aggregate' },
-  ]
 
   async function submitStats() {
     if (parsedRows.length === 0) return
@@ -391,8 +372,6 @@
           rows: parsedRows,
           sourceFilename: fileName,
           displayName,
-          importKind,
-          weekLabel,
         }),
       })
 
@@ -428,7 +407,7 @@
       <header class="admin-import-head">
         <div class="min-w-0">
           <h1 class="admin-import-title">Stats Import</h1>
-          <p class="admin-hint mt-1">Upload a weekly or aggregate stats CSV.</p>
+          <p class="admin-hint mt-1">Upload an aggregate stats CSV.</p>
         </div>
         <a href={resolve('/admin')} class="admin-back-link">
           <ArrowLeft size={14} /> Admin
@@ -487,45 +466,9 @@
             </div>
             <input
               class="admin-input"
-              placeholder="Week 1, Aggregate, ..."
+              placeholder="Season 5 Regular Season, ..."
               bind:value={displayName}
             />
-          </div>
-          <div>
-            <div
-              class="mb-1 text-xs font-semibold tracking-wide uppercase"
-              style="color: rgba(255,255,255,0.7);"
-            >
-              Upload Type
-            </div>
-            <CustomSelect
-              options={importKindOptions}
-              value={importKind}
-              compact={false}
-              onSelect={(v) => (importKind = v as 'weekly' | 'aggregate')}
-            />
-          </div>
-          <div>
-            <div
-              class="mb-1 text-xs font-semibold tracking-wide uppercase"
-              style="color: rgba(255,255,255,0.7);"
-            >
-              Week Label
-            </div>
-            <input
-              class="admin-input"
-              placeholder="Week 1"
-              list="week-label-suggestions"
-              bind:value={weekLabel}
-              disabled={importKind !== 'weekly'}
-            />
-            {#if weekLabelSuggestions.length > 0}
-              <datalist id="week-label-suggestions">
-                {#each weekLabelSuggestions as w (w)}
-                  <option value={w}></option>
-                {/each}
-              </datalist>
-            {/if}
           </div>
         </div>
 

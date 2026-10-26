@@ -289,7 +289,7 @@
             isPrimary: !(match.streams?.length > 0),
           }}
           {@const maps = matchMapsCache[match.id] ?? []}
-          <article class="admin-card p-3">
+          <article id="admin-match-{match.id}" class="admin-card scroll-mt-24 p-3">
             <button
               type="button"
               class="flex w-full flex-wrap items-center justify-between gap-2 text-left"

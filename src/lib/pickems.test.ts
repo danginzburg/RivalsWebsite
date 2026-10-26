@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  bracketThirdPlaceTeamIds,
   buildPickemSlots,
   rankPickemLeaderboardEntries,
   scorePickemPayload,
   standardDoubleElim8Template,
   validatePickemPayload,
   type PickemEvent,
+  type PickemMatch,
   type PickemPayload,
 } from './pickems'
 
@@ -18,6 +20,41 @@ const event: Pick<PickemEvent, 'seeds'> = {
 }
 
 const matches = standardDoubleElim8Template()
+
+/** Seeds 1v4 and 2v3, winners meet in the final. */
+function singleElim4(): PickemMatch[] {
+  const base = { groupKey: '', points: 1, teamAId: null, teamBId: null }
+  const rest = { linkedMatchId: null, actualWinnerId: null }
+  return [
+    {
+      ...base,
+      ...rest,
+      slotKey: 'sf_1',
+      label: 'SF 1',
+      sortOrder: 0,
+      feedA: { type: 'seed', seed: 1 },
+      feedB: { type: 'seed', seed: 4 },
+    },
+    {
+      ...base,
+      ...rest,
+      slotKey: 'sf_2',
+      label: 'SF 2',
+      sortOrder: 1,
+      feedA: { type: 'seed', seed: 2 },
+      feedB: { type: 'seed', seed: 3 },
+    },
+    {
+      ...base,
+      ...rest,
+      slotKey: 'final',
+      label: 'Final',
+      sortOrder: 2,
+      feedA: { type: 'winner', of: 'sf_1' },
+      feedB: { type: 'winner', of: 'sf_2' },
+    },
+  ]
+}
 
 const upperRunPayload: PickemPayload = {
   picks: {
@@ -110,6 +147,46 @@ describe('pickem bracket', () => {
       maxScore: 9,
       correct: ['ub_qf_1', 'ub_sf_1', 'grand_final'],
     })
+  })
+
+  it('places the Lower Final loser 3rd in a double elimination bracket', () => {
+    const slots = buildPickemSlots(event, matches, upperRunPayload)
+    // Lower Final is team-2 vs team-4; team-4 goes on to the Grand Final.
+    expect(bracketThirdPlaceTeamIds(matches, slots)).toEqual(['team-2'])
+  })
+
+  it('leaves 3rd unsettled until the Lower Final is decided', () => {
+    const picks = { ...upperRunPayload.picks }
+    delete picks.lb_final
+    delete picks.grand_final
+    const slots = buildPickemSlots(event, matches, { picks })
+    expect(bracketThirdPlaceTeamIds(matches, slots)).toEqual([])
+  })
+
+  it('shares 3rd between both semi-final losers in single elimination', () => {
+    const single = singleElim4()
+    const slots = buildPickemSlots(event, single, {
+      picks: { sf_1: 'team-1', sf_2: 'team-3', final: 'team-1' },
+    })
+    expect(bracketThirdPlaceTeamIds(single, slots)).toEqual(['team-4', 'team-2'])
+  })
+
+  it('uses a 3rd-place match when the bracket has one', () => {
+    const withThird = [
+      ...singleElim4(),
+      {
+        ...singleElim4()[0]!,
+        slotKey: 'third_place',
+        label: '3rd Place Match',
+        sortOrder: 3,
+        feedA: { type: 'loser', of: 'sf_1' } as const,
+        feedB: { type: 'loser', of: 'sf_2' } as const,
+      },
+    ]
+    const slots = buildPickemSlots(event, withThird, {
+      picks: { sf_1: 'team-1', sf_2: 'team-3', final: 'team-1', third_place: 'team-2' },
+    })
+    expect(bracketThirdPlaceTeamIds(withThird, slots)).toEqual(['team-2'])
   })
 
   it('uses shared competition ranks for tied scores', () => {

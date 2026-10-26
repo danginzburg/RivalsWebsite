@@ -9,9 +9,11 @@ import {
   extractNumericLabel,
   isLatestLabel,
   normalizeRivalsGroupStatBatchFromDb,
+  withSectionFallback,
   type NormalizedRivalsGroupStatBatch,
   type StatImportBatchRow,
 } from '$lib/server/stats/rivals-batch'
+import { isWeekBatch } from '$lib/stats/sections'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
 import { resolveSeasonStatBatchIds } from '$lib/server/stats/season-batches'
 import { rematchPlayerMatchMapStatsForBase } from '$lib/server/imports/matching'
@@ -27,6 +29,7 @@ import {
   type RosterTimeline,
 } from '$lib/server/matches/subs'
 import { listProfileRiotAccounts, syncPrimaryRiotName } from '$lib/server/players/riot-accounts'
+import { loadSeasonThirdPlaceTeamIds } from '$lib/server/seasons/thirdPlace'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -48,6 +51,9 @@ type SeasonRel = {
   name?: string | null
   code?: string | null
   starts_on?: string | null
+  winner_team_id?: string | null
+  runner_up_team_id?: string | null
+  mvp_profile_id?: string | null
 }
 
 type MembershipTeamRel = TeamRel & {
@@ -58,13 +64,17 @@ type MembershipTeamRel = TeamRel & {
 type TeamHistoryRow = {
   /** Team id doubles as the key — one row per team, however many stints. */
   team: { id: string; name: string; tag: string | null; logo_url: string | null }
-  season: { name: string; code: string | null } | null
+  season: { id: string; name: string; code: string | null } | null
   role: string | null
   joined_at: string | null
   /** When the player left this team; null while any stint on it is still open. */
   left_at: string | null
   /** Sort key: when this team's season began, empty for an unassigned team. */
   season_started_on: string
+  /** Final finish, set only once the season's results have been recorded. */
+  placement: 'champion' | 'runner_up' | 'third' | null
+  /** The player was that season's MVP; carried on one row per season. */
+  is_mvp: boolean
 }
 
 /**
@@ -98,7 +108,9 @@ async function loadTeamHistory(profileId: string): Promise<TeamHistoryRow[]> {
       left_at,
       teams (
         id, name, tag, logo_path, approval_status, season_id,
-        seasons!teams_season_id_fkey (id, name, code, starts_on)
+        seasons!teams_season_id_fkey (
+          id, name, code, starts_on, winner_team_id, runner_up_team_id, mvp_profile_id
+        )
       )
     `
     )
@@ -121,6 +133,9 @@ async function loadTeamHistory(profileId: string): Promise<TeamHistoryRow[]> {
 
   const byTeam = new Map<string, TeamHistoryRow>()
   const openTeams = new Set<string>()
+  const mvpSeasonByTeam = new Map<string, string>()
+  const seasonByTeam = new Map<string, string>()
+  const bracketSeasonIds = new Set<string>()
   for (const row of (data ?? []) as Row[]) {
     const team = Array.isArray(row.teams) ? row.teams[0] : row.teams
     if (!team || team.approval_status !== 'approved') continue
@@ -152,26 +167,72 @@ async function loadTeamHistory(profileId: string): Promise<TeamHistoryRow[]> {
         tag: team.tag ?? null,
         logo_url: getTeamLogoUrl(team),
       },
-      season: seasonRel ? { name: seasonRel.name ?? 'Season', code: seasonRel.code ?? null } : null,
+      season: seasonRel
+        ? { id: seasonRel.id, name: seasonRel.name ?? 'Season', code: seasonRel.code ?? null }
+        : null,
       role: row.role ?? null,
       joined_at: row.joined_at ?? null,
       left_at: isOpen ? null : (row.left_at ?? null),
       season_started_on: seasonRel?.starts_on ?? '',
+      // The winner and runner-up are only filled in once the season is over,
+      // so their presence is what marks a finished season.
+      placement:
+        seasonRel?.winner_team_id === team.id
+          ? 'champion'
+          : seasonRel?.runner_up_team_id === team.id
+            ? 'runner_up'
+            : null,
+      is_mvp: false,
     })
     if (isOpen) openTeams.add(team.id)
+    if (seasonRel?.mvp_profile_id === profileId) mvpSeasonByTeam.set(team.id, seasonRel.id)
+    if (
+      seasonRel?.winner_team_id &&
+      seasonRel.winner_team_id !== team.id &&
+      seasonRel.runner_up_team_id !== team.id
+    ) {
+      bracketSeasonIds.add(seasonRel.id)
+      seasonByTeam.set(team.id, seasonRel.id)
+    }
   }
   for (const teamId of openTeams) {
     const entry = byTeam.get(teamId)
     if (entry) entry.left_at = null
   }
 
+  // 3rd place is not stored on the season, so it is read off the bracket — only
+  // for finished seasons where this player's team did not already place 1st/2nd.
+  const thirdBySeason = new Map(
+    await Promise.all(
+      [...bracketSeasonIds].map(
+        async (seasonId) => [seasonId, await loadSeasonThirdPlaceTeamIds(seasonId)] as const
+      )
+    )
+  )
+  for (const [teamId, seasonId] of seasonByTeam) {
+    const entry = byTeam.get(teamId)
+    if (entry && thirdBySeason.get(seasonId)?.includes(teamId)) entry.placement = 'third'
+  }
+
   // Newest season first; within a season, the most recent roster first.
-  return [...byTeam.values()].sort((a, b) => {
+  const rows = [...byTeam.entries()].sort(([, a], [, b]) => {
     if (a.season_started_on !== b.season_started_on) {
       return b.season_started_on.localeCompare(a.season_started_on)
     }
     return (b.joined_at ?? '').localeCompare(a.joined_at ?? '')
   })
+
+  // A player who moved teams mid-season has two rows for it; the MVP award
+  // goes on the latest one only, rather than appearing twice.
+  const mvpSeasonsShown = new Set<string>()
+  for (const [teamId, entry] of rows) {
+    const seasonId = mvpSeasonByTeam.get(teamId)
+    if (!seasonId || mvpSeasonsShown.has(seasonId)) continue
+    mvpSeasonsShown.add(seasonId)
+    entry.is_mvp = true
+  }
+
+  return rows.map(([, entry]) => entry)
 }
 
 type StatBatchInfo = Partial<NormalizedRivalsGroupStatBatch> & { id: string; display_name: string }
@@ -390,7 +451,7 @@ function buildBreakdowns(rows: PerMapStatRow[]): {
 }
 
 function kindOrder(kind: unknown): number {
-  return kind === 'aggregate' ? 0 : kind === 'weekly' ? 1 : 2
+  return kind === 'aggregate' ? 0 : 1
 }
 
 function normalizeNameBase(value: unknown): string {
@@ -576,13 +637,15 @@ export const load = async ({
   )
 
   const { data: batches } = batchIds.length
-    ? await supabaseAdmin
-        .from('stat_import_batches')
-        .select(
-          'id, display_name, source_filename, import_kind, week_label, created_at, metadata, sort_order, season_id'
-        )
-        .in('id', batchIds)
-        .order('created_at', { ascending: false })
+    ? await withSectionFallback<Array<StatImportBatchRow & { season_id?: string | null }>>(
+        (select) =>
+          supabaseAdmin
+            .from('stat_import_batches')
+            .select(`${select}, season_id`)
+            .in('id', batchIds)
+            .order('created_at', { ascending: false })
+            .returns<Array<StatImportBatchRow & { season_id?: string | null }>>()
+      )
     : { data: [] }
 
   // Raw batch rows keyed by id, for the metadata/season lookup that scopes the
@@ -595,14 +658,15 @@ export const load = async ({
   const rawBatchById = new Map<string, RawBatchRow>()
   for (const b of (batches ?? []) as RawBatchRow[]) rawBatchById.set(b.id, b)
 
+  // Week batches are not shown on the site, so their rows are dropped too.
   const batchById = new Map<string, NormalizedRivalsGroupStatBatch>()
+  const weekBatchIds = new Set<string>()
   for (const b of batches ?? []) {
-    batchById.set(
-      b.id,
-      normalizeRivalsGroupStatBatchFromDb(b as StatImportBatchRow, {
-        displayNameFallback: 'source_filename',
-      })
-    )
+    const normalized = normalizeRivalsGroupStatBatchFromDb(b as StatImportBatchRow, {
+      displayNameFallback: 'source_filename',
+    })
+    if (isWeekBatch(normalized)) weekBatchIds.add(b.id)
+    else batchById.set(b.id, normalized)
   }
 
   const batchOptions = Array.from(batchById.values())
@@ -627,16 +691,17 @@ export const load = async ({
       label: toBatchLabel(b),
       value: b.id,
       import_kind: b.import_kind ?? null,
-      week_label: b.week_label ?? null,
     }))
 
-  const normalizedStats: NormalizedStatRow[] = ((statsRows ?? []) as StatRow[]).map((r) => ({
-    ...r,
-    batch: batchById.get(r.import_batch_id) ?? {
-      id: r.import_batch_id,
-      display_name: r.import_batch_id,
-    },
-  }))
+  const normalizedStats: NormalizedStatRow[] = ((statsRows ?? []) as StatRow[])
+    .filter((r) => !weekBatchIds.has(r.import_batch_id))
+    .map((r) => ({
+      ...r,
+      batch: batchById.get(r.import_batch_id) ?? {
+        id: r.import_batch_id,
+        display_name: r.import_batch_id,
+      },
+    }))
 
   let selected: NormalizedStatRow | null = null
   if (selectedBatchId) {
@@ -654,7 +719,6 @@ export const load = async ({
     const aggregates = Array.from(byBatchId.values()).filter(
       (r) => r.batch?.import_kind === 'aggregate'
     )
-    const weeklies = Array.from(byBatchId.values()).filter((r) => r.batch?.import_kind === 'weekly')
 
     function sortBatches(a: NormalizedStatRow, b: NormalizedStatRow) {
       const ao = a.batch?.sort_order
@@ -688,9 +752,8 @@ export const load = async ({
     }
 
     aggregates.sort(sortBatches)
-    weeklies.sort(sortBatches)
 
-    selected = aggregates[0] ?? weeklies[0] ?? normalizedStats[0] ?? null
+    selected = aggregates[0] ?? normalizedStats[0] ?? null
   }
 
   const matchMapStatsSelect = `
@@ -1099,6 +1162,7 @@ export const load = async ({
     bestRank,
     activeTeam,
     teamHistory,
+    activeSeasonId: currentSeasonId,
     accolades: playerAccolades,
     riotAccounts,
     viewer: {

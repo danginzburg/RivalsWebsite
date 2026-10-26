@@ -7,6 +7,7 @@ import { getSeasonLogoUrl } from '$lib/server/seasons/logo'
 import { getValorantMapList } from '$lib/server/valorant/maps'
 import { getAdminPendingCounts } from '$lib/server/admin/pending-counts'
 import { listAdminUsers } from '$lib/server/admin/users'
+import { getStandingsRanksForSeasons } from '$lib/server/leaderboard/ranks'
 import type { MatchStreamRow } from '$lib/server/db-rows'
 
 type RosterProfileRow = {
@@ -93,6 +94,14 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
   if (seasonTeamsError) {
     console.error('Error fetching teams for season pickers:', seasonTeamsError)
   }
+
+  // Standings rank per team, so the Pick'em tab can prefill the top 4 seeds.
+  const pickemStandings = await getStandingsRanksForSeasons(
+    Array.from(new Set((seasonTeams ?? []).map((t) => t.season_id).filter(Boolean)))
+  ).catch((err) => {
+    console.error('Error fetching standings for pick’em seeds:', err)
+    return {} as Record<string, number>
+  })
 
   /** Same reasoning as `seasonTeams`, for the playoff pick'em match links. */
   const { data: seasonMatches, error: seasonMatchesError } = await supabaseAdmin
@@ -366,6 +375,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     valorantMaps,
     approvedTeams: withLogoUrl(approvedTeams || []),
     seasonTeams: seasonTeams ?? [],
+    pickemStandings,
     seasonMatches: seasonMatches ?? [],
     pickems,
     disbandedTeams: disbandedWithLogos,

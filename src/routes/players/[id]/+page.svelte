@@ -21,31 +21,25 @@
   const viewer = $derived(data.viewer ?? { canEditRiotIdBase: false })
   const selected = $derived((data.stats?.selected ?? null) as any | null)
   const selectedBatchId = $derived((data.stats?.selectedBatchId ?? null) as string | null)
-  const allBatchOptions = $derived(
+  const batchOptions = $derived(
     (data.stats?.batchOptions ?? []) as Array<{
       label: string
       value: string
       import_kind?: string | null
-      week_label?: string | null
     }>
-  )
-  let hideWeeks = $state(false)
-  function isWeekBatch(b: {
-    import_kind?: string | null
-    week_label?: string | null
-    label?: string | null
-  }) {
-    if (b.import_kind === 'weekly') return true
-    if (b.week_label) return true
-    if (typeof b.label === 'string' && /week/i.test(b.label)) return true
-    return false
-  }
-  const hasAnyWeeks = $derived(allBatchOptions.some((b) => isWeekBatch(b)))
-  const batchOptions = $derived(
-    hideWeeks ? allBatchOptions.filter((b) => !isWeekBatch(b)) : allBatchOptions
   )
   const matchHistory = $derived((data.matchHistory ?? []) as any[])
   const teamHistory = $derived(data.teamHistory ?? [])
+  const activeSeasonId = $derived((data.activeSeasonId ?? null) as string | null)
+  // Defaults to the active season; with none configured there is nothing to
+  // scope to, so the full history shows.
+  let teamHistoryScope = $state<'season' | 'all'>('season')
+  const currentSeasonTeams = $derived(
+    teamHistory.filter((entry) => entry.season?.id === activeSeasonId)
+  )
+  const shownTeamHistory = $derived(
+    activeSeasonId && teamHistoryScope === 'season' ? currentSeasonTeams : teamHistory
+  )
   const mapStats = $derived(
     (data.mapStats ?? []) as Array<{
       key: string
@@ -161,6 +155,22 @@
       : matchHistory.filter((e) => (rosterFilter === 'sub' ? e.is_sub : !e.is_sub))
   )
 
+  // The 10 most recent matches show by default; the rest sit behind an explicit
+  // toggle rather than a scroll area inside the card, which reads as the whole list.
+  // Same win rule as the rows' W/L badge, over the filtered list rather than the
+  // visible slice, so it agrees with the match count beside it.
+  const matchRecord = $derived.by(() => {
+    let wins = 0
+    for (const e of shownMatchHistory) if (e.score.us > e.score.them) wins++
+    return { wins, losses: shownMatchHistory.length - wins }
+  })
+
+  const MATCH_HISTORY_PREVIEW = 10
+  let showAllMatches = $state(false)
+  const visibleMatchHistory = $derived(
+    showAllMatches ? shownMatchHistory : shownMatchHistory.slice(0, MATCH_HISTORY_PREVIEW)
+  )
+
   const mapStatsScope = $derived((data.mapStatsScope ?? null) as string | null)
   const accolades = $derived(
     (data.accolades ?? []) as Array<{
@@ -213,11 +223,7 @@
 
   const selectedBatchLabel = $derived.by(() => {
     if (!selected) return null
-    const parts = [selected.batch?.display_name ?? selected.import_batch_id]
-    if (selected.batch?.import_kind === 'weekly' && selected.batch?.week_label) {
-      parts.push(selected.batch.week_label)
-    }
-    return parts.filter(Boolean).join(' · ')
+    return selected.batch?.display_name ?? selected.import_batch_id ?? null
   })
 </script>
 
@@ -596,16 +602,6 @@
                   Main vs Sub
                 </button>
               {/if}
-              {#if hasAnyWeeks}
-                <button
-                  type="button"
-                  class="toggle-btn"
-                  class:toggle-btn-on={hideWeeks}
-                  onclick={() => (hideWeeks = !hideWeeks)}
-                >
-                  Hide Weeks
-                </button>
-              {/if}
               {#if batchOptions.length > 0}
                 <div class="batch-select">
                   <CustomSelect
@@ -698,6 +694,97 @@
         </div>
       </section>
 
+      <section class="card">
+        <header class="card-head">
+          <h2 class="card-title">Team History</h2>
+          {#if activeSeasonId && teamHistory.length > 0}
+            <div class="seg card-seg" role="group" aria-label="Team history scope">
+              <button
+                type="button"
+                class="seg-btn"
+                class:seg-on={teamHistoryScope === 'season'}
+                onclick={() => (teamHistoryScope = 'season')}
+              >
+                This Season <span class="seg-count">{currentSeasonTeams.length}</span>
+              </button>
+              <button
+                type="button"
+                class="seg-btn"
+                class:seg-on={teamHistoryScope === 'all'}
+                onclick={() => (teamHistoryScope = 'all')}
+              >
+                All Time <span class="seg-count">{teamHistory.length}</span>
+              </button>
+            </div>
+          {:else if teamHistory.length > 0}
+            <span class="card-count">{teamHistory.length}</span>
+          {/if}
+        </header>
+
+        {#if teamHistory.length === 0}
+          <p class="card-empty">Not rostered on a team yet.</p>
+        {:else if shownTeamHistory.length === 0}
+          <p class="card-empty">Not rostered on a team this season.</p>
+        {:else}
+          <div class="team-rows">
+            {#each shownTeamHistory as entry (entry.team.id)}
+              <a href={resolve(`/teams/${entry.team.id}`)} class="team-row">
+                {#if entry.team.logo_url}
+                  <img src={entry.team.logo_url} alt="" class="row-logo" />
+                {:else}
+                  <span class="row-logo row-logo-empty"></span>
+                {/if}
+
+                <span class="team-row-name">
+                  {entry.team.name}
+                  {#if entry.team.tag}
+                    <span class="team-row-tag">{entry.team.tag}</span>
+                  {/if}
+                </span>
+
+                {#if entry.role && entry.role !== 'player'}
+                  <span class="team-row-role">{entry.role}</span>
+                {/if}
+
+                {#if entry.placement || entry.is_mvp}
+                  <span class="team-row-awards">
+                    {#if entry.placement === 'champion'}
+                      <span class="team-row-award award-champion" title="Season champions">
+                        <img src={builtInAccoladeIcons.trophy} alt="" />
+                        <span class="team-row-award-label">Champions</span>
+                      </span>
+                    {:else if entry.placement === 'runner_up'}
+                      <span class="team-row-award award-runner-up" title="Season runner-up">
+                        <img src={builtInAccoladeIcons.silver_medal} alt="" />
+                        <span class="team-row-award-label">Runner-up</span>
+                      </span>
+                    {:else if entry.placement === 'third'}
+                      <span class="team-row-award award-third" title="Season 3rd place">
+                        <img src={builtInAccoladeIcons.bronze_medal} alt="" />
+                        <span class="team-row-award-label">3rd</span>
+                      </span>
+                    {/if}
+                    {#if entry.is_mvp}
+                      <span class="team-row-award award-mvp" title="Season MVP">
+                        <img src={builtInAccoladeIcons.mvp_trophy} alt="" />
+                        <span class="team-row-award-label">MVP</span>
+                      </span>
+                    {/if}
+                  </span>
+                {/if}
+
+                <span class="team-row-season">
+                  {#if entry.left_at}
+                    <span class="team-row-left">left {formatLeftDay(entry.left_at)} ·</span>
+                  {/if}
+                  {entry.season?.name ?? 'Unassigned season'}
+                </span>
+              </a>
+            {/each}
+          </div>
+        {/if}
+      </section>
+
       {#if canFilterRoster}
         <div class="roster-filter">
           <span class="section-label">Roster</span>
@@ -767,6 +854,11 @@
             <span class="card-note-inline">Scoped to {mapStatsScope}.</span>
           {/if}
           {#if shownMatchHistory.length > 0}
+            <span class="card-record" title="Wins – losses">
+              <b class="record-win">{matchRecord.wins}W</b>
+              <span class="score-sep">–</span>
+              <b class="record-loss">{matchRecord.losses}L</b>
+            </span>
             <span class="card-count">{shownMatchHistory.length}</span>
           {/if}
         </header>
@@ -783,7 +875,7 @@
           </p>
         {:else}
           <div class="match-rows">
-            {#each shownMatchHistory as entry (entry.match.id)}
+            {#each visibleMatchHistory as entry (entry.match.id)}
               {@const match = entry.match}
               {@const opp = entry.opponent}
               {@const score = entry.score}
@@ -836,49 +928,16 @@
               </a>
             {/each}
           </div>
-        {/if}
-      </section>
-
-      <section class="card">
-        <header class="card-head">
-          <h2 class="card-title">Team History</h2>
-          {#if teamHistory.length > 0}
-            <span class="card-count">{teamHistory.length}</span>
+          {#if shownMatchHistory.length > MATCH_HISTORY_PREVIEW}
+            <button
+              type="button"
+              class="match-rows-more"
+              aria-expanded={showAllMatches}
+              onclick={() => (showAllMatches = !showAllMatches)}
+            >
+              {showAllMatches ? 'Show less' : `Show all ${shownMatchHistory.length} matches`}
+            </button>
           {/if}
-        </header>
-
-        {#if teamHistory.length === 0}
-          <p class="card-empty">Not rostered on a team yet.</p>
-        {:else}
-          <div class="team-rows">
-            {#each teamHistory as entry (entry.team.id)}
-              <a href={resolve(`/teams/${entry.team.id}`)} class="team-row">
-                {#if entry.team.logo_url}
-                  <img src={entry.team.logo_url} alt="" class="row-logo" />
-                {:else}
-                  <span class="row-logo row-logo-empty"></span>
-                {/if}
-
-                <span class="team-row-name">
-                  {entry.team.name}
-                  {#if entry.team.tag}
-                    <span class="team-row-tag">{entry.team.tag}</span>
-                  {/if}
-                </span>
-
-                {#if entry.role && entry.role !== 'player'}
-                  <span class="team-row-role">{entry.role}</span>
-                {/if}
-
-                <span class="team-row-season">
-                  {#if entry.left_at}
-                    <span class="team-row-left">left {formatLeftDay(entry.left_at)} ·</span>
-                  {/if}
-                  {entry.season?.name ?? 'Unassigned season'}
-                </span>
-              </a>
-            {/each}
-          </div>
         {/if}
       </section>
 
@@ -984,6 +1043,11 @@
     color: rgba(255, 255, 255, 0.45);
   }
 
+  .card-seg {
+    margin-left: auto;
+    align-self: center;
+  }
+
   .card-count {
     margin-left: auto;
     font-size: 0.6875rem;
@@ -993,6 +1057,24 @@
     background: rgba(255, 255, 255, 0.07);
     color: rgba(255, 255, 255, 0.6);
     font-variant-numeric: tabular-nums;
+  }
+
+  .card-record {
+    margin-left: auto;
+    font-size: 0.6875rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .card-record + .card-count {
+    margin-left: 0;
+  }
+
+  .record-win {
+    color: #4ade80;
+  }
+
+  .record-loss {
+    color: #f87171;
   }
 
   .card-body {
@@ -1343,6 +1425,27 @@
     flex-direction: column;
   }
 
+  .match-rows-more {
+    display: block;
+    width: 100%;
+    padding: 0.625rem 1rem;
+    border: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(255, 255, 255, 0.02);
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition:
+      background 0.15s,
+      color 0.15s;
+  }
+
+  .match-rows-more:hover {
+    color: var(--accent-text);
+    background: rgba(255, 255, 255, 0.04);
+  }
+
   .match-row {
     display: flex;
     align-items: center;
@@ -1491,6 +1594,55 @@
     text-transform: uppercase;
     letter-spacing: 0.04em;
     color: rgba(255, 255, 255, 0.7);
+  }
+
+  .team-row-awards {
+    display: inline-flex;
+    flex-shrink: 0;
+    gap: 0.375rem;
+  }
+
+  .team-row-award {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.0625rem 0.4375rem 0.0625rem 0.25rem;
+    border: 1px solid;
+    border-radius: 999px;
+    font-size: 0.625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .team-row-award img {
+    width: 1rem;
+    height: 1rem;
+    object-fit: contain;
+  }
+
+  .award-champion {
+    border-color: rgba(250, 204, 21, 0.4);
+    background: rgba(250, 204, 21, 0.1);
+    color: #fde68a;
+  }
+
+  .award-runner-up {
+    border-color: rgba(203, 213, 225, 0.35);
+    background: rgba(203, 213, 225, 0.08);
+    color: #e2e8f0;
+  }
+
+  .award-third {
+    border-color: rgba(217, 119, 6, 0.45);
+    background: rgba(217, 119, 6, 0.1);
+    color: #fdba74;
+  }
+
+  .award-mvp {
+    border-color: rgba(168, 85, 247, 0.4);
+    background: rgba(168, 85, 247, 0.1);
+    color: #e9d5ff;
   }
 
   .team-row-season {
@@ -1683,6 +1835,15 @@
     .identity-role,
     .identity-divider,
     .team-row-role {
+      display: none;
+    }
+
+    /* The icon carries the award on its own; the label is for wider rows. */
+    .team-row-award {
+      padding: 0.125rem;
+    }
+
+    .team-row-award-label {
       display: none;
     }
   }

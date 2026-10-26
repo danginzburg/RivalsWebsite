@@ -6,6 +6,7 @@ import {
   removeMatchStatReassignment,
   upsertMatchStatReassignment,
 } from '$lib/server/matches/reassignments'
+import { refreshLiveBatchesForMatch } from '$lib/server/stats/from-matches'
 
 /**
  * Admin per-match stat reassignment: move one source account's rows in this
@@ -44,12 +45,14 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
     note,
     createdByProfileId: admin.id,
   })
+  // Generated stat batches attribute rows by profile, so they follow the move.
+  await refreshLiveBatchesForMatch({ matchId, adminProfileId: admin.id })
 
   return json({ success: true })
 }
 
 export const DELETE: RequestHandler = async ({ locals, params, url }) => {
-  await requireAdmin(locals.user)
+  const admin = await requireAdmin(locals.user)
   const matchId = params.id
   if (!matchId) throw error(400, 'Match id is required')
 
@@ -57,5 +60,6 @@ export const DELETE: RequestHandler = async ({ locals, params, url }) => {
   if (!id) throw error(400, 'Reassignment id is required')
 
   await removeMatchStatReassignment(matchId, id)
+  await refreshLiveBatchesForMatch({ matchId, adminProfileId: admin.id })
   return json({ success: true })
 }

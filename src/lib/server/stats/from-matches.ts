@@ -2,6 +2,11 @@ import { supabaseAdmin } from '$lib/supabase/admin'
 import { average, sum } from '$lib/server/math'
 import { fetchAllRows } from '$lib/server/supabase/fetch-all'
 import { normalizeSectionKey, resolveMatchStageKey, type SectionKey } from '$lib/stats/sections'
+import {
+  isAllTimeBatch,
+  rebuildAllTimeBatch,
+  refreshAllTimeBatches,
+} from '$lib/server/stats/all-time'
 
 /**
  * Build a `rivals_group_stats` batch from Riot-imported match data.
@@ -470,6 +475,7 @@ export async function regenerateStatsBatch(options: {
 
   if (batchError) throw new Error(`Failed to load batch: ${batchError.message}`)
   if (!batch) throw new Error('Batch not found.')
+  if (isAllTimeBatch(batch.metadata)) return rebuildAllTimeBatch({ batchId, adminProfileId })
   if (!batch.metadata?.generated_from_matches) {
     throw new Error('That batch was uploaded from a CSV, so there is nothing to regenerate from.')
   }
@@ -541,10 +547,27 @@ export async function regenerateStatsBatch(options: {
  * the shape that swallows backfilled history, and it should not be a thing that
  * grows on its own in the background.
  *
- * Callers treat this as best-effort: a failure here must never fail the import
- * that triggered it, since the match data itself is already safely written.
+ * A match that no longer exists (it was just deleted) still rebuilds every
+ * batch that held it, which is what takes its rows back out.
+ *
+ * Best-effort and never throws: a failure here must never fail the import or
+ * edit that triggered it, since the match data itself is already safely
+ * written. One batch failing is logged and the rest still rebuild; the admin
+ * can fix the straggler with Regenerate.
  */
 export async function refreshLiveBatchesForMatch(options: {
+  matchId: string
+  adminProfileId: string
+}): Promise<Array<{ batchId: string; displayName: string | null; playerCount: number }>> {
+  try {
+    return await refreshLiveBatchesForMatchUnsafe(options)
+  } catch (err) {
+    console.error('Failed to refresh live stat batches for match', options.matchId, err)
+    return []
+  }
+}
+
+async function refreshLiveBatchesForMatchUnsafe(options: {
   matchId: string
   adminProfileId: string
 }): Promise<Array<{ batchId: string; displayName: string | null; playerCount: number }>> {
@@ -557,10 +580,9 @@ export async function refreshLiveBatchesForMatch(options: {
     .maybeSingle()
 
   if (matchError) throw new Error(`Failed to load match: ${matchError.message}`)
-  if (!match) return []
 
-  const matchStage = resolveMatchStage(match as MatchRow)
-  const matchSeasonId = (match.season_id as string | null) ?? null
+  const matchStage = match ? resolveMatchStage(match as MatchRow) : null
+  const matchSeasonId = (match?.season_id as string | null | undefined) ?? null
 
   const { data: batches, error: batchesError } = await supabaseAdmin
     .from('stat_import_batches')
@@ -580,13 +602,32 @@ export async function refreshLiveBatchesForMatch(options: {
     const alreadyHolds =
       Array.isArray(row.metadata?.source_match_ids) &&
       row.metadata.source_match_ids.includes(matchId)
-    if (!alreadyHolds && !batchCoversMatch(scope, { seasonId: matchSeasonId, stage: matchStage }))
-      continue
+    const covers =
+      match !== null && batchCoversMatch(scope, { seasonId: matchSeasonId, stage: matchStage })
+    if (!alreadyHolds && !covers) continue
 
-    const result = await regenerateStatsBatch({ batchId: row.id, adminProfileId })
+    try {
+      const result = await regenerateStatsBatch({ batchId: row.id, adminProfileId })
+      refreshed.push({
+        batchId: row.id,
+        displayName: row.display_name,
+        playerCount: result.playerCount,
+      })
+    } catch (err) {
+      console.error('Failed to regenerate live stat batch', row.id, err)
+    }
+  }
+
+  // All Time spans every season, so any match import or edit can move it.
+  // Best-effort like the rest: a failure is logged and fixed with Regenerate.
+  const allTime = await refreshAllTimeBatches({ adminProfileId }).catch((err) => {
+    console.error('Failed to refresh all-time stat batches:', err)
+    return []
+  })
+  for (const result of allTime) {
     refreshed.push({
-      batchId: row.id,
-      displayName: row.display_name,
+      batchId: result.batchId,
+      displayName: result.displayName,
       playerCount: result.playerCount,
     })
   }

@@ -88,6 +88,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
           .from('pickem_events')
           .select('season_id, format, config')
           .in('season_id', seasonIds)
+          .neq('status', 'draft')
       : { data: [] as Array<{ season_id: string; format: string; config: unknown }> }
 
   const pickemBySeason = new Map<string, { format: string; seedCount: number }>()

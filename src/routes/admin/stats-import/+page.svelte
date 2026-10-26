@@ -3,7 +3,13 @@
   import StatsImport from '$lib/components/admin/StatsImport.svelte'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
   import { Loader2, RefreshCw, Save, Trash2, Wand2 } from 'lucide-svelte'
-  import { MATCH_STAGES, SECTIONS, resolveBatchSection, sectionLabel } from '$lib/stats/sections'
+  import {
+    MATCH_STAGES,
+    SECTIONS,
+    resolveBatchSection,
+    sectionLabel,
+    isWeekBatch,
+  } from '$lib/stats/sections'
 
   let { data }: PageProps = $props()
 
@@ -395,7 +401,6 @@
               <th class="px-3 py-2">Name</th>
               <th class="px-3 py-2">Section</th>
               <th class="px-3 py-2">Kind</th>
-              <th class="px-3 py-2">Week</th>
               <th class="px-3 py-2">Created</th>
               <th class="px-3 py-2">ID</th>
               <th class="px-3 py-2">Actions</th>
@@ -420,6 +425,8 @@
                   {/if}
                   {#if b.row_count === 0}
                     <span class="batch-tag">empty — hidden</span>
+                  {:else if isWeekBatch(b)}
+                    <span class="batch-tag">week — hidden</span>
                   {/if}
                 </td>
                 <td class="px-3 py-2" style="min-width: 11rem;">
@@ -437,9 +444,6 @@
                 </td>
                 <td class="px-3 py-2" style="color: rgba(255,255,255,0.8);"
                   >{b.import_kind ?? '—'}</td
-                >
-                <td class="px-3 py-2" style="color: rgba(255,255,255,0.8);"
-                  >{b.week_label ?? '—'}</td
                 >
                 <td class="px-3 py-2" style="color: rgba(255,255,255,0.8);">
                   {b.created_at
@@ -477,11 +481,13 @@
                       <Save size={14} />
                       {savingId === b.id ? 'Saving...' : 'Save'}
                     </button>
-                    {#if b.generated}
+                    {#if b.generated || b.all_time}
                       <button
                         type="button"
                         class="admin-btn admin-btn-sm"
-                        title="Rebuild this batch from its source matches, keeping the same id"
+                        title={b.all_time
+                          ? 'Rebuild from the CSV-era batches plus every later season’s matches (also runs on every match import)'
+                          : 'Rebuild this batch from its source matches, keeping the same id'}
                         onclick={() => regenerate(b.id)}
                         disabled={regeneratingId === b.id}
                       >

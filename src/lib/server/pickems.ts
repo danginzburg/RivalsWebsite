@@ -1,6 +1,7 @@
 import { error } from '@sveltejs/kit'
 
 import {
+  DE8_TOP_SEEDS,
   buildPickemSlots,
   isPickemLocked,
   normalizePickemFeed,
@@ -8,18 +9,21 @@ import {
   normalizePickemPayload,
   normalizePickemSeeds,
   normalizePickemStatus,
-  rankPickemLeaderboardEntries,
+  resolvePickemResults,
   scorePickemPayload,
+  standardDoubleElim8Template,
   validatePickemPayload,
   type PickemEvent,
   type PickemFormat,
-  type PickemLinkedResult,
   type PickemMatch,
   type PickemPayload,
+  type PickemRealMatch,
+  type PickemResults,
   type PickemSeed,
   type PickemTeam,
 } from '$lib/pickems'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
+import { resolveMatchStageKey } from '$lib/stats/sections'
 import { supabaseAdmin } from '$lib/supabase/admin'
 
 type SeasonRow = { id: string; code: string; name: string }
@@ -64,19 +68,9 @@ export type PickemContext = {
 export type PickemPublicSubmission = {
   id: string
   score: number
-  scoredAt: string | null
   submittedAt: string
   payload: PickemPayload
   user: { id: string | null; name: string }
-}
-
-export type PickemLeaderboardEntry = PickemPublicSubmission & { rank: number }
-
-export type PickemScoreSummary = {
-  eventId: string
-  submissionsScored: number
-  scoredAt: string
-  completedMatches: number
 }
 
 function toEvent(row: EventRow): PickemEvent {
@@ -199,6 +193,18 @@ export async function getPickemContextBySeasonId(seasonId: string): Promise<Pick
   return loadContext(await getSeasonBy('id', seasonId))
 }
 
+/**
+ * The season's pick'em as the public sees it: a draft event is an admin
+ * work-in-progress, so its bracket and seeds are treated as not there.
+ */
+export async function getPublishedPickemContextBySeasonId(
+  seasonId: string
+): Promise<PickemContext> {
+  const ctx = await getPickemContextBySeasonId(seasonId)
+  if (ctx.event?.status !== 'draft') return ctx
+  return { season: ctx.season, event: null, matches: [], teams: [] }
+}
+
 // ---------------------------------------------------------------------------
 // Admin: save an event + its matches for a season.
 // ---------------------------------------------------------------------------
@@ -209,6 +215,8 @@ export type SavePickemInput = {
   status?: unknown
   lockAt?: unknown
   seeds?: unknown
+  /** Bracket only: seed (1–4) → the team that seed picked to face. */
+  opponents?: unknown
   matches?: unknown
 }
 
@@ -232,6 +240,57 @@ function normalizeMatchInput(value: unknown, index: number): MatchRow {
   }
 }
 
+/**
+ * A bracket is always the standard template — the admin only supplies the top
+ * four seeds and the opponent each one picked. Per-slot overrides (a manual
+ * link or a pre-decided winner) carry over from the posted rows by slot key.
+ */
+function buildBracket(
+  input: SavePickemInput,
+  status: string
+): { seeds: PickemSeed[]; rows: MatchRow[] } {
+  const topSeeds: readonly number[] = DE8_TOP_SEEDS
+  const seeds = normalizePickemSeeds(input.seeds).filter((s) => topSeeds.includes(s.seed))
+  const rawOpponents =
+    input.opponents && typeof input.opponents === 'object'
+      ? (input.opponents as Record<string, unknown>)
+      : {}
+  const opponents: Record<number, string | null> = {}
+  for (const seed of DE8_TOP_SEEDS) {
+    const value = rawOpponents[seed]
+    opponents[seed] = typeof value === 'string' && value.trim() ? value.trim() : null
+  }
+
+  const teamIds = [...seeds.map((s) => s.teamId), ...Object.values(opponents)].filter(Boolean)
+  if (new Set(teamIds).size !== teamIds.length) {
+    throw error(400, 'A team can only appear once in the bracket')
+  }
+  if (status !== 'draft' && teamIds.length < 8) {
+    throw error(400, 'Pick the top 4 seeds and each one’s opponent before opening the pick’em')
+  }
+
+  const overrides = new Map(
+    (Array.isArray(input.matches) ? input.matches : []).map((m, i) => {
+      const row = normalizeMatchInput(m, i)
+      return [row.slot_key, row]
+    })
+  )
+  const rows = standardDoubleElim8Template(opponents).map((m) => ({
+    slot_key: m.slotKey,
+    group_key: m.groupKey,
+    sort_order: m.sortOrder,
+    label: m.label,
+    points: m.points,
+    team_a_id: m.teamAId,
+    team_b_id: m.teamBId,
+    feed_a: m.feedA,
+    feed_b: m.feedB,
+    linked_match_id: overrides.get(m.slotKey)?.linked_match_id ?? null,
+    actual_winner_id: overrides.get(m.slotKey)?.actual_winner_id ?? null,
+  }))
+  return { seeds, rows }
+}
+
 export async function savePickemForSeason(
   seasonId: string,
   input: SavePickemInput
@@ -239,14 +298,19 @@ export async function savePickemForSeason(
   const season = await getSeasonBy('id', seasonId)
 
   const format: PickemFormat = normalizePickemFormat(input.format)
-  const seeds: PickemSeed[] = normalizePickemSeeds(input.seeds)
   const status = normalizePickemStatus(input.status)
   const lockAt =
     typeof input.lockAt === 'string' && input.lockAt.trim() ? input.lockAt.trim() : null
   const title = typeof input.title === 'string' ? input.title : season.name
 
-  const matchInputs = Array.isArray(input.matches) ? input.matches : []
-  const matchRows = matchInputs.map((m, i) => normalizeMatchInput(m, i))
+  let seeds: PickemSeed[] = []
+  let matchRows: MatchRow[]
+  if (format === 'bracket') {
+    ;({ seeds, rows: matchRows } = buildBracket(input, status))
+  } else {
+    const matchInputs = Array.isArray(input.matches) ? input.matches : []
+    matchRows = matchInputs.map((m, i) => normalizeMatchInput(m, i))
+  }
 
   const slotKeys = new Set<string>()
   for (const row of matchRows) {
@@ -351,13 +415,19 @@ export async function upsertPickemSubmission(input: {
   return { ...data, payload: normalizePickemPayload(data.payload) }
 }
 
+/**
+ * Every submission, scored live against the results known right now — there is
+ * no separate scoring step to run.
+ */
 export async function listPickemPublicSubmissions(
-  eventId: string
+  eventId: string,
+  matches: PickemMatch[],
+  actualWinners: Record<string, string>
 ): Promise<PickemPublicSubmission[]> {
   const { data, error: listError } = await supabaseAdmin
     .from('pickem_submissions')
     .select(
-      'id, created_at, score, scored_at, payload, profiles!pickem_submissions_profile_id_fkey (id, display_name, email)'
+      'id, created_at, payload, profiles!pickem_submissions_profile_id_fkey (id, display_name, email)'
     )
     .eq('event_id', eventId)
 
@@ -367,8 +437,6 @@ export async function listPickemPublicSubmissions(
     (row: {
       id: string
       created_at: string
-      score: number
-      scored_at: string | null
       payload: unknown
       profiles:
         | { id: string | null; display_name: string | null; email: string | null }
@@ -376,138 +444,94 @@ export async function listPickemPublicSubmissions(
         | null
     }) => {
       const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles
+      const payload = normalizePickemPayload(row.payload)
       return {
         id: row.id,
-        score: row.score,
-        scoredAt: row.scored_at,
+        score: scorePickemPayload(matches, payload, actualWinners).score,
         submittedAt: row.created_at,
-        payload: normalizePickemPayload(row.payload),
+        payload,
         user: { id: profile?.id ?? null, name: profileName(profile ?? null) },
       }
     }
   )
 }
 
-export async function listPickemLeaderboard(eventId: string): Promise<PickemLeaderboardEntry[]> {
-  return rankPickemLeaderboardEntries(await listPickemPublicSubmissions(eventId))
+// ---------------------------------------------------------------------------
+// Real results.
+// ---------------------------------------------------------------------------
+
+type RealMatchRow = {
+  id: string
+  status: string | null
+  team_a_id: string
+  team_b_id: string
+  winner_team_id: string | null
+  scheduled_at: string | null
+  created_at: string
+  stage: string | null
+  metadata: Record<string, unknown> | null
 }
 
-// ---------------------------------------------------------------------------
-// Linked real matches.
-// ---------------------------------------------------------------------------
+const REAL_MATCH_COLUMNS =
+  'id, status, team_a_id, team_b_id, winner_team_id, scheduled_at, created_at, stage, metadata'
 
-/** Winners of completed linked matches, keyed by slot key — the scoreable results. */
-export async function getActualWinnersFromLinkedMatches(
-  matches: PickemMatch[]
-): Promise<Record<string, string>> {
-  const linked = matches.filter((m) => m.linkedMatchId)
-  const winners: Record<string, string> = {}
-  if (linked.length === 0) return winners
-
-  const { data, error: matchesError } = await supabaseAdmin
-    .from('matches')
-    .select('id, status, winner_team_id')
-    .in(
-      'id',
-      linked.map((m) => m.linkedMatchId!)
-    )
-
-  if (matchesError) throw error(500, 'Failed to load linked pick’em matches')
-  const byId = new Map(
-    (data ?? []).map((m: { id: string; status: string | null; winner_team_id: string | null }) => [
-      m.id,
-      m,
-    ])
-  )
-  for (const match of linked) {
-    const real = byId.get(match.linkedMatchId!)
-    if (real?.status === 'completed' && real.winner_team_id) {
-      winners[match.slotKey] = real.winner_team_id
-    }
+function toRealMatch(row: RealMatchRow): PickemRealMatch {
+  return {
+    id: row.id,
+    teamAId: row.team_a_id,
+    teamBId: row.team_b_id,
+    winnerId: row.winner_team_id,
+    completed: row.status === 'completed',
   }
-  return winners
 }
 
 /**
- * Teams and winner of each slot's linked real match — the source of truth when
- * a bracket is reconstructed after the fact (see PickemLinkedResult).
+ * Real matches that can decide a unit on their own, oldest first. A bracket
+ * reads the season's playoff matches; anything unfiled counts too once it is
+ * played after the lock. Weekly matchups read whatever was played after the
+ * lock, or the whole season when there is no lock time.
  */
-export async function getLinkedResults(
-  matches: PickemMatch[]
-): Promise<Record<string, PickemLinkedResult>> {
-  const linked = matches.filter((m) => m.linkedMatchId)
-  const results: Record<string, PickemLinkedResult> = {}
-  if (linked.length === 0) return results
-
-  const { data, error: matchesError } = await supabaseAdmin
-    .from('matches')
-    .select('id, team_a_id, team_b_id, winner_team_id')
-    .in(
-      'id',
-      linked.map((m) => m.linkedMatchId!)
-    )
-
-  if (matchesError) throw error(500, 'Failed to load linked pick’em matches')
-  const byId = new Map(
-    (data ?? []).map(
-      (m: {
-        id: string
-        team_a_id: string | null
-        team_b_id: string | null
-        winner_team_id: string | null
-      }) => [m.id, m]
-    )
-  )
-  for (const match of linked) {
-    const real = byId.get(match.linkedMatchId!)
-    if (!real) continue
-    results[match.slotKey] = {
-      teamAId: real.team_a_id ?? null,
-      teamBId: real.team_b_id ?? null,
-      winnerId: real.winner_team_id ?? null,
-    }
-  }
-  return results
+function isCandidate(event: PickemEvent, row: RealMatchRow): boolean {
+  if (row.status === 'cancelled') return false
+  const afterLock = !event.lockAt || (row.scheduled_at != null && row.scheduled_at >= event.lockAt)
+  if (event.format === 'matchups') return afterLock
+  const stage = resolveMatchStageKey(row.stage, row.metadata?.designation)
+  if (stage === 'playoffs') return true
+  return stage === null && Boolean(event.lockAt) && afterLock
 }
 
-export async function scorePickemSubmissionsForEvent(
-  seasonId: string
-): Promise<PickemScoreSummary> {
-  const { event, matches } = await getPickemContextBySeasonId(seasonId)
-  if (!event) throw error(400, "Pick'em is not set up for this season")
-  if (!isPickemLocked(event)) throw error(400, "Pick'em must be locked before scoring")
+/**
+ * Every unit's real result: its manually linked match when it has one,
+ * otherwise the match between its two teams (see `resolvePickemResults`).
+ */
+export async function getPickemResults(
+  event: PickemEvent,
+  matches: PickemMatch[]
+): Promise<PickemResults> {
+  const linkedIds = matches.map((m) => m.linkedMatchId).filter((id): id is string => Boolean(id))
 
-  const actualWinners = await getActualWinnersFromLinkedMatches(matches)
-  const scoredAt = new Date().toISOString()
+  const [seasonRows, linkedRows] = await Promise.all([
+    supabaseAdmin
+      .from('matches')
+      .select(REAL_MATCH_COLUMNS)
+      .eq('season_id', event.seasonId)
+      .neq('approval_status', 'rejected'),
+    linkedIds.length > 0
+      ? supabaseAdmin.from('matches').select(REAL_MATCH_COLUMNS).in('id', linkedIds)
+      : Promise.resolve({ data: [], error: null }),
+  ])
+  if (seasonRows.error || linkedRows.error) throw error(500, 'Failed to load pick’em results')
 
-  const { data: submissions, error: listError } = await supabaseAdmin
-    .from('pickem_submissions')
-    .select('id, payload')
-    .eq('event_id', event.id)
+  const time = (row: RealMatchRow) => new Date(row.scheduled_at ?? row.created_at).getTime()
+  const candidates = ((seasonRows.data ?? []) as RealMatchRow[])
+    .filter((row) => isCandidate(event, row))
+    .sort((a, b) => time(a) - time(b))
+    .map(toRealMatch)
+  const linked = Object.fromEntries(
+    ((linkedRows.data ?? []) as RealMatchRow[]).map((row) => [row.id, toRealMatch(row)])
+  )
 
-  if (listError) throw error(500, 'Failed to load pick’em submissions')
-
-  let submissionsScored = 0
-  for (const submission of submissions ?? []) {
-    const result = scorePickemPayload(
-      matches,
-      normalizePickemPayload(submission.payload),
-      actualWinners
-    )
-    const { error: updateError } = await supabaseAdmin
-      .from('pickem_submissions')
-      .update({ score: result.score, scored_at: scoredAt })
-      .eq('id', submission.id)
-    if (updateError) throw error(500, 'Failed to update pick’em score')
-    submissionsScored += 1
-  }
-
-  return {
-    eventId: event.id,
-    submissionsScored,
-    scoredAt,
-    completedMatches: Object.keys(actualWinners).length,
-  }
+  return resolvePickemResults(event, matches, { linked, candidates })
 }
 
 /** Bracket seeds for a season, keyed by team id — used site-wide for seed labels. */

@@ -1,7 +1,6 @@
 <script lang="ts">
   import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
-  import AdminEditLink from '$lib/components/AdminEditLink.svelte'
   import PageHeading from '$lib/components/PageHeading.svelte'
   import { AlertTriangle, Calendar, ChevronDown } from 'lucide-svelte'
   import TeamSeed from '$lib/components/TeamSeed.svelte'
@@ -11,7 +10,6 @@
 
   let { data }: PageProps = $props()
   const matches = $derived(data.matches ?? [])
-  const isAdmin = $derived(data.viewer?.isAdmin ?? false)
   const loadFailed = $derived(data.loadFailed ?? false)
   const unreachable = $derived(data.unreachable ?? false)
   let searchQuery = $state('')
@@ -174,13 +172,7 @@
         title="Matches"
         subtitle="Upcoming, live, and completed matches."
         icon={Calendar}
-      >
-        {#snippet actions()}
-          {#if isAdmin}
-            <AdminEditLink href="/admin?tab=matches" label="Manage Matches" />
-          {/if}
-        {/snippet}
-      </PageHeading>
+      ></PageHeading>
 
       <!-- Tab bar -->
       <div class="tab-bar">

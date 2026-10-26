@@ -14,28 +14,12 @@
   const clickedName = $derived(String(data.clickedName ?? 'Player'))
   const base = $derived(String(data.base ?? ''))
   const batchId = $derived(data.batchId ?? null)
-  const allBatchOptions = $derived(
+  const batchOptions = $derived(
     (data.batchOptions ?? []) as Array<{
       label: string
       value: string
       import_kind?: string | null
-      week_label?: string | null
     }>
-  )
-  let hideWeeks = $state(false)
-  function isWeekBatch(b: {
-    import_kind?: string | null
-    week_label?: string | null
-    label?: string | null
-  }) {
-    if (b.import_kind === 'weekly') return true
-    if (b.week_label) return true
-    if (typeof b.label === 'string' && /week/i.test(b.label)) return true
-    return false
-  }
-  const hasAnyWeeks = $derived(allBatchOptions.some((b) => isWeekBatch(b)))
-  const batchOptions = $derived(
-    hideWeeks ? allBatchOptions.filter((b) => !isWeekBatch(b)) : allBatchOptions
   )
   const selected = $derived(data.selected ?? null)
   const matchHistory = $derived(data.matchHistory ?? [])
@@ -117,11 +101,7 @@
 
   const selectedBatchLabel = $derived.by(() => {
     if (!selected) return null
-    const parts = [selected.batch?.display_name ?? selected.import_batch_id]
-    if (selected.batch?.import_kind === 'weekly' && selected.batch?.week_label) {
-      parts.push(selected.batch.week_label)
-    }
-    return parts.filter(Boolean).join(' · ')
+    return selected.batch?.display_name ?? selected.import_batch_id ?? null
   })
 
   function navToBatch(nextBatchId: string) {
@@ -280,16 +260,6 @@
               <span class="stats-batch">{selectedBatchLabel}</span>
             {/if}
             <div class="stats-controls">
-              {#if hasAnyWeeks}
-                <button
-                  type="button"
-                  class="toggle-btn"
-                  class:toggle-btn-on={hideWeeks}
-                  onclick={() => (hideWeeks = !hideWeeks)}
-                >
-                  Hide Weeks
-                </button>
-              {/if}
               {#if batchOptions.length > 0}
                 <div class="batch-select">
                   <CustomSelect
@@ -555,33 +525,6 @@
 
   .batch-select {
     min-width: 16rem;
-  }
-
-  .toggle-btn {
-    padding: 0.4375rem 0.75rem;
-    border-radius: 0.4375rem;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(0, 0, 0, 0.25);
-    color: rgba(255, 255, 255, 0.7);
-    font-size: 0.75rem;
-    font-weight: 600;
-    cursor: pointer;
-    white-space: nowrap;
-    transition:
-      background 0.15s,
-      border-color 0.15s,
-      color 0.15s;
-  }
-
-  .toggle-btn:hover {
-    color: var(--text);
-    background: rgba(255, 255, 255, 0.06);
-  }
-
-  .toggle-btn-on {
-    border-color: rgba(120, 67, 145, 0.6);
-    background: var(--accent);
-    color: var(--text);
   }
 
   /* KPI tiles */

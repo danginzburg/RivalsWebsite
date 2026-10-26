@@ -2,15 +2,13 @@ import { error } from '@sveltejs/kit'
 
 import { requireProfile } from '$lib/server/auth/profile'
 import {
-  getActualWinnersFromLinkedMatches,
-  getLinkedResults,
   getPickemContextBySeasonCode,
+  getPickemResults,
   getPickemSubmissionForProfile,
   getPickemTeamsByIds,
-  listPickemLeaderboard,
   listPickemPublicSubmissions,
 } from '$lib/server/pickems'
-import { isPickemLocked } from '$lib/pickems'
+import { isPickemComplete, isPickemLocked, rankPickemLeaderboardEntries } from '$lib/pickems'
 import type { PageServerLoad } from './$types'
 
 export const load: PageServerLoad = async ({ locals, params }) => {
@@ -22,16 +20,15 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 
   const profile = locals.user ? await requireProfile(locals.user).catch(() => null) : null
   const mySubmission = profile ? await getPickemSubmissionForProfile(event.id, profile.id) : null
-  const [submissions, leaderboard, actualWinners, linkedResults] = await Promise.all([
-    listPickemPublicSubmissions(event.id),
-    listPickemLeaderboard(event.id),
-    getActualWinnersFromLinkedMatches(matches),
-    // For the "Actual Bracket" view: a reconstructed bracket's real matches can
-    // route teams differently than the seed layout, so the true teams/winners
-    // come from the linked games rather than seed propagation.
-    getLinkedResults(matches),
-  ])
+  // Results come from the real matches behind each slot — linked by an admin or
+  // detected from the two teams that met. Their teams also feed the "Actual
+  // Bracket" view, since a reconstructed bracket can route teams differently
+  // than the seed layout.
+  const { actualWinners, linkedResults } = await getPickemResults(event, matches)
+  const submissions = await listPickemPublicSubmissions(event.id, matches, actualWinners)
+  const leaderboard = rankPickemLeaderboardEntries(submissions)
   const locked = isPickemLocked(event)
+  const complete = isPickemComplete(matches, actualWinners)
 
   // Weekly matchups can be defined by linking a real match instead of assigning
   // teams, so fill each slot's teams from its linked game when not set directly.
@@ -79,6 +76,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
     leaderboard,
     actualWinners,
     linkedResults,
+    complete,
     viewer: {
       isLoggedIn: Boolean(profile),
       canEdit: Boolean(profile) && event.status === 'open' && !locked,

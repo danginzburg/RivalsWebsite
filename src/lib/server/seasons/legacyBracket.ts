@@ -67,6 +67,8 @@ type LegacyConfig = {
 
 export type LegacyBracket = {
   slots: PickemSlot[]
+  /** The template rows the slots were built from, for reading bracket topology. */
+  matches: PickemMatch[]
   /** Seed number keyed by team id, for seed labels across the page. */
   seeds: Record<string, number>
   /** How many teams were seeded into the bracket. */
@@ -239,6 +241,7 @@ export async function loadLegacyBracket(metadata: unknown): Promise<LegacyBracke
 
   return {
     slots: buildPickemSlots({ seeds }, matches, { picks: {} }, linkedResults),
+    matches,
     seeds: Object.fromEntries(config.seeds.map((s) => [s.teamId, s.seed])),
     teamCount: config.seeds.length,
   }

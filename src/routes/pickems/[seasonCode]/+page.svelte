@@ -76,12 +76,14 @@
   )
 
   /*
-   * The medal only means something once every match has been scored — before
+   * The medal only means something once every match has a result — before
    * that the top of the leaderboard is just whoever is ahead so far. A tie at
    * the top has no single champion, so nothing is awarded: one rule, so the
    * banner and the row medal can never disagree.
    */
-  const isScored = $derived(data.event.status === 'scored')
+  const isScored = $derived(data.complete || data.event.status === 'scored')
+  // Opening and locking are timed, so show what the timing says, not just the stored status.
+  const statusLabel = $derived(isScored ? 'final' : data.locked ? 'locked' : data.event.status)
   const champion = $derived.by(() => {
     if (!isScored) return null
     const leaders = data.leaderboard.filter((entry) => entry.rank === 1)
@@ -215,7 +217,7 @@
               class="inline-block rounded-full px-2 py-0.5 text-xs font-bold uppercase"
               style="background: var(--accent); color: var(--text);"
             >
-              {data.event.status}
+              {statusLabel}
             </span>
             {#if data.event.lockAt}
               <span>Locks {new Date(data.event.lockAt).toLocaleString()}</span>

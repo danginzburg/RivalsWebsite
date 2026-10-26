@@ -16,19 +16,9 @@ export const POST = async ({ locals, request }: { locals: App.Locals; request: R
   const rows = body?.rows
   const sourceFilename = typeof body?.sourceFilename === 'string' ? body.sourceFilename.trim() : ''
   const displayName = typeof body?.displayName === 'string' ? body.displayName.trim() : ''
-  const importKind = typeof body?.importKind === 'string' ? body.importKind.trim() : ''
-  const weekLabel = typeof body?.weekLabel === 'string' ? body.weekLabel.trim() : ''
 
   if (!Array.isArray(rows) || rows.length === 0) {
     throw error(400, 'No rows provided')
-  }
-
-  if (importKind && importKind !== 'weekly' && importKind !== 'aggregate') {
-    throw error(400, 'importKind must be weekly or aggregate')
-  }
-
-  if ((importKind || 'weekly') === 'weekly' && weekLabel && weekLabel.length > 48) {
-    throw error(400, 'weekLabel is too long')
   }
 
   const MAX_ROWS = 1000
@@ -147,8 +137,9 @@ export const POST = async ({ locals, request }: { locals: App.Locals; request: R
     uploaded_by_profile_id: admin.id,
     source_filename: sourceFilename || 'add-stats.csv',
     display_name: displayName || sourceFilename || 'Stats Import',
-    import_kind: importKind || 'weekly',
-    week_label: (importKind || 'weekly') === 'weekly' ? weekLabel || null : null,
+    // Weekly imports were retired; every upload is an aggregate.
+    import_kind: 'aggregate',
+    week_label: null,
     status: 'applied',
     dry_run: false,
     row_count: insertRows.length,
@@ -156,8 +147,8 @@ export const POST = async ({ locals, request }: { locals: App.Locals; request: R
     rejected_count: unmatched,
     metadata: {
       import_type: 'rivals_group_stats',
-      import_kind: importKind || 'weekly',
-      week_label: (importKind || 'weekly') === 'weekly' ? weekLabel || null : null,
+      import_kind: 'aggregate',
+      week_label: null,
     },
   }
 

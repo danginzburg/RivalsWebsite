@@ -3,6 +3,7 @@ import type { PageServerLoad } from './$types'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { errorMessage } from '$lib/server/errors'
 import { withSectionFallback } from '$lib/server/stats/rivals-batch'
+import { isAllTimeBatch } from '$lib/server/stats/all-time'
 
 type StatBatchRow = {
   id: string
@@ -56,30 +57,6 @@ export const load: PageServerLoad = async ({ locals }) => {
     throw error(500, msg || 'Failed to load profiles')
   }
 
-  // Week label suggestions (best-effort; migrations may not be applied yet).
-  const weekLabels: string[] = []
-  {
-    const { data: batches, error: batchesError } = await supabaseAdmin
-      .from('stat_import_batches')
-      .select('week_label, import_kind')
-      .eq('import_kind', 'weekly')
-      .not('week_label', 'is', null)
-      .order('created_at', { ascending: false })
-      .limit(200)
-
-    if (!batchesError) {
-      const seen = new Set<string>()
-      for (const b of batches ?? []) {
-        const w = String((b as { week_label?: string | null }).week_label ?? '').trim()
-        if (!w) continue
-        const key = w.toLowerCase()
-        if (seen.has(key)) continue
-        seen.add(key)
-        weekLabels.push(w)
-      }
-    }
-  }
-
   // Seasons the batch generator can be scoped to.
   const { data: seasonRows } = await supabaseAdmin
     .from('seasons')
@@ -88,7 +65,6 @@ export const load: PageServerLoad = async ({ locals }) => {
 
   return {
     profiles: profiles ?? [],
-    weekLabels,
     seasons: (seasonRows ?? []).map((s) => ({
       id: s.id as string,
       code: (s.code as string | null) ?? null,
@@ -122,6 +98,8 @@ export const load: PageServerLoad = async ({ locals }) => {
         row_count: b.row_count ?? 0,
         // Only these can be rebuilt from their source matches.
         generated: Boolean(b.metadata?.generated_from_matches),
+        // Summed from CSV-era batches plus every later season's matches.
+        all_time: isAllTimeBatch(b.metadata),
         // Live batches rebuild themselves on every covered match import.
         auto_refresh: Boolean(b.metadata?.auto_refresh),
         season_id: b.metadata?.source_season_id ?? null,
