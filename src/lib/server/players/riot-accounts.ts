@@ -118,6 +118,44 @@ export async function listProfileRiotAccounts(profileId: string): Promise<Profil
 }
 
 /**
+ * The PUUID to look each profile's rank up by: the primary account's, then
+ * any other approved account's, then a PUUID an admin linked from the
+ * identities tab. Profiles with none linked are left out of the map.
+ */
+export async function linkedPuuidsFor(profileIds: string[]): Promise<Map<string, string>> {
+  const ids = [...new Set(profileIds.filter(Boolean))]
+  const puuids = new Map<string, string>()
+  if (ids.length === 0) return puuids
+
+  const [{ data: accounts, error }, { data: identities }] = await Promise.all([
+    supabaseAdmin
+      .from('profile_riot_accounts')
+      .select('profile_id, riot_puuid, is_primary')
+      .in('profile_id', ids)
+      .eq('status', 'approved')
+      .not('riot_puuid', 'is', null)
+      .order('is_primary', { ascending: false })
+      .order('created_at', { ascending: true }),
+    supabaseAdmin
+      .from('riot_identities')
+      .select('profile_id, puuid')
+      .in('profile_id', ids)
+      .order('linked_at', { ascending: true }),
+  ])
+  if (error) throw new Error('Failed to load linked Riot accounts')
+
+  for (const row of accounts ?? []) {
+    if (!puuids.has(row.profile_id)) puuids.set(row.profile_id, row.riot_puuid)
+  }
+  for (const row of identities ?? []) {
+    if (row.profile_id && row.puuid && !puuids.has(row.profile_id)) {
+      puuids.set(row.profile_id, row.puuid)
+    }
+  }
+  return puuids
+}
+
+/**
  * Create or update a profile's primary Riot account. The primary is the
  * player's own declared identity, so it is auto-approved. PUUID capture is
  * best-effort — a Riot API hiccup must not block a signup.

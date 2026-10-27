@@ -1,6 +1,5 @@
-import { env } from '$env/dynamic/private'
 import { TtlCache } from '$lib/server/cache'
-import { RiotLookupError } from './henrik'
+import { RiotLookupError, henrikFetch, rateLimitedError } from './henrik'
 import { derivePlayerStats, type DerivedPlayerStats, type RiotMatch } from './match-stats'
 import { roundStartTime } from './round-start-time'
 
@@ -44,11 +43,6 @@ export type RiotMatchDetail = {
   roundCount: number
 }
 
-function headers(): Record<string, string> {
-  const key = env.HENRIKDEV_API_KEY
-  return key ? { Authorization: key } : {}
-}
-
 type MatchPayload = RiotMatch & {
   metadata?: {
     match_id?: string | null
@@ -73,15 +67,10 @@ export async function fetchMatch(matchId: string, region: MatchRegion): Promise<
   const cached = matchCache.get(cacheKey)
   if (cached) return cached
 
-  let response: Response
-  try {
-    response = await fetch(`${BASE}/v4/match/${region}/${encodeURIComponent(matchId)}`, {
-      headers: headers(),
-      signal: AbortSignal.timeout(15_000),
-    })
-  } catch {
-    throw new RiotLookupError(503, 'Could not reach the Riot match service. Try again shortly.')
-  }
+  const response = await henrikFetch(`${BASE}/v4/match/${region}/${encodeURIComponent(matchId)}`, {
+    timeoutMs: 15_000,
+    unreachableMessage: 'Could not reach the Riot match service. Try again shortly.',
+  })
 
   if (response.status === 404) {
     throw new RiotLookupError(
@@ -89,12 +78,7 @@ export async function fetchMatch(matchId: string, region: MatchRegion): Promise<
       `No match found for that id in ${region.toUpperCase()}. Check the region if the link came from another one.`
     )
   }
-  if (response.status === 429) {
-    throw new RiotLookupError(
-      429,
-      'Riot match lookup is rate limited right now. Try again shortly.'
-    )
-  }
+  if (response.status === 429) throw rateLimitedError(null)
   if (!response.ok) {
     throw new RiotLookupError(502, `Riot match lookup failed (HTTP ${response.status}).`)
   }

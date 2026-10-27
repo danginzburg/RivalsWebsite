@@ -238,6 +238,7 @@
             startsOn: season.starts_on ?? '',
             endsOn: season.ends_on ?? '',
             isActive: Boolean(season.is_active),
+            signupsOpen: Boolean(season.signups_open),
             summary: season.summary ?? '',
             winnerTeamId: season.winner_team_id ?? '',
             runnerUpTeamId: season.runner_up_team_id ?? '',
@@ -281,6 +282,14 @@
                   style="background: rgba(74,222,128,0.18); color: #86efac;"
                 >
                   Active
+                </span>
+              {/if}
+              {#if season.signups_open}
+                <span
+                  class="rounded-full px-2 py-1 text-xs font-bold"
+                  style="background: rgba(96,165,250,0.18); color: #93c5fd;"
+                >
+                  Signups open
                 </span>
               {/if}
             </div>
@@ -340,6 +349,22 @@
                       })}
                   />
                   Active season
+                </label>
+                <label
+                  class="inline-flex items-center gap-2 text-sm"
+                  style="color: rgba(255,255,255,0.82);"
+                  title="New signups are stored against this season, even while another season is active"
+                >
+                  <input
+                    type="checkbox"
+                    checked={state.signupsOpen}
+                    onchange={(e) =>
+                      onSeasonEditChange(season.id, {
+                        ...state,
+                        signupsOpen: (e.currentTarget as HTMLInputElement).checked,
+                      })}
+                  />
+                  Signups open
                 </label>
                 <label
                   class="inline-flex items-center gap-2 text-sm"

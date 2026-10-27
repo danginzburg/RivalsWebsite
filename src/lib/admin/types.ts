@@ -22,10 +22,11 @@ export type PlayerSignup = {
   tracker_links: Array<{ label: string; url: string }>
   current_rank: string | null
   peak_rank: string | null
-  tracker_current_score: number | null
-  tracker_peak_score: number | null
   computed_value: number | null
   manual_value_override: number | null
+  manual_adjustment: number
+  /** Imported performance rating behind the score bonus, if any. */
+  rating: number | null
   status: 'pending' | 'approved' | 'rejected'
   admin_notes: string | null
   created_at: string
@@ -37,10 +38,7 @@ export type SignupEditState = {
   discordHandle: string
   currentRank: string
   peakRank: string
-  trackerCurrentScore: string
-  trackerPeakScore: string
-  manualValueOverride: string
-  adminNotes: string
+  manualAdjustment: string
 }
 
 export type CommentReport = {
@@ -191,6 +189,8 @@ export type AdminSeason = {
   starts_on: string | null
   ends_on: string | null
   is_active: boolean | null
+  /** Whether /signup registers players for this season. */
+  signups_open?: boolean | null
   metadata?: Record<string, unknown> | null
   logo_path?: string | null
   logo_url?: string | null
@@ -304,6 +304,7 @@ export type SeasonEditState = {
   startsOn: string
   endsOn: string
   isActive: boolean
+  signupsOpen: boolean
   summary: string
   winnerTeamId: string
   runnerUpTeamId: string

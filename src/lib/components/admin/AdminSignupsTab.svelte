@@ -2,11 +2,8 @@
   import CustomSelect from '$lib/components/CustomSelect.svelte'
   import AdminRiotAccountsPanel from '$lib/components/admin/AdminRiotAccountsPanel.svelte'
   import { resolve } from '$app/paths'
-  import {
-    SIGNUP_RANK_OPTIONS,
-    computeRatingFromRankNames,
-    roundRating,
-  } from '$lib/signups/formula'
+  import { SIGNUP_RANK_OPTIONS, computePlayerScore, roundRating } from '$lib/signups/formula'
+  import { signupsToCsv } from '$lib/signups/export-csv'
   import type { PlayerSignup, SignupEditState } from '$lib/admin/types'
 
   type BulkImportReport = {
@@ -30,16 +27,18 @@
     /** Signup whose Riot lookup is in flight, or null. */
     riotLookupSignupId?: string | null
     onFetchRiotRank: (signupId: string) => void
-    /** Signup whose tracker.gg lookup is in flight, or null. */
-    trackerLookupSignupId?: string | null
-    onFetchTrackerScore: (signupId: string) => void
     bulkImportRunning?: boolean
     bulkImportReport?: BulkImportReport | null
-    onBulkImport: (source: 'riot' | 'tracker' | 'both', overwrite: boolean) => void
+    /** Rows checked so far in a running bulk import. */
+    bulkImportProgress?: { done: number; total: number } | null
+    onBulkImport: (overwrite: boolean) => void
+    onStopBulkImport: () => void
     onDismissBulkReport: () => void
     onSave: (signupId: string) => void
     onSetStatus: (signupId: string, status: 'pending' | 'approved' | 'rejected') => void
     onDelete: (signupId: string, name: string) => void
+    /** Save just the adjustment; null removes it. */
+    onSetAdjustment: (signupId: string, adjustment: number | null) => void
     /** An alternate Riot account was approved or rejected. */
     onRiotAccountReviewed?: () => void
   }
@@ -54,15 +53,16 @@
     onEditChange,
     riotLookupSignupId = null,
     onFetchRiotRank,
-    trackerLookupSignupId = null,
-    onFetchTrackerScore,
     bulkImportRunning = false,
     bulkImportReport = null,
+    bulkImportProgress = null,
     onBulkImport,
+    onStopBulkImport,
     onDismissBulkReport,
     onSave,
     onSetStatus,
     onDelete,
+    onSetAdjustment,
     onRiotAccountReviewed,
   }: Props = $props()
 
@@ -91,26 +91,46 @@
         discordHandle: signup.discord_handle ?? '',
         currentRank: signup.current_rank ?? '',
         peakRank: signup.peak_rank ?? '',
-        trackerCurrentScore:
-          signup.tracker_current_score != null ? String(signup.tracker_current_score) : '',
-        trackerPeakScore:
-          signup.tracker_peak_score != null ? String(signup.tracker_peak_score) : '',
-        manualValueOverride:
-          signup.manual_value_override != null ? String(signup.manual_value_override) : '',
-        adminNotes: signup.admin_notes ?? '',
+        manualAdjustment: Number(signup.manual_adjustment ?? 0)
+          ? String(signup.manual_adjustment)
+          : '',
       }
     )
   }
 
-  /** Recompute live so an admin sees the effect of an edit before saving. */
-  function previewFor(state: SignupEditState) {
-    return computeRatingFromRankNames({
+  /**
+   * Live score from the edited ranks, so an admin sees the effect before
+   * saving. The adjustment shown is the applied one, not the draft in the box.
+   */
+  function scoreFor(signup: PlayerSignup, state: SignupEditState) {
+    const score = computePlayerScore({
       currentRank: state.currentRank || null,
       peakRank: state.peakRank || null,
-      trackerCurrentScore:
-        state.trackerCurrentScore === '' ? null : Number(state.trackerCurrentScore),
-      trackerPeakScore: state.trackerPeakScore === '' ? null : Number(state.trackerPeakScore),
+      rating: signup.rating,
     })
+    const adjustment = Number(signup.manual_adjustment ?? 0)
+    return {
+      ...score,
+      adjustment,
+      final: score.total == null ? null : roundRating(score.total + adjustment),
+    }
+  }
+
+  const fmt = (n: number | null, digits = 2) => (n == null ? '—' : n.toFixed(digits))
+  const signed = (n: number) => `${n < 0 ? '−' : '+'}${Math.abs(n).toFixed(2)}`
+
+  /** Download the signups in the current filter as a CSV. */
+  function exportSignupsCsv() {
+    const blob = new Blob(
+      [signupsToCsv(signups.map((s) => ({ ...s, score: effectiveValue(s) })))],
+      { type: 'text/csv;charset=utf-8' }
+    )
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `signups-${statusFilter}-${new Date().toISOString().slice(0, 10)}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
   }
 
   function statusStyle(status: string) {
@@ -120,7 +140,9 @@
   }
 
   function effectiveValue(signup: PlayerSignup) {
-    return signup.manual_value_override ?? signup.computed_value
+    if (signup.manual_value_override != null) return signup.manual_value_override
+    if (signup.computed_value == null) return null
+    return roundRating(Number(signup.computed_value) + Number(signup.manual_adjustment ?? 0))
   }
 </script>
 
@@ -161,28 +183,29 @@
         type="button"
         class="admin-btn admin-btn-sm admin-btn-info"
         disabled={bulkImportRunning}
-        title="Fetch current and peak rank from Riot for every signup in this filter"
-        onclick={() => onBulkImport('riot', bulkOverwrite)}
+        title="Fetch current rank and peak since V26 Act 1 for every signup in this filter"
+        onclick={() => onBulkImport(bulkOverwrite)}
       >
         Ranks from Riot
       </button>
+      {#if bulkImportRunning}
+        <button
+          type="button"
+          class="admin-btn admin-btn-sm admin-btn-neutral"
+          title="Stop after the current batch; rows already filled stay saved"
+          onclick={onStopBulkImport}
+        >
+          Stop
+        </button>
+      {/if}
       <button
         type="button"
         class="admin-btn admin-btn-sm admin-btn-accent"
-        disabled={bulkImportRunning}
-        title="Read tracker.gg scores for every signup in this filter"
-        onclick={() => onBulkImport('tracker', bulkOverwrite)}
+        disabled={signups.length === 0}
+        title="Download every signup in this filter as a CSV: Riot ID, Discord and final score"
+        onclick={exportSignupsCsv}
       >
-        Tracker scores
-      </button>
-      <button
-        type="button"
-        class="admin-btn admin-btn-sm admin-btn-accent"
-        disabled={bulkImportRunning}
-        title="Fetch ranks and tracker scores in one pass"
-        onclick={() => onBulkImport('both', bulkOverwrite)}
-      >
-        Both
+        Bulk output
       </button>
 
       <label class="ml-auto flex items-center gap-2 text-xs" style="color: rgba(255,255,255,0.72);">
@@ -193,7 +216,14 @@
 
     <p class="mt-2 text-[11px]" style="color: rgba(255,255,255,0.6);">
       {#if bulkImportRunning}
-        Running — requests are paced, so this takes a while. Leave this tab open.
+        {#if bulkImportProgress}
+          <strong style="color: rgba(255,255,255,0.82);">
+            {bulkImportProgress.done} / {bulkImportProgress.total}
+          </strong>
+          checked.
+        {/if}
+        Running — Riot lookups are paced to stay under the API's rate limit (about 30 a minute), so a
+        few hundred players take several minutes. Leave this tab open.
       {:else}
         Applies to the <strong style="color: rgba(255,255,255,0.82);">{statusFilter}</strong> filter and
         saves directly. Rows that already have values are skipped unless overwrite is on, and a manual
@@ -211,7 +241,7 @@
         <span class="text-xs font-semibold" style="color: rgba(255,255,255,0.85);">
           {bulkImportReport.updated} updated · {bulkImportReport.skipped} skipped · {bulkImportReport.failed}
           failed
-          {#if bulkImportReport.stoppedEarly}
+          {#if bulkImportReport.stoppedEarly && !bulkImportRunning}
             <span style="color: #fcd34d;">
               · stopped with {bulkImportReport.remaining} left, run again to continue
             </span>
@@ -257,8 +287,8 @@
     <div class="grid grid-cols-1 gap-2">
       {#each signups as signup (signup.id)}
         {@const state = stateFor(signup)}
+        {@const score = scoreFor(signup, state)}
         {@const isExpanded = expandedId === signup.id}
-        {@const preview = previewFor(state)}
         <article
           class="rounded-md border"
           style="border-color: rgba(255,255,255,0.10); background: rgba(0,0,0,0.2);"
@@ -295,6 +325,8 @@
                 {effectiveValue(signup)}
                 {#if signup.manual_value_override != null}
                   <span style="opacity: 0.7;"> (manual)</span>
+                {:else if Number(signup.manual_adjustment ?? 0) !== 0}
+                  <span style="opacity: 0.7;"> (adj)</span>
                 {/if}
               </span>
             {/if}
@@ -323,23 +355,40 @@
                 </span>
               </div>
 
-              {#if (signup.tracker_links ?? []).length > 0}
-                <div class="mb-3 flex flex-wrap gap-2">
-                  {#each signup.tracker_links as link (link.url)}
-                    <!-- eslint-disable svelte/no-navigation-without-resolve -->
-                    <!-- External tracker URLs, not app routes -->
-                    <a
-                      href={link.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      class="admin-btn admin-btn-sm admin-btn-info"
-                    >
-                      {link.label} ↗
-                    </a>
-                    <!-- eslint-enable svelte/no-navigation-without-resolve -->
-                  {/each}
-                </div>
-              {/if}
+              <!-- Tracker links to verify by eye, beside the lookup that fills the ranks. -->
+              <div class="mb-3 flex flex-wrap items-center gap-2">
+                {#each signup.tracker_links ?? [] as link (link.url)}
+                  <!-- eslint-disable svelte/no-navigation-without-resolve -->
+                  <!-- External tracker URLs, not app routes -->
+                  <a
+                    href={link.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="admin-btn admin-btn-sm admin-btn-info"
+                  >
+                    {link.label} ↗
+                  </a>
+                  <!-- eslint-enable svelte/no-navigation-without-resolve -->
+                {/each}
+                <button
+                  type="button"
+                  class="admin-btn admin-btn-sm admin-btn-info"
+                  disabled={riotLookupSignupId === signup.id}
+                  title="Look up by the player's linked Riot account, or the Riot ID on the signup"
+                  onclick={() => onFetchRiotRank(signup.id)}
+                >
+                  {riotLookupSignupId === signup.id ? 'Looking up...' : 'Fetch rank from Riot'}
+                </button>
+                {#if signup.riot_tag}
+                  <span class="text-[11px]" style="color: rgba(255,255,255,0.64);">
+                    {signup.display_name}#{signup.riot_tag}
+                  </span>
+                {:else}
+                  <span class="text-[11px]" style="color: #fcd34d;">
+                    No tagline on this signup — the lookup needs a linked Riot account.
+                  </span>
+                {/if}
+              </div>
 
               <!-- Editable fields -->
               <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
@@ -367,46 +416,9 @@
                 </label>
               </div>
 
-              <!-- Riot lookup fills the rank fields; scores stay manual. -->
-              <div class="mt-3 flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  class="admin-btn admin-btn-sm admin-btn-info"
-                  disabled={riotLookupSignupId === signup.id || !signup.riot_tag}
-                  title={signup.riot_tag
-                    ? `Look up ${signup.display_name}#${signup.riot_tag}`
-                    : 'This signup has no Riot tagline'}
-                  onclick={() => onFetchRiotRank(signup.id)}
-                >
-                  {riotLookupSignupId === signup.id ? 'Looking up...' : 'Fetch rank from Riot'}
-                </button>
-                <button
-                  type="button"
-                  class="admin-btn admin-btn-sm admin-btn-accent"
-                  disabled={trackerLookupSignupId === signup.id || !signup.riot_tag}
-                  title={signup.riot_tag
-                    ? 'Read the tracker.gg performance score for current and peak'
-                    : 'This signup has no Riot tagline'}
-                  onclick={() => onFetchTrackerScore(signup.id)}
-                >
-                  {trackerLookupSignupId === signup.id
-                    ? 'Reading tracker...'
-                    : 'Fetch tracker score'}
-                </button>
-                {#if signup.riot_tag}
-                  <span class="text-[11px]" style="color: rgba(255,255,255,0.64);">
-                    {signup.display_name}#{signup.riot_tag}
-                  </span>
-                {:else}
-                  <span class="text-[11px]" style="color: #fcd34d;">
-                    No tagline on this signup — ask the player to resubmit.
-                  </span>
-                {/if}
-              </div>
-
-              <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <label class="text-xs" style="color: rgba(255,255,255,0.82);">
-                  Current Rank (C)
+                  Current Rank
                   <div class="mt-1">
                     <CustomSelect
                       options={rankOptions}
@@ -418,7 +430,7 @@
                   </div>
                 </label>
                 <label class="text-xs" style="color: rgba(255,255,255,0.82);">
-                  Peak Rank (P)
+                  Peak Rank
                   <div class="mt-1">
                     <CustomSelect
                       options={rankOptions}
@@ -429,100 +441,76 @@
                     />
                   </div>
                 </label>
-                <label class="text-xs" style="color: rgba(255,255,255,0.82);">
-                  Tracker Current (Tc)
-                  <input
-                    type="number"
-                    step="any"
-                    min="0"
-                    value={state.trackerCurrentScore}
-                    class="admin-input mt-1"
-                    placeholder="Blank = 0"
-                    oninput={(e) =>
-                      onEditChange(signup.id, {
-                        trackerCurrentScore: (e.currentTarget as HTMLInputElement).value,
-                      })}
-                  />
-                </label>
-                <label class="text-xs" style="color: rgba(255,255,255,0.82);">
-                  Tracker Peak (Tp)
-                  <input
-                    type="number"
-                    step="any"
-                    min="0"
-                    value={state.trackerPeakScore}
-                    class="admin-input mt-1"
-                    placeholder="Blank = 0"
-                    oninput={(e) =>
-                      onEditChange(signup.id, {
-                        trackerPeakScore: (e.currentTarget as HTMLInputElement).value,
-                      })}
-                  />
-                </label>
               </div>
 
-              <!-- Formula readout -->
+              <!-- Score breakdown and adjustment -->
               <div
-                class="mt-3 rounded-md p-3"
+                class="mt-3 flex flex-wrap items-end justify-between gap-3 rounded-md p-3"
                 style="background: rgba(120,67,145,0.08); border: 1px solid rgba(120,67,145,0.28);"
               >
-                <div class="flex flex-wrap items-baseline justify-between gap-2">
-                  <span
-                    class="text-[10px] font-bold tracking-wide uppercase"
-                    style="color: rgba(255,255,255,0.5);"
-                  >
-                    Formula result
-                  </span>
-                  <span
-                    class="text-xl font-bold"
-                    style="color: #d8b4fe; font-variant-numeric: tabular-nums;"
-                  >
-                    {roundRating(preview.rating)}
-                  </span>
-                </div>
                 <div
-                  class="mt-1 flex flex-wrap gap-3 text-[11px]"
+                  class="flex flex-col gap-1 text-[11px]"
                   style="color: rgba(255,255,255,0.64); font-variant-numeric: tabular-nums;"
                 >
-                  <span>0.575C = {preview.currentTerm.toFixed(2)}</span>
-                  <span>0.425P = {preview.peakTerm.toFixed(2)}</span>
-                  <span>0.15√Tc = {preview.trackerCurrentTerm.toFixed(2)}</span>
-                  <span>0.075·ln(Tp) = {preview.trackerPeakTerm.toFixed(2)}</span>
-                  <span>× {preview.multiplier.toFixed(3)}</span>
+                  <span>
+                    0.35 × {fmt(score.currentPoints, 0)} + 0.65 × {fmt(score.peakPoints, 0)}
+                    = {fmt(score.weightedRankScore)}
+                  </span>
+                  <span>
+                    Bonus {signed(score.bonus)}
+                    {#if signup.rating != null}
+                      (rating {signup.rating.toFixed(3)})
+                    {:else}
+                      (no rating)
+                    {/if}
+                    {#if score.adjustment !== 0}
+                      · Adjustment {signed(score.adjustment)}
+                    {/if}
+                  </span>
+                  <span class="text-sm font-bold" style="color: #d8b4fe;">
+                    {#if score.final == null}
+                      No score — needs both ranks
+                    {:else}
+                      Score {fmt(score.final)}
+                    {/if}
+                  </span>
                 </div>
 
-                <label class="mt-3 block text-xs" style="color: rgba(255,255,255,0.82);">
-                  Manual override
-                  <input
-                    type="number"
-                    step="any"
-                    value={state.manualValueOverride}
-                    class="admin-input mt-1 md:max-w-[12rem]"
-                    placeholder="Leave blank to use the formula"
-                    oninput={(e) =>
-                      onEditChange(signup.id, {
-                        manualValueOverride: (e.currentTarget as HTMLInputElement).value,
-                      })}
-                  />
-                  <span class="mt-1 block text-[11px]" style="color: rgba(255,255,255,0.6);">
-                    Overrides the formula for the team calculator.
-                  </span>
-                </label>
+                <div class="flex items-end gap-2">
+                  <label class="text-xs" style="color: rgba(255,255,255,0.82);">
+                    Manual adjustment
+                    <input
+                      type="number"
+                      step="any"
+                      value={state.manualAdjustment}
+                      class="admin-input mt-1 w-28"
+                      placeholder="0"
+                      oninput={(e) =>
+                        onEditChange(signup.id, {
+                          manualAdjustment: (e.currentTarget as HTMLInputElement).value,
+                        })}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    class="admin-btn admin-btn-sm admin-btn-info"
+                    disabled={processingSignupId === signup.id ||
+                      state.manualAdjustment.trim() === '' ||
+                      Number(state.manualAdjustment) === score.adjustment}
+                    onclick={() => onSetAdjustment(signup.id, Number(state.manualAdjustment))}
+                  >
+                    Apply
+                  </button>
+                  <button
+                    type="button"
+                    class="admin-btn admin-btn-sm admin-btn-danger"
+                    disabled={processingSignupId === signup.id || score.adjustment === 0}
+                    onclick={() => onSetAdjustment(signup.id, null)}
+                  >
+                    Remove
+                  </button>
+                </div>
               </div>
-
-              <label class="mt-2 block text-xs" style="color: rgba(255,255,255,0.82);">
-                Admin Notes
-                <textarea
-                  rows="2"
-                  value={state.adminNotes}
-                  class="admin-input mt-1 leading-5"
-                  placeholder="Visible to the player on their signup page."
-                  oninput={(e) =>
-                    onEditChange(signup.id, {
-                      adminNotes: (e.currentTarget as HTMLTextAreaElement).value,
-                    })}
-                ></textarea>
-              </label>
 
               <div class="mt-3 flex flex-wrap items-center justify-between gap-2">
                 <button

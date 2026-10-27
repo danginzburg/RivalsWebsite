@@ -13,6 +13,7 @@ const SEASON_COLUMNS = `
   starts_on,
   ends_on,
   is_active,
+  signups_open,
   metadata,
   logo_path,
   summary,
@@ -128,6 +129,16 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
   // Kind is only rewritten when the caller sends it, so a partial save can't
   // silently flip an event's type.
   if (body.kind !== undefined) updates.kind = normalizeKind(body.kind)
+
+  // Signups are independent of the active flag, so the next season can take
+  // registrations while the current event runs. Only one season takes them.
+  if (body.signupsOpen !== undefined) {
+    const signupsOpen = Boolean(body.signupsOpen)
+    if (signupsOpen) {
+      await supabaseAdmin.from('seasons').update({ signups_open: false }).neq('id', id)
+    }
+    updates.signups_open = signupsOpen
+  }
 
   // Season results are only written when the caller actually sent them.
   // A payload that omits a field leaves it alone rather than clearing it, so

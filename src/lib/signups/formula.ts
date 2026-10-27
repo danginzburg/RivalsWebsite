@@ -1,111 +1,70 @@
-import { getRankValue, TEAM_BALANCE_RANKS } from '$lib/team-balance'
+import { TEAM_BALANCE_RANKS } from '$lib/team-balance'
 
 /**
- * Player rating formula.
+ * Player score formula.
  *
- *   base       = 0.575·C + 0.425·P + 0.15·√Tc + 0.075·ln(Tp)
- *   multiplier = 1 + 0.1·(C / P)
- *   rating     = base × multiplier
+ *   score = 0.35·C + 0.65·P + bonus
+ *   bonus = MIN(5, 10·MAX(0, rating − 1))
  *
  * Where:
- *   C  = current rank value   (from TEAM_BALANCE_RANKS)
- *   P  = peak rank value      (from TEAM_BALANCE_RANKS)
- *   Tc = tracker current score
- *   Tp = tracker peak score
+ *   C      = current rank points
+ *   P      = peak rank points since V26 Act 1
+ *   rating = the player's imported performance rating (1.0 is average)
  *
- * Every term degrades safely: a missing tracker score contributes 0 rather
- * than NaN, and a zero peak rank skips the ratio multiplier instead of
- * dividing by zero.
+ * Rank points are a straight linear scale — Iron 1 = 1 up to Radiant = 25 —
+ * deliberately not the team calculator's scale, which spaces Immortal and
+ * Radiant further apart.
+ *
+ * A player without both ranks is unverified and gets no score rather than a
+ * partial one. A player without a rating simply gets no bonus.
  */
 
-export type FormulaInputs = {
-  /** C — current rank value. */
-  currentRankValue: number
-  /** P — peak rank value. */
-  peakRankValue: number
-  /** Tc — tracker current score. */
-  trackerCurrentScore: number | null
-  /** Tp — tracker peak score. */
-  trackerPeakScore: number | null
-}
-
-export type FormulaBreakdown = {
-  currentTerm: number
-  peakTerm: number
-  trackerCurrentTerm: number
-  trackerPeakTerm: number
-  base: number
-  multiplier: number
-  rating: number
-}
-
-export const FORMULA_WEIGHTS = {
-  current: 0.575,
-  peak: 0.425,
-  trackerCurrentSqrt: 0.15,
-  trackerPeakLog: 0.075,
-  ratioBonus: 0.1,
+export const SCORE_WEIGHTS = {
+  current: 0.35,
+  peak: 0.65,
+  bonusPerRating: 10,
+  bonusCap: 5,
 } as const
 
-function safeNumber(value: number | null | undefined): number {
-  if (value == null) return 0
-  const n = Number(value)
-  return Number.isFinite(n) ? n : 0
+/** Rank name → points, by position on the league scale (Iron 1 = 1 … Radiant = 25). */
+const RANK_POINTS = new Map<string, number>(TEAM_BALANCE_RANKS.map((r, i) => [r.name, i + 1]))
+
+export function rankPoints(rankName: string | null | undefined): number | null {
+  if (!rankName) return null
+  return RANK_POINTS.get(rankName) ?? null
 }
 
-/** √Tc, guarding against negative input. */
-function sqrtTerm(value: number): number {
-  return value > 0 ? Math.sqrt(value) : 0
+export function ratingBonus(rating: number | null | undefined): number {
+  if (rating == null || !Number.isFinite(rating)) return 0
+  return Math.min(SCORE_WEIGHTS.bonusCap, SCORE_WEIGHTS.bonusPerRating * Math.max(0, rating - 1))
 }
 
-/**
- * ln(Tp), guarding against ln(0) = -Infinity and negatives.
- * Scores at or below 1 contribute nothing.
- */
-function logTerm(value: number): number {
-  return value > 1 ? Math.log(value) : 0
+export type ScoreBreakdown = {
+  currentPoints: number | null
+  peakPoints: number | null
+  /** 0.35·C + 0.65·P, or null when either rank is missing. */
+  weightedRankScore: number | null
+  bonus: number
+  /** Weighted rank score plus bonus, or null when unverified. */
+  total: number | null
 }
 
-export function computeRating(inputs: FormulaInputs): FormulaBreakdown {
-  const c = safeNumber(inputs.currentRankValue)
-  const p = safeNumber(inputs.peakRankValue)
-  const tc = safeNumber(inputs.trackerCurrentScore)
-  const tp = safeNumber(inputs.trackerPeakScore)
-
-  const currentTerm = FORMULA_WEIGHTS.current * c
-  const peakTerm = FORMULA_WEIGHTS.peak * p
-  const trackerCurrentTerm = FORMULA_WEIGHTS.trackerCurrentSqrt * sqrtTerm(tc)
-  const trackerPeakTerm = FORMULA_WEIGHTS.trackerPeakLog * logTerm(tp)
-
-  const base = currentTerm + peakTerm + trackerCurrentTerm + trackerPeakTerm
-
-  // A peak of zero means we have no ratio to reason about — skip the bonus.
-  const multiplier = p > 0 ? 1 + FORMULA_WEIGHTS.ratioBonus * (c / p) : 1
-
-  return {
-    currentTerm,
-    peakTerm,
-    trackerCurrentTerm,
-    trackerPeakTerm,
-    base,
-    multiplier,
-    rating: base * multiplier,
-  }
-}
-
-/** Convenience wrapper that resolves rank names before computing. */
-export function computeRatingFromRankNames(input: {
+export function computePlayerScore(input: {
   currentRank: string | null
   peakRank: string | null
-  trackerCurrentScore: number | null
-  trackerPeakScore: number | null
-}): FormulaBreakdown {
-  return computeRating({
-    currentRankValue: input.currentRank ? getRankValue(input.currentRank) : 0,
-    peakRankValue: input.peakRank ? getRankValue(input.peakRank) : 0,
-    trackerCurrentScore: input.trackerCurrentScore,
-    trackerPeakScore: input.trackerPeakScore,
-  })
+  rating: number | null
+}): ScoreBreakdown {
+  const currentPoints = rankPoints(input.currentRank)
+  const peakPoints = rankPoints(input.peakRank)
+  const bonus = ratingBonus(input.rating)
+
+  if (currentPoints == null || peakPoints == null) {
+    return { currentPoints, peakPoints, weightedRankScore: null, bonus, total: null }
+  }
+
+  const weightedRankScore = SCORE_WEIGHTS.current * currentPoints + SCORE_WEIGHTS.peak * peakPoints
+
+  return { currentPoints, peakPoints, weightedRankScore, bonus, total: weightedRankScore + bonus }
 }
 
 /** Round for storage and display — two decimals is plenty of precision here. */

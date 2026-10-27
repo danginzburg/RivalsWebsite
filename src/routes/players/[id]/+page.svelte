@@ -31,9 +31,9 @@
   const matchHistory = $derived((data.matchHistory ?? []) as any[])
   const teamHistory = $derived(data.teamHistory ?? [])
   const activeSeasonId = $derived((data.activeSeasonId ?? null) as string | null)
-  // Defaults to the active season; with none configured there is nothing to
-  // scope to, so the full history shows.
-  let teamHistoryScope = $state<'season' | 'all'>('season')
+  // Defaults to the full history; "This Season" narrows it to the active
+  // season, and is hidden when none is configured.
+  let teamHistoryScope = $state<'season' | 'all'>('all')
   const currentSeasonTeams = $derived(
     teamHistory.filter((entry) => entry.season?.id === activeSeasonId)
   )

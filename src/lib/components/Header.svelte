@@ -32,6 +32,9 @@
   // While an external event is the active season, hide the Rivals-only tabs
   // (Calculator, Rulebook, FAQ, Signup) — that event hosts them elsewhere.
   const isExternalSeason = $derived($page.data.activeSeasonKind === 'external')
+  // Signups for the next season can open while an external event is active, so
+  // the Signup tab follows the signup season instead.
+  const signupsOpen = $derived($page.data.signupsOpen ?? false)
   const unreadNotifications = $derived($page.data.unreadNotifications ?? 0)
 
   type NavHref =
@@ -65,8 +68,10 @@
           { href: '/team-balance' as NavHref, label: 'Calculator', icon: Calculator },
           { href: '/rulebook' as NavHref, label: 'Rulebook', icon: BookOpen },
           { href: '/faq' as NavHref, label: 'FAQ', icon: HelpCircle },
-          { href: '/signup' as NavHref, label: 'Signup', icon: ClipboardList },
         ]),
+    ...(isExternalSeason && !signupsOpen
+      ? []
+      : [{ href: '/signup' as NavHref, label: 'Signup', icon: ClipboardList }]),
   ])
 
   /** Icon-only items pinned to the right of the nav. */

@@ -14,7 +14,9 @@ export const load = async () => {
 
   let query = supabaseAdmin
     .from('player_signups')
-    .select('profile_id, display_name, current_rank, computed_value, manual_value_override')
+    .select(
+      'profile_id, display_name, current_rank, computed_value, manual_value_override, manual_adjustment'
+    )
     .eq('status', 'approved')
 
   if (activeSeason) query = query.eq('season_id', activeSeason.id)
@@ -47,7 +49,7 @@ export const load = async () => {
         name: row.display_name ?? profile?.display_name ?? profile?.riot_id_base ?? 'Player',
         rank: row.current_rank ?? null,
         value,
-        isManual: row.manual_value_override != null,
+        isManual: row.manual_value_override != null || Number(row.manual_adjustment ?? 0) !== 0,
       }
     })
     // A signup without a rating cannot help the calculator.

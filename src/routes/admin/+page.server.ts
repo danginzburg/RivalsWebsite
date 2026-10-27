@@ -35,7 +35,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     // Results columns must be here too: the seasons tab seeds its edit form
     // from this payload, and a missing field would be saved back as null.
     .select(
-      `id, code, name, kind, starts_on, ends_on, is_active, metadata, created_at, logo_path,
+      `id, code, name, kind, starts_on, ends_on, is_active, signups_open, metadata, created_at, logo_path,
        summary, winner_team_id, runner_up_team_id, mvp_profile_id, final_leaderboard_batch_id`
     )
     .order('is_active', { ascending: false })

@@ -424,12 +424,9 @@
       discordHandle: signup.discord_handle ?? '',
       currentRank: signup.current_rank ?? '',
       peakRank: signup.peak_rank ?? '',
-      trackerCurrentScore:
-        signup.tracker_current_score != null ? String(signup.tracker_current_score) : '',
-      trackerPeakScore: signup.tracker_peak_score != null ? String(signup.tracker_peak_score) : '',
-      manualValueOverride:
-        signup.manual_value_override != null ? String(signup.manual_value_override) : '',
-      adminNotes: signup.admin_notes ?? '',
+      manualAdjustment: Number(signup.manual_adjustment ?? 0)
+        ? String(signup.manual_adjustment)
+        : '',
     }
   }
 
@@ -446,49 +443,48 @@
       discordHandle: state.discordHandle || null,
       currentRank: state.currentRank || null,
       peakRank: state.peakRank || null,
-      trackerCurrentScore: state.trackerCurrentScore === '' ? null : state.trackerCurrentScore,
-      trackerPeakScore: state.trackerPeakScore === '' ? null : state.trackerPeakScore,
-      manualValueOverride: state.manualValueOverride === '' ? null : state.manualValueOverride,
-      adminNotes: state.adminNotes || null,
     }
   }
 
   let riotLookupSignupId = $state<string | null>(null)
 
   /**
-   * Look the player up against the Riot API and fill the rank fields.
-   * Only touches ranks — tracker scores are not exposed by that API, and any
-   * manual override the admin has set is left alone.
+   * Look the player up through HenrikDev and fill current and peak rank (peak
+   * since V26 Act 1). Only touches ranks; any manual override is left alone.
    */
   async function fetchRiotRank(signupId: string) {
     const signup = playerSignups.find((s) => s.id === signupId)
     if (!signup) return
 
+    // The server prefers the PUUID linked to the player's account and falls
+    // back to the name#tag on the signup.
     const name = signup.display_name?.trim()
     const tag = signup.riot_tag?.trim()
-    if (!name || !tag) {
-      errorMessage = 'This signup has no Riot tagline, so it cannot be looked up.'
-      return
-    }
+    const query =
+      `profileId=${encodeURIComponent(signup.profile_id)}` +
+      (name && tag ? `&riotId=${encodeURIComponent(`${name}#${tag}`)}` : '')
 
     riotLookupSignupId = signupId
     errorMessage = null
     successMessage = null
     try {
       const result = await adminJsonRequest<{
-        account: { name: string; tag: string; region: string | null }
+        account: { name: string; tag: string }
         rank: {
           currentTier: string | null
           currentRank: string | null
+          currentSource: 'current' | 'last-act' | null
+          currentAct: string | null
           peakTier: string | null
           peakRank: string | null
+          peakSeason: string | null
         } | null
-      }>(`/api/admin/riot-lookup?riotId=${encodeURIComponent(`${name}#${tag}`)}`, {
+      }>(`/api/admin/riot-lookup?${query}`, {
         fallbackMessage: 'Riot lookup failed',
       })
 
-      if (!result.rank) {
-        successMessage = `${result.account.name}#${result.account.tag} verified, but has no competitive rank on record.`
+      if (!result.rank || (!result.rank.currentTier && !result.rank.peakTier)) {
+        successMessage = `${result.account.name}#${result.account.tag} verified, but has no competitive rank since V26 Act 1.`
         return
       }
 
@@ -502,69 +498,17 @@
       }
 
       updateSignupEditForm(signupId, patch)
-      successMessage = `Filled from Riot: ${result.rank.currentRank ?? '—'} current, ${result.rank.peakRank ?? '—'} peak. Save to apply.`
+      // Say when the current rank is a fallback rather than the live rank.
+      const currentNote =
+        result.rank.currentSource === 'last-act'
+          ? ` (unrated now, end of ${result.rank.currentAct})`
+          : ''
+      const peakNote = result.rank.peakSeason ? ` (${result.rank.peakSeason})` : ''
+      successMessage = `Filled from Riot: ${result.rank.currentRank ?? '—'} current${currentNote}, ${result.rank.peakRank ?? '—'} peak since V26 A1${peakNote}. Save to apply.`
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Riot lookup failed'
     } finally {
       riotLookupSignupId = null
-    }
-  }
-
-  let trackerLookupSignupId = $state<string | null>(null)
-
-  /**
-   * Read the player's tracker.gg score and fill Tc/Tp.
-   * Leaves ranks and any manual override untouched.
-   */
-  async function fetchTrackerScore(signupId: string) {
-    const signup = playerSignups.find((s) => s.id === signupId)
-    if (!signup) return
-
-    const name = signup.display_name?.trim()
-    const tag = signup.riot_tag?.trim()
-    if (!name || !tag) {
-      errorMessage = 'This signup has no Riot tagline, so it cannot be looked up.'
-      return
-    }
-
-    trackerLookupSignupId = signupId
-    errorMessage = null
-    successMessage = null
-    try {
-      const result = await adminJsonRequest<{
-        current: { act: string; score: number } | null
-        peak: { act: string; score: number } | null
-        peakSource: 'peak-rank-act' | 'highest-score' | null
-        peakRank: string | null
-        warning: string | null
-      }>(`/api/admin/tracker-lookup?riotId=${encodeURIComponent(`${name}#${tag}`)}`, {
-        fallbackMessage: 'Tracker lookup failed',
-      })
-
-      const patch: Partial<SignupEditState> = {}
-      if (result.current) patch.trackerCurrentScore = String(result.current.score)
-      if (result.peak) patch.trackerPeakScore = String(result.peak.score)
-
-      if (Object.keys(patch).length === 0) {
-        errorMessage = 'No tracker scores found for that profile.'
-        return
-      }
-
-      updateSignupEditForm(signupId, patch)
-
-      // Say where the peak came from — the act they peaked in, or a fallback.
-      const peakNote =
-        result.peakSource === 'peak-rank-act'
-          ? `Tp ${result.peak?.score} from ${result.peak?.act}, the act they peaked at ${result.peakRank ?? 'their best rank'}`
-          : `Tp ${result.peak?.score ?? '—'} (${result.peak?.act ?? '—'}, highest recent act)`
-
-      successMessage =
-        `Filled from tracker.gg: Tc ${result.current?.score ?? '—'} (${result.current?.act}), ${peakNote}. Save to apply.` +
-        (result.warning ? ` ${result.warning}` : '')
-    } catch (err) {
-      errorMessage = err instanceof Error ? err.message : 'Tracker lookup failed'
-    } finally {
-      trackerLookupSignupId = null
     }
   }
 
@@ -575,54 +519,121 @@
     failed: number
     stoppedEarly: boolean
     remaining: number
+    retryAfterMs?: number | null
     rows: Array<{ id: string; name: string; outcome: string; detail: string }>
   }
 
+  type BulkImportChunk = {
+    report: BulkImportReport
+    total: number
+    /** Where the next call should start, or null once the list is done. */
+    nextCursor: number | null
+  }
+
+  /** Calls in a row that got through no rows before the run gives up. */
+  const BULK_IMPORT_MAX_STALLS = 5
+  /** Longest pause between calls; the API's rate-limit window is a minute. */
+  const BULK_IMPORT_MAX_PAUSE_MS = 65_000
+
   let bulkImportRunning = $state(false)
   let bulkImportReport = $state<BulkImportReport | null>(null)
+  let bulkImportProgress = $state<{ done: number; total: number } | null>(null)
+  let bulkImportStopRequested = false
+  let wakeBulkImport: (() => void) | null = null
+
+  function stopSignupBulkImport() {
+    bulkImportStopRequested = true
+    wakeBulkImport?.()
+  }
+
+  /** A pause that Stop cuts short. */
+  function bulkImportPause(ms: number) {
+    return new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, ms)
+      wakeBulkImport = () => {
+        clearTimeout(timer)
+        resolve()
+      }
+    }).finally(() => (wakeBulkImport = null))
+  }
 
   /**
-   * Fill ranks and tracker scores for the whole filtered list in one pass.
-   * The server paces the third-party requests and works to a time budget, so a
-   * run that stops early is continued by simply pressing the button again.
+   * Fill ranks for the whole filtered list.
+   * Each call to the server works to a time budget and the HenrikDev client
+   * paces every request under the API's limit, so this keeps calling from the
+   * returned cursor — pausing when the server reports a rate limit — until the
+   * list is done or the admin stops it.
    */
-  async function runSignupBulkImport(source: 'riot' | 'tracker' | 'both', overwrite: boolean) {
-    const what =
-      source === 'riot'
-        ? 'ranks from Riot'
-        : source === 'tracker'
-          ? 'tracker.gg scores'
-          : 'ranks and tracker.gg scores'
+  async function runSignupBulkImport(overwrite: boolean) {
     const scope = signupStatusFilter === 'all' ? '' : `${signupStatusFilter} `
     const warning = overwrite ? '\n\nExisting values will be replaced.' : ''
-    if (!window.confirm(`Fetch ${what} for the ${scope}signups?${warning}`)) return
+    if (!window.confirm(`Fetch ranks from Riot for the ${scope}signups?${warning}`)) return
 
     bulkImportRunning = true
+    bulkImportStopRequested = false
     bulkImportReport = null
+    bulkImportProgress = null
     errorMessage = null
     successMessage = null
-    try {
-      const result = await adminJsonRequest<{ report: BulkImportReport }>(
-        '/api/admin/signups/bulk-import',
-        {
-          method: 'POST',
-          body: { source, overwrite, status: signupStatusFilter },
-          fallbackMessage: 'Bulk import failed',
-        }
-      )
 
-      const report = result.report
-      bulkImportReport = report
+    const totals: BulkImportReport = {
+      processed: 0,
+      updated: 0,
+      skipped: 0,
+      failed: 0,
+      stoppedEarly: false,
+      remaining: 0,
+      rows: [],
+    }
+    let cursor = 0
+    let stalls = 0
+
+    try {
+      for (;;) {
+        const { report, total, nextCursor } = await adminJsonRequest<BulkImportChunk>(
+          '/api/admin/signups/bulk-import',
+          {
+            method: 'POST',
+            body: { overwrite, status: signupStatusFilter, cursor },
+            fallbackMessage: 'Bulk import failed',
+          }
+        )
+
+        totals.processed += report.processed
+        totals.updated += report.updated
+        totals.skipped += report.skipped
+        totals.failed += report.failed
+        totals.rows.push(...report.rows)
+        totals.remaining = report.remaining
+        totals.stoppedEarly = nextCursor != null
+        bulkImportReport = { ...totals, rows: [...totals.rows] }
+        bulkImportProgress = { done: nextCursor ?? total, total }
+
+        if (nextCursor == null) break
+        stalls = report.processed === 0 ? stalls + 1 : 0
+        if (stalls >= BULK_IMPORT_MAX_STALLS) {
+          throw new Error('Riot lookups are still rate limited. Run it again later to continue.')
+        }
+        if (bulkImportStopRequested) break
+        if (report.retryAfterMs) {
+          await bulkImportPause(Math.min(report.retryAfterMs, BULK_IMPORT_MAX_PAUSE_MS))
+          if (bulkImportStopRequested) break
+        }
+        cursor = nextCursor
+      }
+
       successMessage =
-        `Bulk import: ${report.updated} updated, ${report.skipped} skipped, ${report.failed} failed.` +
-        (report.stoppedEarly
-          ? ` Ran out of time with ${report.remaining} left — run it again to continue.`
+        `Bulk import: ${totals.updated} updated, ${totals.skipped} skipped, ${totals.failed} failed.` +
+        (totals.stoppedEarly
+          ? ` Stopped with ${totals.remaining} left — run it again to continue.`
           : '')
-      await Promise.all([loadSignups(), refreshPendingCounts()])
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Bulk import failed'
     } finally {
       bulkImportRunning = false
+      bulkImportProgress = null
+      // Earlier calls may have saved rows even when a later one failed.
+      if (totals.processed > 0) await Promise.all([loadSignups(), refreshPendingCounts()])
     }
   }
 
@@ -643,6 +654,39 @@
       await Promise.all([loadSignups(), refreshPendingCounts()])
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Failed to update signup'
+    } finally {
+      processingSignupId = null
+    }
+  }
+
+  /**
+   * Save only the adjustment, leaving any other unsaved edits in the form.
+   * `null` removes it.
+   */
+  async function setSignupAdjustment(signupId: string, adjustment: number | null) {
+    const value = adjustment ?? 0
+    if (!Number.isFinite(value)) {
+      errorMessage = 'Enter a number for the adjustment.'
+      return
+    }
+
+    processingSignupId = signupId
+    errorMessage = null
+    successMessage = null
+    try {
+      await adminJsonRequest('/api/admin/signups', {
+        method: 'PATCH',
+        body: { id: signupId, manualAdjustment: value },
+        fallbackMessage: 'Failed to update adjustment',
+      })
+      updateSignupEditForm(signupId, { manualAdjustment: value === 0 ? '' : String(value) })
+      successMessage =
+        value === 0
+          ? 'Adjustment removed.'
+          : `Adjustment of ${value > 0 ? '+' : ''}${value} applied.`
+      await loadSignups()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to update adjustment'
     } finally {
       processingSignupId = null
     }
@@ -1360,6 +1404,7 @@
         startsOn: season.starts_on ?? '',
         endsOn: season.ends_on ?? '',
         isActive: Boolean(season.is_active),
+        signupsOpen: Boolean(season.signups_open),
         summary: season.summary ?? '',
         winnerTeamId: season.winner_team_id ?? '',
         runnerUpTeamId: season.runner_up_team_id ?? '',
@@ -1815,6 +1860,7 @@
           startsOn: state.startsOn || null,
           endsOn: state.endsOn || null,
           isActive: Boolean(state.isActive),
+          signupsOpen: Boolean(state.signupsOpen),
           summary: state.summary || null,
           winnerTeamId: state.winnerTeamId || null,
           runnerUpTeamId: state.runnerUpTeamId || null,
@@ -2615,14 +2661,15 @@
         onEditChange={updateSignupEditForm}
         {riotLookupSignupId}
         onFetchRiotRank={fetchRiotRank}
-        {trackerLookupSignupId}
-        onFetchTrackerScore={fetchTrackerScore}
         {bulkImportRunning}
         {bulkImportReport}
+        {bulkImportProgress}
         onBulkImport={runSignupBulkImport}
+        onStopBulkImport={stopSignupBulkImport}
         onDismissBulkReport={() => (bulkImportReport = null)}
         onSave={(signupId) => saveSignup(signupId)}
         onSetStatus={(signupId, status) => saveSignup(signupId, status)}
+        onSetAdjustment={setSignupAdjustment}
         onDelete={deleteSignup}
         onRiotAccountReviewed={refreshPendingCounts}
       />

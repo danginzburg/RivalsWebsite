@@ -3,10 +3,12 @@ import { supabaseAdmin } from '$lib/supabase/admin'
 import { requireProfile } from '$lib/server/auth/profile'
 import { normalizeRiotBase, isValidRiotBase, normalizeRiotTag } from '$lib/server/riot-id'
 import {
+  effectiveValue,
   normalizeDiscordHandle,
   normalizeTrackerLinks,
   MAX_TRACKER_LINKS,
 } from '$lib/server/signups'
+import { loadSignupSeason } from '$lib/server/signups/season'
 import { riotIdOwnedByOther, upsertPrimaryRiotAccount } from '$lib/server/players/riot-accounts'
 
 const SIGNUP_COLUMNS = `
@@ -19,20 +21,12 @@ const SIGNUP_COLUMNS = `
   peak_rank,
   computed_value,
   manual_value_override,
+  manual_adjustment,
   status,
   admin_notes,
   created_at,
   updated_at
 `
-
-async function loadActiveSeason() {
-  const { data } = await supabaseAdmin
-    .from('seasons')
-    .select('id, code, name')
-    .eq('is_active', true)
-    .maybeSingle()
-  return data
-}
 
 async function loadSignup(profileId: string, seasonId: string) {
   const { data } = await supabaseAdmin
@@ -61,14 +55,14 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
         riot_tag: null,
         discord_handle: null,
       },
-      activeSeason: await loadActiveSeason(),
+      signupSeason: await loadSignupSeason(),
       signup: null,
       maxTrackerLinks: MAX_TRACKER_LINKS,
     }
   }
 
   const profile = await requireProfile(locals.user)
-  const activeSeason = await loadActiveSeason()
+  const signupSeason = await loadSignupSeason()
 
   // requireProfile only selects a few columns, so read the contact fields the
   // form pre-fills from directly.
@@ -78,7 +72,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     .eq('id', profile.id)
     .maybeSingle()
 
-  const existing = activeSeason ? await loadSignup(profile.id, activeSeason.id) : null
+  const existing = signupSeason ? await loadSignup(profile.id, signupSeason.id) : null
 
   return {
     signedIn: true,
@@ -90,15 +84,16 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
       // Stored handle first, then the username from the Discord login itself.
       discord_handle: profileDetail?.discord_handle ?? locals.user.discord_username ?? null,
     },
-    activeSeason,
-    signup: existing,
+    signupSeason,
+    // The value shown to the player includes any admin adjustment.
+    signup: existing && { ...existing, assigned_value: effectiveValue(existing) },
     maxTrackerLinks: MAX_TRACKER_LINKS,
   }
 }
 
 export const actions = {
   /**
-   * Create or update the signed-in player's signup for the active season.
+   * Create or update the signed-in player's signup for the season currently taking signups.
    *
    * Rank and tracker scores are deliberately NOT accepted here — those are
    * set by an admin from the tracker links the player provides, so a player
@@ -148,17 +143,17 @@ export const actions = {
       })
     }
 
-    const activeSeason = await loadActiveSeason()
-    if (!activeSeason) {
+    const signupSeason = await loadSignupSeason()
+    if (!signupSeason) {
       return fail(400, {
         success: false,
-        message: 'Signups are closed — there is no active season right now.',
+        message: 'Signups are closed right now.',
       })
     }
 
     // One signup per player per season. An approved signup is locked so a
     // player cannot quietly change their details after being rated.
-    const existing = await loadSignup(profile.id, activeSeason.id)
+    const existing = await loadSignup(profile.id, signupSeason.id)
     if (existing?.status === 'approved') {
       return fail(409, {
         success: false,
@@ -177,7 +172,7 @@ export const actions = {
 
     const payload = {
       profile_id: profile.id,
-      season_id: activeSeason.id,
+      season_id: signupSeason.id,
       // Riot ID is the canonical identity across the site.
       display_name: riotId,
       riot_tag: riotTag,
@@ -233,12 +228,12 @@ export const actions = {
     if (!locals.user) throw redirect(303, '/auth/login?returnTo=/signup')
     const profile = await requireProfile(locals.user)
 
-    const activeSeason = await loadActiveSeason()
-    if (!activeSeason) {
-      return fail(400, { success: false, message: 'There is no active season right now.' })
+    const signupSeason = await loadSignupSeason()
+    if (!signupSeason) {
+      return fail(400, { success: false, message: 'Signups are closed right now.' })
     }
 
-    const existing = await loadSignup(profile.id, activeSeason.id)
+    const existing = await loadSignup(profile.id, signupSeason.id)
     if (!existing) {
       return fail(404, { success: false, message: 'You do not have a signup to withdraw.' })
     }
@@ -253,7 +248,7 @@ export const actions = {
       .from('player_signups')
       .delete()
       .eq('profile_id', profile.id)
-      .eq('season_id', activeSeason.id)
+      .eq('season_id', signupSeason.id)
 
     if (deleteError) {
       console.error('Failed to withdraw signup:', deleteError)

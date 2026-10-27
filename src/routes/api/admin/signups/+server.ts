@@ -6,8 +6,10 @@ import {
   computeSignupValue,
   normalizeDiscordHandle,
   normalizeOptional,
+  parseAdjustment,
   parseScore,
 } from '$lib/server/signups'
+import { loadRatingFor, loadRatingsByName, ratingNameKey } from '$lib/server/signups/ratings'
 import { createNotification } from '$lib/server/notifications'
 
 const SELECT_COLUMNS = `
@@ -20,10 +22,9 @@ const SELECT_COLUMNS = `
   tracker_links,
   current_rank,
   peak_rank,
-  tracker_current_score,
-  tracker_peak_score,
   computed_value,
   manual_value_override,
+  manual_adjustment,
   status,
   admin_notes,
   created_at,
@@ -61,12 +62,15 @@ export const GET: RequestHandler = async ({ locals, url }) => {
     .in('id', profileIds)
 
   const profileById = new Map((profiles ?? []).map((p) => [p.id, p]))
+  // The rating is shown in the score breakdown; a missing one means no bonus.
+  const ratings = await loadRatingsByName(rows.map((r) => r.display_name))
 
   return json({
     signups: rows.map((row) => {
       const profile = profileById.get(row.profile_id)
       return {
         ...row,
+        rating: ratings.get(ratingNameKey(row.display_name)) ?? null,
         profile: {
           id: row.profile_id,
           name:
@@ -87,7 +91,7 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
 
   const { data: existing } = await supabaseAdmin
     .from('player_signups')
-    .select('id, profile_id, current_rank, peak_rank, tracker_current_score, tracker_peak_score')
+    .select('id, profile_id, display_name, current_rank, peak_rank, manual_adjustment')
     .eq('id', id)
     .maybeSingle()
 
@@ -96,27 +100,27 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
   const currentRank = normalizeOptional(body.currentRank) ?? existing.current_rank
   const peakRank = normalizeOptional(body.peakRank) ?? existing.peak_rank
 
-  // `undefined` leaves a score untouched; an explicit null clears it.
-  const trackerCurrentScore =
-    body.trackerCurrentScore === undefined
-      ? existing.tracker_current_score
-      : parseScore(body.trackerCurrentScore)
-  const trackerPeakScore =
-    body.trackerPeakScore === undefined
-      ? existing.tracker_peak_score
-      : parseScore(body.trackerPeakScore)
+  // The rating is matched by Riot name, so use the name this save leaves.
+  const displayName =
+    body.displayName !== undefined ? normalizeOptional(body.displayName) : existing.display_name
 
   const computedValue = computeSignupValue({
     current_rank: currentRank,
     peak_rank: peakRank,
-    tracker_current_score: trackerCurrentScore,
-    tracker_peak_score: trackerPeakScore,
+    rating: await loadRatingFor(displayName),
   })
 
   const manualOverride =
     body.manualValueOverride === undefined || body.manualValueOverride === null
       ? null
       : parseScore(body.manualValueOverride)
+
+  // `undefined` leaves the adjustment alone; blank clears it to 0.
+  const manualAdjustment =
+    body.manualAdjustment === undefined
+      ? existing.manual_adjustment
+      : parseAdjustment(body.manualAdjustment)
+  if (manualAdjustment == null) throw error(400, 'Adjustment must be a number')
 
   const status = normalizeOptional(body.status)
   if (status && !['pending', 'approved', 'rejected'].includes(status)) {
@@ -126,10 +130,9 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
   const updates: Record<string, unknown> = {
     current_rank: currentRank,
     peak_rank: peakRank,
-    tracker_current_score: trackerCurrentScore,
-    tracker_peak_score: trackerPeakScore,
     computed_value: computedValue,
     manual_value_override: manualOverride,
+    manual_adjustment: manualAdjustment,
     admin_notes: normalizeOptional(body.adminNotes),
   }
 
