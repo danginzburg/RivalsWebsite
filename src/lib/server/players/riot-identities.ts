@@ -59,10 +59,9 @@ export function dedupeObservations(observations: RiotObservation[]): Array<{
  * Record every PUUID seen in an import.
  *
  * New PUUIDs are inserted unowned (queued for admin review). Known ones have
- * `last_seen_at` refreshed; unowned ones also take the latest name, so the
- * queue shows what the player is called now. An owned account keeps the name
- * its player declared, and `profile_id` is never touched here — linking is a
- * deliberate admin action, not a side effect of an import.
+ * `last_seen_at` refreshed and take the latest name, so every account shows
+ * what the player is called now. `profile_id` is never touched here — linking
+ * is a deliberate admin action, not a side effect of an import.
  *
  * Best-effort by design: the match is already written by the time this runs, so
  * a failure here must not fail the import.
@@ -107,19 +106,23 @@ export async function upsertRiotIdentities(observations: RiotObservation[]): Pro
       .upsert(unowned.map(named), { onConflict: 'puuid' })
     if (error) throw new Error(`Failed to refresh riot accounts: ${error.message}`)
   }
-  // An owned account keeps its declared name, but one recorded without a tag
-  // takes the tag the match reports for that same name.
+  // The PUUID is the account; the name is just what Riot calls it today. An
+  // owned account follows a rename (or gains a missing tag) whenever a match
+  // reports a full name#tag that differs from the one on file.
   const knownByPuuid = new Map((known ?? []).map((k) => [k.puuid as string, k]))
   for (const r of owned) {
     const account = knownByPuuid.get(r.puuid)
-    if (!r.tag || account?.riot_tag || !r.name) continue
-    if (String(account?.riot_name ?? '').toLowerCase() !== r.name.toLowerCase()) continue
-    // Best-effort: the owned name/tag index may reject a clash; skip it.
+    if (!account || !r.name || !r.tag) continue
+    const same =
+      String(account.riot_name ?? '').toLowerCase() === r.name.toLowerCase() &&
+      String(account.riot_tag ?? '').toLowerCase() === r.tag.toLowerCase()
+    if (same) continue
+    // Best-effort: the owned name/tag index rejects a name another player
+    // still holds on file; that account is left as it was.
     await supabaseAdmin
       .from('riot_accounts')
-      .update({ riot_tag: r.tag })
+      .update({ riot_name: r.name, riot_tag: r.tag })
       .eq('puuid', r.puuid)
-      .is('riot_tag', null)
   }
 
   if (owned.length > 0) {

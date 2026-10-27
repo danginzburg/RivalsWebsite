@@ -374,6 +374,27 @@ export async function addAltRiotAccount(opts: {
     verified_at: puuid ? new Date().toISOString() : null,
   }
 
+  // The player already owns this PUUID under an older name: it is the same
+  // account after a Riot rename, so update its name rather than add a second.
+  if (puuid) {
+    const { data: own } = await supabaseAdmin
+      .from('riot_accounts')
+      .select('id')
+      .eq('puuid', puuid)
+      .eq('profile_id', opts.profileId)
+      .maybeSingle()
+    if (own?.id) {
+      const { data, error } = await supabaseAdmin
+        .from('riot_accounts')
+        .update({ riot_name: opts.riotName, riot_tag: storedTag(opts.riotTag) })
+        .eq('id', own.id)
+        .select(ACCOUNT_COLUMNS)
+        .single()
+      if (error) throw new RiotAccountError(409, 'That Riot ID is already linked to an account.')
+      return toPublic(data)
+    }
+  }
+
   // A PUUID seen in a match but owned by nobody is claimed in place (still
   // pending), so the account keeps its sighting history.
   if (puuid) {
