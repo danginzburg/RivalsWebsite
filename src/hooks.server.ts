@@ -62,10 +62,24 @@ export const handle: Handle = async ({ event, resolve }) => {
     const profile = await profileRoleCache.wrap(session.sub, async () => {
       const { data } = await supabaseAdmin
         .from('profiles')
-        .select('role')
+        .select('role, discord_username')
         .eq('auth0_sub', session.sub)
         .single()
-      return data ?? null
+      if (!data) return null
+
+      // Profiles only started storing the Discord username at login recently;
+      // a still-valid session has it, so fill it in for players who logged in
+      // before then instead of waiting for their next login.
+      if (!data.discord_username && session.discord_username) {
+        const { error: backfillError } = await supabaseAdmin
+          .from('profiles')
+          .update({ discord_username: session.discord_username })
+          .eq('auth0_sub', session.sub)
+          .is('discord_username', null)
+        if (backfillError) console.warn('Failed to backfill Discord username:', backfillError)
+      }
+
+      return { role: data.role }
     })
 
     event.locals.user = {

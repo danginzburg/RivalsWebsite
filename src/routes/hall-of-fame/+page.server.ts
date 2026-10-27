@@ -2,7 +2,7 @@ import { supabaseAdmin } from '$lib/supabase/admin'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
 
 type TeamRel = { id: string; name: string; tag?: string | null; logo_path?: string | null }
-type ProfileRel = { id: string; display_name: string | null; riot_id_base: string | null }
+type ProfileRel = { id: string; display_name: string | null }
 type SeasonRel = { id: string; code: string; name: string }
 
 function firstRel<T>(value: T | T[] | null | undefined): T | null {
@@ -27,7 +27,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
         media_url,
         player_name,
         created_at,
-        profile:profiles!hall_of_fame_entries_profile_id_fkey (id, display_name, riot_id_base),
+        profile:profiles!hall_of_fame_entries_profile_id_fkey (id, display_name),
         team:teams!hall_of_fame_entries_team_id_fkey (id, name, tag, logo_path),
         season:seasons!hall_of_fame_entries_season_id_fkey (id, code, name)
       `
@@ -47,7 +47,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
         name,
         ends_on,
         winner:teams!seasons_winner_team_id_fkey (id, name, tag, logo_path),
-        mvp:profiles!seasons_mvp_profile_id_fkey (id, display_name, riot_id_base)
+        mvp:profiles!seasons_mvp_profile_id_fkey (id, display_name)
       `
       )
       .not('winner_team_id', 'is', null)
@@ -73,7 +73,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
       stat_label: entry.stat_label ?? null,
       media_url: entry.media_url ?? null,
       holder: profile
-        ? { id: profile.id, name: profile.display_name ?? profile.riot_id_base ?? 'Player' }
+        ? { id: profile.id, name: profile.display_name ?? 'Player' }
         : entry.player_name
           ? { id: null, name: entry.player_name }
           : null,
@@ -99,7 +99,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
             logo_url: getTeamLogoUrl(winner),
           }
         : null,
-      mvp: mvp ? { id: mvp.id, name: mvp.display_name ?? mvp.riot_id_base ?? 'Player' } : null,
+      mvp: mvp ? { id: mvp.id, name: mvp.display_name ?? 'Player' } : null,
     }
   })
 

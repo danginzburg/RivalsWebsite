@@ -99,15 +99,12 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
   const profileIds = Array.from(
     new Set((mapStats ?? []).map((row) => row.profile_id).filter((id): id is string => Boolean(id)))
   )
-  const profileById = new Map<
-    string,
-    { id: string; riot_id_base: string | null; display_name: string | null }
-  >()
+  const profileById = new Map<string, { id: string; display_name: string | null }>()
 
   if (profileIds.length > 0) {
     const { data: profiles, error: profilesError } = await supabaseAdmin
       .from('profiles')
-      .select('id, riot_id_base, display_name')
+      .select('id, display_name')
       .in('id', profileIds)
 
     if (profilesError) throw error(500, 'Failed to load match player profiles')
@@ -134,9 +131,8 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
             playerName: row.player_name,
             puuid,
           }),
-          player_name:
-            row.player_name ?? profile?.display_name ?? profile?.riot_id_base ?? 'Player',
-          profile_name: profile?.display_name ?? profile?.riot_id_base ?? null,
+          player_name: row.player_name ?? profile?.display_name ?? 'Player',
+          profile_name: profile?.display_name ?? null,
           agents: row.agents ?? null,
           acs: row.acs,
           kills: row.kills,

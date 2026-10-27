@@ -5,6 +5,7 @@ import { supabaseAdmin } from '$lib/supabase/admin'
 import {
   buildProfileMatcher,
   getProfilesForImports,
+  getRiotAccountsForImports,
   rebuildPlayerMatchStats,
   rematchPlayerMatchMapStatsForBase,
 } from '$lib/server/imports/matching'
@@ -330,7 +331,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 
   const { data: profiles } = await supabaseAdmin
     .from('profiles')
-    .select('id, display_name, riot_id_base')
+    .select('id, display_name')
     .order('display_name', { ascending: true })
 
   let maps: MatchMapRow[] = []
@@ -404,17 +405,24 @@ export const actions: Actions = {
     if (existingError && errorMessage(existingError).includes('match_maps')) {
       throw error(500, 'match_maps table missing; apply Supabase migrations first')
     }
-    const profiles = await getProfilesForImports()
-    const profileMatcher = buildProfileMatcher(profiles)
-    const profileMap = new Map<string, string>()
+    const [profiles, riotAccounts] = await Promise.all([
+      getProfilesForImports(),
+      getRiotAccountsForImports(),
+    ])
+    const profileMatcher = buildProfileMatcher(profiles, riotAccounts)
+    // Every name each player is known by: display name, Riot IDs and aliases.
+    const namesByProfile = new Map<string, string[]>()
     for (const profile of profiles) {
-      const id = profile.id
-      for (const candidate of [
-        profile.riot_id_base,
-        profile.display_name,
-        profile.stats_player_name,
-      ]) {
-        if (!candidate) continue
+      if (profile.display_name) namesByProfile.set(profile.id, [profile.display_name])
+    }
+    for (const account of riotAccounts) {
+      const list = namesByProfile.get(account.profile_id) ?? []
+      list.push(account.riot_name)
+      namesByProfile.set(account.profile_id, list)
+    }
+    const profileMap = new Map<string, string>()
+    for (const [id, names] of namesByProfile) {
+      for (const candidate of names) {
         profileMap.set(normalizeKey(candidate), id)
         profileMap.set(normalizeBase(candidate), id)
       }
@@ -553,14 +561,7 @@ export const actions: Actions = {
         for (const profileId of roster.profileIds) teamProfileIds.add(profileId)
       }
       for (const pid of teamProfileIds) {
-        const profile = profiles.find((p) => p.id === pid)
-        if (!profile) continue
-        for (const name of [
-          profile.riot_id_base,
-          profile.display_name,
-          profile.stats_player_name,
-        ]) {
-          if (!name) continue
+        for (const name of namesByProfile.get(pid) ?? []) {
           try {
             await rematchPlayerMatchMapStatsForBase(pid, name)
           } catch {}

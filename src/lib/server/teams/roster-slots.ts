@@ -87,22 +87,13 @@ async function markOpenSpotsElsewhere(
   const profileByPuuid = new Map<string, string>()
   for (let i = 0; i < puuids.length; i += 100) {
     const chunk = puuids.slice(i, i + 100)
-    const [{ data: accounts }, { data: identities }] = await Promise.all([
-      supabaseAdmin
-        .from('profile_riot_accounts')
-        .select('profile_id, riot_puuid')
-        .in('riot_puuid', chunk),
-      supabaseAdmin
-        .from('riot_identities')
-        .select('puuid, profile_id')
-        .in('puuid', chunk)
-        .not('profile_id', 'is', null),
-    ])
-    for (const row of identities ?? []) {
-      if (row.profile_id) profileByPuuid.set(row.puuid, row.profile_id)
-    }
+    const { data: accounts } = await supabaseAdmin
+      .from('riot_accounts')
+      .select('profile_id, puuid')
+      .in('puuid', chunk)
+      .not('profile_id', 'is', null)
     for (const row of accounts ?? []) {
-      if (row.riot_puuid && row.profile_id) profileByPuuid.set(row.riot_puuid, row.profile_id)
+      if (row.puuid && row.profile_id) profileByPuuid.set(row.puuid, row.profile_id)
     }
   }
 
@@ -198,16 +189,16 @@ export async function listNameOnlyRosterSlots(seasonId: string | null): Promise<
   )
   const { data: rosteredAccounts } = rosteredProfiles.length
     ? await supabaseAdmin
-        .from('profile_riot_accounts')
-        .select('profile_id, riot_puuid')
+        .from('riot_accounts')
+        .select('profile_id, puuid')
         .in('profile_id', rosteredProfiles)
-        .not('riot_puuid', 'is', null)
-    : { data: [] as Array<{ profile_id: string; riot_puuid: string | null }> }
+        .not('puuid', 'is', null)
+    : { data: [] as Array<{ profile_id: string; puuid: string | null }> }
 
   const puuidsByProfile = new Map<string, string[]>()
   for (const account of rosteredAccounts ?? []) {
     const list = puuidsByProfile.get(account.profile_id) ?? []
-    if (account.riot_puuid) list.push(account.riot_puuid)
+    if (account.puuid) list.push(account.puuid)
     puuidsByProfile.set(account.profile_id, list)
   }
   const linkedNamesByTeam = new Map<string, string[]>()

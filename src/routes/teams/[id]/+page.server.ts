@@ -4,6 +4,7 @@ import { supabaseAdmin } from '$lib/supabase/admin'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
 import { getSeasonSeeds } from '$lib/server/seasons/seeds'
 import { isShortStint } from '$lib/server/matches/subs'
+import { riotNamesByProfile } from '$lib/server/players/directory'
 import {
   aggregateRoster,
   resolveSeasonStatBatchIds,
@@ -16,8 +17,6 @@ type ProfileRow = {
   id: string
   display_name?: string | null
   email?: string | null
-  riot_id_base?: string | null
-  stats_player_name?: string | null
 }
 
 type MembershipRow = {
@@ -149,10 +148,7 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
   const [{ data: profileRows }, { data: leaderboardEntry }, { data: statsSeason }] =
     await Promise.all([
       profileIds.length > 0
-        ? supabaseAdmin
-            .from('profiles')
-            .select('id, display_name, email, riot_id_base, stats_player_name')
-            .in('id', profileIds)
+        ? supabaseAdmin.from('profiles').select('id, display_name, email').in('id', profileIds)
         : Promise.resolve({ data: [] as ProfileRow[] }),
       leaderboardBatch
         ? supabaseAdmin
@@ -179,7 +175,6 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
     return {
       profile_id: m.profile_id,
       player_name: m.player_name ?? null,
-      riot_id_base: p?.riot_id_base ?? null,
       role: m.role ?? 'player',
       display_name: p?.display_name ?? null,
       email: p?.email ?? null,
@@ -271,14 +266,13 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
 
   // Match rows to the roster by profile, then by any alias the player is known
   // by — most pre-claim imports have a NULL profile_id.
+  const riotNames = await riotNamesByProfile(
+    roster.map((player) => player.profile_id).filter((id): id is string => Boolean(id))
+  )
   const rosterStats = aggregateRoster(
     roster.map((player) => ({
       profile_id: player.profile_id,
-      names: [
-        player.player_name,
-        player.riot_id_base,
-        profileById.get(player.profile_id ?? '')?.stats_player_name,
-      ],
+      names: [player.player_name, ...(riotNames.get(player.profile_id ?? '') ?? [])],
     })),
     (seasonStatRows ?? []) as SeasonStatRow[]
   )

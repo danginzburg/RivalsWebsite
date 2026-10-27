@@ -46,7 +46,6 @@ type CommentRow = {
 type ProfileRow = {
   id: string
   display_name: string | null
-  riot_id_base: string | null
   email: string | null
   role: string | null
 }
@@ -70,7 +69,7 @@ export function normalizeBody(value: unknown): string {
 
 export function authorLabel(profile: ProfileRow | undefined): string {
   if (!profile) return 'Unknown'
-  return profile.display_name ?? profile.riot_id_base ?? profile.email ?? 'Player'
+  return profile.display_name ?? profile.email ?? 'Player'
 }
 
 /**
@@ -129,7 +128,7 @@ export async function loadCommentThread(
   const profileIds = Array.from(new Set(comments.map((c) => c.profile_id)))
   const { data: profileRows } = await supabaseAdmin
     .from('profiles')
-    .select('id, display_name, riot_id_base, email, role')
+    .select('id, display_name, email, role')
     .in('id', profileIds)
 
   const profileById = new Map<string, ProfileRow>()

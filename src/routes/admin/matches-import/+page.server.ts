@@ -14,9 +14,10 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     { data: teams, error: teamsError },
     { data: seasons, error: seasonsError },
   ] = await Promise.all([
+    // Every approved Riot ID (and alias) per player, for CSV name matching.
     supabaseAdmin
-      .from('profiles')
-      .select('id, display_name, riot_id_base, stats_player_name')
+      .from('player_directory')
+      .select('id:profile_id, display_name, riot_ids')
       .order('display_name', { ascending: true }),
     supabaseAdmin
       .from('teams')

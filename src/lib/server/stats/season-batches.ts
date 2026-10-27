@@ -118,8 +118,8 @@ export function normalizePlayerName(name: string | null | undefined): string | n
 
 /**
  * A roster member to match stat rows against. `names` holds every alias worth
- * trying — the membership's player name, plus `riot_id_base` and
- * `stats_player_name` from the profile when it is claimed.
+ * trying — the membership's player name, plus the claimed profile's Riot
+ * account names.
  */
 export type RosterRef = { profile_id?: string | null; names: Array<string | null | undefined> }
 

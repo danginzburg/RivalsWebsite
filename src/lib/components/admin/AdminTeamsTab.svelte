@@ -16,7 +16,6 @@
     roster?: Array<{
       membership_id?: number | null
       profile_id: string
-      riot_id_base?: string | null
       player_name?: string | null
       display_name?: string | null
       email?: string | null
@@ -334,11 +333,7 @@
                   >
                     <div class="min-w-0 flex-1 text-xs" style="color: var(--text);">
                       <span class="font-semibold"
-                        >{player.display_name ??
-                          player.riot_id_base ??
-                          player.player_name ??
-                          player.email ??
-                          'User'}</span
+                        >{player.display_name ?? player.player_name ?? player.email ?? 'User'}</span
                       >
                       <span class="opacity-75"> - {profileLabel(player)}</span>
                       {#if player.role === 'captain'}
@@ -360,11 +355,7 @@
                             team.id,
                             player.membership_id ?? null,
                             player.profile_id,
-                            player.display_name ??
-                              player.riot_id_base ??
-                              player.player_name ??
-                              player.email ??
-                              'User',
+                            player.display_name ?? player.player_name ?? player.email ?? 'User',
                             player.role
                           )}
                       >

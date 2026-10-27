@@ -2,7 +2,6 @@ import { error, fail, redirect, type Actions } from '@sveltejs/kit'
 import type { PageServerLoad } from './$types'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { normalizeRiotTag } from '$lib/server/riot-id'
-import { supabaseErrorMessageIncludes } from '$lib/server/supabase/errors'
 import { claimRelinkAfterProfileUpdate } from '$lib/server/players/claim-relink'
 import {
   RiotAccountError,
@@ -10,6 +9,7 @@ import {
   linkPrimaryRiotAccount,
 } from '$lib/server/players/riot-accounts'
 import { identityDisplayName } from '$lib/server/players/riot-identities'
+import { lookupPlayer } from '$lib/server/players/directory'
 
 /** Only same-site paths; anything else falls back to the player page. */
 function safeReturnTo(value: unknown): string | null {
@@ -22,15 +22,12 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 
   const { data: profile, error: profileError } = await supabaseAdmin
     .from('profiles')
-    .select('id, display_name, display_name_is_custom, riot_id_base, riot_tag')
+    .select('id, display_name, display_name_is_custom')
     .eq('auth0_sub', locals.user.sub)
     .maybeSingle()
 
   if (profileError) {
     const msg = String((profileError as { message?: string }).message ?? '')
-    if (supabaseErrorMessageIncludes(profileError, 'riot_id_base')) {
-      throw error(500, 'Database missing profiles.riot_id_base; apply the Supabase migration')
-    }
     throw error(500, msg || 'Failed to load profile')
   }
   if (!profile) throw error(404, 'Profile not found')
@@ -43,10 +40,12 @@ export const load: PageServerLoad = async ({ locals, url }) => {
     throw redirect(303, returnTo ?? `/players/${profile.id}`)
   }
 
-  const riotId =
-    profile.riot_id_base && profile.riot_tag
-      ? `${profile.riot_id_base}#${profile.riot_tag}`
-      : (profile.riot_id_base ?? '')
+  const player = await lookupPlayer({ profileId: profile.id })
+  const riotId = player?.riot_name
+    ? player.riot_tag
+      ? `${player.riot_name}#${player.riot_tag}`
+      : player.riot_name
+    : ''
 
   return {
     profile: {
@@ -100,13 +99,6 @@ export const actions: Actions = {
         return fail(err.status, { ...values, message: err.message })
       throw err
     }
-
-    // Keep the legacy columns in step; name-based matching still reads them.
-    const { error: updateError } = await supabaseAdmin
-      .from('profiles')
-      .update({ riot_id_base: linked.riotName, riot_tag: linked.riotTag })
-      .eq('id', profile.id)
-    if (updateError) return fail(500, { ...values, message: updateError.message })
 
     // A name an admin set before the player ever logged in stands in when they
     // leave the alternate name blank.

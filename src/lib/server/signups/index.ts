@@ -1,5 +1,5 @@
 import { error } from '@sveltejs/kit'
-import { computeRatingFromRankNames, roundRating } from '$lib/signups/formula'
+import { computePlayerScore, roundRating } from '$lib/signups/formula'
 
 export const MAX_TRACKER_LINKS = 5
 
@@ -48,7 +48,7 @@ export function parseScore(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null
   const n = Number(value)
   if (!Number.isFinite(n)) return null
-  // Negative tracker scores are meaningless; treat them as absent.
+  // Negative values are meaningless here; treat them as absent.
   return n < 0 ? null : n
 }
 
@@ -64,33 +64,43 @@ export function normalizeDiscordHandle(value: unknown): string | null {
 }
 
 /**
- * Recompute the stored rating from the signup's current inputs.
- * Returns the rounded value, or null when there is nothing to compute from.
+ * Recompute the stored score from the signup's ranks and the player's
+ * imported rating. Returns the rounded value, or null while either rank is
+ * missing — an unverified player has no score.
  */
 export function computeSignupValue(input: {
   current_rank: string | null
   peak_rank: string | null
-  tracker_current_score: number | null
-  tracker_peak_score: number | null
+  rating: number | null
 }): number | null {
-  if (!input.current_rank && !input.peak_rank) return null
-
-  const { rating } = computeRatingFromRankNames({
+  const { total } = computePlayerScore({
     currentRank: input.current_rank,
     peakRank: input.peak_rank,
-    trackerCurrentScore: input.tracker_current_score,
-    trackerPeakScore: input.tracker_peak_score,
+    rating: input.rating,
   })
 
-  return roundRating(rating)
+  return total == null ? null : roundRating(total)
 }
 
-/** The value the calculator should use: manual override wins over the formula. */
+/**
+ * The value the calculator should use: the formula score plus the admin's
+ * adjustment. A legacy manual override still wins outright where one is set.
+ */
 export function effectiveValue(signup: {
   computed_value: number | null
   manual_value_override: number | null
+  manual_adjustment?: number | null
 }): number | null {
-  return signup.manual_value_override ?? signup.computed_value
+  if (signup.manual_value_override != null) return signup.manual_value_override
+  if (signup.computed_value == null) return null
+  return roundRating(Number(signup.computed_value) + Number(signup.manual_adjustment ?? 0))
+}
+
+/** Parse a signed adjustment; blank is 0, unreadable input is null. */
+export function parseAdjustment(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return 0
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
 }
 
 export function assertValidRankPair(currentRank: string | null, peakRank: string | null) {

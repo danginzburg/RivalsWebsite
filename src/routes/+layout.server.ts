@@ -2,6 +2,7 @@ import type { LayoutServerLoad } from './$types'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { getViewerProfileId } from '$lib/server/auth/viewer'
 import { countUnread } from '$lib/server/notifications'
+import { loadSignupSeason } from '$lib/server/signups/season'
 
 export const load: LayoutServerLoad = async ({ locals }) => {
   const { data: activeSeason } = await supabaseAdmin
@@ -14,6 +15,10 @@ export const load: LayoutServerLoad = async ({ locals }) => {
   // their rulebook / signup / FAQ elsewhere, so the Rivals-only nav tabs are
   // hidden while an external event is the active season.
   const activeSeasonKind = activeSeason?.kind === 'external' ? 'external' : 'rivals'
+
+  // A season can take signups while another event is active, in which case the
+  // Signup tab stays visible even during an external event.
+  const signupsOpen = Boolean(await loadSignupSeason())
 
   const pickemStatus = (
     Array.isArray(activeSeason?.pickem_events)
@@ -30,6 +35,7 @@ export const load: LayoutServerLoad = async ({ locals }) => {
     user: locals.user,
     hasActivePickem,
     activeSeasonKind,
+    signupsOpen,
     unreadNotifications,
   }
 }

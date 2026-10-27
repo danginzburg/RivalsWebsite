@@ -8,7 +8,6 @@ import { invalidateRecentComments } from '$lib/server/comments/recent'
 type ProfileRow = {
   id: string
   display_name: string | null
-  riot_id_base: string | null
   email: string | null
   role: string | null
   comments_banned_until?: string | null
@@ -56,7 +55,7 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 
   const { data: profiles } = await supabaseAdmin
     .from('profiles')
-    .select('id, display_name, riot_id_base, email, role, comments_banned_until')
+    .select('id, display_name, email, role, comments_banned_until')
     .in('id', profileIds)
 
   const profileById = new Map<string, ProfileRow>(

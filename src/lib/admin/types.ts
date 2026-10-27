@@ -22,14 +22,21 @@ export type PlayerSignup = {
   tracker_links: Array<{ label: string; url: string }>
   current_rank: string | null
   peak_rank: string | null
-  tracker_current_score: number | null
-  tracker_peak_score: number | null
   computed_value: number | null
   manual_value_override: number | null
+  manual_adjustment: number
+  /** Imported performance rating behind the score bonus, if any. */
+  rating: number | null
   status: 'pending' | 'approved' | 'rejected'
   admin_notes: string | null
   created_at: string
-  profile: { id: string; name: string; email: string | null }
+  profile: {
+    id: string
+    name: string
+    email: string | null
+    /** Discord username from the player's login. */
+    discord_username: string | null
+  }
 }
 
 export type SignupEditState = {
@@ -37,10 +44,7 @@ export type SignupEditState = {
   discordHandle: string
   currentRank: string
   peakRank: string
-  trackerCurrentScore: string
-  trackerPeakScore: string
-  manualValueOverride: string
-  adminNotes: string
+  manualAdjustment: string
 }
 
 export type CommentReport = {
@@ -115,7 +119,6 @@ export type TeamQueueEntry = {
     profile_id: string
     player_name?: string | null
     role: string
-    riot_id_base: string | null
     display_name: string | null
     email: string | null
   }>
@@ -137,7 +140,6 @@ export type ApprovedTeamEntry = TeamQueueEntry & {
     membership_id?: number | null
     profile_id: string
     role: string
-    riot_id_base: string | null
     display_name: string | null
     email: string | null
   }>
@@ -148,9 +150,9 @@ export type AdminUser = {
   email: string | null
   display_name: string | null
   role: string
-  riot_id_base: string | null
+  /** Null when the account was only ever recorded by name (no tag known). */
   riot_tag?: string | null
-  /** Full PUUID-backed Riot ID when linked, else the legacy `riot_id_base` label. */
+  /** Full Riot ID: the PUUID-backed one when linked, else the primary account name. */
   riot_id?: string | null
   /** A PUUID is linked by import, the identities tab or the login prompt. */
   riot_linked?: boolean
@@ -191,6 +193,8 @@ export type AdminSeason = {
   starts_on: string | null
   ends_on: string | null
   is_active: boolean | null
+  /** Whether /signup registers players for this season. */
+  signups_open?: boolean | null
   metadata?: Record<string, unknown> | null
   logo_path?: string | null
   logo_url?: string | null
@@ -304,6 +308,7 @@ export type SeasonEditState = {
   startsOn: string
   endsOn: string
   isActive: boolean
+  signupsOpen: boolean
   summary: string
   winnerTeamId: string
   runnerUpTeamId: string

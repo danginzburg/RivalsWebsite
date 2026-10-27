@@ -10,7 +10,7 @@
   let { data, form }: PageProps = $props()
 
   const signup = $derived(data.signup)
-  const activeSeason = $derived(data.activeSeason)
+  const signupSeason = $derived(data.signupSeason)
   const isApproved = $derived(data.signup?.status === 'approved')
   const isLocked = $derived(isApproved)
 
@@ -35,7 +35,7 @@
   const seed = untrack(() => ({
     // Prefill from the existing signup, then fall back to the profile so a
     // returning player does not retype details the site already knows.
-    riotId: data.signup?.display_name ?? data.profile.riot_id_base ?? '',
+    riotId: data.signup?.display_name ?? data.profile.riot_name ?? '',
     riotTag: data.signup?.riot_tag ?? data.profile.riot_tag ?? '',
     discordHandle: data.signup?.discord_handle ?? data.profile.discord_handle ?? '',
     trackerLinks: ((data.signup?.tracker_links as LinkRow[] | undefined)?.length
@@ -88,16 +88,15 @@
   <div class="page-content-narrow py-6">
     <PageHeading
       title="Player Signup"
-      subtitle={activeSeason
-        ? `Registering for ${activeSeason.name}`
+      subtitle={signupSeason
+        ? `Registering for ${signupSeason.name}`
         : 'Registration is currently closed'}
       icon={ClipboardList}
     />
 
-    {#if !activeSeason}
+    {#if !signupSeason}
       <div class="notice notice-warn">
-        There is no active season right now, so signups are closed. Check back when the next season
-        opens.
+        Signups are closed right now. Check back when the next season opens.
       </div>
     {:else}
       <!-- Current status -->
@@ -114,7 +113,7 @@
             <div class="assigned">
               <span class="assigned-label">Assigned value</span>
               <span class="assigned-value">
-                {signup.manual_value_override ?? signup.computed_value ?? 'Not yet set'}
+                {signup.assigned_value ?? 'Not yet set'}
               </span>
             </div>
           {/if}
@@ -371,8 +370,8 @@
       <div class="prompt-icon"><ClipboardList size={22} /></div>
       <h2 class="prompt-title" id="signin-prompt-title">Sign in to sign up</h2>
       <p class="prompt-text">
-        {#if activeSeason}
-          Registering for {activeSeason.name} needs an account, so admins can reach you about your rank
+        {#if signupSeason}
+          Registering for {signupSeason.name} needs an account, so admins can reach you about your rank
           and roster. Signing in with Discord creates one.
         {:else}
           Signing up needs an account, so admins can reach you about your rank and roster. Signing

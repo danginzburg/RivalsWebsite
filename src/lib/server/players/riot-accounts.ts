@@ -2,10 +2,11 @@ import { supabaseAdmin } from '$lib/supabase/admin'
 import { RiotLookupError, fetchAccount } from '$lib/server/riot/henrik'
 
 /**
- * Service layer for `profile_riot_accounts` — the Riot accounts (primary + alt)
- * that pool into one profile. Kept in one place so the signup form, the account
- * page, the self-serve alt endpoint and the admin approval endpoint all apply
- * the same rules.
+ * Service layer for `riot_accounts` — every Riot ID and PUUID we know about,
+ * whether a profile owns it (primary, alts, name aliases) or nobody does yet
+ * (the identity review queue, see riot-identities.ts). Kept in one place so the
+ * signup form, the account page, the self-serve alt endpoint and the admin
+ * approval endpoint all apply the same rules.
  */
 
 export type PublicRiotAccount = {
@@ -20,8 +21,18 @@ export type PublicRiotAccount = {
   created_at: string | null
 }
 
+// `riot_puuid` and a '' tag keep the shape the UI has always been given.
 const ACCOUNT_COLUMNS =
-  'id, riot_name, riot_tag, riot_puuid, is_primary, status, label, verified_at, created_at'
+  'id, riot_name, riot_tag, riot_puuid:puuid, is_primary, status, label, verified_at, created_at'
+
+function toPublic(row: Record<string, unknown>): PublicRiotAccount {
+  return { ...(row as PublicRiotAccount), riot_tag: (row.riot_tag as string | null) ?? '' }
+}
+
+/** A tag of '' or whitespace is stored as null: the account has no known tag. */
+function storedTag(tag: string | null | undefined): string | null {
+  return String(tag ?? '').trim() || null
+}
 
 /** Best-effort PUUID lookup: never throws, returns null on any failure. */
 async function tryFetchPuuid(name: string, tag: string): Promise<string | null> {
@@ -40,73 +51,54 @@ export async function riotIdOwnedByOther(
   profileId: string
 ): Promise<boolean> {
   const { data } = await supabaseAdmin
-    .from('profile_riot_accounts')
+    .from('riot_accounts')
     .select('profile_id')
     .ilike('riot_name', name)
     .ilike('riot_tag', tag)
+    .not('profile_id', 'is', null)
     .neq('profile_id', profileId)
-    .maybeSingle()
-  return Boolean(data)
+    .limit(1)
+  return Boolean(data?.length)
 }
 
 /** All of a profile's Riot accounts, primary first. */
 export async function listRiotAccounts(profileId: string): Promise<PublicRiotAccount[]> {
   const { data, error } = await supabaseAdmin
-    .from('profile_riot_accounts')
+    .from('riot_accounts')
     .select(ACCOUNT_COLUMNS)
     .eq('profile_id', profileId)
     .order('is_primary', { ascending: false })
     .order('created_at', { ascending: true })
 
   if (error) throw new Error('Failed to load Riot accounts')
-  return (data ?? []) as PublicRiotAccount[]
+  return (data ?? []).map(toPublic)
 }
 
 export type ProfileRiotAccount = PublicRiotAccount & {
-  /**
-   * `identity` rows exist only as an admin link in `riot_identities` (no
-   * account row), so they are shown but cannot be edited or removed here.
-   */
+  /** Accounts an admin linked from the identity queue cannot be edited here. */
   source: 'account' | 'identity'
 }
 
 /**
- * The Riot accounts a profile page lists: full, PUUID-linked accounts from the
- * player's account rows plus any PUUID an admin linked from the identities tab
- * that never got an account row of its own. Display only — the self-serve API
- * keeps working on all account rows via `listRiotAccounts`.
+ * The Riot accounts a profile page lists: only full name#tag accounts backed
+ * by a PUUID — a bare name alias or a signup that never verified is not a real
+ * link. Display only; the self-serve API works on `listRiotAccounts`.
  */
 export async function listProfileRiotAccounts(profileId: string): Promise<ProfileRiotAccount[]> {
-  const [accounts, { data: identities }] = await Promise.all([
-    listRiotAccounts(profileId),
-    supabaseAdmin
-      .from('riot_identities')
-      .select('puuid, latest_name, latest_tag, linked_at, first_seen_at')
-      .eq('profile_id', profileId)
-      .order('linked_at', { ascending: true }),
-  ])
+  const { data, error } = await supabaseAdmin
+    .from('riot_accounts')
+    .select(`${ACCOUNT_COLUMNS}, linked_at`)
+    .eq('profile_id', profileId)
+    .order('is_primary', { ascending: false })
+    .order('created_at', { ascending: true })
+  if (error) throw new Error('Failed to load Riot accounts')
 
-  const knownPuuids = new Set(accounts.map((a) => a.riot_puuid).filter(Boolean))
-  const extra: ProfileRiotAccount[] = (identities ?? [])
-    .filter((i) => i.puuid && !knownPuuids.has(i.puuid))
-    .map((i) => ({
-      id: `identity:${i.puuid}`,
-      riot_name: i.latest_name?.trim() || 'Unknown',
-      riot_tag: i.latest_tag?.trim() || '',
-      riot_puuid: i.puuid,
-      is_primary: false,
-      status: 'approved',
-      label: 'Linked by admin',
-      verified_at: i.linked_at ?? null,
-      created_at: i.first_seen_at ?? null,
-      source: 'identity',
+  const linked: ProfileRiotAccount[] = (data ?? [])
+    .map((row) => ({
+      ...toPublic(row),
+      source: (row.linked_at ? 'identity' : 'account') as ProfileRiotAccount['source'],
     }))
-
-  // Only full name#tag accounts backed by a PUUID — name-only legacy rows (a
-  // bare `riot_id_base` copy, a signup that never verified) are not real links.
-  const linked = [...accounts.map((a) => ({ ...a, source: 'account' as const })), ...extra].filter(
-    (a) => a.riot_puuid && a.riot_name.trim() && a.riot_tag.trim()
-  )
+    .filter((a) => a.riot_puuid && a.riot_name.trim() && a.riot_tag.trim())
 
   // If the declared primary was filtered out, the earliest approved link stands
   // in for it so the profile still has a main Riot ID.
@@ -115,6 +107,19 @@ export async function listProfileRiotAccounts(profileId: string): Promise<Profil
     if (stand) stand.is_primary = true
   }
   return linked
+}
+
+/**
+ * The PUUID to look each profile's rank up by: the primary account's, then any
+ * other approved account's. Profiles with none linked are left out of the map.
+ */
+export async function linkedPuuidsFor(profileIds: string[]): Promise<Map<string, string>> {
+  const ids = [...new Set(profileIds.filter(Boolean))]
+  const puuids = new Map<string, string>()
+  if (ids.length === 0) return puuids
+
+  for (const [profileId, link] of await loadRiotLinks(ids)) puuids.set(profileId, link.puuid)
+  return puuids
 }
 
 /**
@@ -132,40 +137,85 @@ export async function upsertPrimaryRiotAccount(opts: {
   const base = {
     profile_id: opts.profileId,
     riot_name: opts.riotName,
-    riot_tag: opts.riotTag,
+    riot_tag: storedTag(opts.riotTag),
     is_primary: true,
     status: 'approved' as const,
   }
-  // Only write the PUUID when we have one and it is not already held by another
-  // account (the unique index would reject it). Leaving it null lets a later
-  // import backfill it.
-  const withPuuid =
-    puuid && !(await puuidOwnedByOther(puuid, opts.profileId))
-      ? { ...base, riot_puuid: puuid, verified_at: new Date().toISOString() }
-      : base
+
+  // The PUUID may already sit on an account nobody owns (seen in a match before
+  // this player signed up) or on one of their own alts. Either way that row
+  // becomes the primary, rather than writing the PUUID a second time.
+  if (puuid) {
+    const linked = await claimPuuidAsPrimary(opts.profileId, puuid, base)
+    if (linked) return { puuid }
+  }
 
   const { data: existing } = await supabaseAdmin
-    .from('profile_riot_accounts')
+    .from('riot_accounts')
     .select('id')
     .eq('profile_id', opts.profileId)
     .eq('is_primary', true)
     .maybeSingle()
 
-  if (existing?.id) {
-    const { error } = await supabaseAdmin
-      .from('profile_riot_accounts')
-      .update(withPuuid)
-      .eq('id', existing.id)
-    if (error) throw new Error('Failed to update primary Riot account')
-  } else {
-    const { error } = await supabaseAdmin.from('profile_riot_accounts').insert(withPuuid)
-    if (error) throw new Error('Failed to create primary Riot account')
-  }
+  // A PUUID owned by another player is left off; a later import can backfill.
+  const row =
+    puuid && !(await puuidOwnedByOther(puuid, opts.profileId))
+      ? { ...base, puuid, verified_at: new Date().toISOString() }
+      : base
 
-  return { puuid: 'riot_puuid' in withPuuid ? (withPuuid.riot_puuid ?? null) : null }
+  const { error } = existing?.id
+    ? await supabaseAdmin.from('riot_accounts').update(row).eq('id', existing.id)
+    : await supabaseAdmin.from('riot_accounts').insert(row)
+  if (error) throw new Error('Failed to save primary Riot account')
+
+  return { puuid: 'puuid' in row ? row.puuid : null }
 }
 
-export type RiotLink = { riotId: string; puuid: string }
+/**
+ * Make the account carrying `puuid` this profile's primary, if it is unowned
+ * or already theirs. Returns false when no such account exists (or another
+ * player owns it), leaving the caller to write the primary itself.
+ */
+async function claimPuuidAsPrimary(
+  profileId: string,
+  puuid: string,
+  row: Record<string, unknown>
+): Promise<boolean> {
+  const { data: holder } = await supabaseAdmin
+    .from('riot_accounts')
+    .select('id, profile_id')
+    .eq('puuid', puuid)
+    .maybeSingle()
+  if (!holder || (holder.profile_id && holder.profile_id !== profileId)) return false
+
+  const { data: primary } = await supabaseAdmin
+    .from('riot_accounts')
+    .select('id')
+    .eq('profile_id', profileId)
+    .eq('is_primary', true)
+    .maybeSingle()
+
+  if (primary?.id && primary.id !== holder.id) {
+    // The old primary stays as an alt unless it was only a name placeholder.
+    await supabaseAdmin.from('riot_accounts').update({ is_primary: false }).eq('id', primary.id)
+    await supabaseAdmin
+      .from('riot_accounts')
+      .delete()
+      .eq('id', primary.id)
+      .is('puuid', null)
+      .ilike('riot_name', String(row.riot_name))
+  }
+
+  const now = new Date().toISOString()
+  const { error } = await supabaseAdmin
+    .from('riot_accounts')
+    .update({ ...row, verified_at: now, linked_at: holder.profile_id ? undefined : now })
+    .eq('id', holder.id)
+  if (error) throw new RiotAccountError(409, 'That Riot account is already linked to an account.')
+  return true
+}
+
+export type RiotLink = { riotId: string; riotName: string; riotTag: string | null; puuid: string }
 
 function formatRiotId(name: string | null | undefined, tag: string | null | undefined): string {
   const n = String(name ?? '').trim()
@@ -174,52 +224,37 @@ function formatRiotId(name: string | null | undefined, tag: string | null | unde
 }
 
 /**
- * The PUUID-backed Riot ID each profile is linked to, keyed by profile id.
- *
- * A PUUID reaches a profile three ways: match imports backfill it onto a
- * name-matched account, the admin identities tab links it (often onto a
- * secondary account, or only in `riot_identities`), and the login prompt sets
- * it on the primary. Any of them counts. A primary account with a PUUID wins,
- * then any approved account, then a bare `riot_identities` link.
+ * The PUUID-backed Riot ID each profile is linked to, keyed by profile id. The
+ * primary account wins when it has a PUUID, then the earliest approved one.
  */
 export async function loadRiotLinks(profileIds?: string[]): Promise<Map<string, RiotLink>> {
-  let accountsQuery = supabaseAdmin
-    .from('profile_riot_accounts')
-    .select('profile_id, riot_name, riot_tag, riot_puuid, is_primary')
-    .eq('status', 'approved')
-    .not('riot_puuid', 'is', null)
-  let identitiesQuery = supabaseAdmin
-    .from('riot_identities')
-    .select('profile_id, puuid, latest_name, latest_tag')
+  let query = supabaseAdmin
+    .from('riot_accounts')
+    .select('profile_id, riot_name, riot_tag, puuid, is_primary, created_at')
     .not('profile_id', 'is', null)
-  if (profileIds) {
-    accountsQuery = accountsQuery.in('profile_id', profileIds)
-    identitiesQuery = identitiesQuery.in('profile_id', profileIds)
-  }
+    .eq('status', 'approved')
+    .not('puuid', 'is', null)
+    .order('is_primary', { ascending: false })
+    .order('created_at', { ascending: true })
+  if (profileIds) query = query.in('profile_id', profileIds)
 
-  const [{ data: accounts, error: accountsError }, { data: identities, error: identitiesError }] =
-    await Promise.all([accountsQuery, identitiesQuery])
-  if (accountsError || identitiesError) throw new Error('Failed to load Riot links')
+  const { data, error } = await query
+  if (error) throw new Error('Failed to load Riot links')
 
   const links = new Map<string, RiotLink>()
-  // Primaries first so they claim the slot before secondaries.
-  const sorted = [...(accounts ?? [])].sort((a, b) => Number(b.is_primary) - Number(a.is_primary))
-  for (const a of sorted) {
+  for (const a of data ?? []) {
     if (links.has(a.profile_id)) continue
     links.set(a.profile_id, {
       riotId: formatRiotId(a.riot_name, a.riot_tag),
-      puuid: a.riot_puuid as string,
+      riotName: a.riot_name,
+      riotTag: String(a.riot_tag ?? '').trim() || null,
+      puuid: a.puuid,
     })
-  }
-  for (const i of identities ?? []) {
-    const profileId = i.profile_id as string
-    if (links.has(profileId)) continue
-    links.set(profileId, { riotId: formatRiotId(i.latest_name, i.latest_tag), puuid: i.puuid })
   }
   return links
 }
 
-/** True once the profile has a PUUID by any of the routes `loadRiotLinks` covers. */
+/** True once the profile has an approved account with a PUUID. */
 export async function hasLinkedRiotAccount(profileId: string): Promise<boolean> {
   return (await loadRiotLinks([profileId])).has(profileId)
 }
@@ -261,59 +296,34 @@ export async function linkPrimaryRiotAccount(opts: {
     profile_id: opts.profileId,
     riot_name: riotName,
     riot_tag: riotTag,
-    riot_puuid: account.puuid,
     is_primary: true,
     status: 'approved' as const,
-    verified_at: new Date().toISOString(),
   }
 
-  const { data: existing } = await supabaseAdmin
-    .from('profile_riot_accounts')
-    .select('id')
-    .eq('profile_id', opts.profileId)
-    .eq('is_primary', true)
-    .maybeSingle()
+  if (!(await claimPuuidAsPrimary(opts.profileId, account.puuid, row))) {
+    const { data: existing } = await supabaseAdmin
+      .from('riot_accounts')
+      .select('id')
+      .eq('profile_id', opts.profileId)
+      .eq('is_primary', true)
+      .maybeSingle()
 
-  // An import or the identities tab may already have put this PUUID on one of
-  // the player's secondary accounts. Promote that row rather than writing the
-  // PUUID a second time, which the unique index would reject.
-  const { data: samePuuid } = await supabaseAdmin
-    .from('profile_riot_accounts')
-    .select('id')
-    .eq('profile_id', opts.profileId)
-    .eq('riot_puuid', account.puuid)
-    .maybeSingle()
-
-  let error
-  if (samePuuid?.id && samePuuid.id !== existing?.id) {
-    if (existing?.id) {
-      await supabaseAdmin
-        .from('profile_riot_accounts')
-        .update({ is_primary: false })
-        .eq('id', existing.id)
-    }
-    ;({ error } = await supabaseAdmin
-      .from('profile_riot_accounts')
-      .update(row)
-      .eq('id', samePuuid.id))
-  } else if (existing?.id) {
-    ;({ error } = await supabaseAdmin
-      .from('profile_riot_accounts')
-      .update(row)
-      .eq('id', existing.id))
-  } else {
-    ;({ error } = await supabaseAdmin.from('profile_riot_accounts').insert(row))
+    const full = { ...row, puuid: account.puuid, verified_at: new Date().toISOString() }
+    const { error } = existing?.id
+      ? await supabaseAdmin.from('riot_accounts').update(full).eq('id', existing.id)
+      : await supabaseAdmin.from('riot_accounts').insert(full)
+    if (error) throw new RiotAccountError(409, 'That Riot account is already linked to an account.')
   }
-  if (error) throw new RiotAccountError(409, 'That Riot account is already linked to an account.')
 
   return { riotName, riotTag, puuid: account.puuid }
 }
 
 async function puuidOwnedByOther(puuid: string, profileId: string): Promise<boolean> {
   const { data } = await supabaseAdmin
-    .from('profile_riot_accounts')
+    .from('riot_accounts')
     .select('profile_id')
-    .eq('riot_puuid', puuid)
+    .eq('puuid', puuid)
+    .not('profile_id', 'is', null)
     .neq('profile_id', profileId)
     .maybeSingle()
   return Boolean(data)
@@ -354,18 +364,61 @@ export async function addAltRiotAccount(opts: {
     throw new RiotAccountError(409, 'That Riot account is already linked to another player.')
   }
 
+  const row = {
+    profile_id: opts.profileId,
+    riot_name: opts.riotName,
+    riot_tag: storedTag(opts.riotTag),
+    is_primary: false,
+    status: 'pending' as const,
+    label: opts.label ?? null,
+    verified_at: puuid ? new Date().toISOString() : null,
+  }
+
+  // The player already owns this PUUID under an older name: it is the same
+  // account after a Riot rename, so update its name rather than add a second.
+  if (puuid) {
+    const { data: own } = await supabaseAdmin
+      .from('riot_accounts')
+      .select('id')
+      .eq('puuid', puuid)
+      .eq('profile_id', opts.profileId)
+      .maybeSingle()
+    if (own?.id) {
+      const { data, error } = await supabaseAdmin
+        .from('riot_accounts')
+        .update({ riot_name: opts.riotName, riot_tag: storedTag(opts.riotTag) })
+        .eq('id', own.id)
+        .select(ACCOUNT_COLUMNS)
+        .single()
+      if (error) throw new RiotAccountError(409, 'That Riot ID is already linked to an account.')
+      return toPublic(data)
+    }
+  }
+
+  // A PUUID seen in a match but owned by nobody is claimed in place (still
+  // pending), so the account keeps its sighting history.
+  if (puuid) {
+    const { data: unowned } = await supabaseAdmin
+      .from('riot_accounts')
+      .select('id')
+      .eq('puuid', puuid)
+      .is('profile_id', null)
+      .maybeSingle()
+    if (unowned?.id) {
+      const { data, error } = await supabaseAdmin
+        .from('riot_accounts')
+        .update(row)
+        .eq('id', unowned.id)
+        .select(ACCOUNT_COLUMNS)
+        .single()
+      if (error) throw new RiotAccountError(409, 'That Riot ID is already linked to an account.')
+      return toPublic(data)
+    }
+  }
+
   const { data, error } = await supabaseAdmin
-    .from('profile_riot_accounts')
-    .insert({
-      profile_id: opts.profileId,
-      riot_name: opts.riotName,
-      riot_tag: opts.riotTag,
-      riot_puuid: puuid,
-      is_primary: false,
-      status: 'pending',
-      label: opts.label ?? null,
-      verified_at: puuid ? new Date().toISOString() : null,
-    })
+    .from('riot_accounts')
+    .insert({ ...row, puuid })
     .select(ACCOUNT_COLUMNS)
     .single()
 
@@ -373,44 +426,111 @@ export async function addAltRiotAccount(opts: {
     // Unique index race, most likely.
     throw new RiotAccountError(409, 'That Riot ID is already linked to an account.')
   }
-  return data as PublicRiotAccount
+  return toPublic(data)
 }
 
 /**
  * Update the primary account's name when a Riot ID is edited without a tag
  * (the player-page / admin rename form). Preserves the existing tag and PUUID;
- * creates a primary row with an empty tag if the profile has none yet.
+ * creates a tagless primary if the profile has none yet.
  */
 export async function syncPrimaryRiotName(profileId: string, riotName: string): Promise<void> {
   const { data: existing } = await supabaseAdmin
-    .from('profile_riot_accounts')
+    .from('riot_accounts')
     .select('id')
     .eq('profile_id', profileId)
     .eq('is_primary', true)
     .maybeSingle()
 
-  if (existing?.id) {
-    const { error } = await supabaseAdmin
-      .from('profile_riot_accounts')
-      .update({ riot_name: riotName })
-      .eq('id', existing.id)
-    if (error) throw new Error('Failed to update primary Riot account name')
-  } else {
-    const { error } = await supabaseAdmin.from('profile_riot_accounts').insert({
-      profile_id: profileId,
-      riot_name: riotName,
-      riot_tag: '',
-      is_primary: true,
-      status: 'approved',
-    })
-    if (error) throw new Error('Failed to create primary Riot account')
-  }
+  const { error } = existing?.id
+    ? await supabaseAdmin
+        .from('riot_accounts')
+        .update({ riot_name: riotName })
+        .eq('id', existing.id)
+    : await supabaseAdmin.from('riot_accounts').insert({
+        profile_id: profileId,
+        riot_name: riotName,
+        is_primary: true,
+        status: 'approved',
+      })
+  if (error) throw new Error('Failed to save primary Riot account name')
+}
+
+/** Label on the tagless account that holds a player's stats name alias. */
+export const STATS_ALIAS_LABEL = 'Stats name alias'
+
+/** True when an owned account other than this profile's already uses the name. */
+export async function riotNameOwnedByOther(name: string, profileId: string): Promise<boolean> {
+  const { data } = await supabaseAdmin
+    .from('riot_accounts')
+    .select('profile_id')
+    .ilike('riot_name', name)
+    .not('profile_id', 'is', null)
+    .neq('profile_id', profileId)
+    .limit(1)
+  return Boolean(data?.length)
+}
+
+/**
+ * Give a profile a bare Riot name to match stats by (no tag, no PUUID). The
+ * name becomes the primary account when the profile has none; otherwise it is
+ * an approved alias, so it never overwrites a verified primary.
+ */
+export async function claimRiotName(
+  profileId: string,
+  name: string,
+  label: string | null = null
+): Promise<void> {
+  const { data: primary } = await supabaseAdmin
+    .from('riot_accounts')
+    .select('id')
+    .eq('profile_id', profileId)
+    .eq('is_primary', true)
+    .maybeSingle()
+  if (!primary) return syncPrimaryRiotName(profileId, name)
+
+  const { data: existing } = await supabaseAdmin
+    .from('riot_accounts')
+    .select('id')
+    .eq('profile_id', profileId)
+    .ilike('riot_name', name)
+    .limit(1)
+  if (existing?.length) return
+
+  const { error } = await supabaseAdmin
+    .from('riot_accounts')
+    .insert({ profile_id: profileId, riot_name: name, status: 'approved', label })
+  if (error) throw new Error('Failed to save Riot name')
+}
+
+/** Replace (or, with null, remove) the profile's stats name alias. */
+export async function setStatsNameAlias(profileId: string, name: string | null): Promise<void> {
+  const { error } = await supabaseAdmin
+    .from('riot_accounts')
+    .delete()
+    .eq('profile_id', profileId)
+    .eq('label', STATS_ALIAS_LABEL)
+    .is('puuid', null)
+    .eq('is_primary', false)
+  if (error) throw new Error('Failed to clear stats name alias')
+  if (name) await claimRiotName(profileId, name, STATS_ALIAS_LABEL)
+}
+
+/** The profile's stats name alias, if it has one. */
+export async function statsNameAlias(profileId: string): Promise<string | null> {
+  const { data } = await supabaseAdmin
+    .from('riot_accounts')
+    .select('riot_name')
+    .eq('profile_id', profileId)
+    .eq('label', STATS_ALIAS_LABEL)
+    .limit(1)
+  return (data?.[0]?.riot_name as string | undefined) ?? null
 }
 
 /** Remove one of a profile's own non-primary accounts. */
 export async function removeAltRiotAccount(accountId: string, profileId: string): Promise<void> {
   const { error } = await supabaseAdmin
-    .from('profile_riot_accounts')
+    .from('riot_accounts')
     .delete()
     .eq('id', accountId)
     .eq('profile_id', profileId)

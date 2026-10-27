@@ -3,25 +3,18 @@ import { buildProfileMatcher } from '$lib/server/imports/matching'
 import { normalizedProfileNameKeys } from '$lib/server/players/claim-relink'
 
 describe('normalizedProfileNameKeys', () => {
-  it('collects unique normalized names from profile fields', () => {
-    const keys = normalizedProfileNameKeys({
-      id: 'x',
-      display_name: 'Foo Bar',
-      riot_id_base: 'foo bar',
-      stats_player_name: 'Other',
-    })
+  it('collects unique normalized names from the profile and its accounts', () => {
+    const keys = normalizedProfileNameKeys({ id: 'x', display_name: 'Foo Bar' }, [
+      { riot_name: 'foo bar' },
+      { riot_name: 'Other' },
+    ])
     expect(keys.has('foo bar')).toBe(true)
     expect(keys.has('other')).toBe(true)
     expect(keys.size).toBe(2)
   })
 
   it('omits empty fields', () => {
-    const keys = normalizedProfileNameKeys({
-      id: 'x',
-      display_name: null,
-      riot_id_base: 'rize',
-      stats_player_name: null,
-    })
+    const keys = normalizedProfileNameKeys({ id: 'x', display_name: null }, [{ riot_name: 'rize' }])
     expect(keys.has('rize')).toBe(true)
     expect(keys.size).toBe(1)
   })
@@ -30,14 +23,10 @@ describe('normalizedProfileNameKeys', () => {
 describe('buildProfileMatcher (used by match map relink)', () => {
   it('resolves tag suffix to profile id', () => {
     const id = '49a4217d-7052-4cfe-a6b3-6d521a46b2b6'
-    const matcher = buildProfileMatcher([
-      {
-        id,
-        display_name: null,
-        riot_id_base: 'rize',
-        stats_player_name: null,
-      },
-    ])
+    const matcher = buildProfileMatcher(
+      [{ id, display_name: null }],
+      [{ profile_id: id, riot_name: 'rize', riot_tag: null, riot_puuid: null }]
+    )
     expect(matcher.resolve('rize')).toBe(id)
     expect(matcher.resolve('rize#1234')).toBe(id)
     expect(matcher.resolve('RIZE')).toBe(id)

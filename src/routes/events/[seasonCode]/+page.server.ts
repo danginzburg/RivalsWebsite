@@ -17,7 +17,7 @@ import { resolveSeasonProfile } from '$lib/seasons/profile'
 import { pickStandingsBatch } from '$lib/server/leaderboard/batch'
 
 type TeamRel = { id: string; name: string; tag?: string | null; logo_path?: string | null }
-type ProfileRel = { id: string; display_name: string | null; riot_id_base: string | null }
+type ProfileRel = { id: string; display_name: string | null }
 
 function firstRel<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null
@@ -53,7 +53,7 @@ export const load = async ({
       final_leaderboard_batch_id,
       winner:teams!seasons_winner_team_id_fkey (id, name, tag, logo_path),
       runner_up:teams!seasons_runner_up_team_id_fkey (id, name, tag, logo_path),
-      mvp:profiles!seasons_mvp_profile_id_fkey (id, display_name, riot_id_base)
+      mvp:profiles!seasons_mvp_profile_id_fkey (id, display_name)
     `
     )
     .eq('code', params.seasonCode)
@@ -372,7 +372,7 @@ export const load = async ({
             logo_url: getTeamLogoUrl(runnerUp),
           }
         : null,
-      mvp: mvp ? { id: mvp.id, name: mvp.display_name ?? mvp.riot_id_base ?? 'Player' } : null,
+      mvp: mvp ? { id: mvp.id, name: mvp.display_name ?? 'Player' } : null,
       map_pool: mapPool,
     },
     teams,

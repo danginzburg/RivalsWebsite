@@ -1,7 +1,8 @@
 <script lang="ts">
   import { enhance } from '$app/forms'
   import { invalidateAll } from '$app/navigation'
-  import { Plus, X, Star, Pencil } from 'lucide-svelte'
+  import { Plus, X, Star, Pencil, ExternalLink } from 'lucide-svelte'
+  import DiscordIcon from '$lib/components/icons/DiscordIcon.svelte'
 
   type RiotAccount = {
     id: string
@@ -19,14 +20,26 @@
     accounts = [],
     canEdit = false,
     displayName = null,
+    discordHandle = null,
   }: {
     accounts?: RiotAccount[]
     canEdit?: boolean
     displayName?: string | null
+    discordHandle?: string | null
   } = $props()
 
   const primary = $derived(accounts.find((a) => a.is_primary) ?? null)
   const alts = $derived(accounts.filter((a) => !a.is_primary))
+
+  // Built from the current Riot ID rather than a stored URL, so it follows
+  // renames along with the account.
+  const trackerUrl = $derived(
+    primary?.riot_tag
+      ? `https://tracker.gg/valorant/profile/riot/${encodeURIComponent(
+          `${primary.riot_name}#${primary.riot_tag}`
+        )}/overview`
+      : null
+  )
 
   let editingName = $state(false)
   let addingAlt = $state(false)
@@ -96,7 +109,7 @@
 
 <section class="panel">
   <div class="panel-head">
-    <span class="panel-title">Riot accounts</span>
+    <span class="panel-title">Player info</span>
     {#if canEdit && !addingAlt}
       <button type="button" class="link-btn" onclick={() => (addingAlt = true)}>
         <Plus size={13} /> Add account
@@ -157,6 +170,22 @@
           {primary.riot_name}{#if primary.riot_tag}<span class="tag">#{primary.riot_tag}</span>{/if}
         </span>
         {#if primary.riot_puuid}{@render linkedMark()}{/if}
+      </div>
+      {#if trackerUrl}
+        <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+        <a href={trackerUrl} target="_blank" rel="noopener noreferrer" class="tracker-link">
+          <ExternalLink size={12} />
+          Tracker
+        </a>
+      {/if}
+    </div>
+  {/if}
+
+  {#if discordHandle}
+    <div class="row">
+      <div class="row-main">
+        <span class="row-label"><DiscordIcon size={11} /> Discord</span>
+        <span class="row-value">{discordHandle}</span>
       </div>
     </div>
   {/if}
@@ -297,6 +326,25 @@
     border-radius: 9999px;
     background: rgba(74, 222, 128, 0.16);
     color: #86efac;
+  }
+  .tracker-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3125rem;
+    padding: 0.1875rem 0.5rem;
+    border-radius: 0.3125rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.04);
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.75rem;
+    text-decoration: none;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .tracker-link:hover {
+    border-color: rgba(120, 67, 145, 0.5);
+    background: rgba(120, 67, 145, 0.12);
+    color: #d8b4fe;
   }
   .link-btn {
     display: inline-flex;

@@ -8,7 +8,6 @@ type RosterProfileRow = {
   id: string
   display_name: string | null
   email: string | null
-  riot_id_base: string | null
 }
 
 function normalizeOptional(value: unknown): string | null {
@@ -88,7 +87,6 @@ export const GET: RequestHandler = async ({ locals, url }) => {
     Array<{
       profile_id: string
       role: string
-      riot_id_base: string | null
       display_name: string | null
       email: string | null
     }>
@@ -113,7 +111,7 @@ export const GET: RequestHandler = async ({ locals, url }) => {
     if (profileIds.length > 0) {
       const { data: profileRows, error: profilesError } = await supabaseAdmin
         .from('profiles')
-        .select('id, display_name, email, riot_id_base')
+        .select('id, display_name, email')
         .in('id', profileIds)
 
       if (profilesError) throw error(500, 'Failed to load roster profiles')
@@ -128,7 +126,6 @@ export const GET: RequestHandler = async ({ locals, url }) => {
         profile_id: row.profile_id,
         player_name: (row as { player_name?: string | null }).player_name ?? null,
         role: row.role,
-        riot_id_base: p?.riot_id_base ?? null,
         display_name: p?.display_name ?? null,
         email: p?.email ?? null,
       }

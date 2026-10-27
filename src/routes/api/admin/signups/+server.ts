@@ -6,24 +6,25 @@ import {
   computeSignupValue,
   normalizeDiscordHandle,
   normalizeOptional,
+  parseAdjustment,
   parseScore,
 } from '$lib/server/signups'
+import { loadRatingFor, loadRatingsByName, ratingNameKey } from '$lib/server/signups/ratings'
 import { createNotification } from '$lib/server/notifications'
+import { syncPrimaryRiotName } from '$lib/server/players/riot-accounts'
+import { withSignupRiotIds } from '$lib/server/signups/riot-ids'
 
 const SELECT_COLUMNS = `
   id,
   profile_id,
   season_id,
-  display_name,
-  riot_tag,
   discord_handle,
   tracker_links,
   current_rank,
   peak_rank,
-  tracker_current_score,
-  tracker_peak_score,
   computed_value,
   manual_value_override,
+  manual_adjustment,
   status,
   admin_notes,
   created_at,
@@ -49,29 +50,33 @@ export const GET: RequestHandler = async ({ locals, url }) => {
   const { data: signups, error: listError } = await query
   if (listError) throw error(500, 'Failed to load signups')
 
-  const rows = signups ?? []
-  if (rows.length === 0) return json({ signups: [] })
+  if (!signups?.length) return json({ signups: [] })
+  const rows = await withSignupRiotIds(signups)
 
   // Attach the player's profile so the UI can show a stable identity even
   // when the submitted display name differs.
   const profileIds = Array.from(new Set(rows.map((r) => r.profile_id)))
   const { data: profiles } = await supabaseAdmin
     .from('profiles')
-    .select('id, display_name, riot_id_base, email')
+    .select('id, display_name, email, discord_username')
     .in('id', profileIds)
 
   const profileById = new Map((profiles ?? []).map((p) => [p.id, p]))
+  // The rating is shown in the score breakdown; a missing one means no bonus.
+  const ratings = await loadRatingsByName(rows.map((r) => r.display_name))
 
   return json({
     signups: rows.map((row) => {
       const profile = profileById.get(row.profile_id)
       return {
         ...row,
+        rating: ratings.get(ratingNameKey(row.display_name)) ?? null,
         profile: {
           id: row.profile_id,
-          name:
-            profile?.display_name ?? profile?.riot_id_base ?? profile?.email ?? 'Unknown player',
+          name: profile?.display_name ?? profile?.email ?? 'Unknown player',
           email: profile?.email ?? null,
+          // Saved from their Discord login; stands in for a blank signup handle.
+          discord_username: profile?.discord_username ?? null,
         },
       }
     }),
@@ -87,36 +92,37 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
 
   const { data: existing } = await supabaseAdmin
     .from('player_signups')
-    .select('id, profile_id, current_rank, peak_rank, tracker_current_score, tracker_peak_score')
+    .select('id, profile_id, current_rank, peak_rank, manual_adjustment')
     .eq('id', id)
     .maybeSingle()
 
   if (!existing) throw error(404, 'Signup not found')
+  const [{ display_name: currentRiotName }] = await withSignupRiotIds([existing])
 
   const currentRank = normalizeOptional(body.currentRank) ?? existing.current_rank
   const peakRank = normalizeOptional(body.peakRank) ?? existing.peak_rank
 
-  // `undefined` leaves a score untouched; an explicit null clears it.
-  const trackerCurrentScore =
-    body.trackerCurrentScore === undefined
-      ? existing.tracker_current_score
-      : parseScore(body.trackerCurrentScore)
-  const trackerPeakScore =
-    body.trackerPeakScore === undefined
-      ? existing.tracker_peak_score
-      : parseScore(body.trackerPeakScore)
+  // The rating is matched by Riot name, so use the name this save leaves.
+  const displayName =
+    body.displayName !== undefined ? normalizeOptional(body.displayName) : currentRiotName
 
   const computedValue = computeSignupValue({
     current_rank: currentRank,
     peak_rank: peakRank,
-    tracker_current_score: trackerCurrentScore,
-    tracker_peak_score: trackerPeakScore,
+    rating: await loadRatingFor(displayName),
   })
 
   const manualOverride =
     body.manualValueOverride === undefined || body.manualValueOverride === null
       ? null
       : parseScore(body.manualValueOverride)
+
+  // `undefined` leaves the adjustment alone; blank clears it to 0.
+  const manualAdjustment =
+    body.manualAdjustment === undefined
+      ? existing.manual_adjustment
+      : parseAdjustment(body.manualAdjustment)
+  if (manualAdjustment == null) throw error(400, 'Adjustment must be a number')
 
   const status = normalizeOptional(body.status)
   if (status && !['pending', 'approved', 'rejected'].includes(status)) {
@@ -126,15 +132,16 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
   const updates: Record<string, unknown> = {
     current_rank: currentRank,
     peak_rank: peakRank,
-    tracker_current_score: trackerCurrentScore,
-    tracker_peak_score: trackerPeakScore,
     computed_value: computedValue,
     manual_value_override: manualOverride,
+    manual_adjustment: manualAdjustment,
     admin_notes: normalizeOptional(body.adminNotes),
   }
 
-  if (body.displayName !== undefined) {
-    updates.display_name = normalizeOptional(body.displayName)
+  // The signup's Riot name is the player's primary Riot account; correcting it
+  // here corrects it everywhere.
+  if (displayName && displayName !== currentRiotName) {
+    await syncPrimaryRiotName(existing.profile_id, displayName)
   }
   if (body.discordHandle !== undefined) {
     updates.discord_handle = normalizeDiscordHandle(body.discordHandle)
@@ -158,25 +165,6 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
     throw error(500, 'Failed to update signup')
   }
 
-  // Approving publishes the contact details onto the player's profile.
-  if (status === 'approved') {
-    await supabaseAdmin
-      .from('profiles')
-      .update({
-        discord_handle: updated.discord_handle,
-        tracker_links: updated.tracker_links ?? [],
-      })
-      .eq('id', existing.profile_id)
-  }
-
-  // Rejecting or reverting to pending retracts them again.
-  if (status === 'rejected' || status === 'pending') {
-    await supabaseAdmin
-      .from('profiles')
-      .update({ discord_handle: null, tracker_links: [] })
-      .eq('id', existing.profile_id)
-  }
-
   // Let the player know an admin acted on their signup.
   if (status === 'approved') {
     await createNotification({
@@ -198,7 +186,10 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
     })
   }
 
-  return json({ success: true, signup: updated })
+  // Contact details are published straight from the approved signup (the
+  // player page reads it), so approving or rejecting needs no profile write.
+  const [signup] = await withSignupRiotIds([updated])
+  return json({ success: true, signup })
 }
 
 export const DELETE: RequestHandler = async ({ locals, url }) => {
@@ -207,23 +198,9 @@ export const DELETE: RequestHandler = async ({ locals, url }) => {
   const id = url.searchParams.get('id')
   if (!id) throw error(400, 'Signup id is required')
 
-  const { data: existing } = await supabaseAdmin
-    .from('player_signups')
-    .select('profile_id')
-    .eq('id', id)
-    .maybeSingle()
-
   const { error: deleteError } = await supabaseAdmin.from('player_signups').delete().eq('id', id)
 
   if (deleteError) throw error(500, 'Failed to delete signup')
-
-  // Nothing left to have been approved, so the published contact details go too.
-  if (existing?.profile_id) {
-    await supabaseAdmin
-      .from('profiles')
-      .update({ discord_handle: null, tracker_links: [] })
-      .eq('id', existing.profile_id)
-  }
 
   return json({ success: true })
 }

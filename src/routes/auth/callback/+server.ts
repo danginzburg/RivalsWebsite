@@ -73,6 +73,15 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
   const discordUsername = isDiscordLogin
     ? ((userInfo.nickname || userInfo.preferred_username || userInfo.name) ?? undefined)
     : undefined
+  // The Discord user id is the last segment of the subject.
+  const discordId = isDiscordLogin
+    ? String(userInfo.sub).split('|').pop()?.trim() || undefined
+    : undefined
+  // Discord identity lives on the profile, refreshed every login, so lookups
+  // by Discord never depend on the session.
+  const discordFields = isDiscordLogin
+    ? { discord_id: discordId ?? null, discord_username: discordUsername ?? null }
+    : {}
 
   // Set session cookie
   await setSessionCookie(cookies, {
@@ -103,6 +112,7 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
       email: userInfo.email ?? null,
       display_name: userInfo.name ?? userInfo.nickname ?? null,
       avatar_url: userInfo.picture ?? null,
+      ...discordFields,
     })
   } else {
     // Never overwrite display_name on login: it is the player's chosen site
@@ -113,6 +123,7 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
       .update({
         email: userInfo.email ?? null,
         avatar_url: userInfo.picture ?? null,
+        ...discordFields,
       })
       .eq('auth0_sub', userInfo.sub)
   }

@@ -7,7 +7,6 @@
     display_name?: string | null
     email?: string | null
     role?: string | null
-    riot_id_base?: string | null
     riot_tag?: string | null
     riot_id?: string | null
     riot_linked?: boolean
@@ -48,6 +47,14 @@
   <div class="font-semibold" style="color: var(--title);">{user.display_name || '—'}</div>
   <div class="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs">
     <span style="color: rgba(255,255,255,0.65);">{user.riot_id || 'No Riot ID'}</span>
+    {#if user.riot_id && !user.riot_tag}
+      <span
+        class="rounded px-1.5 py-0.5"
+        style="background: rgba(148,163,184,0.14); color: #cbd5e1;"
+        title="Only the name is on record. The tag fills in from the next match import that includes this account, or when the player links their full Riot ID."
+        >No tag</span
+      >
+    {/if}
     {#if user.unclaimed}
       <span
         class="rounded px-1.5 py-0.5"

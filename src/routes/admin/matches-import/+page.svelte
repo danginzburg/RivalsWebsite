@@ -282,17 +282,10 @@
     // eslint-disable-next-line svelte/prefer-svelte-reactivity -- key/value lookup for CSV matching
     const map = new Map<string, string>()
     for (const profile of data.profiles ?? []) {
-      if (profile.riot_id_base) {
-        map.set(normalizeKey(profile.riot_id_base), profile.id)
-        map.set(normalizeBase(profile.riot_id_base), profile.id)
-      }
-      if (profile.display_name) {
-        map.set(normalizeKey(profile.display_name), profile.id)
-        map.set(normalizeBase(profile.display_name), profile.id)
-      }
-      if (profile.stats_player_name) {
-        map.set(normalizeKey(profile.stats_player_name), profile.id)
-        map.set(normalizeBase(profile.stats_player_name), profile.id)
+      for (const name of [profile.display_name, ...(profile.riot_ids ?? [])]) {
+        if (!name) continue
+        map.set(normalizeKey(name), profile.id)
+        map.set(normalizeBase(name), profile.id)
       }
     }
     return map

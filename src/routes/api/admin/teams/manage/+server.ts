@@ -56,12 +56,12 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   // When the picker supplied a profile directly, pull its PUUID for matching.
   if (profileId && !resolvedPuuid) {
     const { data: primary } = await supabaseAdmin
-      .from('profile_riot_accounts')
-      .select('riot_puuid')
+      .from('riot_accounts')
+      .select('puuid')
       .eq('profile_id', profileId)
       .eq('is_primary', true)
       .maybeSingle()
-    resolvedPuuid = (primary?.riot_puuid as string | null) ?? null
+    resolvedPuuid = (primary?.puuid as string | null) ?? null
   }
 
   if (!teamId || (!resolvedProfileId && !playerName))
