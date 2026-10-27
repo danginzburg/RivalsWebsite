@@ -14,10 +14,11 @@ export const GET: RequestHandler = async ({ locals, url }) => {
   const status = url.searchParams.get('status') ?? 'pending'
 
   let query = supabaseAdmin
-    .from('profile_riot_accounts')
+    .from('riot_accounts')
     .select(
-      'id, profile_id, riot_name, riot_tag, riot_puuid, is_primary, status, label, created_at'
+      'id, profile_id, riot_name, riot_tag, riot_puuid:puuid, is_primary, status, label, created_at'
     )
+    .not('profile_id', 'is', null)
     .eq('is_primary', false)
     .order('created_at', { ascending: true })
     .limit(500)
@@ -34,7 +35,7 @@ export const GET: RequestHandler = async ({ locals, url }) => {
   const profileIds = Array.from(new Set(rows.map((r) => r.profile_id)))
   const { data: profiles } = await supabaseAdmin
     .from('profiles')
-    .select('id, display_name, riot_id_base, email')
+    .select('id, display_name, email')
     .in('id', profileIds)
 
   const profileById = new Map((profiles ?? []).map((p) => [p.id, p]))
@@ -46,8 +47,7 @@ export const GET: RequestHandler = async ({ locals, url }) => {
         ...row,
         profile: {
           id: row.profile_id,
-          name:
-            profile?.display_name ?? profile?.riot_id_base ?? profile?.email ?? 'Unknown player',
+          name: profile?.display_name ?? profile?.email ?? 'Unknown player',
         },
       }
     }),
@@ -66,16 +66,16 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
   }
 
   const { data: account, error: loadError } = await supabaseAdmin
-    .from('profile_riot_accounts')
+    .from('riot_accounts')
     .select('id, profile_id, is_primary')
     .eq('id', id)
     .maybeSingle()
 
-  if (loadError || !account) throw error(404, 'Riot account not found')
+  if (loadError || !account?.profile_id) throw error(404, 'Riot account not found')
   if (account.is_primary) throw error(400, 'The primary account cannot be reviewed.')
 
   const { error: updateError } = await supabaseAdmin
-    .from('profile_riot_accounts')
+    .from('riot_accounts')
     .update({
       status,
       verified_at: status === 'approved' ? new Date().toISOString() : null,

@@ -6,21 +6,19 @@ import {
   type RiotAccountRow,
 } from '$lib/server/imports/matching'
 
-/** Approved Riot accounts (primary + alts) owned by one profile. */
+/** Approved Riot accounts (primary, alts, aliases) owned by one profile. */
 async function getProfileRiotAccounts(profileId: string): Promise<RiotAccountRow[]> {
   const { data } = await supabaseAdmin
-    .from('profile_riot_accounts')
-    .select('profile_id, riot_name, riot_tag, riot_puuid')
+    .from('riot_accounts')
+    .select('profile_id, riot_name, riot_tag, riot_puuid:puuid')
     .eq('profile_id', profileId)
     .eq('status', 'approved')
   return (data ?? []) as RiotAccountRow[]
 }
 
-/** Every name a profile is known by, across legacy columns and Riot accounts. */
+/** Every name a profile is known by: its display name and Riot accounts. */
 function profileNamesWithAccounts(profile: ProfileRow, accounts: RiotAccountRow[]): string[] {
-  const names = [profile.display_name, profile.riot_id_base, profile.stats_player_name]
-    .map((v) => String(v ?? '').trim())
-    .filter(Boolean)
+  const names = [profile.display_name].map((v) => String(v ?? '').trim()).filter(Boolean)
   for (const account of accounts) {
     if (account.riot_name) {
       names.push(account.riot_name.trim())
@@ -51,9 +49,12 @@ function quoteOrValue(value: string): string {
 }
 
 /** Normalized keys used for roster matching (same idea as membership.ts). */
-export function normalizedProfileNameKeys(profile: ProfileRow): Set<string> {
+export function normalizedProfileNameKeys(
+  profile: ProfileRow,
+  accounts: Array<Pick<RiotAccountRow, 'riot_name'>> = []
+): Set<string> {
   return new Set(
-    [profile.display_name, profile.riot_id_base, profile.stats_player_name]
+    [profile.display_name, ...accounts.map((a) => a.riot_name)]
       .map((value) => normalizeMembershipName(value))
       .filter(Boolean)
   )
@@ -75,7 +76,7 @@ export async function relinkTeamMembershipsForClaim(profileId: string): Promise<
 }> {
   const { data: profile, error: profileError } = await supabaseAdmin
     .from('profiles')
-    .select('id, display_name, riot_id_base, stats_player_name')
+    .select('id, display_name')
     .eq('id', profileId)
     .maybeSingle()
 
@@ -199,7 +200,7 @@ export async function relinkPlayerMatchMapStatsForClaim(profileId: string): Prom
 }> {
   const { data: profile, error: profileError } = await supabaseAdmin
     .from('profiles')
-    .select('id, display_name, riot_id_base, stats_player_name, riot_puuid')
+    .select('id, display_name')
     .eq('id', profileId)
     .maybeSingle()
 
@@ -212,7 +213,8 @@ export async function relinkPlayerMatchMapStatsForClaim(profileId: string): Prom
   const rawNames = profileNamesWithAccounts(profile as ProfileRow, accounts)
   const puuids = Array.from(
     new Set(
-      [profile.riot_puuid, ...accounts.map((a) => a.riot_puuid)]
+      accounts
+        .map((a) => a.riot_puuid)
         .map((v) => String(v ?? '').trim())
         .filter(Boolean)
     )
@@ -292,7 +294,7 @@ export async function relinkPlayerMatchMapStatsForClaim(profileId: string): Prom
 export async function syncRivalsGroupStatsByProfileNames(profileId: string): Promise<number> {
   const { data: profile, error: profileError } = await supabaseAdmin
     .from('profiles')
-    .select('id, display_name, riot_id_base, stats_player_name, riot_puuid')
+    .select('id, display_name')
     .eq('id', profileId)
     .maybeSingle()
 

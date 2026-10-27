@@ -28,7 +28,6 @@
     players?: Array<{
       id: string
       display_name: string | null
-      riot_id_base: string | null
       email: string | null
     }>
     /** Leaderboard imports that can be pinned as a season's final standings. */
@@ -119,7 +118,7 @@
     { value: '', label: '— None —' },
     ...(players ?? []).map((p) => ({
       value: p.id,
-      label: p.display_name ?? p.riot_id_base ?? p.email ?? 'Player',
+      label: p.display_name ?? p.email ?? 'Player',
     })),
   ])
 

@@ -44,17 +44,14 @@ export const load: PageServerLoad = async ({ locals }) => {
     throw error(403, 'Access denied. Administrator privileges required.')
   }
 
+  // Every approved Riot ID (and alias) per player, for CSV name matching.
   const { data: profiles, error: profilesError } = await supabaseAdmin
-    .from('profiles')
-    .select('id, display_name, riot_id_base')
+    .from('player_directory')
+    .select('id:profile_id, display_name, riot_ids')
     .order('display_name', { ascending: true })
 
   if (profilesError) {
-    const msg = errorMessage(profilesError)
-    if (msg.toLowerCase().includes('riot_id_base')) {
-      throw error(500, 'Database missing profiles.riot_id_base; apply the Supabase migration')
-    }
-    throw error(500, msg || 'Failed to load profiles')
+    throw error(500, errorMessage(profilesError) || 'Failed to load profiles')
   }
 
   // Seasons the batch generator can be scoped to.

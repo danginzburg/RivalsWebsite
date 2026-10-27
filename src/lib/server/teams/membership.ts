@@ -45,14 +45,16 @@ export async function resolveRosterIdentity(input: string): Promise<{
   //    profile and (usually) the PUUID.
   if (parts) {
     const { data: account } = await supabaseAdmin
-      .from('profile_riot_accounts')
-      .select('profile_id, riot_puuid')
+      .from('riot_accounts')
+      .select('profile_id, puuid')
       .ilike('riot_name', parts.name)
       .ilike('riot_tag', parts.tag)
+      .order('profile_id', { ascending: true, nullsFirst: false })
+      .limit(1)
       .maybeSingle()
     if (account) {
       profileId = (account.profile_id as string | null) ?? null
-      puuid = (account.riot_puuid as string | null) ?? null
+      puuid = (account.puuid as string | null) ?? null
     }
   }
 
@@ -64,12 +66,12 @@ export async function resolveRosterIdentity(input: string): Promise<{
   // 3. Backfill a PUUID from the resolved profile's primary account.
   if (profileId && !puuid) {
     const { data: primary } = await supabaseAdmin
-      .from('profile_riot_accounts')
-      .select('riot_puuid')
+      .from('riot_accounts')
+      .select('puuid')
       .eq('profile_id', profileId)
       .eq('is_primary', true)
       .maybeSingle()
-    puuid = (primary?.riot_puuid as string | null) ?? null
+    puuid = (primary?.puuid as string | null) ?? null
   }
 
   // 4. Still no PUUID but we have a full Riot ID: verify it against Riot. This is
@@ -81,9 +83,9 @@ export async function resolveRosterIdentity(input: string): Promise<{
       puuid = account.puuid
       if (!profileId) {
         const { data: byPuuid } = await supabaseAdmin
-          .from('profile_riot_accounts')
+          .from('riot_accounts')
           .select('profile_id')
-          .eq('riot_puuid', puuid)
+          .eq('puuid', puuid)
           .maybeSingle()
         profileId = (byPuuid?.profile_id as string | null) ?? null
       }
@@ -98,23 +100,19 @@ export async function resolveRosterIdentity(input: string): Promise<{
 /**
  * The identity for a roster slot when its PUUID is already known (picked from
  * the Riot accounts seen in the team's matches), so no Riot lookup is needed.
- * The profile comes from a registered Riot account, else a linked identity.
+ * The profile is whoever owns that PUUID's Riot account, if anyone.
  */
 export async function resolveRosterIdentityByPuuid(
   input: string,
   puuid: string
 ): Promise<{ profileId: string | null; puuid: string; playerName: string }> {
   const playerName = String(input ?? '').trim()
-  const [{ data: account }, { data: identity }] = await Promise.all([
-    supabaseAdmin
-      .from('profile_riot_accounts')
-      .select('profile_id')
-      .eq('riot_puuid', puuid)
-      .maybeSingle(),
-    supabaseAdmin.from('riot_identities').select('profile_id').eq('puuid', puuid).maybeSingle(),
-  ])
-  const profileId =
-    (account?.profile_id as string | null) ?? (identity?.profile_id as string | null) ?? null
+  const { data: account } = await supabaseAdmin
+    .from('riot_accounts')
+    .select('profile_id')
+    .eq('puuid', puuid)
+    .maybeSingle()
+  const profileId = (account?.profile_id as string | null) ?? null
   return { profileId, puuid, playerName }
 }
 
@@ -141,16 +139,26 @@ export async function resolveProfileIdForPlayerName(playerName: string) {
   const normalizedName = normalize(playerName)
   if (!normalizedName) return null
 
+  // A Riot account name (primary, alt or alias) is the deliberate identity, so
+  // it wins over a display name.
+  const { data: accounts, error: accountsError } = await supabaseAdmin
+    .from('riot_accounts')
+    .select('profile_id, riot_name')
+    .not('profile_id', 'is', null)
+    .eq('status', 'approved')
+    .ilike('riot_name', playerName.trim())
+    .limit(1)
+  if (accountsError) throw new Error('Failed to load Riot accounts for roster matching')
+  if (accounts?.[0]?.profile_id) return accounts[0].profile_id as string
+
   const { data: profiles, error: profilesError } = await supabaseAdmin
     .from('profiles')
-    .select('id, display_name, riot_id_base, stats_player_name')
+    .select('id, display_name')
 
   if (profilesError) throw new Error('Failed to load profiles for roster matching')
 
-  const matchedProfile = ((profiles ?? []) as ProfileRow[]).find((profile) =>
-    [profile.display_name, profile.riot_id_base, profile.stats_player_name]
-      .map((value) => normalize(value))
-      .includes(normalizedName)
+  const matchedProfile = ((profiles ?? []) as ProfileRow[]).find(
+    (profile) => normalize(profile.display_name) === normalizedName
   )
 
   if (matchedProfile?.id) return matchedProfile.id

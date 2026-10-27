@@ -25,9 +25,10 @@ export const POST = async ({ locals, request }: { locals: App.Locals; request: R
   if (rows.length > MAX_ROWS) {
     throw error(400, `Too many rows provided; maximum is ${MAX_ROWS}`)
   }
+  // Every approved Riot ID (and alias) per player, for name matching.
   const { data: profiles, error: profilesError } = await supabaseAdmin
-    .from('profiles')
-    .select('id, display_name, riot_id_base, stats_player_name')
+    .from('player_directory')
+    .select('id:profile_id, display_name, riot_ids')
 
   if (profilesError) {
     console.error('Error fetching profiles:', profilesError)
@@ -39,22 +40,11 @@ export const POST = async ({ locals, request }: { locals: App.Locals; request: R
 
   const profileMap = new Map<string, string>()
   for (const p of profiles ?? []) {
-    if (p.riot_id_base) {
-      const full = normalizeKey(p.riot_id_base)
-      const base = normalizeBase(p.riot_id_base)
-      profileMap.set(full, p.id)
-      if (base && base !== full) profileMap.set(base, p.id)
-    }
-    if (p.display_name) {
-      const full = normalizeKey(p.display_name)
-      const base = normalizeBase(p.display_name)
-      profileMap.set(full, p.id)
-      if (base && base !== full) profileMap.set(base, p.id)
-    }
-    const statsPlayerName = (p as { stats_player_name?: string | null }).stats_player_name
-    if (statsPlayerName) {
-      const full = normalizeKey(statsPlayerName)
-      const base = normalizeBase(statsPlayerName)
+    // Display name first, so a Riot ID or alias wins a clash.
+    for (const name of [p.display_name, ...((p.riot_ids as string[] | null) ?? [])]) {
+      if (!name) continue
+      const full = normalizeKey(name)
+      const base = normalizeBase(name)
       profileMap.set(full, p.id)
       if (base && base !== full) profileMap.set(base, p.id)
     }

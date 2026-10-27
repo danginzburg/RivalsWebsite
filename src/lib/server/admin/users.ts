@@ -1,19 +1,14 @@
-import { queryProfilesWithOptionalRiotIdBase } from '$lib/server/supabase/profiles'
 import { loadRiotLinks, type RiotLink } from '$lib/server/players/riot-accounts'
 import {
   listUnclaimedIdentities,
   type UnclaimedIdentity,
 } from '$lib/server/players/riot-identities'
+import { loadPlayerDirectory } from '$lib/server/players/directory'
+import { supabaseAdmin } from '$lib/supabase/admin'
 import { IDENTITY_USER_PREFIX, type AdminUser } from '$lib/admin/types'
 
-type AdminUserRow = {
-  id: string
-  email: string | null
-  display_name: string | null
-  role: string | null
-  riot_id_base: string | null
-  riot_tag?: string | null
-  created_at: string | null
+function formatRiotId(name: string | null, tag: string | null): string | null {
+  return name ? `${name}${tag ? `#${tag}` : ''}` : null
 }
 
 /**
@@ -22,24 +17,24 @@ type AdminUserRow = {
  * show the same thing.
  */
 export async function listAdminUsers(): Promise<AdminUser[]> {
-  const users = await queryProfilesWithOptionalRiotIdBase<AdminUserRow>({
-    selectWithRiot: 'id, email, display_name, role, riot_id_base, riot_tag, created_at',
-    selectWithoutRiot: 'id, email, display_name, role, created_at',
-    order: { column: 'created_at', ascending: false },
-    fatalMessage: 'Failed to fetch users',
-  })
+  const { data: users, error } = await supabaseAdmin
+    .from('profiles')
+    .select('id, email, display_name, role, created_at')
+    .order('created_at', { ascending: false })
+  if (error) throw new Error('Failed to fetch users')
 
-  // The real, PUUID-backed Riot ID. `riot_id_base` is a legacy name field that
-  // often just mirrors the display name, so it is only a fallback label.
+  // The PUUID-backed Riot ID wins; a primary account that never verified is
+  // still shown, as a name only.
   let links = new Map<string, RiotLink>()
+  let directory = new Map<string, { riot_name: string | null; riot_tag: string | null }>()
   try {
-    links = await loadRiotLinks()
+    ;[links, directory] = await Promise.all([loadRiotLinks(), loadPlayerDirectory()])
   } catch (err) {
-    console.warn('Failed to load Riot links for admin users:', err)
+    console.warn('Failed to load Riot accounts for admin users:', err)
   }
 
-  // Players who have never logged in exist only as a PUUID identity; list them
-  // too so an admin can name them ahead of their first login.
+  // Players who have never logged in exist only as a Riot account no profile
+  // owns; list them too so an admin can name them ahead of their first login.
   let unclaimed: UnclaimedIdentity[] = []
   try {
     unclaimed = await listUnclaimedIdentities()
@@ -47,15 +42,15 @@ export async function listAdminUsers(): Promise<AdminUser[]> {
     console.warn('Failed to load unclaimed identities for admin users:', err)
   }
 
-  const profileUsers: AdminUser[] = (users || []).map((u) => {
+  const profileUsers: AdminUser[] = (users ?? []).map((u) => {
     const link = links.get(u.id)
+    const primary = directory.get(u.id)
     return {
       ...u,
       role: u.role ?? 'user',
       created_at: u.created_at ?? '',
-      riot_id:
-        link?.riotId ??
-        (u.riot_id_base ? `${u.riot_id_base}${u.riot_tag ? `#${u.riot_tag}` : ''}` : null),
+      riot_tag: primary?.riot_tag ?? null,
+      riot_id: link?.riotId ?? formatRiotId(primary?.riot_name ?? null, primary?.riot_tag ?? null),
       riot_linked: Boolean(link),
     }
   })
@@ -68,9 +63,8 @@ export async function listAdminUsers(): Promise<AdminUser[]> {
       email: null,
       display_name: i.display_name || name,
       role: 'user',
-      riot_id_base: name,
       riot_tag: tag,
-      riot_id: name ? `${name}${tag ? `#${tag}` : ''}` : null,
+      riot_id: formatRiotId(name, tag),
       riot_linked: true,
       unclaimed: true,
       created_at: i.first_seen_at ?? '',

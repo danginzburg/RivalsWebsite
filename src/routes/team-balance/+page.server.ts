@@ -35,7 +35,7 @@ export const load = async () => {
   const profileIds = Array.from(new Set(rows.map((r) => r.profile_id)))
   const { data: profiles } = await supabaseAdmin
     .from('profiles')
-    .select('id, display_name, riot_id_base')
+    .select('id, display_name')
     .in('id', profileIds)
 
   const profileById = new Map((profiles ?? []).map((p) => [p.id, p]))
@@ -46,7 +46,7 @@ export const load = async () => {
       const value = effectiveValue(row)
       return {
         profileId: row.profile_id,
-        name: row.display_name ?? profile?.display_name ?? profile?.riot_id_base ?? 'Player',
+        name: row.display_name ?? profile?.display_name ?? 'Player',
         rank: row.current_rank ?? null,
         value,
         isManual: row.manual_value_override != null || Number(row.manual_adjustment ?? 0) !== 0,

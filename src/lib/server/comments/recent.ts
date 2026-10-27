@@ -103,7 +103,7 @@ async function loadAuthorNames(comments: RecentRow[]): Promise<Map<string, strin
   const ids = Array.from(new Set(comments.map((c) => c.profile_id)))
   const { data } = await supabaseAdmin
     .from('profiles')
-    .select('id, display_name, riot_id_base, email, role')
+    .select('id, display_name, email, role')
     .in('id', ids)
 
   const names = new Map<string, string>()
@@ -166,7 +166,7 @@ async function resolvePlayers(ids: string[], refs: Map<string, EntityRef>) {
   if (ids.length === 0) return
   const { data } = await supabaseAdmin
     .from('profiles')
-    .select('id, display_name, riot_id_base, email, role')
+    .select('id, display_name, email, role')
     .in('id', Array.from(new Set(ids)))
 
   for (const row of data ?? []) {

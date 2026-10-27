@@ -12,14 +12,11 @@ type TeamRow = {
 export type ProfileRow = {
   id: string
   display_name: string | null
-  riot_id_base: string | null
-  stats_player_name?: string | null
-  riot_puuid?: string | null
 }
 
 /**
- * A Riot account owned by a profile (primary or alt). PUUID is the stable key
- * that survives a rename, so it takes priority over any name when matching.
+ * A Riot account owned by a profile (primary, alt or name alias). PUUID is the
+ * stable key that survives a rename, so it takes priority over any name.
  */
 export type RiotAccountRow = {
   profile_id: string
@@ -53,9 +50,9 @@ function metadataStringList(
  *
  * PUUID wins because it survives Riot renames, so a player who changed their
  * name still matches. Names are the fallback for rows that carry no PUUID (CSV
- * imports, un-verified accounts). Explicit `profile_riot_accounts` rows are
- * layered over the legacy profile name columns and take precedence on a clash,
- * since they are a deliberate identity rather than an incidental name.
+ * imports, un-verified accounts). Riot account names are layered over display
+ * names and take precedence on a clash, since they are a deliberate identity
+ * rather than an incidental name.
  */
 export function buildProfileMatcher(profiles: ProfileRow[], accounts: RiotAccountRow[] = []) {
   const byKey = new Map<string, string>()
@@ -69,13 +66,8 @@ export function buildProfileMatcher(profiles: ProfileRow[], accounts: RiotAccoun
     if (base) byKey.set(base, profileId)
   }
 
-  // Legacy profile name columns first, so explicit account rows can overwrite.
-  for (const profile of profiles) {
-    addName(profile.riot_id_base, profile.id)
-    addName(profile.display_name, profile.id)
-    addName(profile.stats_player_name, profile.id)
-    if (profile.riot_puuid) byPuuid.set(profile.riot_puuid, profile.id)
-  }
+  // Display names first, so explicit account rows can overwrite.
+  for (const profile of profiles) addName(profile.display_name, profile.id)
 
   for (const account of accounts) {
     if (account.riot_puuid) byPuuid.set(account.riot_puuid, account.profile_id)
@@ -147,22 +139,22 @@ export async function getApprovedTeamsForImports() {
 }
 
 export async function getProfilesForImports() {
-  const { data, error } = await supabaseAdmin
-    .from('profiles')
-    .select('id, display_name, riot_id_base, stats_player_name, riot_puuid')
+  const { data, error } = await supabaseAdmin.from('profiles').select('id, display_name')
 
   if (error) throw new Error('Failed to load profiles')
   return (data ?? []) as ProfileRow[]
 }
 
 /**
- * Approved Riot accounts (primary + alts) for profile matching. Pending and
- * rejected rows are excluded so an unverified claim cannot capture stats.
+ * Approved, owned Riot accounts (primary, alts, aliases) for profile matching.
+ * Pending and rejected rows are excluded so an unverified claim cannot capture
+ * stats; unowned ones have no profile to resolve to.
  */
 export async function getRiotAccountsForImports() {
   const { data, error } = await supabaseAdmin
-    .from('profile_riot_accounts')
-    .select('profile_id, riot_name, riot_tag, riot_puuid')
+    .from('riot_accounts')
+    .select('profile_id, riot_name, riot_tag, riot_puuid:puuid')
+    .not('profile_id', 'is', null)
     .eq('status', 'approved')
 
   if (error) throw new Error('Failed to load Riot accounts')
@@ -197,7 +189,7 @@ function quoteOrValue(value: string): string {
  * Backfill player_match_map_stats.profile_id for previously-imported map stats.
  *
  * Match imports commonly arrive before the player has claimed their Riot base name.
- * When the profile later sets riot_id_base/stats_player_name, we can relink those
+ * When the profile later gains a Riot account or alias, we can relink those
  * historic imported rows and rebuild player_match_stats so match history appears
  * on the claimed player page.
  */

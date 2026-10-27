@@ -113,7 +113,6 @@ export type TeamQueueEntry = {
     profile_id: string
     player_name?: string | null
     role: string
-    riot_id_base: string | null
     display_name: string | null
     email: string | null
   }>
@@ -135,7 +134,6 @@ export type ApprovedTeamEntry = TeamQueueEntry & {
     membership_id?: number | null
     profile_id: string
     role: string
-    riot_id_base: string | null
     display_name: string | null
     email: string | null
   }>
@@ -146,9 +144,8 @@ export type AdminUser = {
   email: string | null
   display_name: string | null
   role: string
-  riot_id_base: string | null
   riot_tag?: string | null
-  /** Full PUUID-backed Riot ID when linked, else the legacy `riot_id_base` label. */
+  /** Full Riot ID: the PUUID-backed one when linked, else the primary account name. */
   riot_id?: string | null
   /** A PUUID is linked by import, the identities tab or the login prompt. */
   riot_linked?: boolean

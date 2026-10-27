@@ -32,7 +32,7 @@ async function countPending(table: string, nonPrimaryOnly = false): Promise<numb
 export async function getAdminPendingCounts(): Promise<AdminPendingCounts> {
   const [signups, riotAccounts, commentReports, reviewFlags, bugReports] = await Promise.all([
     countPending('player_signups'),
-    countPending('profile_riot_accounts', true),
+    countPending('riot_accounts', true),
     countPending('comment_reports'),
     countPending('review_flags'),
     countPending('bug_reports'),

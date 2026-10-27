@@ -25,11 +25,14 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     listNameOnlyRosterSlots(activeSeasonId),
     supabaseAdmin
       .from('profiles')
-      .select('id, display_name, riot_id_base')
+      .select('id, display_name')
       .order('display_name', { ascending: true, nullsFirst: false }),
     // Each player's existing Riot accounts, so the link confirmation can warn
     // before a second identity is attached to the same player by mistake.
-    supabaseAdmin.from('profile_riot_accounts').select('profile_id, riot_name, riot_tag'),
+    supabaseAdmin
+      .from('riot_accounts')
+      .select('profile_id, riot_name, riot_tag')
+      .not('profile_id', 'is', null),
   ])
 
   // Queue entries already holding a roster slot this season. They stay in the
@@ -69,7 +72,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     rosterSlots,
     profiles: (profiles ?? []).map((p) => ({
       id: p.id,
-      label: p.display_name ?? p.riot_id_base ?? 'Unnamed player',
+      label: p.display_name ?? 'Unnamed player',
       riotAccounts: accountsByProfile.get(p.id) ?? [],
     })),
   }

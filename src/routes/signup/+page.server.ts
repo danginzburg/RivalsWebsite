@@ -10,11 +10,12 @@ import {
 } from '$lib/server/signups'
 import { loadSignupSeason } from '$lib/server/signups/season'
 import { riotIdOwnedByOther, upsertPrimaryRiotAccount } from '$lib/server/players/riot-accounts'
+import { lookupPlayer } from '$lib/server/players/directory'
+import { withSignupRiotIds } from '$lib/server/signups/riot-ids'
 
 const SIGNUP_COLUMNS = `
   id,
-  display_name,
-  riot_tag,
+  profile_id,
   discord_handle,
   tracker_links,
   current_rank,
@@ -35,7 +36,7 @@ async function loadSignup(profileId: string, seasonId: string) {
     .eq('profile_id', profileId)
     .eq('season_id', seasonId)
     .maybeSingle()
-  return data
+  return data ? (await withSignupRiotIds([data]))[0] : null
 }
 
 export const load = async ({ locals }: { locals: App.Locals }) => {
@@ -51,7 +52,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
       profile: {
         id: null,
         display_name: null,
-        riot_id_base: null,
+        riot_name: null,
         riot_tag: null,
         discord_handle: null,
       },
@@ -64,13 +65,8 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
   const profile = await requireProfile(locals.user)
   const signupSeason = await loadSignupSeason()
 
-  // requireProfile only selects a few columns, so read the contact fields the
-  // form pre-fills from directly.
-  const { data: profileDetail } = await supabaseAdmin
-    .from('profiles')
-    .select('riot_id_base, riot_tag, discord_handle')
-    .eq('id', profile.id)
-    .maybeSingle()
+  // The Riot ID and Discord details the form pre-fills.
+  const player = await lookupPlayer({ profileId: profile.id })
 
   const existing = signupSeason ? await loadSignup(profile.id, signupSeason.id) : null
 
@@ -79,10 +75,14 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     profile: {
       id: profile.id,
       display_name: profile.display_name ?? null,
-      riot_id_base: profileDetail?.riot_id_base ?? null,
-      riot_tag: profileDetail?.riot_tag ?? null,
-      // Stored handle first, then the username from the Discord login itself.
-      discord_handle: profileDetail?.discord_handle ?? locals.user.discord_username ?? null,
+      riot_name: player?.riot_name ?? null,
+      riot_tag: player?.riot_tag ?? null,
+      // The handle from their last signup first, then their Discord login's.
+      discord_handle:
+        player?.latest_signup_discord_handle ??
+        player?.discord_username ??
+        locals.user.discord_username ??
+        null,
     },
     signupSeason,
     // The value shown to the player includes any admin adjustment.
@@ -113,8 +113,7 @@ export const actions = {
       })
     }
 
-    // The tag is stored separately because riot_id_base intentionally holds
-    // only the name, while every Riot API needs the full name#tag pair.
+    // Name and tag arrive separately; every Riot API needs the pair.
     const riotTag = normalizeRiotTag(form.get('riotTag'))
     if (!riotTag) {
       return fail(400, {
@@ -170,12 +169,18 @@ export const actions = {
       })
     }
 
+    // The Riot ID is stored once, as the player's primary Riot account (PUUID
+    // captured best-effort); the signup reads it from there.
+    try {
+      await upsertPrimaryRiotAccount({ profileId: profile.id, riotName: riotId, riotTag })
+    } catch (err) {
+      console.error('Failed to save primary Riot account on signup:', err)
+      return fail(500, { success: false, message: 'Failed to save your Riot ID. Try again.' })
+    }
+
     const payload = {
       profile_id: profile.id,
       season_id: signupSeason.id,
-      // Riot ID is the canonical identity across the site.
-      display_name: riotId,
-      riot_tag: riotTag,
       discord_handle: discordHandle,
       tracker_links: trackerLinks,
       // Editing returns the signup to review.
@@ -191,14 +196,6 @@ export const actions = {
       return fail(500, { success: false, message: 'Failed to save your signup. Try again.' })
     }
 
-    // Keep the profile's Riot ID in step so stats matching uses the same name.
-    // The submission also returns the signup to review, so the contact details
-    // published by any earlier approval are retracted along with it.
-    await supabaseAdmin
-      .from('profiles')
-      .update({ riot_id_base: riotId, riot_tag: riotTag, discord_handle: null, tracker_links: [] })
-      .eq('id', profile.id)
-
     // Seed the chosen display name from the Riot name, but only while the player
     // has not set one of their own — the flag flips when they edit it directly.
     await supabaseAdmin
@@ -206,14 +203,6 @@ export const actions = {
       .update({ display_name: riotId })
       .eq('id', profile.id)
       .eq('display_name_is_custom', false)
-
-    // Sync the primary Riot account row (captures the PUUID best-effort) so the
-    // canonical, rename-proof identity is recorded alongside the legacy columns.
-    try {
-      await upsertPrimaryRiotAccount({ profileId: profile.id, riotName: riotId, riotTag })
-    } catch (err) {
-      console.warn('Failed to sync primary Riot account on signup:', err)
-    }
 
     return {
       success: true,

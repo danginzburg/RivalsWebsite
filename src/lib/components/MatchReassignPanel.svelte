@@ -66,17 +66,10 @@
     if (!res.ok) return
     const body = await res.json()
     profileOptions = (body.players ?? [])
-      .map(
-        (p: {
-          profile_id: string
-          riot_id_base: string | null
-          display_name: string | null
-          email: string | null
-        }) => ({
-          value: p.profile_id,
-          label: p.display_name ?? p.riot_id_base ?? p.email ?? 'Player',
-        })
-      )
+      .map((p: { profile_id: string; display_name: string | null; email: string | null }) => ({
+        value: p.profile_id,
+        label: p.display_name ?? p.email ?? 'Player',
+      }))
       .sort((a: { label: string }, b: { label: string }) => a.label.localeCompare(b.label))
   }
 

@@ -7,7 +7,8 @@ import { listAdminUsers } from '$lib/server/admin/users'
 import { claimRelinkAfterProfileUpdate } from '$lib/server/players/claim-relink'
 import { rematchPlayerMatchMapStatsForBase } from '$lib/server/imports/matching'
 import { invalidateProfileRole } from '$lib/server/cache'
-import { loadRiotLinks } from '$lib/server/players/riot-accounts'
+import { loadRiotLinks, syncPrimaryRiotName } from '$lib/server/players/riot-accounts'
+import { lookupPlayer } from '$lib/server/players/directory'
 import { RiotIdentityError, setIdentityDisplayName } from '$lib/server/players/riot-identities'
 import { IDENTITY_USER_PREFIX } from '$lib/admin/types'
 
@@ -69,7 +70,7 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
   // Check the target user's current role
   const { data: targetUser, error: targetError } = await supabaseAdmin
     .from('profiles')
-    .select('role, riot_id_base')
+    .select('role')
     .eq('id', userId)
     .single()
 
@@ -82,22 +83,23 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
     throw error(403, 'Cannot remove admin access. This can only be done directly in the database.')
   }
 
+  // `riotIdBase` renames the player's primary Riot account.
   if (riotIdBase) {
-    const { data: existingRiotId } = await supabaseAdmin
-      .from('profiles')
-      .select('id')
-      .ilike('riot_id_base', riotIdBase)
-      .neq('id', userId)
-      .maybeSingle()
-
-    if (existingRiotId?.id) {
+    const { data: owner } = await supabaseAdmin
+      .from('riot_accounts')
+      .select('profile_id')
+      .ilike('riot_name', riotIdBase)
+      .not('profile_id', 'is', null)
+      .neq('profile_id', userId)
+      .limit(1)
+    if (owner?.length) {
       throw error(409, 'That Riot ID is already claimed by another account')
     }
+    await syncPrimaryRiotName(userId, riotIdBase)
   }
 
   const updatePayload: Record<string, unknown> = {}
   if (newRole) updatePayload.role = newRole
-  if ('riotIdBase' in body) updatePayload.riot_id_base = riotIdBase
   if (hasDisplayName) {
     if (displayName) {
       // Custom, so signup / Riot ID flows never overwrite it.
@@ -105,20 +107,20 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
       updatePayload.display_name_is_custom = true
     } else {
       const link = (await loadRiotLinks([userId])).get(userId)
-      const riotName = link?.riotId.split('#')[0] || targetUser.riot_id_base || null
+      const riotName =
+        link?.riotId.split('#')[0] || (await lookupPlayer({ profileId: userId }))?.riot_name || null
       updatePayload.display_name = riotName
       updatePayload.display_name_is_custom = false
     }
   }
 
-  if (Object.keys(updatePayload).length === 0) {
+  if (Object.keys(updatePayload).length === 0 && !riotIdBase) {
     throw error(400, 'No user updates provided')
   }
 
-  const { error: updateError } = await supabaseAdmin
-    .from('profiles')
-    .update(updatePayload)
-    .eq('id', userId)
+  const { error: updateError } = Object.keys(updatePayload).length
+    ? await supabaseAdmin.from('profiles').update(updatePayload).eq('id', userId)
+    : { error: null }
 
   if (updateError) {
     console.error('Error updating user role:', updateError)
@@ -140,12 +142,12 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
     try {
       await claimRelinkAfterProfileUpdate(userId)
     } catch (err) {
-      console.warn('claimRelinkAfterProfileUpdate failed after admin riot_id_base save:', err)
+      console.warn('claimRelinkAfterProfileUpdate failed after admin Riot name save:', err)
     }
     try {
       await rematchPlayerMatchMapStatsForBase(userId, riotIdBase)
     } catch (err) {
-      console.warn('rematchPlayerMatchMapStatsForBase failed after admin riot_id_base save:', err)
+      console.warn('rematchPlayerMatchMapStatsForBase failed after admin Riot name save:', err)
     }
   }
 

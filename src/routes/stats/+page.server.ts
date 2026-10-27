@@ -124,11 +124,9 @@ export const load: PageServerLoad = async ({ fetch, url, locals, cookies }) => {
   if (profileIds.length > 0) {
     const { data: profiles } = await supabaseAdmin
       .from('profiles')
-      .select('id, display_name, riot_id_base')
+      .select('id, display_name')
       .in('id', profileIds)
-    const nameById = new Map(
-      (profiles ?? []).map((p) => [p.id as string, p.display_name || p.riot_id_base || null])
-    )
+    const nameById = new Map((profiles ?? []).map((p) => [p.id as string, p.display_name || null]))
     for (const r of rows as Record<string, unknown>[]) {
       r.profile_name =
         typeof r.profile_id === 'string' ? (nameById.get(r.profile_id) ?? null) : null

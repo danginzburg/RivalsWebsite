@@ -14,7 +14,6 @@ type RosterProfileRow = {
   id: string
   display_name: string | null
   email: string | null
-  riot_id_base: string | null
 }
 
 export const load = async ({ locals }: { locals: App.Locals }) => {
@@ -175,7 +174,6 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     Array<{
       profile_id: string
       role: string
-      riot_id_base: string | null
       display_name: string | null
       email: string | null
     }>
@@ -201,7 +199,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
       if (profileIds.length > 0) {
         const { data: profileRows, error: profilesError } = await supabaseAdmin
           .from('profiles')
-          .select('id, display_name, email, riot_id_base')
+          .select('id, display_name, email')
           .in('id', profileIds)
 
         if (profilesError) {
@@ -219,7 +217,6 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
           profile_id: row.profile_id,
           player_name: (row as { player_name?: string | null }).player_name ?? null,
           role: row.role,
-          riot_id_base: p?.riot_id_base ?? null,
           display_name: p?.display_name ?? null,
           email: p?.email ?? null,
         }

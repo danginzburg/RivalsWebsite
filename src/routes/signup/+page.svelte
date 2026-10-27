@@ -35,7 +35,7 @@
   const seed = untrack(() => ({
     // Prefill from the existing signup, then fall back to the profile so a
     // returning player does not retype details the site already knows.
-    riotId: data.signup?.display_name ?? data.profile.riot_id_base ?? '',
+    riotId: data.signup?.display_name ?? data.profile.riot_name ?? '',
     riotTag: data.signup?.riot_tag ?? data.profile.riot_tag ?? '',
     discordHandle: data.signup?.discord_handle ?? data.profile.discord_handle ?? '',
     trackerLinks: ((data.signup?.tracker_links as LinkRow[] | undefined)?.length

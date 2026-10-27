@@ -5,6 +5,7 @@ import { supabaseAdmin } from '$lib/supabase/admin'
 import { enforceRateLimit } from '$lib/server/rate-limit'
 import { lookupSignupRank } from '$lib/server/riot/henrik'
 import { linkedPuuidsFor } from '$lib/server/players/riot-accounts'
+import { withSignupRiotIds } from '$lib/server/signups/riot-ids'
 import {
   MAX_BULK_ROWS,
   runBulkImport,
@@ -44,7 +45,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   // A stable order, so a cursor means the same row from one call to the next.
   let query = supabaseAdmin
     .from('player_signups')
-    .select('id, profile_id, display_name, riot_tag, current_rank, peak_rank')
+    .select('id, profile_id, current_rank, peak_rank')
     .order('created_at', { ascending: true })
     .order('id', { ascending: true })
     .limit(MAX_BULK_ROWS)
@@ -60,7 +61,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   }
 
   const total = data?.length ?? 0
-  const signups = (data ?? []).slice(cursor)
+  const signups = await withSignupRiotIds((data ?? []).slice(cursor))
   const [ratings, puuids] = await Promise.all([
     loadRatingsByName(signups.map((s) => s.display_name)),
     linkedPuuidsFor(signups.map((s) => s.profile_id)),

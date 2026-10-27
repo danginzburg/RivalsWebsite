@@ -68,17 +68,10 @@
   const profileMap = $derived.by(() => {
     const map = new SvelteMap<string, string>()
     for (const p of data.profiles ?? []) {
-      if (p.riot_id_base) {
-        const full = normalizeKey(p.riot_id_base)
-        const base = normalizeBase(p.riot_id_base)
-        map.set(full, p.id)
-        map.set(base, p.id)
-      }
-      if (p.display_name) {
-        const full = normalizeKey(p.display_name)
-        const base = normalizeBase(p.display_name)
-        map.set(full, p.id)
-        map.set(base, p.id)
+      for (const name of [p.display_name, ...(p.riot_ids ?? [])]) {
+        if (!name) continue
+        map.set(normalizeKey(name), p.id)
+        map.set(normalizeBase(name), p.id)
       }
     }
     return map

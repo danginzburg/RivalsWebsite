@@ -93,14 +93,11 @@
   }
 
   function playerName(player: {
-    riot_id_base?: string | null
     display_name?: string | null
     player_name?: string | null
     email?: string | null
   }) {
-    return (
-      player.display_name ?? player.riot_id_base ?? player.player_name ?? player.email ?? 'Player'
-    )
+    return player.display_name ?? player.player_name ?? player.email ?? 'Player'
   }
 
   /** Captains and IGLs lead the card list; everyone else keeps import order. */

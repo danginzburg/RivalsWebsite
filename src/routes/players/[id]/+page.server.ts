@@ -2,7 +2,6 @@ import { error, redirect } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { claimRelinkAfterProfileUpdate } from '$lib/server/players/claim-relink'
 import { normalizeRiotBase, isValidRiotBase } from '$lib/server/riot-id'
-import { supabaseErrorMessageIncludes } from '$lib/server/supabase/errors'
 import { toBatchLabel } from '$lib/server/stats/batch-label'
 import { average, sum, weightedAverage } from '$lib/server/math'
 import {
@@ -28,15 +27,17 @@ import {
   isShortStint,
   type RosterTimeline,
 } from '$lib/server/matches/subs'
-import { listProfileRiotAccounts, syncPrimaryRiotName } from '$lib/server/players/riot-accounts'
+import {
+  claimRiotName,
+  listProfileRiotAccounts,
+  riotNameOwnedByOther,
+  setStatsNameAlias,
+  statsNameAlias,
+} from '$lib/server/players/riot-accounts'
+import { loadPlayerDirectory, riotNamesByProfile } from '$lib/server/players/directory'
 import { loadSeasonThirdPlaceTeamIds } from '$lib/server/seasons/thirdPlace'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-
-type ProfileRow = {
-  auth0_sub?: string | null
-  stats_player_name?: string | null
-}
 
 type TeamRel = {
   id: string
@@ -480,27 +481,31 @@ export const load = async ({
 
   const { data: profileRel, error: profileError } = await supabaseAdmin
     .from('profiles')
-    .select('id, auth0_sub, role, display_name, email, riot_id_base, stats_player_name, created_at')
+    .select('id, auth0_sub, role, display_name, email, created_at')
     .eq('id', profileId)
     .maybeSingle()
 
   if (profileError) {
     const msg = String((profileError as { message?: string }).message ?? '')
-    if (supabaseErrorMessageIncludes(profileError, 'riot_id_base')) {
-      throw error(500, 'Database missing profiles.riot_id_base; apply the Supabase migration')
-    }
     throw error(500, msg || 'Failed to load player')
   }
 
   if (!profileRel) throw error(404, 'Player not found')
 
+  // The player's Riot identity: primary account, every name they are known by
+  // (for matching stat rows that predate their claim), and any stats alias.
+  const [directory, riotNames, statsAlias] = await Promise.all([
+    loadPlayerDirectory([profileId]),
+    riotNamesByProfile([profileId]),
+    statsNameAlias(profileId),
+  ])
+  const directoryEntry = directory.get(profileId) ?? null
+  const knownNames = [profileRel.display_name, ...(riotNames.get(profileId) ?? [])]
+
   // Viewer permissions for inline Riot ID setup.
   let canEditRiotIdBase = false
   if (locals.user) {
-    if (
-      (profileRel as ProfileRow).auth0_sub &&
-      (profileRel as ProfileRow).auth0_sub === locals.user.sub
-    ) {
+    if (profileRel.auth0_sub && profileRel.auth0_sub === locals.user.sub) {
       canEditRiotIdBase = true
     } else {
       const { data: viewer } = await supabaseAdmin
@@ -610,13 +615,7 @@ export const load = async ({
 
   const possibleUnmatchedNames = Array.from(
     new Set(
-      [
-        profileRel.display_name,
-        profileRel.riot_id_base,
-        (profileRel as ProfileRow).stats_player_name,
-      ]
-        .map((value) => (typeof value === 'string' ? value.trim() : ''))
-        .filter(Boolean)
+      knownNames.map((value) => (typeof value === 'string' ? value.trim() : '')).filter(Boolean)
     )
   )
 
@@ -791,11 +790,7 @@ export const load = async ({
 
   const importNameFilters = Array.from(
     new Set(
-      [
-        profileRel.display_name,
-        profileRel.riot_id_base,
-        (profileRel as ProfileRow).stats_player_name,
-      ]
+      knownNames
         .flatMap((name) => {
           const raw = String(name ?? '').trim()
           const base = normalizeNameBase(raw)
@@ -1140,9 +1135,9 @@ export const load = async ({
       profile_id: profileId,
       // The chosen display name is authoritative; Riot name and email are only
       // fallbacks for profiles that never set one.
-      riot_id: profileRel.display_name ?? profileRel.riot_id_base ?? profileRel.email ?? 'Player',
-      riot_id_base: profileRel.riot_id_base ?? null,
-      stats_player_name: (profileRel as ProfileRow).stats_player_name ?? null,
+      riot_id: profileRel.display_name ?? directoryEntry?.riot_name ?? profileRel.email ?? 'Player',
+      riot_id_base: directoryEntry?.riot_name ?? null,
+      stats_player_name: statsAlias,
       has_unmatched_stats_candidate: hasUnmatchedStatsCandidate,
       rank_label: null,
       rank_value: null,
@@ -1234,29 +1229,15 @@ export const actions = {
     const isAdmin = viewer.role === 'admin'
     if (!isSelf && !isAdmin) throw error(403, 'Not allowed')
 
-    const { data: existing } = await supabaseAdmin
-      .from('profiles')
-      .select('id')
-      .ilike('riot_id_base', riotIdBase)
-      .neq('id', target.id)
-      .maybeSingle()
-
-    if (existing?.id) {
+    if (await riotNameOwnedByOther(riotIdBase, target.id)) {
       return { success: false, message: 'That Riot ID is already claimed by another account.' }
     }
 
-    const { error: updateError } = await supabaseAdmin
-      .from('profiles')
-      .update({ riot_id_base: riotIdBase })
-      .eq('id', target.id)
-
-    if (updateError) return { success: false, message: updateError.message }
-
-    // Keep the canonical primary account name in step with the legacy column.
+    // Becomes the primary Riot account when the player has none yet.
     try {
-      await syncPrimaryRiotName(target.id, riotIdBase)
+      await claimRiotName(target.id, riotIdBase)
     } catch (err) {
-      console.warn('Failed to sync primary Riot account name after riot_id_base save:', err)
+      return { success: false, message: err instanceof Error ? err.message : 'Failed to save.' }
     }
 
     // Seed the chosen display name unless the player set one of their own.
@@ -1269,13 +1250,13 @@ export const actions = {
     try {
       await claimRelinkAfterProfileUpdate(target.id)
     } catch (err) {
-      console.warn('claimRelinkAfterProfileUpdate failed after riot_id_base save:', err)
+      console.warn('claimRelinkAfterProfileUpdate failed after Riot name save:', err)
     }
 
     try {
       await rematchPlayerMatchMapStatsForBase(target.id, riotIdBase)
     } catch (err) {
-      console.warn('Failed to rematch match map stats after riot_id_base save:', err)
+      console.warn('Failed to rematch match map stats after Riot name save:', err)
     }
 
     throw redirect(303, `/players/${target.id}`)
@@ -1317,37 +1298,30 @@ export const actions = {
     const isAdmin = viewer.role === 'admin'
     if (!isSelf && !isAdmin) throw error(403, 'Not allowed')
 
-    const { data: existing } = await supabaseAdmin
-      .from('profiles')
-      .select('id')
-      .ilike('stats_player_name', statsPlayerName)
-      .neq('id', target.id)
-      .maybeSingle()
-
-    if (existing?.id) {
+    if (await riotNameOwnedByOther(statsPlayerName, target.id)) {
       return {
         success: false,
         message: 'That stats player name is already claimed by another account.',
       }
     }
 
-    const { error: updateError } = await supabaseAdmin
-      .from('profiles')
-      .update({ stats_player_name: statsPlayerName })
-      .eq('id', target.id)
-
-    if (updateError) return { success: false, message: updateError.message }
+    // Stored as a tagless Riot account, so every name matcher sees it.
+    try {
+      await setStatsNameAlias(target.id, statsPlayerName)
+    } catch (err) {
+      return { success: false, message: err instanceof Error ? err.message : 'Failed to save.' }
+    }
 
     try {
       await claimRelinkAfterProfileUpdate(target.id)
     } catch (err) {
-      console.warn('claimRelinkAfterProfileUpdate failed after stats_player_name save:', err)
+      console.warn('claimRelinkAfterProfileUpdate failed after stats alias save:', err)
     }
 
     try {
       await rematchPlayerMatchMapStatsForBase(target.id, statsPlayerName)
     } catch (err) {
-      console.warn('Failed to rematch match map stats after stats_player_name save:', err)
+      console.warn('Failed to rematch match map stats after stats alias save:', err)
     }
 
     throw redirect(303, `/players/${target.id}`)

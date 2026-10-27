@@ -38,12 +38,37 @@ export async function backfillRiotAccountPuuids(
     const baseName = riotId.split('#')[0].trim()
     if (!baseName) continue
 
-    const { data, error } = await supabaseAdmin
-      .from('profile_riot_accounts')
-      .update({ riot_puuid: puuid, verified_at: new Date().toISOString() })
+    const { data: target } = await supabaseAdmin
+      .from('riot_accounts')
+      .select('id')
       .eq('profile_id', profileId)
-      .is('riot_puuid', null)
+      .is('puuid', null)
       .ilike('riot_name', baseName)
+      .limit(1)
+      .maybeSingle()
+    if (!target) continue
+
+    // An earlier import may have recorded this PUUID as an unowned account.
+    // It is the same Riot account, so fold its sightings into the owned row.
+    const { data: unowned } = await supabaseAdmin
+      .from('riot_accounts')
+      .select('id, first_seen_at, last_seen_at')
+      .eq('puuid', puuid)
+      .is('profile_id', null)
+      .maybeSingle()
+    if (unowned) await supabaseAdmin.from('riot_accounts').delete().eq('id', unowned.id)
+
+    const { data, error } = await supabaseAdmin
+      .from('riot_accounts')
+      .update({
+        puuid,
+        verified_at: new Date().toISOString(),
+        ...(unowned && {
+          first_seen_at: unowned.first_seen_at,
+          last_seen_at: unowned.last_seen_at,
+        }),
+      })
+      .eq('id', target.id)
       .select('id')
 
     if (error) {

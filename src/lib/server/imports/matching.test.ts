@@ -7,7 +7,7 @@ const OTHER = '22222222-2222-2222-2222-222222222222'
 describe('buildProfileMatcher — PUUID and alias resolution', () => {
   it('resolves by PUUID even when the name has changed', () => {
     const matcher = buildProfileMatcher(
-      [{ id: OWNER, display_name: 'OldName', riot_id_base: 'OldName', stats_player_name: null }],
+      [{ id: OWNER, display_name: 'OldName' }],
       [{ profile_id: OWNER, riot_name: 'OldName', riot_tag: 'NA1', riot_puuid: 'puuid-owner' }]
     )
     // A later match reports a new name but the same PUUID.
@@ -17,7 +17,7 @@ describe('buildProfileMatcher — PUUID and alias resolution', () => {
 
   it('resolves an alt account name to the owning profile', () => {
     const matcher = buildProfileMatcher(
-      [{ id: OWNER, display_name: 'Main', riot_id_base: 'Main', stats_player_name: null }],
+      [{ id: OWNER, display_name: 'Main' }],
       [
         { profile_id: OWNER, riot_name: 'Main', riot_tag: 'NA1', riot_puuid: 'p-main' },
         { profile_id: OWNER, riot_name: 'SmurfAccount', riot_tag: 'EU1', riot_puuid: 'p-alt' },
@@ -31,8 +31,8 @@ describe('buildProfileMatcher — PUUID and alias resolution', () => {
   it('lets PUUID win over a name that points elsewhere', () => {
     const matcher = buildProfileMatcher(
       [
-        { id: OWNER, display_name: 'Owner', riot_id_base: 'Owner', stats_player_name: null },
-        { id: OTHER, display_name: 'Shared', riot_id_base: 'Shared', stats_player_name: null },
+        { id: OWNER, display_name: 'Owner' },
+        { id: OTHER, display_name: 'Shared' },
       ],
       [{ profile_id: OWNER, riot_name: 'Owner', riot_tag: 'NA1', riot_puuid: 'p-owner' }]
     )
@@ -42,24 +42,20 @@ describe('buildProfileMatcher — PUUID and alias resolution', () => {
   })
 
   it('falls back to name when no PUUID is supplied', () => {
-    const matcher = buildProfileMatcher([
-      { id: OWNER, display_name: null, riot_id_base: 'rize', stats_player_name: null },
-    ])
+    const matcher = buildProfileMatcher(
+      [{ id: OWNER, display_name: null }],
+      [{ profile_id: OWNER, riot_name: 'rize', riot_tag: null, riot_puuid: null }]
+    )
     expect(matcher.resolve('rize')).toBe(OWNER)
     expect(matcher.resolve('rize#1234')).toBe(OWNER)
     expect(matcher.resolve('unknown')).toBeNull()
   })
 
-  it('account rows override a clashing legacy name', () => {
+  it('account rows override a clashing display name', () => {
     const matcher = buildProfileMatcher(
       [
-        // Legacy stale name on the wrong profile.
-        {
-          id: OTHER,
-          display_name: 'Ambiguous',
-          riot_id_base: 'Ambiguous',
-          stats_player_name: null,
-        },
+        // Stale display name on the wrong profile.
+        { id: OTHER, display_name: 'Ambiguous' },
       ],
       [{ profile_id: OWNER, riot_name: 'Ambiguous', riot_tag: 'NA1', riot_puuid: 'p-x' }]
     )

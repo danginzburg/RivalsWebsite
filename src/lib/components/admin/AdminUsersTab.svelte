@@ -7,7 +7,6 @@
     display_name?: string | null
     email?: string | null
     role?: string | null
-    riot_id_base?: string | null
     riot_tag?: string | null
     riot_id?: string | null
     riot_linked?: boolean

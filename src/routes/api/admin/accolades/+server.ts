@@ -1,5 +1,6 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { lookupPlayer } from '$lib/server/players/directory'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { logAdminAction } from '$lib/server/audit/admin-actions'
 import { normalizeOptional, sanitizeFilename, isImageFile } from '$lib/server/upload'
@@ -26,7 +27,7 @@ export const GET: RequestHandler = async ({ locals }) => {
   if (profileIds.length > 0) {
     const { data: profiles } = await supabaseAdmin
       .from('profiles')
-      .select('id, display_name, riot_id_base')
+      .select('id, display_name')
       .in('id', profileIds)
     for (const p of profiles ?? []) profileById.set(p.id, p)
   }
@@ -37,7 +38,7 @@ export const GET: RequestHandler = async ({ locals }) => {
     const entry = {
       id: a.id,
       profile_id: a.profile_id,
-      display_name: p?.display_name ?? p?.riot_id_base ?? 'Player',
+      display_name: p?.display_name ?? 'Player',
       context: (a as any).context ?? null,
     }
     const current = assignmentsByAccolade.get(a.accolade_id) ?? []
@@ -182,14 +183,16 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
     const context = normalizeOptional(body.context)
     if (!playerName) throw error(400, 'Missing player name')
 
-    const { data: profile } = await supabaseAdmin
-      .from('profiles')
-      .select('id, display_name, riot_id_base, stats_player_name, email')
-      .or(
-        `riot_id_base.ilike.${playerName},display_name.ilike.${playerName},stats_player_name.ilike.${playerName},email.ilike.${playerName}`
-      )
-      .limit(1)
-      .maybeSingle()
+    // Any Riot ID or alias first, then a display name or email.
+    const byRiotId = await lookupPlayer({ riotId: playerName })
+    const { data: profile } = byRiotId
+      ? { data: { id: byRiotId.profile_id, display_name: byRiotId.display_name } }
+      : await supabaseAdmin
+          .from('profiles')
+          .select('id, display_name')
+          .or(`display_name.ilike.${playerName},email.ilike.${playerName}`)
+          .limit(1)
+          .maybeSingle()
 
     if (!profile)
       throw error(
@@ -213,7 +216,7 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
       details: { profileId: profile.id, playerName },
     })
 
-    const displayName = profile.display_name ?? profile.riot_id_base ?? 'Player'
+    const displayName = profile.display_name ?? 'Player'
     return json({
       success: true,
       assignment: { id: assignment.id, profile_id: profile.id, display_name: displayName, context },

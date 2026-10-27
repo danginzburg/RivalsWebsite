@@ -3,14 +3,11 @@ import { claimRelinkAfterProfileUpdate } from '$lib/server/players/claim-relink'
 import { fetchAllRows } from '$lib/server/supabase/fetch-all'
 
 /**
- * Service layer for `riot_identities` — the PUUID registry that tracks a
- * player's game identity behind the scenes, independent of whatever name they
- * are currently using.
- *
- * Every PUUID seen in a match import is recorded here automatically (name and
- * all), whether or not it maps to a profile yet. An admin links an unlinked
- * PUUID to a profile once from the review queue; after that the identity — and
- * all of its past and future stats — follows the PUUID through any rename.
+ * The PUUID side of `riot_accounts`: every PUUID seen in a match import gets an
+ * account row automatically, name and all, whether or not a profile owns it.
+ * Rows with no `profile_id` are the admin review queue; an admin links one to a
+ * profile once, and after that the identity — and all of its past and future
+ * stats — follows the PUUID through any rename.
  */
 
 export type RiotObservation = {
@@ -59,12 +56,13 @@ export function dedupeObservations(observations: RiotObservation[]): Array<{
 }
 
 /**
- * Record every PUUID seen in an import, refreshing the name we know it by.
+ * Record every PUUID seen in an import.
  *
- * New PUUIDs are inserted (unlinked, queued for admin review); known ones have
- * their `latest_name`/`latest_tag`/`last_seen_at` updated so the registry
- * always reflects the current in-game name. `profile_id` is never touched here
- * — linking is a deliberate admin action, not a side effect of an import.
+ * New PUUIDs are inserted unowned (queued for admin review). Known ones have
+ * `last_seen_at` refreshed; unowned ones also take the latest name, so the
+ * queue shows what the player is called now. An owned account keeps the name
+ * its player declared, and `profile_id` is never touched here — linking is a
+ * deliberate admin action, not a side effect of an import.
  *
  * Best-effort by design: the match is already written by the time this runs, so
  * a failure here must not fail the import.
@@ -74,22 +72,52 @@ export async function upsertRiotIdentities(observations: RiotObservation[]): Pro
   if (rows.length === 0) return 0
 
   const now = new Date().toISOString()
-  // Only insert/update columns we mean to refresh. Because `first_seen_at`,
-  // `created_at` and `profile_id` are omitted, the conflict update leaves them
-  // untouched while a fresh insert falls back to their column defaults.
-  const payload = rows.map((row) => ({
-    puuid: row.puuid,
-    latest_name: row.name,
-    latest_tag: row.tag,
+  const { data: known, error: knownError } = await supabaseAdmin
+    .from('riot_accounts')
+    .select('puuid, profile_id')
+    .in(
+      'puuid',
+      rows.map((r) => r.puuid)
+    )
+  if (knownError) throw new Error(`Failed to load riot accounts: ${knownError.message}`)
+
+  const ownerByPuuid = new Map((known ?? []).map((k) => [k.puuid as string, k.profile_id]))
+  const fresh = rows.filter((r) => !ownerByPuuid.has(r.puuid))
+  const unowned = rows.filter((r) => ownerByPuuid.has(r.puuid) && !ownerByPuuid.get(r.puuid))
+  const owned = rows.filter((r) => ownerByPuuid.get(r.puuid))
+
+  const named = (r: (typeof rows)[number]) => ({
+    puuid: r.puuid,
+    riot_name: r.name ?? r.puuid,
+    riot_tag: r.tag,
     last_seen_at: now,
-  }))
+  })
 
-  const { error, count } = await supabaseAdmin
-    .from('riot_identities')
-    .upsert(payload, { onConflict: 'puuid', count: 'exact' })
-
-  if (error) throw new Error(`Failed to upsert riot identities: ${error.message}`)
-  return count ?? rows.length
+  if (fresh.length > 0) {
+    // ignoreDuplicates covers a concurrent import inserting the same PUUID.
+    const { error } = await supabaseAdmin.from('riot_accounts').upsert(
+      fresh.map((r) => ({ ...named(r), first_seen_at: now })),
+      { onConflict: 'puuid', ignoreDuplicates: true }
+    )
+    if (error) throw new Error(`Failed to insert riot accounts: ${error.message}`)
+  }
+  if (unowned.length > 0) {
+    const { error } = await supabaseAdmin
+      .from('riot_accounts')
+      .upsert(unowned.map(named), { onConflict: 'puuid' })
+    if (error) throw new Error(`Failed to refresh riot accounts: ${error.message}`)
+  }
+  if (owned.length > 0) {
+    const { error } = await supabaseAdmin
+      .from('riot_accounts')
+      .update({ last_seen_at: now })
+      .in(
+        'puuid',
+        owned.map((r) => r.puuid)
+      )
+    if (error) throw new Error(`Failed to refresh riot accounts: ${error.message}`)
+  }
+  return rows.length
 }
 
 /**
@@ -114,8 +142,8 @@ export async function listUnlinkedIdentities(
     const seasonPuuids = await puuidsSeenInSeason(opts.seasonId)
     for (let i = 0; i < seasonPuuids.length; i += 100) {
       const { data, error } = await supabaseAdmin
-        .from('riot_identities')
-        .select('puuid, latest_name, latest_tag, first_seen_at, last_seen_at')
+        .from('riot_accounts')
+        .select('puuid, latest_name:riot_name, latest_tag:riot_tag, first_seen_at, last_seen_at')
         .is('profile_id', null)
         .in('puuid', seasonPuuids.slice(i, i + 100))
       if (error) throw new Error('Failed to load unlinked identities')
@@ -123,9 +151,10 @@ export async function listUnlinkedIdentities(
     }
   } else {
     const { data: identities, error } = await supabaseAdmin
-      .from('riot_identities')
-      .select('puuid, latest_name, latest_tag, first_seen_at, last_seen_at')
+      .from('riot_accounts')
+      .select('puuid, latest_name:riot_name, latest_tag:riot_tag, first_seen_at, last_seen_at')
       .is('profile_id', null)
+      .not('puuid', 'is', null)
       .order('last_seen_at', { ascending: false })
       .limit(limit)
 
@@ -169,32 +198,19 @@ export type UnclaimedIdentity = {
   last_seen_at: string | null
 }
 
-/**
- * Every identity no profile owns yet — players who have never logged in. An
- * identity counts as owned once it is linked here or its PUUID is on an
- * approved Riot account (the login prompt links the account, not the identity).
- */
+/** Every identity no profile owns yet — players who have never logged in. */
 export async function listUnclaimedIdentities(): Promise<UnclaimedIdentity[]> {
-  const [identities, accounts] = await Promise.all([
-    fetchAllRows<UnclaimedIdentity>(() =>
-      supabaseAdmin
-        .from('riot_identities')
-        .select('puuid, latest_name, latest_tag, display_name, first_seen_at, last_seen_at')
-        .is('profile_id', null)
-        .order('last_seen_at', { ascending: false })
-        .order('puuid')
-    ),
-    fetchAllRows<{ riot_puuid: string | null }>(() =>
-      supabaseAdmin
-        .from('profile_riot_accounts')
-        .select('riot_puuid')
-        .eq('status', 'approved')
-        .not('riot_puuid', 'is', null)
-        .order('id')
-    ),
-  ])
-  const owned = new Set(accounts.map((a) => a.riot_puuid))
-  return identities.filter((i) => !owned.has(i.puuid))
+  return fetchAllRows<UnclaimedIdentity>(() =>
+    supabaseAdmin
+      .from('riot_accounts')
+      .select(
+        'puuid, latest_name:riot_name, latest_tag:riot_tag, display_name, first_seen_at, last_seen_at'
+      )
+      .is('profile_id', null)
+      .not('puuid', 'is', null)
+      .order('last_seen_at', { ascending: false, nullsFirst: false })
+      .order('puuid')
+  )
 }
 
 /** Set (or clear, with null) the admin-chosen name of an unclaimed identity. */
@@ -203,9 +219,10 @@ export async function setIdentityDisplayName(
   displayName: string | null
 ): Promise<void> {
   const { data, error } = await supabaseAdmin
-    .from('riot_identities')
+    .from('riot_accounts')
     .update({ display_name: displayName })
     .eq('puuid', puuid)
+    .is('profile_id', null)
     .select('puuid')
   if (error) throw new RiotIdentityError(500, 'Failed to update display name.')
   if (!data?.length) throw new RiotIdentityError(404, 'No such identity.')
@@ -232,7 +249,7 @@ export async function loadIdentityDisplayNames(): Promise<Map<string, string>> {
 /** The admin-set name waiting on this PUUID, if any. */
 export async function identityDisplayName(puuid: string): Promise<string | null> {
   const { data } = await supabaseAdmin
-    .from('riot_identities')
+    .from('riot_accounts')
     .select('display_name')
     .eq('puuid', puuid)
     .maybeSingle()
@@ -276,63 +293,6 @@ async function puuidsSeenInSeason(seasonId: string | null): Promise<string[]> {
   return Array.from(puuids)
 }
 
-/**
- * Attach the PUUID's Riot account to the profile, unless it already exists.
- * Made primary only when the profile has no primary account yet, so linking a
- * secondary identity never displaces the player's declared main.
- */
-async function ensureRiotAccountForPuuid(
-  profileId: string,
-  puuid: string,
-  name: string,
-  tag: string
-): Promise<void> {
-  const now = new Date().toISOString()
-
-  const { data: byPuuid } = await supabaseAdmin
-    .from('profile_riot_accounts')
-    .select('id, profile_id')
-    .eq('riot_puuid', puuid)
-    .maybeSingle()
-
-  if (byPuuid) {
-    if (byPuuid.profile_id !== profileId) {
-      throw new RiotIdentityError(409, 'That PUUID is already linked to another player.')
-    }
-    await supabaseAdmin
-      .from('profile_riot_accounts')
-      .update({ status: 'approved', verified_at: now })
-      .eq('id', byPuuid.id)
-    return
-  }
-
-  const { data: primary } = await supabaseAdmin
-    .from('profile_riot_accounts')
-    .select('id')
-    .eq('profile_id', profileId)
-    .eq('is_primary', true)
-    .maybeSingle()
-
-  const { error: insertError } = await supabaseAdmin.from('profile_riot_accounts').insert({
-    profile_id: profileId,
-    riot_name: name,
-    riot_tag: tag,
-    riot_puuid: puuid,
-    is_primary: !primary,
-    status: 'approved',
-    label: 'Linked from match identity',
-    verified_at: now,
-  })
-
-  if (insertError) {
-    // Most likely the name/tag unique index: this Riot ID is on another account.
-    throw new RiotIdentityError(
-      409,
-      'That Riot ID is already linked to an account. Resolve that account first.'
-    )
-  }
-}
-
 export type LinkIdentityResult = {
   puuid: string
   profileId: string
@@ -357,8 +317,8 @@ export async function linkRiotIdentity(opts: {
   if (!puuid) throw new RiotIdentityError(400, 'A PUUID is required.')
 
   const { data: identity, error: identityError } = await supabaseAdmin
-    .from('riot_identities')
-    .select('puuid, latest_name, latest_tag, profile_id')
+    .from('riot_accounts')
+    .select('id, profile_id')
     .eq('puuid', puuid)
     .maybeSingle()
 
@@ -377,24 +337,41 @@ export async function linkRiotIdentity(opts: {
   if (profileError) throw new RiotIdentityError(500, 'Failed to load profile.')
   if (!profile) throw new RiotIdentityError(404, 'No such player.')
 
-  await ensureRiotAccountForPuuid(
-    opts.profileId,
-    puuid,
-    identity.latest_name?.trim() || puuid,
-    identity.latest_tag?.trim() || ''
-  )
+  // Made primary only when the profile has none yet, so linking a secondary
+  // identity never displaces the player's declared main.
+  const { data: primary } = await supabaseAdmin
+    .from('riot_accounts')
+    .select('id')
+    .eq('profile_id', opts.profileId)
+    .eq('is_primary', true)
+    .maybeSingle()
 
-  const { error: updateError } = await supabaseAdmin
-    .from('riot_identities')
+  const now = new Date().toISOString()
+  const { data: linked, error: updateError } = await supabaseAdmin
+    .from('riot_accounts')
     .update({
       profile_id: opts.profileId,
+      is_primary: !primary,
+      status: 'approved',
+      label: 'Linked from match identity',
+      verified_at: now,
       linked_by: opts.adminProfileId,
-      linked_at: new Date().toISOString(),
+      linked_at: now,
     })
-    .eq('puuid', puuid)
+    .eq('id', identity.id)
     .is('profile_id', null)
+    .select('id')
 
-  if (updateError) throw new RiotIdentityError(500, 'Failed to link identity.')
+  if (updateError) {
+    // Most likely the owned name/tag unique index: this Riot ID is on another account.
+    throw new RiotIdentityError(
+      409,
+      'That Riot ID is already linked to an account. Resolve that account first.'
+    )
+  }
+  if (!linked?.length) {
+    throw new RiotIdentityError(409, 'That identity is already linked to a player.')
+  }
 
   try {
     await adoptIdentityDisplayName(opts.profileId, puuid)

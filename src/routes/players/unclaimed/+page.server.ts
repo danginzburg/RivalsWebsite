@@ -1,6 +1,8 @@
 import { error, redirect, type Actions } from '@sveltejs/kit'
 import type { PageServerLoad } from './$types'
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { lookupPlayer } from '$lib/server/players/directory'
+import { claimRiotName, riotNameOwnedByOther } from '$lib/server/players/riot-accounts'
 import { rematchPlayerMatchMapStatsForBase } from '$lib/server/imports/matching'
 import { average, sum, weightedAverage } from '$lib/server/math'
 import { normalizeRiotBase, isValidRiotBase } from '$lib/server/riot-id'
@@ -84,15 +86,16 @@ export const load: PageServerLoad = async ({ url, locals }) => {
   if (locals.user) {
     const { data: profile } = await supabaseAdmin
       .from('profiles')
-      .select('id, display_name, riot_id_base')
+      .select('id, display_name')
       .eq('auth0_sub', locals.user.sub)
       .maybeSingle()
 
     if (profile?.id) {
+      const player = await lookupPlayer({ profileId: profile.id })
       viewer = {
         profileId: profile.id,
         displayName: profile.display_name ?? null,
-        riotIdBase: profile.riot_id_base ?? null,
+        riotIdBase: player?.riot_name ?? null,
       }
     }
   }
@@ -460,23 +463,15 @@ export const actions: Actions = {
 
     if (!profile?.id) throw error(404, 'Profile not found')
 
-    const { data: existing } = await supabaseAdmin
-      .from('profiles')
-      .select('id')
-      .ilike('riot_id_base', riotIdBase)
-      .neq('id', profile.id)
-      .maybeSingle()
-
-    if (existing?.id) {
+    if (await riotNameOwnedByOther(riotIdBase, profile.id)) {
       return { success: false, message: 'That Riot ID is already claimed by another account.' }
     }
 
-    const { error: updateError } = await supabaseAdmin
-      .from('profiles')
-      .update({ riot_id_base: riotIdBase })
-      .eq('id', profile.id)
-
-    if (updateError) return { success: false, message: updateError.message }
+    try {
+      await claimRiotName(profile.id, riotIdBase, 'Claimed from stats')
+    } catch (err) {
+      return { success: false, message: err instanceof Error ? err.message : 'Failed to claim.' }
+    }
 
     try {
       await claimRelinkAfterProfileUpdate(profile.id)

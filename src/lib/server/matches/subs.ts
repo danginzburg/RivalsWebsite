@@ -229,13 +229,10 @@ export async function loadRosterTimeline(
   )
   if (profileIds.length > 0) {
     const [{ data: profiles }, { data: riotAccounts }] = await Promise.all([
+      supabaseAdmin.from('profiles').select('id, display_name').in('id', profileIds),
       supabaseAdmin
-        .from('profiles')
-        .select('id, riot_id_base, display_name, stats_player_name, riot_puuid')
-        .in('id', profileIds),
-      supabaseAdmin
-        .from('profile_riot_accounts')
-        .select('profile_id, riot_name, riot_tag, riot_puuid')
+        .from('riot_accounts')
+        .select('profile_id, riot_name, riot_tag, puuid')
         .in('profile_id', profileIds),
     ])
     const addKeys = (profileId: string, keys: string[], puuid: string | null) => {
@@ -245,17 +242,9 @@ export async function loadRosterTimeline(
       profileKeys.set(profileId, entry)
     }
     for (const profile of profiles ?? []) {
-      addKeys(
-        profile.id as string,
-        [
-          ...nameKeys(profile.riot_id_base as string | null),
-          ...nameKeys(profile.display_name as string | null),
-          ...nameKeys((profile as { stats_player_name?: string | null }).stats_player_name),
-        ],
-        (profile as { riot_puuid?: string | null }).riot_puuid ?? null
-      )
+      addKeys(profile.id as string, nameKeys(profile.display_name as string | null), null)
     }
-    // Every registered Riot account (primary and alts) is a name and PUUID the
+    // Every registered Riot account (primary, alts, aliases) is a name and PUUID the
     // player may appear under in the stats.
     for (const account of riotAccounts ?? []) {
       const name = account.riot_name as string | null
@@ -264,7 +253,7 @@ export async function loadRosterTimeline(
       addKeys(
         account.profile_id as string,
         [...nameKeys(full), ...nameKeys(name)],
-        (account.riot_puuid as string | null) ?? null
+        (account.puuid as string | null) ?? null
       )
     }
   }

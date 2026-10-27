@@ -8,7 +8,6 @@ import { createNotification } from '$lib/server/notifications'
 type ProfileRow = {
   id: string
   display_name: string | null
-  riot_id_base: string | null
   email: string | null
   role: string | null
 }
@@ -51,7 +50,7 @@ export const GET: RequestHandler = async ({ locals, url }) => {
   const reporterIds = Array.from(new Set(rows.map((r) => r.reporter_profile_id)))
   const { data: reporters } = await supabaseAdmin
     .from('profiles')
-    .select('id, display_name, riot_id_base, email, role')
+    .select('id, display_name, email, role')
     .in('id', reporterIds)
   const reporterById = new Map<string, ProfileRow>(
     ((reporters ?? []) as ProfileRow[]).map((p) => [p.id, p])

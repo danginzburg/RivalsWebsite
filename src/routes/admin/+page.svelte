@@ -285,7 +285,7 @@
     { value: '', label: '— None —' },
     ...profileUsers.map((u) => ({
       value: u.id,
-      label: u.display_name ?? u.riot_id_base ?? u.email ?? 'Player',
+      label: u.display_name ?? u.email ?? 'Player',
     })),
   ])
 
