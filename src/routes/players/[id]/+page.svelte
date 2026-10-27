@@ -6,8 +6,7 @@
   import CommentThread from '$lib/components/CommentThread.svelte'
   import ReviewFlagButton from '$lib/components/ReviewFlagButton.svelte'
   import RiotAccountsPanel from '$lib/components/RiotAccountsPanel.svelte'
-  import { User, ExternalLink } from 'lucide-svelte'
-  import DiscordIcon from '$lib/components/icons/DiscordIcon.svelte'
+  import { User } from 'lucide-svelte'
   import { resolve } from '$app/paths'
   import { agentIconUrl, rankIconUrlByKey } from '$lib/icons'
   import { builtInAccoladeIcons } from '$lib/accolades/icons'
@@ -446,8 +445,6 @@
                 {/if}
               {/each}
             </div>
-            <!-- Team identity and contact links share one line; contacts are
-                 published only once a signup is approved. -->
             <div class="identity-row">
               {#if activeTeam}
                 <a
@@ -473,29 +470,6 @@
               {:else}
                 <span class="text-sm" style="color: rgba(255,255,255,0.72);">No active team</span>
               {/if}
-
-              {#if player.discord_handle || (player.tracker_links ?? []).length > 0}
-                <span class="identity-divider"></span>
-              {/if}
-
-              {#if player.discord_handle}
-                <span class="contact-chip" title="Discord">
-                  <DiscordIcon size={13} />
-                  {player.discord_handle}
-                </span>
-              {/if}
-              {#each player.tracker_links ?? [] as link (link.url)}
-                <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
-                <a
-                  href={link.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="contact-chip contact-chip-link"
-                >
-                  <ExternalLink size={12} />
-                  {link.label}
-                </a>
-              {/each}
             </div>
           </div>
         </div>
@@ -507,6 +481,7 @@
             accounts={data.riotAccounts ?? []}
             canEdit={viewer.canEditRiotIdBase}
             displayName={player.display_name}
+            discordHandle={player.discord_handle}
           />
 
           {#if viewer.canEditRiotIdBase && !player.riot_id_base}
@@ -1743,33 +1718,6 @@
   }
 
   /* Short and centred so it separates without crowding the text above. */
-  .identity-divider {
-    width: 1px;
-    height: 0.75rem;
-    align-self: center;
-    background: rgba(255, 255, 255, 0.12);
-    margin: 0 0.375rem;
-  }
-
-  .contact-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3125rem;
-    padding: 0.1875rem 0.5rem;
-    border-radius: 0.3125rem;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    background: rgba(255, 255, 255, 0.04);
-    color: rgba(255, 255, 255, 0.7);
-    font-size: 0.75rem;
-    text-decoration: none;
-  }
-
-  .contact-chip-link:hover {
-    border-color: rgba(120, 67, 145, 0.5);
-    background: rgba(120, 67, 145, 0.12);
-    color: #d8b4fe;
-  }
-
   /* Responsive */
   @media (max-width: 900px) {
     .kpi-row {
@@ -1828,12 +1776,10 @@
     }
 
     /*
-     * The role reads as filler next to the team name, and the divider is a
-     * separator for a line that no longer has room to be one line. Dropping
-     * both is what lets the header and each history row stay on one line.
+     * The role reads as filler next to the team name. Dropping it is what
+     * lets the header and each history row stay on one line.
      */
     .identity-role,
-    .identity-divider,
     .team-row-role {
       display: none;
     }

@@ -481,7 +481,7 @@ export const load = async ({
 
   const { data: profileRel, error: profileError } = await supabaseAdmin
     .from('profiles')
-    .select('id, auth0_sub, role, display_name, email, created_at')
+    .select('id, auth0_sub, role, display_name, email, created_at, discord_username')
     .eq('id', profileId)
     .maybeSingle()
 
@@ -523,7 +523,7 @@ export const load = async ({
     { data: membershipRows },
     { data: activeSeason },
     teamHistory,
-    { data: approvedSignup },
+    { data: latestSignup },
     { data: statsRows },
     { data: allSeasonsRaw },
   ] = await Promise.all([
@@ -545,16 +545,13 @@ export const load = async ({
       .is('left_at', null),
     supabaseAdmin.from('seasons').select('id').eq('is_active', true).maybeSingle(),
     loadTeamHistory(profileId),
-    // Contact details come from the approved signup itself rather than the
-    // copy on `profiles`. That copy is written on approval and retracted on
-    // rejection, so any path that leaves a signup non-approved without going
-    // through the admin endpoint strands it — which is how pending players
-    // ended up publishing a Discord handle.
+    // The Discord handle the player typed most recently, whatever the
+    // signup's status; the profile's copies cover players with no signup.
     supabaseAdmin
       .from('player_signups')
-      .select('discord_handle, tracker_links, updated_at')
+      .select('discord_handle, updated_at')
       .eq('profile_id', profileId)
-      .eq('status', 'approved')
+      .not('discord_handle', 'is', null)
       .order('updated_at', { ascending: false })
       .limit(1)
       .maybeSingle(),
@@ -1142,14 +1139,11 @@ export const load = async ({
       rank_label: null,
       rank_value: null,
       pronouns: null,
-      // Published from an approved signup; empty until then.
+      // The signup's handle, else the name from their Discord login.
       discord_handle:
-        (approvedSignup as { discord_handle?: string | null } | null)?.discord_handle ?? null,
-      tracker_links: ((
-        approvedSignup as {
-          tracker_links?: Array<{ label: string; url: string }> | null
-        } | null
-      )?.tracker_links ?? []) as Array<{ label: string; url: string }>,
+        (latestSignup as { discord_handle?: string | null } | null)?.discord_handle ||
+        profileRel.discord_username ||
+        null,
       display_name: profileRel?.display_name ?? null,
       email: profileRel?.email ?? null,
       created_at: profileRel?.created_at ?? null,
