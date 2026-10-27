@@ -421,7 +421,8 @@
 
     return {
       displayName: signup.display_name ?? '',
-      discordHandle: signup.discord_handle ?? '',
+      // Falls back to the Discord name the player logged in with.
+      discordHandle: signup.discord_handle || signup.profile.discord_username || '',
       currentRank: signup.current_rank ?? '',
       peakRank: signup.peak_rank ?? '',
       manualAdjustment: Number(signup.manual_adjustment ?? 0)

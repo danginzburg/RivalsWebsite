@@ -58,7 +58,7 @@ export const GET: RequestHandler = async ({ locals, url }) => {
   const profileIds = Array.from(new Set(rows.map((r) => r.profile_id)))
   const { data: profiles } = await supabaseAdmin
     .from('profiles')
-    .select('id, display_name, email')
+    .select('id, display_name, email, discord_username')
     .in('id', profileIds)
 
   const profileById = new Map((profiles ?? []).map((p) => [p.id, p]))
@@ -75,6 +75,8 @@ export const GET: RequestHandler = async ({ locals, url }) => {
           id: row.profile_id,
           name: profile?.display_name ?? profile?.email ?? 'Unknown player',
           email: profile?.email ?? null,
+          // Saved from their Discord login; stands in for a blank signup handle.
+          discord_username: profile?.discord_username ?? null,
         },
       }
     }),

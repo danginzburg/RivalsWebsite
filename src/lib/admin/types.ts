@@ -30,7 +30,13 @@ export type PlayerSignup = {
   status: 'pending' | 'approved' | 'rejected'
   admin_notes: string | null
   created_at: string
-  profile: { id: string; name: string; email: string | null }
+  profile: {
+    id: string
+    name: string
+    email: string | null
+    /** Discord username from the player's login. */
+    discord_username: string | null
+  }
 }
 
 export type SignupEditState = {

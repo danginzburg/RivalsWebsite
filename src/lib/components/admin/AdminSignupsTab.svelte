@@ -88,7 +88,7 @@
     return (
       editForm[signup.id] ?? {
         displayName: signup.display_name ?? '',
-        discordHandle: signup.discord_handle ?? '',
+        discordHandle: discordFor(signup) ?? '',
         currentRank: signup.current_rank ?? '',
         peakRank: signup.peak_rank ?? '',
         manualAdjustment: Number(signup.manual_adjustment ?? 0)
@@ -122,7 +122,11 @@
   /** Download the signups in the current filter as a CSV. */
   function exportSignupsCsv() {
     const blob = new Blob(
-      [signupsToCsv(signups.map((s) => ({ ...s, score: effectiveValue(s) })))],
+      [
+        signupsToCsv(
+          signups.map((s) => ({ ...s, discord_handle: discordFor(s), score: effectiveValue(s) }))
+        ),
+      ],
       { type: 'text/csv;charset=utf-8' }
     )
     const url = URL.createObjectURL(blob)
@@ -131,6 +135,11 @@
     link.download = `signups-${statusFilter}-${new Date().toISOString().slice(0, 10)}.csv`
     link.click()
     URL.revokeObjectURL(url)
+  }
+
+  /** The handle on the signup, else the Discord name the player logged in with. */
+  function discordFor(signup: PlayerSignup) {
+    return signup.discord_handle || signup.profile.discord_username || null
   }
 
   function statusStyle(status: string) {
@@ -343,10 +352,10 @@
                 >
                   View profile →
                 </a>
-                {#if signup.discord_handle}
+                {#if discordFor(signup)}
                   <span style="color: rgba(255,255,255,0.6);">
                     Discord: <strong style="color: rgba(255,255,255,0.85);"
-                      >{signup.discord_handle}</strong
+                      >{discordFor(signup)}</strong
                     >
                   </span>
                 {/if}
