@@ -144,6 +144,7 @@ export type AdminUser = {
   email: string | null
   display_name: string | null
   role: string
+  /** Null when the account was only ever recorded by name (no tag known). */
   riot_tag?: string | null
   /** Full Riot ID: the PUUID-backed one when linked, else the primary account name. */
   riot_id?: string | null

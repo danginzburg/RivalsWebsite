@@ -215,7 +215,7 @@ async function claimPuuidAsPrimary(
   return true
 }
 
-export type RiotLink = { riotId: string; puuid: string }
+export type RiotLink = { riotId: string; riotName: string; riotTag: string | null; puuid: string }
 
 function formatRiotId(name: string | null | undefined, tag: string | null | undefined): string {
   const n = String(name ?? '').trim()
@@ -244,7 +244,12 @@ export async function loadRiotLinks(profileIds?: string[]): Promise<Map<string, 
   const links = new Map<string, RiotLink>()
   for (const a of data ?? []) {
     if (links.has(a.profile_id)) continue
-    links.set(a.profile_id, { riotId: formatRiotId(a.riot_name, a.riot_tag), puuid: a.puuid })
+    links.set(a.profile_id, {
+      riotId: formatRiotId(a.riot_name, a.riot_tag),
+      riotName: a.riot_name,
+      riotTag: String(a.riot_tag ?? '').trim() || null,
+      puuid: a.puuid,
+    })
   }
   return links
 }

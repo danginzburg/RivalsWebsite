@@ -43,14 +43,18 @@ export async function listAdminUsers(): Promise<AdminUser[]> {
   }
 
   const profileUsers: AdminUser[] = (users ?? []).map((u) => {
+    // Name and tag always come from the same account, so a tag is never shown
+    // against another account's name.
     const link = links.get(u.id)
     const primary = directory.get(u.id)
+    const name = link?.riotName ?? primary?.riot_name ?? null
+    const tag = link ? link.riotTag : (primary?.riot_tag ?? null)
     return {
       ...u,
       role: u.role ?? 'user',
       created_at: u.created_at ?? '',
-      riot_tag: primary?.riot_tag ?? null,
-      riot_id: link?.riotId ?? formatRiotId(primary?.riot_name ?? null, primary?.riot_tag ?? null),
+      riot_tag: tag,
+      riot_id: formatRiotId(name, tag),
       riot_linked: Boolean(link),
     }
   })

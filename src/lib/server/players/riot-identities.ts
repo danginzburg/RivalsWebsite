@@ -74,7 +74,7 @@ export async function upsertRiotIdentities(observations: RiotObservation[]): Pro
   const now = new Date().toISOString()
   const { data: known, error: knownError } = await supabaseAdmin
     .from('riot_accounts')
-    .select('puuid, profile_id')
+    .select('puuid, profile_id, riot_name, riot_tag')
     .in(
       'puuid',
       rows.map((r) => r.puuid)
@@ -107,6 +107,21 @@ export async function upsertRiotIdentities(observations: RiotObservation[]): Pro
       .upsert(unowned.map(named), { onConflict: 'puuid' })
     if (error) throw new Error(`Failed to refresh riot accounts: ${error.message}`)
   }
+  // An owned account keeps its declared name, but one recorded without a tag
+  // takes the tag the match reports for that same name.
+  const knownByPuuid = new Map((known ?? []).map((k) => [k.puuid as string, k]))
+  for (const r of owned) {
+    const account = knownByPuuid.get(r.puuid)
+    if (!r.tag || account?.riot_tag || !r.name) continue
+    if (String(account?.riot_name ?? '').toLowerCase() !== r.name.toLowerCase()) continue
+    // Best-effort: the owned name/tag index may reject a clash; skip it.
+    await supabaseAdmin
+      .from('riot_accounts')
+      .update({ riot_tag: r.tag })
+      .eq('puuid', r.puuid)
+      .is('riot_tag', null)
+  }
+
   if (owned.length > 0) {
     const { error } = await supabaseAdmin
       .from('riot_accounts')
