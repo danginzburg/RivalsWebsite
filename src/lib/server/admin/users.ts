@@ -3,12 +3,23 @@ import {
   listUnclaimedIdentities,
   type UnclaimedIdentity,
 } from '$lib/server/players/riot-identities'
-import { loadPlayerDirectory } from '$lib/server/players/directory'
+import { loadPlayerDirectory, type PlayerDirectoryEntry } from '$lib/server/players/directory'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { IDENTITY_USER_PREFIX, type AdminUser } from '$lib/admin/types'
 
 function formatRiotId(name: string | null, tag: string | null): string | null {
   return name ? `${name}${tag ? `#${tag}` : ''}` : null
+}
+
+/** Every Riot ID and Discord name the directory holds for a player, deduped. */
+function aliasesOf(entry: PlayerDirectoryEntry | undefined): string[] {
+  if (!entry) return []
+  const names = [
+    ...(entry.riot_ids ?? []),
+    entry.discord_username,
+    entry.latest_signup_discord_handle,
+  ]
+  return [...new Set(names.map((n) => n?.trim()).filter((n): n is string => Boolean(n)))]
 }
 
 /**
@@ -26,7 +37,7 @@ export async function listAdminUsers(): Promise<AdminUser[]> {
   // The PUUID-backed Riot ID wins; a primary account that never verified is
   // still shown, as a name only.
   let links = new Map<string, RiotLink>()
-  let directory = new Map<string, { riot_name: string | null; riot_tag: string | null }>()
+  let directory = new Map<string, PlayerDirectoryEntry>()
   try {
     ;[links, directory] = await Promise.all([loadRiotLinks(), loadPlayerDirectory()])
   } catch (err) {
@@ -56,6 +67,7 @@ export async function listAdminUsers(): Promise<AdminUser[]> {
       riot_tag: tag,
       riot_id: formatRiotId(name, tag),
       riot_linked: Boolean(link),
+      aliases: aliasesOf(primary),
     }
   })
 

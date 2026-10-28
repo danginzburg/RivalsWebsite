@@ -14,6 +14,8 @@ export type RiotObservation = {
   puuid: string | null | undefined
   name: string | null | undefined
   tag: string | null | undefined
+  /** League rank seen with this PUUID ("Gold 2"); null/absent leaves the stored one. */
+  rank?: string | null
 }
 
 export type UnlinkedIdentity = {
@@ -42,15 +44,21 @@ export function dedupeObservations(observations: RiotObservation[]): Array<{
   puuid: string
   name: string | null
   tag: string | null
+  rank: string | null
 }> {
-  const byPuuid = new Map<string, { puuid: string; name: string | null; tag: string | null }>()
+  const byPuuid = new Map<
+    string,
+    { puuid: string; name: string | null; tag: string | null; rank: string | null }
+  >()
   for (const obs of observations) {
     const puuid = String(obs.puuid ?? '').trim()
     if (!puuid) continue
     const name = String(obs.name ?? '').trim() || null
     const tag = String(obs.tag ?? '').trim() || null
-    // Last write wins: later maps carry the same or a fresher name.
-    byPuuid.set(puuid, { puuid, name, tag })
+    // Last write wins: later maps carry the same or a fresher name. A map with
+    // no rank keeps the one an earlier map reported.
+    const rank = String(obs.rank ?? '').trim() || byPuuid.get(puuid)?.rank || null
+    byPuuid.set(puuid, { puuid, name, tag, rank })
   }
   return Array.from(byPuuid.values())
 }
@@ -66,7 +74,13 @@ export function dedupeObservations(observations: RiotObservation[]): Array<{
  * Best-effort by design: the match is already written by the time this runs, so
  * a failure here must not fail the import.
  */
-export async function upsertRiotIdentities(observations: RiotObservation[]): Promise<number> {
+export async function upsertRiotIdentities(
+  observations: RiotObservation[],
+  opts: {
+    /** When the matches were played; ranks older than the stored one are kept out. */
+    playedAt?: string | null
+  } = {}
+): Promise<number> {
   const rows = dedupeObservations(observations)
   if (rows.length === 0) return 0
 
@@ -134,6 +148,26 @@ export async function upsertRiotIdentities(observations: RiotObservation[]): Pro
         owned.map((r) => r.puuid)
       )
     if (error) throw new Error(`Failed to refresh riot accounts: ${error.message}`)
+  }
+
+  // Ranks follow the account like its name does, but only forwards in time:
+  // `rank_updated_at` is when the rank's match was played, so a series from
+  // last month imported today cannot replace this week's rank. Each
+  // tournament's own rank lives in `riot_season_ranks`. One update per
+  // distinct rank keeps this to a handful of queries for a whole series.
+  const playedAt = opts.playedAt ?? now
+  const puuidsByRank = new Map<string, string[]>()
+  for (const r of rows) {
+    if (!r.rank) continue
+    puuidsByRank.set(r.rank, [...(puuidsByRank.get(r.rank) ?? []), r.puuid])
+  }
+  for (const [rank, puuids] of puuidsByRank) {
+    const { error } = await supabaseAdmin
+      .from('riot_accounts')
+      .update({ rank, rank_updated_at: playedAt })
+      .in('puuid', puuids)
+      .or(`rank_updated_at.is.null,rank_updated_at.lte.${playedAt}`)
+    if (error) throw new Error(`Failed to update riot account ranks: ${error.message}`)
   }
   return rows.length
 }

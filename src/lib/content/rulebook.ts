@@ -1,9 +1,6 @@
 /**
- * Rulebook content. Replace the placeholder sections below with the real text.
- * Each section renders with an anchor so the table of contents can link to it.
- *
- * `body` supports simple paragraph breaks (blank line = new paragraph) and
- * lines starting with "- " render as list items.
+ * Default rulebook content, shown only until an admin saves the rulebook from
+ * /admin/content (stored in `site_content`). Edit it there, not here.
  */
 
 export type RulebookSection = {

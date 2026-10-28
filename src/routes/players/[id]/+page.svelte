@@ -11,7 +11,7 @@
   import { agentIconUrl, rankIconUrlByKey } from '$lib/icons'
   import { builtInAccoladeIcons } from '$lib/accolades/icons'
   import { enhance } from '$app/forms'
-  import { rankImageKey } from '$lib/ranks/ranks'
+  import { rankImageKey, rankLabel } from '$lib/ranks/ranks'
 
   let { data, form }: PageProps = $props()
 
@@ -193,7 +193,7 @@
     return rankIconUrlByKey(rankImageKey(leagueRank))
   }
 
-  const playerRank = $derived((data.bestRank ?? null) as string | null)
+  const playerRank = $derived(rankLabel((data.bestRank ?? null) as string | null))
 
   function parseAgents(value: unknown): string[] {
     if (typeof value !== 'string') return []
@@ -414,8 +414,8 @@
                 {#if rUrl}
                   <img
                     src={rUrl}
-                    alt={playerRank}
-                    title={playerRank}
+                    alt="All-time peak: {playerRank}"
+                    title="All-time peak: {playerRank}"
                     class="h-8 w-8 object-contain sm:h-10 sm:w-10"
                   />
                 {/if}

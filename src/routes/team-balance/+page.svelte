@@ -2,7 +2,7 @@
   import PageContainer from '$lib/components/PageContainer.svelte'
   import PageHeading from '$lib/components/PageHeading.svelte'
   import { CheckCircle, XCircle, Users, RotateCcw, Search, AlertCircle } from 'lucide-svelte'
-  import { MAX_TEAM_AVERAGE } from '$lib/team-balance'
+  import { MAX_TEAM_AVERAGE, MAX_TEAM_AVERAGE_IS_PLACEHOLDER } from '$lib/team-balance'
   import type { PageProps } from './$types'
 
   let { data }: PageProps = $props()
@@ -10,6 +10,8 @@
   type RatedPlayer = {
     profileId: string
     name: string
+    riotId: string | null
+    riotIds: string[]
     rank: string | null
     value: number
     isManual: boolean
@@ -17,9 +19,28 @@
 
   const ratedPlayers = $derived((data.ratedPlayers ?? []) as RatedPlayer[])
   const hasRoster = $derived(ratedPlayers.length > 0)
+  const season = $derived(data.season)
 
-  /** Case-insensitive lookup of a registered player by the typed name. */
-  const ratedByName = $derived(new Map(ratedPlayers.map((p) => [p.name.trim().toLowerCase(), p])))
+  const nameKey = (name: string) => name.trim().toLowerCase()
+
+  /**
+   * Case-insensitive lookup by display name or any approved Riot ID (with or
+   * without the tag). Display names win over Riot IDs where they collide.
+   */
+  const ratedByName = $derived.by(() => {
+    const map = new Map<string, RatedPlayer>()
+    for (const p of ratedPlayers) {
+      for (const id of [p.riotId, ...p.riotIds]) {
+        if (!id) continue
+        const key = nameKey(id)
+        if (!map.has(key)) map.set(key, p)
+        const bare = key.split('#')[0]
+        if (bare && !map.has(bare)) map.set(bare, p)
+      }
+    }
+    for (const p of ratedPlayers) map.set(nameKey(p.name), p)
+    return map
+  })
 
   const ROSTER_SIZE = 5
   const blankRoster = () => Array.from({ length: ROSTER_SIZE }, () => '')
@@ -28,7 +49,7 @@
   let names: string[] = $state(blankRoster())
 
   function matchedPlayer(name: string): RatedPlayer | null {
-    const key = name.trim().toLowerCase()
+    const key = nameKey(name)
     if (!key) return null
     return ratedByName.get(key) ?? null
   }
@@ -39,7 +60,11 @@
   }
 
   const matchedRoster = $derived(
-    names.map(matchedPlayer).filter((p): p is RatedPlayer => p !== null)
+    names
+      .map(matchedPlayer)
+      .filter((p): p is RatedPlayer => p !== null)
+      // The same player typed twice (say by name and by Riot ID) counts once.
+      .filter((p, i, all) => all.findIndex((q) => q.profileId === p.profileId) === i)
   )
   const unknownCount = $derived(names.filter(isUnknown).length)
 
@@ -54,15 +79,12 @@
     slotsLeft > 0 ? (MAX_TEAM_AVERAGE * ROSTER_SIZE - totalValue) / slotsLeft : 0
   )
 
-  /** Names already used, so the picker does not offer duplicates. */
-  const usedNames = $derived(new Set(matchedRoster.map((p) => p.name.trim().toLowerCase())))
+  /** Players already picked, so the picker does not offer duplicates. */
+  const usedIds = $derived(new Set(matchedRoster.map((p) => p.profileId)))
 
   function availableFor(index: number) {
-    const own = names[index].trim().toLowerCase()
-    return ratedPlayers.filter((p) => {
-      const key = p.name.trim().toLowerCase()
-      return key === own || !usedNames.has(key)
-    })
+    const own = matchedPlayer(names[index])?.profileId
+    return ratedPlayers.filter((p) => p.profileId === own || !usedIds.has(p.profileId))
   }
 
   function clearAll() {
@@ -76,17 +98,30 @@
   <div class="page-content-narrow py-6">
     <PageHeading
       title="Team Balance Calculator"
-      subtitle="Add five registered players to check the roster against the cap."
+      subtitle={season
+        ? `Add five players approved for ${season.name} to check the roster against the cap.`
+        : 'Add five registered players to check the roster against the cap.'}
       icon={Users}
     />
+
+    {#if MAX_TEAM_AVERAGE_IS_PLACEHOLDER}
+      <div class="notice">
+        <AlertCircle size={16} style="flex-shrink: 0; margin-top: 1px;" />
+        <div>
+          <strong>Provisional cap.</strong>
+          The team average cap hasn't been finalised — {MAX_TEAM_AVERAGE} is a placeholder and may change
+          before the season starts.
+        </div>
+      </div>
+    {/if}
 
     {#if !hasRoster}
       <div class="notice">
         <AlertCircle size={16} style="flex-shrink: 0; margin-top: 1px;" />
         <div>
           <strong>No rated players yet.</strong>
-          Values come from approved signups. Once an admin approves players for the active season, they'll
-          be selectable here.
+          Values come from approved signups. Once an admin approves players for
+          {season ? season.name : 'the season taking signups'}, they'll be selectable here.
         </div>
       </div>
     {/if}
@@ -163,13 +198,13 @@
                 id="player-{i}"
                 list="rated-players-{i}"
                 bind:value={names[i]}
-                placeholder={hasRoster ? 'Search registered players' : 'No players available'}
+                placeholder={hasRoster ? 'Search by name or Riot ID' : 'No players available'}
                 disabled={!hasRoster}
                 class="input"
               />
               <datalist id="rated-players-{i}">
                 {#each availableFor(i) as player (player.profileId)}
-                  <option value={player.name}></option>
+                  <option value={player.name}>{player.riotId ?? ''}</option>
                 {/each}
               </datalist>
 
@@ -185,6 +220,8 @@
                 <span class="value-num">{matched.value}</span>
                 {#if matched.isManual}
                   <span class="value-src">set by admin</span>
+                {:else if matched.rank}
+                  <span class="value-src">{matched.rank}</span>
                 {/if}
               {:else if unknown}
                 <span class="value-unknown">not found</span>
@@ -208,8 +245,9 @@
 
       <div class="roster-foot">
         <p class="foot-note">
-          Each player's value is set from their approved signup. Names that don't match a registered
-          player are ignored in the average.
+          Each player's value is their signup score: current and peak rank plus a rating bonus, with
+          any admin adjustment. Names that don't match a registered player are ignored in the
+          average.
         </p>
         <button type="button" class="clear-btn" onclick={clearAll}>
           <RotateCcw size={13} /> Clear all

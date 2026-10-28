@@ -1,9 +1,11 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { lookupPlayer } from '$lib/server/players/directory'
+import { createNotification } from '$lib/server/notifications'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { logAdminAction } from '$lib/server/audit/admin-actions'
 import { normalizeOptional, sanitizeFilename, isImageFile } from '$lib/server/upload'
+import { syncSeasonAccolades } from '$lib/server/accolades/season-sync'
 
 export const GET: RequestHandler = async ({ locals }) => {
   await requireAdmin(locals.user)
@@ -14,7 +16,9 @@ export const GET: RequestHandler = async ({ locals }) => {
         .from('accolades')
         .select('id, name, logo_path, icon_key, created_at')
         .order('created_at', { ascending: false }),
-      supabaseAdmin.from('accolade_assignments').select('id, accolade_id, profile_id, context'),
+      supabaseAdmin
+        .from('accolade_assignments')
+        .select('id, accolade_id, profile_id, context, source, season_id'),
     ])
 
   if (fetchError) throw error(500, 'Failed to load accolades')
@@ -40,6 +44,7 @@ export const GET: RequestHandler = async ({ locals }) => {
       profile_id: a.profile_id,
       display_name: p?.display_name ?? 'Player',
       context: (a as any).context ?? null,
+      source: (a as any).source === 'auto' ? 'auto' : 'manual',
     }
     const current = assignmentsByAccolade.get(a.accolade_id) ?? []
     current.push(entry)
@@ -133,6 +138,26 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
   const accoladeId = normalizeOptional(body.accoladeId)
   const action = normalizeOptional(body.action)
 
+  // Re-derive every season's placement, MVP and pick'em accolades from its results.
+  if (action === 'sync_seasons') {
+    const result = await syncSeasonAccolades()
+
+    await logAdminAction({
+      adminProfileId: admin.id,
+      actionType: 'accolades_season_sync',
+      targetTable: 'accolade_assignments',
+      targetId: null,
+      details: { added: result.added.length, removed: result.removed },
+    })
+
+    return json({
+      success: true,
+      added: result.added.length,
+      removed: result.removed,
+      unmatched: result.unmatched,
+    })
+  }
+
   if (!accoladeId) throw error(400, 'Missing accoladeId')
 
   if (action === 'set_icon_key') {
@@ -216,6 +241,22 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
       details: { profileId: profile.id, playerName },
     })
 
+    const { data: accolade } = await supabaseAdmin
+      .from('accolades')
+      .select('name')
+      .eq('id', accoladeId)
+      .maybeSingle()
+    await createNotification({
+      recipientProfileId: profile.id,
+      type: 'accolade_awarded',
+      title: accolade?.name ? `You earned an accolade: ${accolade.name}` : 'You earned an accolade',
+      body: context,
+      link: `/players/${profile.id}`,
+      actorProfileId: admin.id,
+      entityType: 'accolade',
+      entityId: accoladeId,
+    })
+
     const displayName = profile.display_name ?? 'Player'
     return json({
       success: true,
@@ -226,6 +267,23 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
   if (action === 'unassign') {
     const assignmentId = normalizeOptional(body.assignmentId)
     if (!assignmentId) throw error(400, 'Missing assignmentId')
+
+    // An automatic award would come straight back on the next sync, so
+    // remember that an admin took it away.
+    const { data: existing } = await supabaseAdmin
+      .from('accolade_assignments')
+      .select('accolade_id, profile_id, season_id, source')
+      .eq('id', assignmentId)
+      .maybeSingle()
+    if (existing?.source === 'auto' && existing.season_id) {
+      const { error: dismissError } = await supabaseAdmin.from('accolade_auto_dismissals').upsert({
+        accolade_id: existing.accolade_id,
+        profile_id: existing.profile_id,
+        season_id: existing.season_id,
+        dismissed_by: admin.id,
+      })
+      if (dismissError) throw error(500, 'Failed to unassign accolade')
+    }
 
     const { error: deleteError } = await supabaseAdmin
       .from('accolade_assignments')

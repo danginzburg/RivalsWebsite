@@ -1,14 +1,18 @@
 <script lang="ts">
-  import { Bell, Check } from 'lucide-svelte'
-  import { goto } from '$app/navigation'
+  import { Bell, Check, ShieldAlert } from 'lucide-svelte'
+  import { afterNavigate, goto } from '$app/navigation'
+  import { page } from '$app/state'
   import type { NotificationRow } from '$lib/server/notifications'
+  import type { AdminQueueItem } from '$lib/server/admin/pending-counts'
 
   interface Props {
     /** Unread count from the layout load, so the badge is right on first paint. */
     initialUnread?: number
+    /** Admin review queues from the layout load; empty for everyone else. */
+    initialAdminQueue?: AdminQueueItem[]
   }
 
-  let { initialUnread = 0 }: Props = $props()
+  let { initialUnread = 0, initialAdminQueue = [] }: Props = $props()
 
   let isOpen = $state(false)
   // Once we've fetched, that value wins; until then fall back to the seed from
@@ -16,6 +20,13 @@
   let fetchedUnread = $state<number | null>(null)
   const unread = $derived(fetchedUnread ?? initialUnread)
   let notifications = $state<NotificationRow[]>([])
+  let fetchedAdminQueue = $state<AdminQueueItem[] | null>(null)
+  // The dashboard already shows its queues, so the bell only surfaces them
+  // while the admin is elsewhere on the site.
+  const onAdminPage = $derived(page.url.pathname.startsWith('/admin'))
+  const adminQueue = $derived(onAdminPage ? [] : (fetchedAdminQueue ?? initialAdminQueue))
+  const adminPending = $derived(adminQueue.reduce((sum, item) => sum + item.count, 0))
+  const badgeCount = $derived(unread + adminPending)
   let loading = $state(false)
   let hasLoaded = $state(false)
 
@@ -27,6 +38,7 @@
       const data = await res.json()
       notifications = data.notifications ?? []
       fetchedUnread = data.unread ?? 0
+      fetchedAdminQueue = data.adminQueue ?? []
       hasLoaded = true
     } catch {
       // A failed poll is non-fatal; the badge keeps its last value.
@@ -56,6 +68,13 @@
     }
   }
 
+  async function openQueue(item: AdminQueueItem) {
+    close()
+    // A static admin route plus a tab query; resolve() can't type the query.
+    // eslint-disable-next-line svelte/no-navigation-without-resolve
+    await goto(item.link)
+  }
+
   async function open(notification: NotificationRow) {
     // Mark just this one read, optimistically, then follow its link.
     if (!notification.is_read) {
@@ -73,6 +92,14 @@
     // eslint-disable-next-line svelte/no-navigation-without-resolve
     if (notification.link) await goto(notification.link)
   }
+
+  // Leaving the dashboard after clearing a queue should drop it from the
+  // badge right away, not on the next poll.
+  afterNavigate(({ from, to }) => {
+    if (from?.url.pathname.startsWith('/admin') && !to?.url.pathname.startsWith('/admin')) {
+      refresh()
+    }
+  })
 
   // Poll while mounted, and whenever the tab regains focus, so the badge stays
   // current without the user opening the panel. There is no realtime channel
@@ -128,8 +155,8 @@
     onclick={toggle}
   >
     <Bell class="h-5 w-5" />
-    {#if unread > 0}
-      <span class="badge">{unread > 99 ? '99+' : unread}</span>
+    {#if badgeCount > 0}
+      <span class="badge">{badgeCount > 99 ? '99+' : badgeCount}</span>
     {/if}
   </button>
 
@@ -146,10 +173,28 @@
       </div>
 
       <div class="panel-body">
+        {#if adminQueue.length > 0}
+          <div class="queue">
+            <span class="queue-title">Needs review</span>
+            <ul class="notif-list">
+              {#each adminQueue as item (item.key)}
+                <li>
+                  <button type="button" class="queue-item" onclick={() => openQueue(item)}>
+                    <ShieldAlert class="h-4 w-4 shrink-0" />
+                    <span class="queue-label">{item.label}</span>
+                  </button>
+                </li>
+              {/each}
+            </ul>
+          </div>
+        {/if}
+
         {#if !hasLoaded && loading}
           <p class="panel-empty">Loading…</p>
         {:else if notifications.length === 0}
-          <p class="panel-empty">You're all caught up.</p>
+          <p class="panel-empty">
+            {adminQueue.length > 0 ? 'No new notifications.' : "You're all caught up."}
+          </p>
         {:else}
           <ul class="notif-list">
             {#each notifications as n (n.id)}
@@ -291,6 +336,45 @@
     list-style: none;
     margin: 0;
     padding: 0;
+  }
+
+  .queue {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding-bottom: 0.25rem;
+  }
+
+  .queue-title {
+    display: block;
+    padding: 0.5rem 0.75rem 0.25rem;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .queue-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    text-align: left;
+    padding: 0.4375rem 0.75rem;
+    border: none;
+    background: transparent;
+    color: var(--accent, #ef4444);
+    cursor: pointer;
+    transition: background-color 0.12s;
+  }
+
+  .queue-item:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+  }
+
+  .queue-label {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--text, #fff);
   }
 
   .notif-item {

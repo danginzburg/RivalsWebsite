@@ -12,6 +12,11 @@ import { resolveTargetSeasonId } from '$lib/server/seasons/resolve'
 import { normalizeSectionKey } from '$lib/stats/sections'
 import { refreshStandingsForSeason } from '$lib/server/leaderboard/computed'
 import { refreshLiveBatchesForMatch } from '$lib/server/stats/from-matches'
+import {
+  notifyMatchCancelled,
+  notifyMatchResult,
+  notifyMatchScheduled,
+} from '$lib/server/notifications/events'
 
 function normalizeOptional(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -81,10 +86,16 @@ export const PATCH: RequestHandler = async ({ locals, request, params }) => {
     if (action === 'cancel') {
       const updated = await cancelMatch({ matchId, adminProfileId: admin.id })
       await refreshStandingsAfterEdit(matchId, previousSeasonId, admin.id)
+      await notifyMatchCancelled(matchId, admin.id)
       return json({ success: true, match: updated })
     }
 
     if (action === 'update') {
+      const { data: before } = await supabaseAdmin
+        .from('matches')
+        .select('scheduled_at, status')
+        .eq('id', matchId)
+        .maybeSingle()
       const updated = await updateMatchDetails({
         matchId,
         adminProfileId: admin.id,
@@ -109,6 +120,21 @@ export const PATCH: RequestHandler = async ({ locals, request, params }) => {
           body.seasonId === undefined ? undefined : await resolveTargetSeasonId(body.seasonId),
       })
       await refreshStandingsAfterEdit(matchId, previousSeasonId, admin.id)
+
+      // Rosters hear about a new or moved start time, and about a result the
+      // edit itself completed; ordinary detail edits stay quiet.
+      const after = updated as { scheduled_at?: string | null; status?: string | null }
+      const scheduleChanged =
+        Boolean(after.scheduled_at) &&
+        new Date(after.scheduled_at ?? '').getTime() !==
+          new Date(before?.scheduled_at ?? '').getTime()
+      if (after.status === 'completed' && before?.status !== 'completed') {
+        await notifyMatchResult(matchId, admin.id)
+      } else if (after.status === 'cancelled' && before?.status !== 'cancelled') {
+        await notifyMatchCancelled(matchId, admin.id)
+      } else if (scheduleChanged && after.status !== 'completed') {
+        await notifyMatchScheduled(matchId, admin.id)
+      }
       return json({ success: true, match: updated })
     }
 
@@ -121,6 +147,7 @@ export const PATCH: RequestHandler = async ({ locals, request, params }) => {
         winnerTeamId: normalizeOptional(body.winnerTeamId),
       })
       await refreshStandingsAfterEdit(matchId, previousSeasonId, admin.id)
+      await notifyMatchResult(matchId, admin.id)
       return json({ success: true, match: updated })
     }
   } catch (err) {

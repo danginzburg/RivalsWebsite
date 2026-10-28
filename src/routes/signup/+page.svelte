@@ -40,7 +40,7 @@
     discordHandle: data.signup?.discord_handle ?? data.profile.discord_handle ?? '',
     trackerLinks: ((data.signup?.tracker_links as LinkRow[] | undefined)?.length
       ? [...(data.signup!.tracker_links as LinkRow[])]
-      : [{ label: '', url: '' }]) as LinkRow[],
+      : [{ label: '', url: data.profile.tracker_url ?? '' }]) as LinkRow[],
   }))
 
   let riotId = $state(seed.riotId)
@@ -250,6 +250,9 @@
             <h2 class="section-title">Tracker links <span class="required">*</span></h2>
             <p class="section-intro">
               An admin uses these to verify your rank and set your rating. Add at least one.
+              {#if data.profile.tracker_url && !data.signup}
+                Your profile's tracker is filled in — add any alt accounts below.
+              {/if}
             </p>
 
             <div class="links">

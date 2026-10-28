@@ -20,6 +20,7 @@ import {
 import { applyMatchStatReassignments } from '$lib/server/matches/reassignments'
 import { loadRosterTimeline, matchRosterTime } from '$lib/server/matches/subs'
 import { refreshLiveBatchesForMatch } from '$lib/server/stats/from-matches'
+import { resolveTargetSeasonId } from '$lib/server/seasons/resolve'
 import { refreshStandingsForMatch } from '$lib/server/leaderboard/computed'
 import { MATCH_STAGES, normalizeSectionKey, type SectionKey } from '$lib/stats/sections'
 
@@ -272,14 +273,12 @@ export async function importCompletedSeries({
     }
   }
 
-  const { data: activeSeason } = await supabaseAdmin
-    .from('seasons')
-    .select('id')
-    .eq('is_active', true)
-    .maybeSingle()
+  // Defaults to the active season; an explicit id backfills a past one without
+  // having to make it active first.
+  const seasonId = await resolveTargetSeasonId(body.seasonId)
 
   const [teams, profiles, riotAccounts] = await Promise.all([
-    getApprovedTeamsForImports(),
+    getApprovedTeamsForImports(seasonId),
     getProfilesForImports(),
     getRiotAccountsForImports(),
   ])
@@ -327,7 +326,7 @@ export async function importCompletedSeries({
         submitted_by_profile_id: adminProfileId,
         approved_by_profile_id: adminProfileId,
         approved_at: new Date().toISOString(),
-        season_id: activeSeason?.id ?? null,
+        season_id: seasonId,
         stage,
         metadata: {
           imported_from_csv: true,
@@ -816,13 +815,9 @@ export async function importNoShowForfeit({
   const bestOf = [3, 5].includes(Number(body.bestOf)) ? Number(body.bestOf) : 3
   const stage = parseImportStage(body.stage)
 
-  const { data: activeSeasonForForfeit } = await supabaseAdmin
-    .from('seasons')
-    .select('id')
-    .eq('is_active', true)
-    .maybeSingle()
+  const seasonId = await resolveTargetSeasonId(body.seasonId)
 
-  const [teams] = await Promise.all([getApprovedTeamsForImports()])
+  const teams = await getApprovedTeamsForImports(seasonId)
   const teamMatcher = buildTeamMatcher(teams)
 
   const importedTeamA = teamMatcher.byMatchName(teamAName)
@@ -876,7 +871,7 @@ export async function importNoShowForfeit({
         submitted_by_profile_id: adminProfileId,
         approved_by_profile_id: adminProfileId,
         approved_at: new Date().toISOString(),
-        season_id: activeSeasonForForfeit?.id ?? null,
+        season_id: seasonId,
         stage,
         metadata: {
           imported_from_csv: true,

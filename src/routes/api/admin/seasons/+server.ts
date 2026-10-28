@@ -4,6 +4,7 @@ import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { getSeasonLogoUrl } from '$lib/server/seasons/logo'
 import { sanitizeSeasonProfile, type SeasonKind } from '$lib/seasons/profile'
+import { syncSeasonAccoladesSafely } from '$lib/server/accolades/season-sync'
 
 const SEASON_COLUMNS = `
   id,
@@ -195,6 +196,11 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
   if (updateError) {
     if (updateError.code === '23505') throw error(409, 'Season code already exists')
     throw error(500, 'Failed to update season')
+  }
+
+  // Placement and MVP accolades follow the season's results.
+  if (RESULT_FIELDS.some(([bodyKey]) => body[bodyKey] !== undefined)) {
+    await syncSeasonAccoladesSafely({ seasonIds: [id] })
   }
 
   return json({

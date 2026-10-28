@@ -29,17 +29,82 @@ async function countPending(table: string, nonPrimaryOnly = false): Promise<numb
   return count ?? 0
 }
 
-export async function getAdminPendingCounts(): Promise<AdminPendingCounts> {
-  const [signups, riotAccounts, commentReports, reviewFlags, bugReports] = await Promise.all([
+function countAll() {
+  return Promise.all([
     countPending('player_signups'),
     countPending('riot_accounts', true),
     countPending('comment_reports'),
     countPending('review_flags'),
     countPending('bug_reports'),
+    countPending('match_result_reports'),
   ])
+}
+
+export async function getAdminPendingCounts(): Promise<AdminPendingCounts> {
+  const [signups, riotAccounts, commentReports, reviewFlags, bugReports] = await countAll()
 
   return {
     moderation: commentReports + reviewFlags + bugReports,
     signups: signups + riotAccounts,
   }
+}
+
+export type AdminQueueItem = {
+  key: string
+  label: string
+  count: number
+  /** Deep link into the admin tab that holds the queue. */
+  link: string
+}
+
+/*
+ * The same queues, broken out for the header bell so an admin browsing the
+ * public site sees what is waiting. These are live counts rather than stored
+ * notifications: a queue item resolved by any admin disappears for all of
+ * them, and nothing has to be fanned out or cleaned up per admin.
+ */
+export async function getAdminQueue(): Promise<AdminQueueItem[]> {
+  const [signups, riotAccounts, commentReports, reviewFlags, bugReports, resultReports] =
+    await countAll()
+
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
+  const items: AdminQueueItem[] = [
+    {
+      key: 'signups',
+      label: plural(signups, 'player signup', 'player signups'),
+      count: signups,
+      link: '/admin?tab=signups',
+    },
+    {
+      key: 'riot_accounts',
+      label: plural(riotAccounts, 'alternate Riot account', 'alternate Riot accounts'),
+      count: riotAccounts,
+      link: '/admin?tab=signups',
+    },
+    {
+      key: 'result_reports',
+      label: plural(resultReports, 'match result report', 'match result reports'),
+      count: resultReports,
+      link: '/admin?tab=matches',
+    },
+    {
+      key: 'comment_reports',
+      label: plural(commentReports, 'reported comment', 'reported comments'),
+      count: commentReports,
+      link: '/admin?tab=moderation',
+    },
+    {
+      key: 'review_flags',
+      label: plural(reviewFlags, 'data flag', 'data flags'),
+      count: reviewFlags,
+      link: '/admin?tab=moderation',
+    },
+    {
+      key: 'bug_reports',
+      label: plural(bugReports, 'bug report', 'bug reports'),
+      count: bugReports,
+      link: '/admin?tab=moderation',
+    },
+  ]
+  return items.filter((item) => item.count > 0)
 }

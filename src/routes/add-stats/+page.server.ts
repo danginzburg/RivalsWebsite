@@ -1,11 +1,9 @@
-import { redirect } from '@sveltejs/kit'
+import { error, redirect } from '@sveltejs/kit'
 import type { PageServerLoad } from './$types'
 
 export const load: PageServerLoad = async ({ locals }) => {
-  // Legacy route: keep working but redirect to Admin.
-  if (!locals.user) {
-    throw redirect(303, '/auth/login?returnTo=/admin/stats-import')
-  }
+  // Legacy route: admins are sent to its new home; everyone else gets a 404.
+  if (locals.user?.role !== 'admin') throw error(404, 'Not found')
 
   throw redirect(303, '/admin/stats-import')
 }

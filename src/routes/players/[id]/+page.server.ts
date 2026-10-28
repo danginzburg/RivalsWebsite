@@ -1105,18 +1105,6 @@ export const load = async ({
     else mainGames += 1
   }
 
-  let bestRank: string | null = null
-  let bestRankValue = 0
-  for (const r of normalizedStats) {
-    const raw = r.league_rank as string | null
-    if (!raw) continue
-    const v = rankValue(raw)
-    if (v > bestRankValue) {
-      bestRankValue = v
-      bestRank = raw
-    }
-  }
-
   // Sequential rather than parallel: the thread needs the viewer's profile id
   // to mark which comments they have already voted on.
   const viewerProfileId = await getViewerProfileId(locals.user)
@@ -1126,6 +1114,29 @@ export const load = async ({
   })
 
   const riotAccounts = await listProfileRiotAccounts(profileId)
+
+  // All-time peak: the highest rank on any of the player's stat rows (ranks
+  // assigned in stat imports) or any tournament rank recorded for one of their
+  // Riot accounts (the peak they held during each tournament's dates).
+  const accountPuuids = riotAccounts
+    .filter((a) => a.status !== 'rejected' && a.riot_puuid)
+    .map((a) => a.riot_puuid as string)
+  const { data: seasonRanks } = accountPuuids.length
+    ? await supabaseAdmin.from('riot_season_ranks').select('rank').in('puuid', accountPuuids)
+    : { data: [] }
+  let bestRank: string | null = null
+  let bestRankValue = 0
+  for (const raw of [
+    ...normalizedStats.map((r) => r.league_rank as string | null),
+    ...(seasonRanks ?? []).map((r) => r.rank as string),
+  ]) {
+    if (!raw) continue
+    const v = rankValue(raw)
+    if (v > bestRankValue) {
+      bestRankValue = v
+      bestRank = raw
+    }
+  }
 
   return {
     player: {

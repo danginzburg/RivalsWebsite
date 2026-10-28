@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
+  import { readRememberedAdminSeason, rememberAdminSeason } from '$lib/admin/remembered-season'
   import { Plus, Trash2 } from 'lucide-svelte'
   import {
     DE8_TOP_SEEDS,
@@ -68,6 +70,11 @@
   }: Props = $props()
 
   let selectedSeasonId = $state<string>(seasons[0]?.id ?? '')
+
+  onMount(() => {
+    const remembered = readRememberedAdminSeason(seasons.map((s) => s.id))
+    if (remembered) selectedSeasonId = remembered
+  })
   // Edits are held per season so switching rows does not lose work.
   let forms = $state<Record<string, PickemForm>>({})
 
@@ -377,7 +384,10 @@
           value={selectedSeasonId}
           compact={true}
           placeholder="Select a season"
-          onSelect={(value) => (selectedSeasonId = value)}
+          onSelect={(value) => {
+            selectedSeasonId = value
+            rememberAdminSeason(value)
+          }}
         />
       </div>
     </div>

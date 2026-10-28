@@ -3,6 +3,7 @@ import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { claimRelinkAfterProfileUpdate } from '$lib/server/players/claim-relink'
+import { createNotification } from '$lib/server/notifications'
 
 /**
  * Admin review of alternate Riot accounts. Approving pools the alt's historic
@@ -55,7 +56,7 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 }
 
 export const PATCH: RequestHandler = async ({ locals, request }) => {
-  await requireAdmin(locals.user)
+  const admin = await requireAdmin(locals.user)
   const body = await request.json().catch(() => ({}))
 
   const id = typeof body.id === 'string' ? body.id : null
@@ -67,7 +68,7 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
 
   const { data: account, error: loadError } = await supabaseAdmin
     .from('riot_accounts')
-    .select('id, profile_id, is_primary')
+    .select('id, profile_id, is_primary, riot_name, riot_tag, status')
     .eq('id', id)
     .maybeSingle()
 
@@ -92,6 +93,27 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
     } catch (err) {
       console.warn('claimRelinkAfterProfileUpdate failed after alt approval:', err)
     }
+  }
+
+  // Only a decision is news to the player; moving an account back to pending isn't.
+  if (status !== 'pending' && status !== account.status) {
+    const riotId = account.riot_tag ? `${account.riot_name}#${account.riot_tag}` : account.riot_name
+    await createNotification({
+      recipientProfileId: account.profile_id,
+      type: 'riot_account_reviewed',
+      title:
+        status === 'approved'
+          ? `Your alternate Riot account ${riotId} was approved`
+          : `Your alternate Riot account ${riotId} was rejected`,
+      body:
+        status === 'approved'
+          ? 'Its match history now counts toward your player profile.'
+          : 'Reach out to an admin if you think this is a mistake.',
+      link: '/account',
+      actorProfileId: admin.id,
+      entityType: 'riot_account',
+      entityId: account.id,
+    })
   }
 
   return json({ success: true, relink })

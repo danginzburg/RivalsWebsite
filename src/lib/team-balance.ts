@@ -1,4 +1,13 @@
-export const MAX_TEAM_AVERAGE = 36.75
+/**
+ * Highest average signup score a five-player roster may have.
+ *
+ * PLACEHOLDER — the league has not settled on a cap yet. Signup scores run
+ * Iron 1 = 1 … Radiant = 25 plus up to 5 rating bonus (see
+ * `$lib/signups/formula`), so 18 is roughly a Diamond 3 average.
+ */
+export const MAX_TEAM_AVERAGE = 18
+/** Flip off once the real cap is decided; the calculator shows a notice while true. */
+export const MAX_TEAM_AVERAGE_IS_PLACEHOLDER = true
 export const MIN_TEAM_PLAYERS = 5
 export const MAX_TEAM_PLAYERS = 8
 

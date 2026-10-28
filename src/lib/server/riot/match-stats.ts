@@ -36,6 +36,8 @@ export type RiotPlayer = {
   tag: string
   team_id: string
   agent?: { name?: string | null } | null
+  /** The player's competitive tier when the match was played. */
+  tier?: { id?: number | null; name?: string | null } | null
   stats?: {
     score?: number | null
     kills?: number | null
@@ -99,6 +101,11 @@ export type DerivedPlayerStats = {
   riotId: string
   team: string
   agent: string | null
+  /**
+   * Riot's tier name for the player at match time ("Gold 2"), or null when
+   * the payload reports none or "Unrated".
+   */
+  tier: string | null
 
   kills: number
   deaths: number
@@ -132,6 +139,14 @@ export type DerivedPlayerStats = {
    * could disagree with itself.
    */
   duels: Record<string, number>
+}
+
+/** Tier ids below 3 are Riot's Unrated / unused placeholders. */
+function rankedTierName(tier: RiotPlayer['tier']): string | null {
+  const id = Number(tier?.id)
+  const name = String(tier?.name ?? '').trim()
+  if (!name || (Number.isFinite(id) && id < 3) || /^unrated$/i.test(name)) return null
+  return name
 }
 
 function round2(value: number): number {
@@ -420,6 +435,7 @@ export function derivePlayerStats(match: RiotMatch): DerivedPlayerStats[] {
       riotId: `${player.name}#${player.tag}`,
       team: player.team_id,
       agent: player.agent?.name ?? null,
+      tier: rankedTierName(player.tier),
 
       kills,
       deaths,

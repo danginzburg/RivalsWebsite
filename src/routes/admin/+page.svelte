@@ -52,6 +52,7 @@
     TeamEditState,
   } from '$lib/admin/types'
   import { resolveSeasonProfile } from '$lib/seasons/profile'
+  import { readRememberedAdminSeason, rememberAdminSeason } from '$lib/admin/remembered-season'
   import { onMount, tick } from 'svelte'
   import type { PageData, PageProps } from './$types'
 
@@ -119,6 +120,14 @@
     }
     if (stored && stored !== activeTab && ADMIN_TAB_IDS.includes(stored as AdminTabId)) {
       selectTab(stored as AdminTabId)
+    }
+
+    // The server always loads the active season; refetch if the admin was working in another.
+    const rememberedSeason = readRememberedAdminSeason(
+      matchSeasonOptions.map((option) => option.value)
+    )
+    if (rememberedSeason !== null && rememberedSeason !== adminMatchSeasonId) {
+      void onMatchSeasonChange(rememberedSeason)
     }
   })
 
@@ -231,9 +240,11 @@
       profile_id: string
       display_name: string
       context?: string | null
+      source?: 'manual' | 'auto'
     }>
   }
   let accolades = $state<Accolade[]>([])
+  let isSyncingSeasonAccolades = $state(false)
   let accoladesLoaded = $state(false)
   let createAccoladeName = $state('')
   let createAccoladeIconKey = $state('')
@@ -1140,20 +1151,48 @@
     }
   }
 
+  async function syncSeasonAccolades() {
+    if (isSyncingSeasonAccolades) return
+    isSyncingSeasonAccolades = true
+    try {
+      const result = await adminJsonRequest<{
+        added?: number
+        removed?: number
+        unmatched?: Record<string, string[]>
+      }>('/api/admin/accolades', {
+        method: 'PATCH',
+        body: { action: 'sync_seasons' },
+        fallbackMessage: 'Failed to sync season accolades',
+      })
+      const unmatchedCount = Object.values(result.unmatched ?? {}).reduce(
+        (sum, names) => sum + names.length,
+        0
+      )
+      successMessage =
+        `Season accolades synced: ${result.added ?? 0} added, ${result.removed ?? 0} removed.` +
+        (unmatchedCount > 0 ? ` ${unmatchedCount} roster names had no matching player.` : '')
+      await loadAccolades()
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : 'Failed to sync season accolades'
+    } finally {
+      isSyncingSeasonAccolades = false
+    }
+  }
+
   let createTeamName = $state('')
   let createTeamTag = $state('')
   let createTeamLogoFile = $state<File | null>(null)
   let isCreatingTeam = $state(false)
 
-  let addPlayerForm = $state<Record<string, { playerName: string; role: string }>>({})
+  /** `profileId` is set when the admin picks a suggested player, and wins over the typed name. */
+  type AddPlayerState = { playerName: string; role: string; profileId: string | null }
+
+  let addPlayerForm = $state<Record<string, AddPlayerState>>({})
   let teamEditForm = $state<Record<string, TeamEditState>>({})
   let teamLogoFileById = $state<Record<string, File | null>>({})
 
-  function updateAddPlayerForm(
-    teamId: string,
-    patch: Partial<{ playerName: string; role: string }>
-  ) {
-    const current = addPlayerForm[teamId] ?? { playerName: '', role: 'player' }
+  function updateAddPlayerForm(teamId: string, patch: Partial<AddPlayerState>) {
+    const current = addPlayerForm[teamId] ?? { playerName: '', role: 'player', profileId: null }
     addPlayerForm = {
       ...addPlayerForm,
       [teamId]: {
@@ -1166,9 +1205,9 @@
   $effect(() => {
     // Ensure per-team form state exists without mutating during render.
     const ids = new Set((approvedTeams ?? []).map((t) => t.id))
-    const next: Record<string, { playerName: string; role: string }> = {}
+    const next: Record<string, AddPlayerState> = {}
     for (const id of ids) {
-      next[id] = addPlayerForm[id] ?? { playerName: '', role: 'player' }
+      next[id] = addPlayerForm[id] ?? { playerName: '', role: 'player', profileId: null }
     }
     // Preserve object identity when no changes.
     const prevKeys = Object.keys(addPlayerForm)
@@ -1446,7 +1485,7 @@
     return users.filter((user) => {
       if (!search) return true
       const haystack =
-        `${user.display_name ?? ''} ${user.riot_id ?? ''} ${user.email ?? ''} ${user.role ?? ''}`.toLowerCase()
+        `${user.display_name ?? ''} ${user.riot_id ?? ''} ${(user.aliases ?? []).join(' ')} ${user.email ?? ''} ${user.role ?? ''}`.toLowerCase()
       return haystack.includes(search)
     })
   })
@@ -1527,6 +1566,12 @@
   async function onMatchSeasonChange(seasonId: string) {
     adminMatchSeasonId = seasonId
     await refreshData()
+  }
+
+  /** The Teams/Matches season picker; unlike deep-link widening, this choice is remembered. */
+  function pickMatchSeason(seasonId: string) {
+    rememberAdminSeason(seasonId)
+    void onMatchSeasonChange(seasonId)
   }
 
   async function finalizeMatch(match: AdminMatch) {
@@ -2068,7 +2113,7 @@
   }
 
   async function addPlayerToTeam(teamId: string) {
-    const state = addPlayerForm[teamId] ?? { playerName: '', role: 'player' }
+    const state = addPlayerForm[teamId] ?? { playerName: '', role: 'player', profileId: null }
     if (!state.playerName.trim()) {
       errorMessage = 'Enter a player name to add'
       return
@@ -2080,7 +2125,13 @@
     const send = (transfer: boolean) =>
       adminJsonRequest<{ transferred?: boolean }>('/api/admin/teams/manage', {
         method: 'POST',
-        body: { teamId, playerName: state.playerName.trim(), role: state.role, transfer },
+        body: {
+          teamId,
+          playerName: state.playerName.trim(),
+          profileId: state.profileId,
+          role: state.role,
+          transfer,
+        },
         fallbackMessage: 'Failed to add player',
       })
 
@@ -2105,7 +2156,7 @@
       }
 
       successMessage = result.transferred ? 'Player moved to team.' : 'Player added to team.'
-      updateAddPlayerForm(teamId, { playerName: '', role: 'player' })
+      updateAddPlayerForm(teamId, { playerName: '', role: 'player', profileId: null })
       await refreshData()
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Failed to add player'
@@ -2411,11 +2462,12 @@
         {isCreatingTeam}
         {displayedApprovedTeams}
         {addPlayerForm}
+        {users}
         {teamEditForm}
         {processingTeamId}
         {matchSeasonOptions}
         {adminMatchSeasonId}
-        {onMatchSeasonChange}
+        onMatchSeasonChange={pickMatchSeason}
         onTeamsSearchChange={(value) => (teamsSearch = value)}
         onCreateTeamNameChange={(value) => (createTeamName = value)}
         onCreateTeamTagChange={(value) => (createTeamTag = value)}
@@ -2462,7 +2514,7 @@
         {matchMapsLoading}
         {matchSeasonOptions}
         {adminMatchSeasonId}
-        {onMatchSeasonChange}
+        onMatchSeasonChange={pickMatchSeason}
         onCreateMatchTeamAIdChange={(value) => (createMatchTeamAId = value)}
         onCreateMatchTeamBIdChange={(value) => (createMatchTeamBId = value)}
         onCreateMatchBestOfChange={(value) => (createMatchBestOf = value as BestOfValue)}
@@ -2595,6 +2647,8 @@
         onAssignAccolade={assignAccolade}
         onSetAccoladeIconKey={setAccoladeIconKey}
         onUnassignAccolade={unassignAccolade}
+        {isSyncingSeasonAccolades}
+        onSyncSeasonAccolades={syncSeasonAccolades}
       />
     {/if}
 

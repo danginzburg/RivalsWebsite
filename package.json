@@ -35,6 +35,7 @@
     "@tailwindcss/forms": "^0.5.10",
     "@tailwindcss/typography": "^0.5.19",
     "@tailwindcss/vite": "^4.1.17",
+    "@types/d3": "^7.4.3",
     "@types/node": "^24",
     "@vitest/browser-playwright": "^4.0.15",
     "autoprefixer": "^10.4.23",
@@ -64,6 +65,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.93.2",
+    "d3": "^7.9.0",
     "jose": "^6.1.3",
     "lucide-svelte": "^0.563.0",
     "zod": "^4.3.6"

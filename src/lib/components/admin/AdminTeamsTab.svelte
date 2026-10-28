@@ -3,7 +3,8 @@
   import { resolve } from '$app/paths'
 
   import { membershipRoleOptions, teamStatusOptions } from '$lib/admin/options'
-  import { profileLabel } from '$lib/admin/ui'
+  import { normalizeSearchValue, profileLabel } from '$lib/admin/ui'
+  import { IDENTITY_USER_PREFIX, type AdminUser } from '$lib/admin/types'
 
   interface TeamRecord {
     id: string
@@ -26,6 +27,7 @@
   interface AddState {
     playerName: string
     role: string
+    profileId: string | null
   }
 
   interface EditState {
@@ -41,6 +43,8 @@
     isCreatingTeam: boolean
     displayedApprovedTeams: TeamRecord[]
     addPlayerForm: Record<string, AddState>
+    /** Every known player, for the Add Player suggestions. */
+    users: AdminUser[]
     teamEditForm: Record<string, EditState>
     processingTeamId: string | null
     matchSeasonOptions: Array<{ value: string; label: string }>
@@ -74,6 +78,7 @@
     isCreatingTeam,
     displayedApprovedTeams,
     addPlayerForm,
+    users,
     teamEditForm,
     processingTeamId,
     matchSeasonOptions,
@@ -95,6 +100,50 @@
   }: Props = $props()
 
   let createTeamLogoInput: HTMLInputElement | null = null
+
+  /** The team whose Add Player box has focus, so only its suggestions show. */
+  let suggestTeamId = $state<string | null>(null)
+
+  type Suggestion = { user: AdminUser; label: string; matched: string | null }
+
+  /**
+   * Players matching what was typed against any name they go by — display
+   * name, every Riot ID (alts included), Discord — so "toaster" finds
+   * ToasterDeus#NA1. Names starting with the query rank first.
+   */
+  function suggestionsFor(query: string): Suggestion[] {
+    const q = normalizeSearchValue(query)
+    if (q.length < 2) return []
+    const ranked: Array<Suggestion & { rank: number }> = []
+    for (const user of users) {
+      const names = [user.display_name, user.riot_id, ...(user.aliases ?? []), user.email]
+        .map((n) => n?.trim())
+        .filter((n): n is string => Boolean(n))
+      const hit =
+        names.find((n) => n.toLowerCase().startsWith(q)) ??
+        names.find((n) => n.toLowerCase().includes(q))
+      if (!hit) continue
+      const label = user.display_name || user.riot_id || user.email || 'Player'
+      ranked.push({
+        user,
+        label,
+        matched: hit === label || hit === user.riot_id ? null : hit,
+        rank: hit.toLowerCase().startsWith(q) ? 0 : 1,
+      })
+    }
+    return ranked.sort((a, b) => a.rank - b.rank || a.label.localeCompare(b.label)).slice(0, 8)
+  }
+
+  function pickSuggestion(teamId: string, user: AdminUser) {
+    // A never-logged-in player has no profile; their full Riot ID resolves to
+    // the PUUID server-side instead.
+    const profileId = user.id.startsWith(IDENTITY_USER_PREFIX) ? null : user.id
+    onAddPlayerChange(teamId, {
+      playerName: user.riot_id || user.display_name || user.email || '',
+      profileId,
+    })
+    suggestTeamId = null
+  }
 
   /**
    * New teams land in whichever season is being viewed, so the form says which
@@ -217,7 +266,15 @@
   {:else}
     <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
       {#each displayedApprovedTeams as team (team.id)}
-        {@const addState = addPlayerForm[team.id] ?? { playerName: '', role: 'player' }}
+        {@const addState = addPlayerForm[team.id] ?? {
+          playerName: '',
+          role: 'player',
+          profileId: null,
+        }}
+        {@const suggestions =
+          suggestTeamId === team.id && !addState.profileId
+            ? suggestionsFor(addState.playerName)
+            : []}
         {@const editState = teamEditForm[team.id] ?? {
           name: team.name,
           tag: team.tag ?? '',
@@ -377,16 +434,72 @@
             </div>
 
             <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              <div class="md:col-span-2">
+              <div class="relative md:col-span-2">
                 <input
                   value={addState.playerName}
                   class="admin-input"
-                  placeholder="Full Riot ID (name#tag) — or an existing player name"
-                  oninput={(e) =>
+                  placeholder="Search any name they use, or a full Riot ID (name#tag)"
+                  autocomplete="off"
+                  onfocus={() => (suggestTeamId = team.id)}
+                  onblur={() => {
+                    if (suggestTeamId === team.id) suggestTeamId = null
+                  }}
+                  onkeydown={(e) => {
+                    if (e.key === 'Escape') suggestTeamId = null
+                    if (e.key === 'Enter' && suggestions.length > 0) {
+                      e.preventDefault()
+                      pickSuggestion(team.id, suggestions[0].user)
+                    }
+                  }}
+                  oninput={(e) => {
+                    suggestTeamId = team.id
+                    // Editing the name drops a picked player, so the typed text is used again.
                     onAddPlayerChange(team.id, {
                       playerName: (e.currentTarget as HTMLInputElement).value,
-                    })}
+                      profileId: null,
+                    })
+                  }}
                 />
+                {#if suggestions.length > 0}
+                  <ul
+                    class="absolute top-full right-0 left-0 z-20 mt-1 max-h-64 overflow-y-auto rounded border border-white/15 py-1 shadow-lg"
+                    style="background: #14161c;"
+                  >
+                    {#each suggestions as suggestion (suggestion.user.id)}
+                      <li>
+                        <button
+                          type="button"
+                          class="flex w-full flex-col px-2 py-1.5 text-left text-xs hover:bg-white/10"
+                          onmousedown={(e) => {
+                            // Before the input's blur closes the list.
+                            e.preventDefault()
+                            pickSuggestion(team.id, suggestion.user)
+                          }}
+                        >
+                          <span style="color: var(--text);">
+                            <span class="font-semibold">{suggestion.label}</span>
+                            {#if suggestion.user.riot_id && suggestion.user.riot_id !== suggestion.label}
+                              <span class="opacity-70"> · {suggestion.user.riot_id}</span>
+                            {/if}
+                            {#if suggestion.user.unclaimed}
+                              <span class="opacity-50"> (never logged in)</span>
+                            {/if}
+                          </span>
+                          {#if suggestion.matched}
+                            <span style="color: rgba(255,255,255,0.5);">
+                              also known as {suggestion.matched}
+                            </span>
+                          {/if}
+                        </button>
+                      </li>
+                    {/each}
+                  </ul>
+                {/if}
+                {#if addState.profileId}
+                  <p class="mt-1 text-[10px]" style="color: #86efac;">
+                    Linked to an existing player.
+                  </p>
+                {/if}
                 <p class="mt-1 text-[10px]" style="color: rgba(255,255,255,0.45);">
                   Enter the full Riot ID (name#tag) so the slot links to the player's account —
                   that's what lets their match stats and sub status be detected automatically.

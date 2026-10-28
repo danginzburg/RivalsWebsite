@@ -12,6 +12,7 @@
     Flag,
     ClipboardList,
     Bell,
+    FileText,
   } from 'lucide-svelte'
   import { resolve } from '$app/paths'
 
@@ -117,6 +118,14 @@
             </a>
           {/each}
         </div>
+        <a
+          href={resolve('/admin/content')}
+          class="admin-btn admin-btn-neutral admin-refresh"
+          title="Edit the rulebook and FAQ"
+        >
+          <FileText size={16} />
+          <span class="admin-refresh-text">Rulebook & FAQ</span>
+        </a>
         <button
           type="button"
           class="admin-btn admin-btn-neutral admin-refresh"

@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { rankValue } from '$lib/ranks/ranks'
 import { average, sum } from '$lib/server/math'
 import { fetchAllRows } from '$lib/server/supabase/fetch-all'
 import { normalizeSectionKey, resolveMatchStageKey, type SectionKey } from '$lib/stats/sections'
@@ -90,6 +91,8 @@ type MapStatRow = {
   mk_7k: number | null
   clutches_won: number | null
   clutches_attempted: number | null
+  /** Riot PUUID, on rows imported from Riot; the key for tournament ranks. */
+  puuid: string | null
 }
 
 type MatchRow = {
@@ -198,6 +201,42 @@ export async function selectMatchesForStages(options: {
  * matches yet there is nothing to aggregate, and that is a valid state rather
  * than an error.
  */
+/**
+ * Tournament ranks for the players in these matches (`riot_season_ranks`),
+ * returned as a lookup over one player's map rows. A player seen under more
+ * than one PUUID, or across seasons, gets the highest of their ranks.
+ */
+async function loadSeasonRanks(matchIds: string[], rows: MapStatRow[]) {
+  const puuids = Array.from(new Set(rows.map((r) => r.puuid).filter((p): p is string => !!p)))
+  if (puuids.length === 0) return () => null
+
+  const { data: matches } = await supabaseAdmin
+    .from('matches')
+    .select('id, season_id')
+    .in('id', matchIds)
+  const seasonByMatch = new Map((matches ?? []).map((m) => [m.id as string, m.season_id as string]))
+  const seasonIds = Array.from(new Set(seasonByMatch.values())).filter(Boolean)
+  if (seasonIds.length === 0) return () => null
+
+  const { data: ranks, error } = await supabaseAdmin
+    .from('riot_season_ranks')
+    .select('puuid, season_id, rank')
+    .in('season_id', seasonIds)
+    .in('puuid', puuids)
+  // Before the table exists, stats still build — just without ranks.
+  if (error) return () => null
+  const rankOf = new Map((ranks ?? []).map((r) => [`${r.puuid}|${r.season_id}`, r.rank as string]))
+
+  return (entries: MapStatRow[]): string | null => {
+    let best: string | null = null
+    for (const e of entries) {
+      const rank = e.puuid ? rankOf.get(`${e.puuid}|${seasonByMatch.get(e.match_id)}`) : undefined
+      if (rank && (!best || rankValue(rank) > rankValue(best))) best = rank
+    }
+    return best
+  }
+}
+
 async function buildStatRows(
   matchIds: string[],
   batchId: string,
@@ -216,7 +255,7 @@ async function buildStatRows(
     supabaseAdmin
       .from('player_match_map_stats')
       .select(
-        'match_id, profile_id, team_id, player_name, agents, games, games_won, games_lost, rounds, rounds_won, rounds_lost, acs, kd, kast_pct, adr, kills, deaths, assists, fk, fd, hs_pct, econ_rating, plants, defuses, mk_2k, mk_3k, mk_4k, mk_5k, mk_6k, mk_7k, clutches_won, clutches_attempted'
+        'match_id, profile_id, team_id, player_name, agents, games, games_won, games_lost, rounds, rounds_won, rounds_lost, acs, kd, kast_pct, adr, kills, deaths, assists, fk, fd, hs_pct, econ_rating, plants, defuses, mk_2k, mk_3k, mk_4k, mk_5k, mk_6k, mk_7k, clutches_won, clutches_attempted, puuid'
       )
       .in('match_id', matchIds)
       .not('clutches_attempted', 'is', null)
@@ -232,6 +271,8 @@ async function buildStatRows(
     }
     return { statRows: [], includedMatchIds: [], now }
   }
+
+  const seasonRank = await loadSeasonRanks(matchIds, rows)
 
   // Group by profile when claimed, and by name otherwise — the same identity
   // rule the rest of the stats pipeline uses.
@@ -323,6 +364,7 @@ async function buildStatRows(
       mk_7k: addAdvanced('mk_7k'),
       clutches_won: addAdvanced('clutches_won'),
       clutches_attempted: addAdvanced('clutches_attempted'),
+      league_rank: seasonRank(entries),
     }
   })
 

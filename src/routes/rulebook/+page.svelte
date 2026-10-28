@@ -1,37 +1,44 @@
 <script lang="ts">
   import PageContainer from '$lib/components/PageContainer.svelte'
   import PageHeading from '$lib/components/PageHeading.svelte'
+  import ContentBody from '$lib/components/content/ContentBody.svelte'
   import { BookOpen } from 'lucide-svelte'
-  import { RULEBOOK_SECTIONS, RULEBOOK_UPDATED } from '$lib/content/rulebook'
+  import { contentPlainText } from '$lib/content/format'
+  import type { PageProps } from './$types'
 
-  let activeId = $state<string>(RULEBOOK_SECTIONS[0]?.id ?? '')
+  let { data }: PageProps = $props()
+
+  /** Hidden sections are drafts: kept in the editor, never shown here. */
+  const sections = $derived(
+    data.rulebook.sections
+      .filter((s) => !s.hidden)
+      .map((s) => ({ ...s, subsections: s.subsections.filter((sub) => !sub.hidden) }))
+  )
+
+  let activeId = $state<string>('')
   let search = $state('')
 
-  const filteredSections = $derived.by(() => {
-    const q = search.trim().toLowerCase()
-    if (!q) return RULEBOOK_SECTIONS
-    return RULEBOOK_SECTIONS.filter(
-      (s) => s.title.toLowerCase().includes(q) || s.body.toLowerCase().includes(q)
-    )
-  })
+  const matches = (q: string, title: string, body: string) =>
+    title.toLowerCase().includes(q) || contentPlainText(body).toLowerCase().includes(q)
 
-  /** Split a section body into paragraphs and bullet lists. */
-  function parseBody(body: string) {
-    const blocks: Array<{ type: 'p' | 'ul'; content: string[] }> = []
-    for (const raw of body.split(/\n\s*\n/)) {
-      const lines = raw
-        .split('\n')
-        .map((l) => l.trim())
-        .filter(Boolean)
-      if (lines.length === 0) continue
-      if (lines.every((l) => l.startsWith('- '))) {
-        blocks.push({ type: 'ul', content: lines.map((l) => l.slice(2)) })
-      } else {
-        blocks.push({ type: 'p', content: [lines.join(' ')] })
-      }
-    }
-    return blocks
-  }
+  /** A section stays when it or any subsection matches; only matching subsections show. */
+  const filteredSections = $derived.by(() => {
+    // Number before filtering so search results keep their real section numbers.
+    const numbered = sections.map((s, i) => ({
+      ...s,
+      number: `${i + 1}`,
+      subsections: s.subsections.map((sub, j) => ({ ...sub, number: `${i + 1}.${j + 1}` })),
+    }))
+    const q = search.trim().toLowerCase()
+    if (!q) return numbered
+    return numbered
+      .map((s) => {
+        if (matches(q, s.title, s.body)) return s
+        const subsections = s.subsections.filter((sub) => matches(q, sub.title, sub.body))
+        return subsections.length > 0 ? { ...s, subsections } : null
+      })
+      .filter((s) => s !== null)
+  })
 
   function scrollTo(id: string) {
     activeId = id
@@ -40,12 +47,12 @@
 
   /** Highlight the section currently in view. */
   function onScroll() {
-    for (const section of RULEBOOK_SECTIONS) {
-      const el = document.getElementById(section.id)
+    for (const section of sections) {
+      const el = document.getElementById(section.anchor)
       if (!el) continue
       const rect = el.getBoundingClientRect()
       if (rect.top <= 120 && rect.bottom > 120) {
-        activeId = section.id
+        activeId = section.anchor
         return
       }
     }
@@ -63,15 +70,15 @@
         <div class="toc-card">
           <div class="toc-head">
             <span class="toc-label">Contents</span>
-            <span class="toc-count">{RULEBOOK_SECTIONS.length}</span>
+            <span class="toc-count">{sections.length}</span>
           </div>
           <nav class="toc-nav">
-            {#each RULEBOOK_SECTIONS as section, index (section.id)}
+            {#each sections as section, index (section.key)}
               <button
                 type="button"
                 class="toc-link"
-                class:toc-link-active={activeId === section.id}
-                onclick={() => scrollTo(section.id)}
+                class:toc-link-active={(activeId || sections[0]?.anchor) === section.anchor}
+                onclick={() => scrollTo(section.anchor)}
               >
                 <span class="toc-num">{index + 1}</span>
                 <span class="toc-text">{section.title}</span>
@@ -85,27 +92,39 @@
     <!-- Content -->
     <div class="rulebook-body">
       <div class="rulebook-header">
-        <PageHeading title="Rulebook" subtitle="Last updated {RULEBOOK_UPDATED}" icon={BookOpen} />
+        <PageHeading title="Rulebook" subtitle="Last updated {data.updatedOn}" icon={BookOpen} />
       </div>
 
       <input bind:value={search} class="rulebook-search" placeholder="Search the rulebook..." />
 
-      {#if filteredSections.length === 0}
+      {#if data.rulebook.intro.trim() && !search.trim()}
+        <div class="rule-intro"><ContentBody body={data.rulebook.intro} /></div>
+      {/if}
+
+      {#if sections.length === 0}
+        <div class="no-results">The rulebook hasn't been published yet.</div>
+      {:else if filteredSections.length === 0}
         <div class="no-results">No sections match "{search}".</div>
       {:else}
-        {#each filteredSections as section (section.id)}
-          <section id={section.id} class="rule-section">
-            <h2 class="rule-title">{section.title}</h2>
-            {#each parseBody(section.body) as block, i (i)}
-              {#if block.type === 'ul'}
-                <ul class="rule-list">
-                  {#each block.content as item, j (j)}
-                    <li>{item}</li>
-                  {/each}
-                </ul>
-              {:else}
-                <p class="rule-para">{block.content[0]}</p>
-              {/if}
+        {#each filteredSections as section (section.key)}
+          <section id={section.anchor} class="rule-section">
+            <h2 class="rule-title">
+              <span class="rule-num">{section.number}.</span>
+              {section.title}
+            </h2>
+            {#if section.body.trim()}
+              <ContentBody body={section.body} />
+            {/if}
+            {#each section.subsections as sub (sub.key)}
+              <div id={sub.anchor} class="rule-subsection">
+                <h3 class="rule-subtitle">
+                  <span class="rule-num">{sub.number}</span>
+                  {sub.title}
+                </h3>
+                {#if sub.body.trim()}
+                  <ContentBody body={sub.body} />
+                {/if}
+              </div>
             {/each}
           </section>
         {/each}
@@ -276,39 +295,26 @@
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   }
 
-  .rule-para {
-    font-size: 0.9375rem;
-    line-height: 1.7;
-    color: rgba(255, 255, 255, 0.75);
-    margin-bottom: 0.875rem;
-    max-width: 62ch;
+  .rule-num {
+    margin-right: 0.375rem;
+    color: var(--accent-text);
+    font-variant-numeric: tabular-nums;
   }
 
-  .rule-list {
-    list-style: none;
-    margin: 0 0 0.875rem;
-    padding: 0;
-    max-width: 62ch;
+  .rule-intro {
+    margin-bottom: 2rem;
   }
 
-  .rule-list li {
-    position: relative;
-    padding-left: 1.25rem;
-    font-size: 0.9375rem;
-    line-height: 1.7;
-    color: rgba(255, 255, 255, 0.75);
-    margin-bottom: 0.375rem;
+  .rule-subsection {
+    margin-top: 1.5rem;
+    scroll-margin-top: 5rem;
   }
 
-  .rule-list li::before {
-    content: '';
-    position: absolute;
-    left: 0.25rem;
-    top: 0.7em;
-    width: 4px;
-    height: 4px;
-    border-radius: 50%;
-    background: var(--hover);
+  .rule-subtitle {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--title);
+    margin-bottom: 0.5rem;
   }
 
   .no-results {
@@ -358,11 +364,6 @@
       white-space: nowrap;
       font-size: 0.75rem;
       padding: 0.375rem 0.5rem;
-    }
-
-    .rule-para,
-    .rule-list li {
-      font-size: 0.875rem;
     }
   }
 </style>

@@ -1,6 +1,8 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
+  import { readRememberedAdminSeason, rememberAdminSeason } from '$lib/admin/remembered-season'
   import {
     Upload,
     Loader2,
@@ -88,6 +90,31 @@
   /** Kept between imports: a run of playoff series is usually entered together. */
   let stage = $state('')
 
+  /**
+   * The season imported matches are filed under. Defaults to the active one;
+   * picking a past season backfills it without having to make it active, and
+   * narrows team matching to that season's teams (names carry over between
+   * seasons, so an unscoped match could land on the wrong season's team).
+   */
+  const getInitialSeasonId = () => data.activeSeasonId ?? ''
+  let importSeasonId = $state(getInitialSeasonId())
+
+  onMount(() => {
+    const remembered = readRememberedAdminSeason((data.seasons ?? []).map((s) => s.id))
+    if (remembered) importSeasonId = remembered
+  })
+
+  const importSeasonOptions = $derived(
+    (data.seasons ?? []).map((season) => ({
+      value: season.id,
+      label: `${season.name}${season.is_active ? ' (active)' : ''}`,
+    }))
+  )
+
+  const importSeasonTeams = $derived(
+    (data.teams ?? []).filter((team) => !importSeasonId || team.season_id === importSeasonId)
+  )
+
   let riotInput = $state('')
   let riotRegion = $state('na')
   /**
@@ -131,33 +158,18 @@
 
   /**
    * When the rosters can't identify the teams the server asks for them by hand:
-   * the admin picks a season and the two teams from it, and the import reruns
+   * the admin picks the two teams from the import season, and the import reruns
    * with those ids. Kept separate from a plain error so the picker can appear.
    */
   let riotNeedsManualTeams = $state(false)
   let riotManualReason = $state<string | null>(null)
   let riotManualUnmatched = $state<string[]>([])
-  let riotManualSeasonId = $state('')
   let riotManualTeamAId = $state('')
   let riotManualTeamBId = $state('')
 
-  const manualSeasonTeams = $derived(
-    (data.teams ?? []).filter(
-      (team) => !riotManualSeasonId || team.season_id === riotManualSeasonId
-    )
-  )
-
-  const manualSeasonOptions = $derived([
-    { value: '', label: 'All seasons' },
-    ...(data.seasons ?? []).map((season) => ({
-      value: season.id,
-      label: `${season.name}${season.is_active ? ' (active)' : ''}`,
-    })),
-  ])
-
   const manualTeamOptions = $derived([
     { value: '', label: 'Select team…' },
-    ...manualSeasonTeams.map((team) => ({
+    ...importSeasonTeams.map((team) => ({
       value: team.id,
       label: `${team.name}${team.tag ? ` [${team.tag}]` : ''}`,
     })),
@@ -201,6 +213,7 @@
           dryRun,
           ...(riotBestOf ? { bestOf: Number(riotBestOf) } : {}),
           ...(stage ? { stage } : {}),
+          ...(importSeasonId ? { seasonId: importSeasonId } : {}),
           ...manualTeams,
           ...forfeitMap,
         }),
@@ -211,7 +224,6 @@
           riotNeedsManualTeams = true
           riotManualReason = payload.reason ?? 'Could not identify both teams.'
           riotManualUnmatched = payload.unmatchedPlayers ?? []
-          if (!riotManualSeasonId) riotManualSeasonId = data.activeSeasonId ?? ''
           return
         }
         throw new Error(payload?.message ?? 'Import failed')
@@ -294,7 +306,7 @@
   const teamNameMap = $derived.by(() => {
     // eslint-disable-next-line svelte/prefer-svelte-reactivity -- key/value lookup for CSV matching
     const map = new Map<string, string>()
-    for (const team of data.teams ?? []) {
+    for (const team of importSeasonTeams) {
       map.set(normalizeKey(team.name), team.id)
       const meta = team.metadata as Record<string, unknown> | null | undefined
       const aliases = meta?.match_import_names
@@ -524,7 +536,7 @@
     submitMessage = null
     try {
       if (importMode === 'forfeit_no_show') {
-        const teams = data.teams ?? []
+        const teams = importSeasonTeams
         const teamA = teams.find((t) => t.id === ffTeamAId)
         const teamB = teams.find((t) => t.id === ffTeamBId)
         if (!teamA || !teamB) throw new Error('Select both teams for the forfeit.')
@@ -543,6 +555,7 @@
             teamBScore: ffTeamBScore,
             bestOf: ffBestOf,
             ...(stage ? { stage } : {}),
+            ...(importSeasonId ? { seasonId: importSeasonId } : {}),
           }),
         })
         const result = await response.json().catch(() => ({}))
@@ -584,6 +597,7 @@
           bestOf: seriesMaps.length >= 4 ? 5 : 3,
           maps: seriesMaps,
           ...(stage ? { stage } : {}),
+          ...(importSeasonId ? { seasonId: importSeasonId } : {}),
           ...(sendOfficial && officialTeamId ? { officialWinnerTeamId: officialTeamId } : {}),
           ...(sendOfficial && forfeitReason.trim() ? { forfeitReason: forfeitReason.trim() } : {}),
           ...(sendOfficial && mapNotes && Object.keys(mapNotes).length > 0 ? { mapNotes } : {}),
@@ -851,20 +865,6 @@
                   </p>
                 {/if}
 
-                <label class="block text-sm" style="color: var(--text);">
-                  <span
-                    class="mb-1 block text-xs font-semibold uppercase"
-                    style="color: rgba(255,255,255,0.7);">Season</span
-                  >
-                  <div class="max-w-xs">
-                    <CustomSelect
-                      options={manualSeasonOptions}
-                      bind:value={riotManualSeasonId}
-                      disabled={isSubmitting}
-                    />
-                  </div>
-                </label>
-
                 <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
                   <label class="block text-sm" style="color: var(--text);">
                     <span
@@ -943,7 +943,7 @@
               >
               <select bind:value={ffTeamAId} class="admin-input">
                 <option value="">Select team…</option>
-                {#each data.teams ?? [] as team (team.id)}
+                {#each importSeasonTeams as team (team.id)}
                   <option value={team.id}>{team.name}{team.tag ? ` [${team.tag}]` : ''}</option>
                 {/each}
               </select>
@@ -955,7 +955,7 @@
               >
               <select bind:value={ffTeamBId} class="admin-input">
                 <option value="">Select team…</option>
-                {#each data.teams ?? [] as team (team.id)}
+                {#each importSeasonTeams as team (team.id)}
                   <option value={team.id}>{team.name}{team.tag ? ` [${team.tag}]` : ''}</option>
                 {/each}
               </select>
@@ -1035,7 +1035,20 @@
           </label>
         {/if}
 
-        <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-[16rem_1fr]">
+        <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-[16rem_16rem_1fr]">
+          <label class="block">
+            <div class="admin-field-label">Season</div>
+            <CustomSelect
+              options={importSeasonOptions}
+              value={importSeasonId}
+              onSelect={(value) => {
+                importSeasonId = value
+                rememberAdminSeason(value)
+              }}
+              placeholder="Select a season"
+              disabled={isSubmitting}
+            />
+          </label>
           <label class="block">
             <div class="admin-field-label">Stage</div>
             <CustomSelect
@@ -1052,7 +1065,8 @@
         </div>
         <p class="mt-1 text-xs" style="color: rgba(255,255,255,0.6);">
           A stage is required to import. Only Regular Season matches count toward the standings. The
-          stage also picks which live stat batches the match feeds.
+          stage also picks which live stat batches the match feeds. Pick a past season to backfill
+          it — it does not need to be active, and teams are matched against that season only.
         </p>
 
         {#if parseError}

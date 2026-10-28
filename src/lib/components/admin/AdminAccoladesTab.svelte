@@ -13,6 +13,7 @@
       profile_id: string
       display_name: string
       context?: string | null
+      source?: 'manual' | 'auto'
     }>
   }
 
@@ -42,6 +43,8 @@
     onAssignAccolade: (accoladeId: string) => void
     onSetAccoladeIconKey: (accoladeId: string, iconKey: string) => void
     onUnassignAccolade: (accoladeId: string, assignmentId: string) => void
+    isSyncingSeasonAccolades: boolean
+    onSyncSeasonAccolades: () => void
   }
 
   let {
@@ -70,6 +73,8 @@
     onAssignAccolade,
     onSetAccoladeIconKey,
     onUnassignAccolade,
+    isSyncingSeasonAccolades,
+    onSyncSeasonAccolades,
   }: Props = $props()
 
   const iconKeyLabels: Record<string, string> = {
@@ -127,12 +132,23 @@
   </section>
 
   <section class="admin-bordered p-3">
-    <h3
-      class="mb-3 text-sm font-semibold tracking-wide uppercase"
-      style="color: rgba(255,255,255,0.8);"
-    >
-      Accolades ({accolades.length})
-    </h3>
+    <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+      <h3
+        class="text-sm font-semibold tracking-wide uppercase"
+        style="color: rgba(255,255,255,0.8);"
+      >
+        Accolades ({accolades.length})
+      </h3>
+      <button
+        type="button"
+        class="admin-btn admin-btn-sm admin-btn-info"
+        title="1st/2nd/3rd Place, Finals MVP and Pick'em Champion are assigned from each season's results. This re-runs that for every season."
+        onclick={onSyncSeasonAccolades}
+        disabled={isSyncingSeasonAccolades}
+      >
+        {isSyncingSeasonAccolades ? 'Syncing...' : 'Sync from season results'}
+      </button>
+    </div>
     {#if !accoladesLoaded}
       <p class="text-sm" style="color: rgba(255,255,255,0.6);">Loading accolades...</p>
     {:else if accolades.length === 0}
@@ -258,6 +274,12 @@
                     style="border-color: rgba(255,255,255,0.12); color: rgba(255,255,255,0.84);"
                   >
                     {assignment.display_name}{assignment.context ? ` - ${assignment.context}` : ''}
+                    {#if assignment.source === 'auto'}
+                      <span
+                        title="Assigned from season results"
+                        style="color: rgba(255,255,255,0.5);">auto</span
+                      >
+                    {/if}
                     <button
                       type="button"
                       style="color: #fca5a5;"

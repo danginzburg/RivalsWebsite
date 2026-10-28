@@ -128,12 +128,19 @@ export function buildTeamMatcher(teams: TeamRow[]) {
   }
 }
 
-export async function getApprovedTeamsForImports() {
-  const { data, error } = await supabaseAdmin
+/**
+ * Approved teams for name matching. Pass `seasonId` to match only that season's
+ * teams: team names carry over between seasons, so an unscoped lookup can
+ * resolve a backfilled match onto the same-named team from another season.
+ */
+export async function getApprovedTeamsForImports(seasonId?: string | null) {
+  let query = supabaseAdmin
     .from('teams')
     .select('id, name, tag, metadata, approval_status')
     .eq('approval_status', 'approved')
+  if (seasonId) query = query.eq('season_id', seasonId)
 
+  const { data, error } = await query
   if (error) throw new Error('Failed to load teams')
   return (data ?? []) as TeamRow[]
 }
