@@ -2,6 +2,7 @@ import { supabaseAdmin } from '$lib/supabase/admin'
 import { rankValue } from '$lib/ranks/ranks'
 import { average, sum } from '$lib/server/math'
 import { fetchAllRows } from '$lib/server/supabase/fetch-all'
+import { currentRiotIdsByPuuid } from '$lib/server/players/directory'
 import { normalizeSectionKey, resolveMatchStageKey, type SectionKey } from '$lib/stats/sections'
 import {
   isAllTimeBatch,
@@ -274,12 +275,20 @@ async function buildStatRows(
 
   const seasonRank = await loadSeasonRanks(matchIds, rows)
 
-  // Group by profile when claimed, and by name otherwise — the same identity
-  // rule the rest of the stats pipeline uses.
+  // Group by profile when claimed, then by PUUID, and by name only for rows
+  // with neither. Keying unclaimed players by name split anyone who renamed
+  // mid-season into two lines; the PUUID survives a rename.
+  const currentNames = await currentRiotIdsByPuuid(
+    rows.filter((r) => !r.profile_id && r.puuid).map((r) => r.puuid as string)
+  )
   const grouped = new Map<string, MapStatRow[]>()
   for (const row of rows) {
+    if (!row.profile_id && row.puuid) {
+      row.player_name = currentNames.get(row.puuid) ?? row.player_name
+    }
     const key =
       row.profile_id ??
+      (row.puuid ? `puuid:${row.puuid}` : null) ??
       `name:${String(row.player_name ?? '')
         .trim()
         .toLowerCase()}`
@@ -573,6 +582,54 @@ export async function regenerateStatsBatch(options: {
   if (updateError) throw new Error(`Failed to update batch: ${updateError.message}`)
 
   return { batchId, playerCount: statRows.length, matchCount: includedMatchIds.length }
+}
+
+/**
+ * Rebuild every generated batch built from any of these matches, plus All Time.
+ *
+ * For when the matches themselves did not change but who played in them did:
+ * linking a Riot account to a profile moves its map rows onto that profile,
+ * and a batch generated before the link still carries the old split — the
+ * player on one line, their newly linked alt on another. Each batch is rebuilt
+ * under its own uploader, so a link made on a player's login never stamps
+ * them as the batch's approver.
+ *
+ * Best-effort and never throws, like `refreshLiveBatchesForMatch`.
+ */
+export async function regenerateBatchesHoldingMatches(matchIds: string[]): Promise<number> {
+  if (matchIds.length === 0) return 0
+  const wanted = new Set(matchIds)
+  try {
+    const { data: batches, error } = await supabaseAdmin
+      .from('stat_import_batches')
+      .select('id, uploaded_by_profile_id, metadata')
+      .filter('metadata->>import_type', 'eq', 'rivals_group_stats')
+      .filter('metadata->>generated_from_matches', 'eq', 'true')
+      .limit(200)
+    if (error) throw new Error(`Failed to load generated batches: ${error.message}`)
+
+    let rebuilt = 0
+    let allTimeOwner: string | null = null
+    for (const batch of batches ?? []) {
+      const held = (batch.metadata as GeneratedBatchRow['metadata'])?.source_match_ids
+      if (!Array.isArray(held) || !held.some((id) => wanted.has(id))) continue
+      const owner = batch.uploaded_by_profile_id as string
+      allTimeOwner ??= owner
+      try {
+        await regenerateStatsBatch({ batchId: batch.id as string, adminProfileId: owner })
+        rebuilt++
+      } catch (err) {
+        console.error('Failed to regenerate stat batch after relink', batch.id, err)
+      }
+    }
+
+    // All Time reads maps directly; it reuses its own uploader too.
+    if (allTimeOwner) await refreshAllTimeBatches({ adminProfileId: allTimeOwner })
+    return rebuilt
+  } catch (err) {
+    console.error('Failed to regenerate stat batches after relink', err)
+    return 0
+  }
 }
 
 /**

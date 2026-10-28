@@ -6,6 +6,7 @@ import {
   type RiotAccountRow,
 } from '$lib/server/imports/matching'
 import { syncSeasonAccoladesSafely } from '$lib/server/accolades/season-sync'
+import { regenerateBatchesHoldingMatches } from '$lib/server/stats/from-matches'
 
 /** Approved Riot accounts (primary, alts, aliases) owned by one profile. */
 async function getProfileRiotAccounts(profileId: string): Promise<RiotAccountRow[]> {
@@ -385,6 +386,12 @@ export async function claimRelinkAfterProfileUpdate(profileId: string): Promise<
   // season's podium. Only then: this runs on every login.
   if (team.linked > 0 || map.rowsLinked > 0) {
     await syncSeasonAccoladesSafely({ profileId })
+  }
+
+  // Generated stat batches are snapshots of the map rows, so the ones built
+  // before this link still list the newly linked account on a line of its own.
+  if (map.rowsLinked > 0) {
+    await regenerateBatchesHoldingMatches(map.matchIds)
   }
 
   return {
