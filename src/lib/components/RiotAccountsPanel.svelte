@@ -3,6 +3,7 @@
   import { invalidateAll } from '$app/navigation'
   import { Plus, X, Star, Pencil, ExternalLink } from 'lucide-svelte'
   import DiscordIcon from '$lib/components/icons/DiscordIcon.svelte'
+  import { trackerProfileUrl } from '$lib/players/tracker-url'
 
   type RiotAccount = {
     id: string
@@ -31,15 +32,7 @@
   const primary = $derived(accounts.find((a) => a.is_primary) ?? null)
   const alts = $derived(accounts.filter((a) => !a.is_primary))
 
-  // Built from the current Riot ID rather than a stored URL, so it follows
-  // renames along with the account.
-  const trackerUrl = $derived(
-    primary?.riot_tag
-      ? `https://tracker.gg/valorant/profile/riot/${encodeURIComponent(
-          `${primary.riot_name}#${primary.riot_tag}`
-        )}/overview`
-      : null
-  )
+  const trackerUrl = $derived(trackerProfileUrl(primary?.riot_name, primary?.riot_tag))
 
   let editingName = $state(false)
   let addingAlt = $state(false)

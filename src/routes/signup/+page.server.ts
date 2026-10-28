@@ -1,3 +1,4 @@
+import { requireNavPage } from '$lib/server/nav-visibility'
 import { redirect, fail } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { requireProfile } from '$lib/server/auth/profile'
@@ -12,6 +13,7 @@ import { loadSignupSeason } from '$lib/server/signups/season'
 import { riotIdOwnedByOther, upsertPrimaryRiotAccount } from '$lib/server/players/riot-accounts'
 import { lookupPlayer } from '$lib/server/players/directory'
 import { withSignupRiotIds } from '$lib/server/signups/riot-ids'
+import { trackerProfileUrl } from '$lib/players/tracker-url'
 
 const SIGNUP_COLUMNS = `
   id,
@@ -40,6 +42,7 @@ async function loadSignup(profileId: string, seasonId: string) {
 }
 
 export const load = async ({ locals }: { locals: App.Locals }) => {
+  await requireNavPage(locals, 'signup')
   /**
    * Signed-out visitors get the page, not a bounce to Discord. Sending them
    * straight into an OAuth redirect means the first thing a prospective player
@@ -55,6 +58,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
         riot_name: null,
         riot_tag: null,
         discord_handle: null,
+        tracker_url: null,
       },
       signupSeason: await loadSignupSeason(),
       signup: null,
@@ -83,6 +87,8 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
         player?.discord_username ??
         locals.user.discord_username ??
         null,
+      // The tracker link their profile shows, from the primary Riot account.
+      tracker_url: trackerProfileUrl(player?.riot_name, player?.riot_tag),
     },
     signupSeason,
     // The value shown to the player includes any admin adjustment.
