@@ -1,6 +1,7 @@
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { fetchAllRows } from '$lib/server/supabase/fetch-all'
 import { aggregateFullSeasonRows } from '$lib/server/stats/aggregate-full-season'
+import { currentRiotIdsByPuuid } from '$lib/server/players/directory'
 
 /**
  * Keep "All Time (NA)" current as Rivals continues.
@@ -37,7 +38,7 @@ const BATCH_ROW_SELECT =
 
 /** Columns read from imported maps. */
 const MAP_ROW_SELECT =
-  'id, match_id, player_name, profile_id, agents, games, games_won, games_lost, rounds, rounds_won, rounds_lost, acs, kd, kast_pct, adr, kills, deaths, assists, fk, fd, hs_pct, econ_rating, plants, defuses, mk_2k, mk_3k, mk_4k, mk_5k, mk_6k, mk_7k, clutches_won, clutches_attempted'
+  'id, match_id, player_name, profile_id, puuid, agents, games, games_won, games_lost, rounds, rounds_won, rounds_lost, acs, kd, kast_pct, adr, kills, deaths, assists, fk, fd, hs_pct, econ_rating, plants, defuses, mk_2k, mk_3k, mk_4k, mk_5k, mk_6k, mk_7k, clutches_won, clutches_attempted'
 
 /** Only match imports record these; the CSV era leaves them null. */
 const ADVANCED_FIELDS = [
@@ -202,6 +203,17 @@ export async function rebuildAllTimeBatch(options: {
   })
 
   const { rows: mapRows, matchCount } = await loadMatchEraMapRows(csvEraCodes)
+
+  // Rows are summed by name when unclaimed, so a player who renamed between
+  // maps is put under their current name first; otherwise each name is a line.
+  const unclaimedPuuids = mapRows
+    .filter((r) => !r.profile_id && typeof r.puuid === 'string' && r.puuid)
+    .map((r) => r.puuid as string)
+  const currentNames = await currentRiotIdsByPuuid(unclaimedPuuids)
+  for (const row of mapRows) {
+    if (row.profile_id || typeof row.puuid !== 'string') continue
+    row.player_name = currentNames.get(row.puuid) ?? row.player_name
+  }
 
   const allRows = [...csvRows, ...mapRows]
   claimUnlinkedRows(allRows)

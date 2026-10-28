@@ -115,6 +115,29 @@ async function resolveProfileId(key: PlayerLookup): Promise<string | null> {
 }
 
 /**
+ * The current `name#tag` for each PUUID, owned or not. Imports refresh it on
+ * every sighting, so it is the name to show for a player who renamed — the
+ * names on old stat rows are only what they were called at the time.
+ */
+export async function currentRiotIdsByPuuid(puuids: string[]): Promise<Map<string, string>> {
+  const names = new Map<string, string>()
+  const ids = [...new Set(puuids.filter(Boolean))]
+  for (let i = 0; i < ids.length; i += 100) {
+    const { data, error } = await supabaseAdmin
+      .from('riot_accounts')
+      .select('puuid, riot_name, riot_tag')
+      .in('puuid', ids.slice(i, i + 100))
+    if (error) throw new Error('Failed to load Riot account names')
+    for (const row of data ?? []) {
+      const name = String(row.riot_name ?? '').trim()
+      if (!name || !row.puuid) continue
+      names.set(row.puuid, row.riot_tag ? `${name}#${row.riot_tag}` : name)
+    }
+  }
+  return names
+}
+
+/**
  * Every approved Riot name (bare and `name#tag`) each profile is known by, for
  * name matching against stat rows that carry no PUUID.
  */
