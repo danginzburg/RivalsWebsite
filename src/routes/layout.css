@@ -21,6 +21,12 @@
   --border: #090609;
   --text: #ffffffff;
   --title: #ffffff;
+  /* Lavender-tinted off-white for section headings and stat figures, a step
+     softer than --title so it sits inside the purple palette. */
+  --heading: #ece4f8;
+  /* Default for any text that doesn't pick its own color: dimmer than
+     --heading so unstyled copy reads as secondary rather than browser black. */
+  --text-muted: rgba(236, 228, 248, 0.72);
   --accent: #5e3472ff;
   --hover: #784391ff;
   --active: #5e3472ff;
@@ -35,6 +41,7 @@
 
 body {
   background: var(--secondary-background);
+  color: var(--text-muted);
   min-height: 100vh;
 }
 

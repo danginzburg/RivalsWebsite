@@ -13,7 +13,7 @@ const emptyData = {
   viewer: { isAdmin: false },
 }
 
-describe('/+page.svelte', () => {
+describe('/matches/+page.svelte', () => {
   it('should render h1', async () => {
     render(Page, { data: emptyData } as never)
 

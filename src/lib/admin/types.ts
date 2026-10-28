@@ -1,5 +1,6 @@
 import type { MatchStreamRow } from '$lib/server/db-rows'
 import type { SeasonExternalLink, SeasonKind, SeasonSectionKey } from '$lib/seasons/profile'
+import type { SeasonSchedule } from '$lib/seasons/schedule'
 
 export type AdminTabId =
   | 'users'
@@ -327,6 +328,8 @@ export type SeasonEditState = {
   sections: Record<SeasonSectionKey, boolean>
   /** Outbound links (e.g. off-site rulebook / signup / FAQ). */
   links: SeasonExternalLink[]
+  /** Stage dates and week-end day, for the home page's "Week N" / stage label. */
+  schedule: SeasonSchedule
 }
 
 export type PendingRoleChange = {

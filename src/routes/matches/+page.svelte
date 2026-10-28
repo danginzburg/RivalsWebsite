@@ -1,0 +1,518 @@
+<script lang="ts">
+  import type { PageProps } from './$types'
+  import PageContainer from '$lib/components/PageContainer.svelte'
+  import PageHeading from '$lib/components/PageHeading.svelte'
+  import { AlertTriangle, Calendar, ChevronDown } from 'lucide-svelte'
+  import MatchCard from '$lib/components/MatchCard.svelte'
+  import RecentActivity from '$lib/components/RecentActivity.svelte'
+  import { untrack } from 'svelte'
+
+  let { data }: PageProps = $props()
+  const matches = $derived(data.matches ?? [])
+  const loadFailed = $derived(data.loadFailed ?? false)
+  const unreachable = $derived(data.unreachable ?? false)
+  let searchQuery = $state('')
+  let activeTab = $state<'all' | 'live' | 'upcoming' | 'completed'>('all')
+
+  /**
+   * `status` on a match only changes when an admin edits it, so a match that
+   * has reached its start time still reads as "scheduled". The tabs therefore
+   * derive state from the clock, with the stored status as an override.
+   *
+   * Ticks so a match moves into Live on its own without a page refresh.
+   */
+  let now = $state(Date.now())
+  $effect(() => {
+    const id = setInterval(() => (now = Date.now()), 30_000)
+    return () => clearInterval(id)
+  })
+
+  function isFinished(match: any) {
+    return match.status === 'completed' || match.status === 'cancelled'
+  }
+
+  /** Underway: explicitly flagged live, or past its start time and unfinished. */
+  function isLive(match: any) {
+    if (isFinished(match)) return false
+    if (match.status === 'live') return true
+    return match.scheduled_at != null && new Date(match.scheduled_at).getTime() <= now
+  }
+
+  /** Still ahead of us. A match with no date set counts as upcoming. */
+  function isUpcoming(match: any) {
+    if (isFinished(match) || match.status === 'live') return false
+    return match.scheduled_at == null || new Date(match.scheduled_at).getTime() > now
+  }
+
+  const filteredMatches = $derived.by(() => {
+    const query = searchQuery.trim().toLowerCase()
+    const filtered = matches.filter((match: any) => {
+      // Tab filter
+      if (activeTab === 'live' && !isLive(match)) return false
+      if (activeTab === 'upcoming' && !isUpcoming(match)) return false
+      if (activeTab === 'completed' && match.status !== 'completed') return false
+
+      if (!query) return true
+
+      const haystack = [teamName(match.team_a), teamName(match.team_b), match.status]
+        .join(' ')
+        .toLowerCase()
+
+      return haystack.includes(query)
+    })
+    return filtered.sort((a: any, b: any) => {
+      // Completed tab: most recently played first.
+      if (activeTab === 'completed') {
+        return playedTime(b) - playedTime(a)
+      }
+
+      // All tab groups by state so live and upcoming stay on top, with
+      // completed matches trailing behind. Every group reads newest-first so
+      // the whole list is one consistent reverse-chronological timeline —
+      // upcoming shouldn't flip to soonest-first and break that order.
+      if (activeTab === 'all') {
+        const rankDiff = statusRank(a) - statusRank(b)
+        if (rankDiff !== 0) return rankDiff
+        return playedTime(b) - playedTime(a)
+      }
+
+      // Live and upcoming: soonest first.
+      return scheduledTime(a) - scheduledTime(b)
+    })
+  })
+
+  /** Sort bucket for the All tab: live (0) → upcoming (1) → finished (2). */
+  function statusRank(match: any) {
+    if (isLive(match)) return 0
+    if (isFinished(match)) return 2
+    return 1
+  }
+
+  function scheduledTime(match: any) {
+    return match.scheduled_at ? new Date(match.scheduled_at).getTime() : Infinity
+  }
+
+  /**
+   * When the match was actually played.
+   *
+   * `ended_at` is stamped at the moment an admin marks a match completed, so
+   * for a backfilled result it is the data-entry time, not the match date.
+   * The scheduled date is the real one; `ended_at` is only a fallback for
+   * matches that never had a date set.
+   */
+  function playedTime(match: any) {
+    const value = match.scheduled_at ?? match.ended_at
+    return value ? new Date(value).getTime() : 0
+  }
+
+  const liveCount = $derived(matches.filter(isLive).length)
+  const upcomingCount = $derived(matches.filter(isUpcoming).length)
+  const completedCount = $derived(matches.filter((m: any) => m.status === 'completed').length)
+
+  function teamName(value: unknown) {
+    if (!value) return 'Team'
+    if (Array.isArray(value)) return (value[0] as { name?: string } | undefined)?.name ?? 'Team'
+    return (value as { name?: string }).name ?? 'Team'
+  }
+
+  /** Standings position for a team, from its own season's leaderboard. */
+  const seeds = $derived((data.seeds ?? {}) as Record<string, number>)
+
+  const tabs = $derived([
+    { id: 'all' as const, label: 'All', count: matches.length },
+    { id: 'live' as const, label: 'Live', count: liveCount },
+    { id: 'upcoming' as const, label: 'Upcoming', count: upcomingCount },
+    { id: 'completed' as const, label: 'Completed', count: completedCount },
+  ])
+
+  const recentComments = $derived(data.recentComments ?? [])
+
+  /**
+   * Match cards are tall, so on narrow screens the list is trimmed to keep the
+   * discussion feed below it reachable. The cut is made in CSS rather than by
+   * slicing the array, so the desktop layout keeps the full list without
+   * needing a media query in JS.
+   */
+  const MOBILE_MATCH_LIMIT = 5
+  let showAllOnMobile = $state(false)
+  const hiddenOnMobile = $derived(Math.max(0, filteredMatches.length - MOBILE_MATCH_LIMIT))
+
+  // Changing the filter gives a different list, so collapse it again.
+  $effect(() => {
+    activeTab
+    searchQuery
+    untrack(() => (showAllOnMobile = false))
+  })
+</script>
+
+<PageContainer>
+  <div class="matches-feed">
+    <div class="matches-feed-inner">
+      <PageHeading title="Matches" subtitle="Upcoming, live, and completed matches." icon={Calendar}
+      ></PageHeading>
+
+      <!-- Tab bar -->
+      <div class="tab-bar">
+        <div class="tab-bar-inner">
+          {#each tabs as tab (tab.id)}
+            <button
+              type="button"
+              class="tab-item"
+              class:tab-active={activeTab === tab.id}
+              class:tab-live={tab.id === 'live' && tab.count > 0}
+              onclick={() => (activeTab = tab.id)}
+            >
+              {#if tab.id === 'live' && tab.count > 0}
+                <span class="live-dot"></span>
+              {/if}
+              <span>{tab.label}</span>
+              <span class="tab-count">{tab.count}</span>
+            </button>
+          {/each}
+        </div>
+        <div class="tab-search">
+          <input bind:value={searchQuery} class="search-input" placeholder="Search teams..." />
+        </div>
+      </div>
+
+      <div class="feed-layout">
+        <aside class="feed-aside">
+          <RecentActivity comments={recentComments} />
+        </aside>
+
+        <div class="feed-main">
+          <!-- Match list -->
+          {#if loadFailed}
+            <!-- Never show "no matches" for a failed load; that reads as an empty
+             league rather than a temporary outage. -->
+            <div class="error-state">
+              <AlertTriangle size={22} />
+              <div>
+                <p class="error-title">
+                  {unreachable ? "Couldn't reach the server" : 'Failed to load matches'}
+                </p>
+                <p class="error-text">
+                  {unreachable
+                    ? 'The connection timed out. This is usually temporary — try again in a moment.'
+                    : 'Something went wrong loading the schedule.'}
+                </p>
+              </div>
+              <button type="button" class="retry-btn" onclick={() => location.reload()}>
+                Retry
+              </button>
+            </div>
+          {:else if filteredMatches.length === 0}
+            <div class="empty-state">
+              <p>
+                {#if matches.length === 0}
+                  No matches available yet.
+                {:else}
+                  No matches match the current filters.
+                {/if}
+              </p>
+            </div>
+          {:else}
+            <div class="match-list" class:match-list-collapsed={!showAllOnMobile}>
+              {#each filteredMatches as match (match.id)}
+                <MatchCard {match} {seeds} />
+              {/each}
+            </div>
+
+            {#if !showAllOnMobile && hiddenOnMobile > 0}
+              <button type="button" class="show-more" onclick={() => (showAllOnMobile = true)}>
+                <span>Show {hiddenOnMobile} more {hiddenOnMobile === 1 ? 'match' : 'matches'}</span>
+                <ChevronDown size={15} />
+              </button>
+            {/if}
+          {/if}
+        </div>
+      </div>
+    </div>
+  </div>
+</PageContainer>
+
+<style>
+  .matches-feed {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    padding: 1.5rem 1rem 2rem;
+  }
+
+  .matches-feed-inner {
+    width: 100%;
+    max-width: 80rem;
+  }
+
+  /* Tab bar */
+  .tab-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .tab-bar-inner {
+    display: flex;
+    gap: 0.25rem;
+    background: rgba(0, 0, 0, 0.25);
+    border-radius: 0.5rem;
+    padding: 0.25rem;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .tab-item {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.5rem 1rem;
+    border-radius: 0.375rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.55);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    transition:
+      color 0.15s,
+      background 0.15s;
+    white-space: nowrap;
+  }
+
+  .tab-item:hover {
+    color: rgba(255, 255, 255, 0.85);
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .tab-active {
+    color: var(--text);
+    background: var(--accent);
+  }
+
+  .tab-active:hover {
+    color: var(--text);
+    background: var(--hover);
+  }
+
+  .tab-count {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    opacity: 0.7;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tab-live {
+    color: #4ade80;
+  }
+
+  .live-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    background: #4ade80;
+    border-radius: 50%;
+    animation: pulse-live 1.5s ease-in-out infinite;
+  }
+
+  @keyframes pulse-live {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.4;
+    }
+  }
+
+  .tab-search {
+    flex-shrink: 0;
+  }
+
+  .search-input {
+    width: 240px;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(0, 0, 0, 0.2);
+    color: var(--text);
+    font-size: 0.8125rem;
+  }
+
+  .search-input::placeholder {
+    color: rgba(255, 255, 255, 0.56);
+  }
+
+  .search-input:focus {
+    outline: none;
+    border-color: var(--hover);
+  }
+
+  /* Feed layout: discussion pinned on the left, matches filling the rest. */
+  .feed-layout {
+    display: grid;
+    grid-template-columns: 20rem minmax(0, 1fr);
+    gap: 1.5rem;
+    align-items: start;
+  }
+
+  .feed-main {
+    min-width: 0;
+  }
+
+  .feed-aside {
+    position: sticky;
+    top: 4.5rem;
+    min-width: 0;
+  }
+
+  /* Match list */
+  .match-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .show-more {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    width: 100%;
+    margin-top: 0.5rem;
+    padding: 0.625rem 1rem;
+    border-radius: 0.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(0, 0, 0, 0.2);
+    color: rgba(255, 255, 255, 0.75);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .show-more:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text);
+  }
+
+  .error-state {
+    display: flex;
+    align-items: center;
+    gap: 0.875rem;
+    padding: 1.25rem;
+    border-radius: 0.625rem;
+    border: 1px solid rgba(248, 113, 113, 0.28);
+    background: rgba(248, 113, 113, 0.07);
+    color: #fca5a5;
+  }
+
+  .error-title {
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: #fecaca;
+  }
+
+  .error-text {
+    font-size: 0.8125rem;
+    color: rgba(255, 255, 255, 0.55);
+    margin-top: 0.125rem;
+    line-height: 1.45;
+  }
+
+  .retry-btn {
+    margin-left: auto;
+    flex-shrink: 0;
+    padding: 0.4375rem 1rem;
+    border-radius: 0.4375rem;
+    border: 1px solid rgba(248, 113, 113, 0.3);
+    background: transparent;
+    color: #fca5a5;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  .retry-btn:hover {
+    background: rgba(248, 113, 113, 0.14);
+  }
+
+  .empty-state {
+    padding: 3rem 1rem;
+    text-align: center;
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 0.875rem;
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 0.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  /* The sidebar stops fitting well before the phone breakpoint. */
+  @media (max-width: 1024px) {
+    .feed-layout {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 1.25rem;
+    }
+
+    /* Stacked, the matches come first and the discussion sits underneath. */
+    .feed-aside {
+      position: static;
+      order: 1;
+    }
+
+    .feed-main {
+      order: 0;
+    }
+  }
+
+  /* Narrow screens: trim the match list so the discussion feed stays reachable. */
+  @media (max-width: 900px) {
+    /* Keep in step with MOBILE_MATCH_LIMIT: n + (limit + 1). */
+    .match-list-collapsed > :global(:nth-child(n + 6)) {
+      display: none;
+    }
+
+    .show-more {
+      display: flex;
+    }
+  }
+
+  /* Mobile */
+  @media (max-width: 640px) {
+    .matches-feed {
+      padding: 1rem 0.75rem;
+    }
+
+    .tab-bar {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .tab-bar-inner {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      /*
+       * `.tab-bar` still carries `flex-wrap: wrap`, and a wrapping column flex
+       * sizes its line to the widest item rather than to the container — so the
+       * strip stretched to its content width and ran past the page padding
+       * instead of scrolling. Pin it to the container and let it scroll.
+       */
+      min-width: 0;
+      max-width: 100%;
+    }
+
+    .tab-item {
+      padding: 0.4375rem 0.75rem;
+      font-size: 0.75rem;
+    }
+
+    .tab-search {
+      width: 100%;
+    }
+
+    .search-input {
+      width: 100%;
+    }
+  }
+</style>

@@ -4,6 +4,7 @@ import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { getSeasonLogoUrl } from '$lib/server/seasons/logo'
 import { sanitizeSeasonProfile, type SeasonKind } from '$lib/seasons/profile'
+import { sanitizeSeasonSchedule } from '$lib/seasons/schedule'
 import { syncSeasonAccoladesSafely } from '$lib/server/accolades/season-sync'
 
 const SEASON_COLUMNS = `
@@ -158,10 +159,10 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
     if (body[bodyKey] !== undefined) updates[column] = normalizeOptional(body[bodyKey])
   }
 
-  // Map pool and the presentation profile both live on metadata. Read the
-  // existing object once and merge both onto it, so a save that sends one can't
-  // drop the other (or any other metadata key the season carries).
-  if (body.mapPool !== undefined || body.profile !== undefined) {
+  // Map pool, the presentation profile and the stage schedule all live on
+  // metadata. Read the existing object once and merge onto it, so a save that
+  // sends one can't drop the others (or any other metadata key the season carries).
+  if (body.mapPool !== undefined || body.profile !== undefined || body.schedule !== undefined) {
     const { data: current } = await supabaseAdmin
       .from('seasons')
       .select('metadata')
@@ -183,6 +184,10 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
 
     if (body.profile !== undefined) {
       merged.profile = sanitizeSeasonProfile(body.profile)
+    }
+
+    if (body.schedule !== undefined) {
+      merged.schedule = sanitizeSeasonSchedule(body.schedule)
     }
 
     updates.metadata = merged
