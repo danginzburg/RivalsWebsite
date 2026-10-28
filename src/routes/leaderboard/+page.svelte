@@ -45,7 +45,6 @@
 
   // Type predicates so the table can read `row.stats` without a null check.
   const ranked = $derived(filtered.filter((r): r is RankedRow => r.stats != null))
-  const unranked = $derived(filtered.filter((r) => r.stats == null))
 
   /** The ranks zones end on, for drawing a cutoff line under those rows. */
   const zoneEnds = $derived(
@@ -238,41 +237,10 @@
               </tbody>
             </table>
           </div>
-        {/if}
-
-        <!-- Teams with no standings entry -->
-        {#if unranked.length > 0}
-          <section class="unranked">
-            <h2 class="unranked-title">
-              {ranked.length > 0 ? 'Not in current standings' : 'Teams'}
-              <span class="unranked-count">{unranked.length}</span>
-            </h2>
-            <div class="team-grid">
-              {#each unranked as row (row.id)}
-                <a
-                  href={resolve(`/teams/${row.id}`)}
-                  class="team-card"
-                  class:row-mine={myTeam?.id === row.id}
-                >
-                  {#if row.logo_url}
-                    <img src={row.logo_url} alt="" class="team-card-logo" />
-                  {:else}
-                    <div class="team-card-logo team-logo-blank"></div>
-                  {/if}
-                  <div class="team-card-body">
-                    <div class="team-card-name">{row.name}</div>
-                    {#if row.disbanded}<div class="team-card-disbanded">Disbanded</div>{/if}
-                    <div class="team-card-meta">
-                      {#if row.tag}
-                        <span class="team-card-tag">[{String(row.tag).toUpperCase()}]</span>
-                      {/if}
-                      <TeamSeed seed={seeds[row.id] ?? null} label="Playoff seed" />
-                    </div>
-                  </div>
-                </a>
-              {/each}
-            </div>
-          </section>
+        {:else}
+          <div class="empty-state">
+            <p class="empty-text">No standings yet.</p>
+          </div>
         {/if}
       {/if}
     {/if}
@@ -280,13 +248,6 @@
 </PageContainer>
 
 <style>
-  .team-card-disbanded {
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: #fca5a5;
-  }
-
   /* Viewer's team */
   .my-team {
     display: flex;
@@ -628,97 +589,6 @@
     flex-shrink: 0;
   }
 
-  /* Unranked teams */
-  .unranked {
-    margin-top: 0.75rem;
-    padding: 1.25rem;
-    border-radius: 0.75rem;
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    background: rgba(0, 0, 0, 0.2);
-  }
-
-  .unranked-title {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.6875rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: rgba(255, 255, 255, 0.64);
-    margin-bottom: 0.875rem;
-    padding-bottom: 0.5rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-  }
-
-  .unranked-count {
-    font-size: 0.625rem;
-    font-weight: 700;
-    padding: 0.0625rem 0.375rem;
-    border-radius: 9999px;
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.6);
-    letter-spacing: 0;
-  }
-
-  .team-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-    gap: 0.5rem;
-  }
-
-  .team-card {
-    display: flex;
-    align-items: center;
-    gap: 0.625rem;
-    padding: 0.625rem 0.75rem;
-    border-radius: 0.5rem;
-    background: rgba(255, 255, 255, 0.025);
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    text-decoration: none;
-    color: var(--text);
-    transition:
-      border-color 0.15s,
-      background 0.15s;
-  }
-
-  .team-card:hover {
-    border-color: rgba(120, 67, 145, 0.4);
-    background: rgba(255, 255, 255, 0.045);
-  }
-
-  .team-card-logo {
-    width: 2rem;
-    height: 2rem;
-    border-radius: 0.25rem;
-    object-fit: contain;
-    flex-shrink: 0;
-  }
-
-  .team-card-body {
-    min-width: 0;
-  }
-
-  .team-card-name {
-    font-size: 0.8125rem;
-    font-weight: 600;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .team-card-meta {
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
-    margin-top: 0.0625rem;
-  }
-
-  .team-card-tag {
-    font-size: 0.6875rem;
-    color: rgba(255, 255, 255, 0.62);
-  }
-
   /* Empty */
   .empty-state {
     display: flex;
@@ -759,10 +629,6 @@
 
     .search-wrap {
       max-width: none;
-    }
-
-    .unranked {
-      padding: 0.875rem;
     }
   }
 </style>
