@@ -10,6 +10,14 @@ export const NOTIFICATION_TYPES = [
   'result_report_resolved',
   'review_flag_resolved',
   'bug_report_resolved',
+  'riot_account_reviewed',
+  'accolade_awarded',
+  'team_roster_added',
+  'match_scheduled',
+  'match_result',
+  'match_cancelled',
+  'pickem_opened',
+  'pickem_scored',
 ] as const
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number]
@@ -105,6 +113,58 @@ export async function createNotification(input: CreateNotificationInput): Promis
     if (insertError) console.error('Failed to create notification:', insertError)
   } catch (err) {
     console.error('Unexpected error creating notification:', err)
+  }
+}
+
+type BroadcastInput = Omit<CreateNotificationInput, 'recipientProfileId' | 'actorCount'> & {
+  recipientProfileIds: Iterable<string | null | undefined>
+}
+
+/**
+ * Record the same notification for many recipients (a team roster, every
+ * pick'em submitter). With a dedupeKey each recipient goes through the merge
+ * path in createNotification, so a re-sent event (a match rescheduled twice)
+ * refreshes the open row instead of stacking; without one the rows are
+ * inserted in a single batch. Never throws, like createNotification.
+ */
+export async function notifyMany(input: BroadcastInput): Promise<void> {
+  const { recipientProfileIds, ...rest } = input
+  const recipients = Array.from(
+    new Set(
+      Array.from(recipientProfileIds).filter(
+        (id): id is string => Boolean(id) && id !== input.actorProfileId
+      )
+    )
+  )
+  if (recipients.length === 0) return
+
+  if (rest.dedupeKey) {
+    await Promise.all(
+      recipients.map((recipientProfileId) => createNotification({ ...rest, recipientProfileId }))
+    )
+    return
+  }
+
+  try {
+    const rows = recipients.map((recipientProfileId) => ({
+      recipient_profile_id: recipientProfileId,
+      type: rest.type,
+      title: rest.title,
+      body: rest.body ?? null,
+      link: rest.link ?? null,
+      actor_profile_id: rest.actorProfileId ?? null,
+      entity_type: rest.entityType ?? null,
+      entity_id: rest.entityId ?? null,
+    }))
+    // Chunked so a site-wide announcement stays under request size limits.
+    for (let i = 0; i < rows.length; i += 500) {
+      const { error: insertError } = await supabaseAdmin
+        .from('notifications')
+        .insert(rows.slice(i, i + 500))
+      if (insertError) console.error('Failed to create notifications:', insertError)
+    }
+  } catch (err) {
+    console.error('Unexpected error creating notifications:', err)
   }
 }
 

@@ -36,6 +36,7 @@
   // the Signup tab follows the signup season instead.
   const signupsOpen = $derived($page.data.signupsOpen ?? false)
   const unreadNotifications = $derived($page.data.unreadNotifications ?? 0)
+  const adminQueue = $derived($page.data.adminQueue ?? [])
 
   type NavHref =
     | '/'
@@ -157,7 +158,7 @@
         </a>
 
         {#if user}
-          <NotificationBell initialUnread={unreadNotifications} />
+          <NotificationBell initialUnread={unreadNotifications} initialAdminQueue={adminQueue} />
         {/if}
 
         {#each utilityItems as item (item.href)}
@@ -200,7 +201,7 @@
     <!-- Mobile cluster: bell (when signed in) sits beside the menu toggle. -->
     {#if user}
       <div class="mobile-bell">
-        <NotificationBell initialUnread={unreadNotifications} />
+        <NotificationBell initialUnread={unreadNotifications} initialAdminQueue={adminQueue} />
       </div>
     {/if}
 

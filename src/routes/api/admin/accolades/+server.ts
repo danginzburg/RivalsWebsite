@@ -1,6 +1,7 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { lookupPlayer } from '$lib/server/players/directory'
+import { createNotification } from '$lib/server/notifications'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { logAdminAction } from '$lib/server/audit/admin-actions'
 import { normalizeOptional, sanitizeFilename, isImageFile } from '$lib/server/upload'
@@ -214,6 +215,22 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
       targetTable: 'accolade_assignments',
       targetId: accoladeId,
       details: { profileId: profile.id, playerName },
+    })
+
+    const { data: accolade } = await supabaseAdmin
+      .from('accolades')
+      .select('name')
+      .eq('id', accoladeId)
+      .maybeSingle()
+    await createNotification({
+      recipientProfileId: profile.id,
+      type: 'accolade_awarded',
+      title: accolade?.name ? `You earned an accolade: ${accolade.name}` : 'You earned an accolade',
+      body: context,
+      link: `/players/${profile.id}`,
+      actorProfileId: admin.id,
+      entityType: 'accolade',
+      entityId: accoladeId,
     })
 
     const displayName = profile.display_name ?? 'Player'

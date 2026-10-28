@@ -3,6 +3,7 @@ import { supabaseAdmin } from '$lib/supabase/admin'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { logAdminAction } from '$lib/server/audit/admin-actions'
 import { resolveRosterIdentity, resolveRosterIdentityByPuuid } from '$lib/server/teams/membership'
+import { createNotification } from '$lib/server/notifications'
 
 function normalizeOptional(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -69,7 +70,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
   const { data: team, error: teamError } = await supabaseAdmin
     .from('teams')
-    .select('id, approval_status, season_id')
+    .select('id, name, approval_status, season_id, seasons (is_active)')
     .eq('id', teamId)
     .maybeSingle()
 
@@ -200,6 +201,21 @@ export const POST: RequestHandler = async ({ locals, request }) => {
         : {}),
     },
   })
+
+  // Backfilling past seasons' rosters shouldn't ping anyone; only live ones do.
+  const teamSeason = Array.isArray(team.seasons) ? team.seasons[0] : team.seasons
+  if (resolvedProfileId && teamSeason?.is_active) {
+    await createNotification({
+      recipientProfileId: resolvedProfileId,
+      type: 'team_roster_added',
+      title: `You were added to ${team.name || 'a team'}`,
+      body: role === 'player' ? null : `Roster role: ${role}`,
+      link: `/teams/${teamId}`,
+      actorProfileId: adminProfile.id,
+      entityType: 'team',
+      entityId: teamId,
+    })
+  }
 
   return json({ success: true, transferred: closedIds.length > 0 })
 }

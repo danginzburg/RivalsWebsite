@@ -2,17 +2,20 @@ import { json, type RequestHandler } from '@sveltejs/kit'
 
 import { getViewerProfileId } from '$lib/server/auth/viewer'
 import { countUnread, listNotifications, markAllRead, markRead } from '$lib/server/notifications'
+import { getAdminQueue } from '$lib/server/admin/pending-counts'
 
 export const GET: RequestHandler = async ({ locals }) => {
   const profileId = await getViewerProfileId(locals.user)
-  if (!profileId) return json({ notifications: [], unread: 0 })
+  if (!profileId) return json({ notifications: [], unread: 0, adminQueue: [] })
 
-  const [notifications, unread] = await Promise.all([
+  // Admins also get the live review queues (see getAdminQueue).
+  const [notifications, unread, adminQueue] = await Promise.all([
     listNotifications(profileId),
     countUnread(profileId),
+    locals.user?.role === 'admin' ? getAdminQueue() : Promise.resolve([]),
   ])
 
-  return json({ notifications, unread })
+  return json({ notifications, unread, adminQueue })
 }
 
 export const POST: RequestHandler = async ({ request, locals }) => {

@@ -2,6 +2,7 @@ import type { LayoutServerLoad } from './$types'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { getViewerProfileId } from '$lib/server/auth/viewer'
 import { countUnread } from '$lib/server/notifications'
+import { getAdminQueue } from '$lib/server/admin/pending-counts'
 import { loadSignupSeason } from '$lib/server/signups/season'
 
 export const load: LayoutServerLoad = async ({ locals }) => {
@@ -29,7 +30,10 @@ export const load: LayoutServerLoad = async ({ locals }) => {
 
   // Seed the header bell so the unread count is correct on first paint.
   const viewerProfileId = locals.user ? await getViewerProfileId(locals.user) : null
-  const unreadNotifications = viewerProfileId ? await countUnread(viewerProfileId) : 0
+  const [unreadNotifications, adminQueue] = await Promise.all([
+    viewerProfileId ? countUnread(viewerProfileId) : 0,
+    viewerProfileId && locals.user?.role === 'admin' ? getAdminQueue() : [],
+  ])
 
   return {
     user: locals.user,
@@ -37,5 +41,6 @@ export const load: LayoutServerLoad = async ({ locals }) => {
     activeSeasonKind,
     signupsOpen,
     unreadNotifications,
+    adminQueue,
   }
 }
