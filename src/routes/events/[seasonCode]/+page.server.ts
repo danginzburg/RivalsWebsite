@@ -49,10 +49,12 @@ export const load = async ({
       logo_path,
       winner_team_id,
       runner_up_team_id,
+      third_place_team_id,
       mvp_profile_id,
       final_leaderboard_batch_id,
       winner:teams!seasons_winner_team_id_fkey (id, name, tag, logo_path),
       runner_up:teams!seasons_runner_up_team_id_fkey (id, name, tag, logo_path),
+      third_place:teams!seasons_third_place_team_id_fkey (id, name, tag, logo_path),
       mvp:profiles!seasons_mvp_profile_id_fkey (id, display_name)
     `
     )
@@ -343,6 +345,7 @@ export const load = async ({
 
   const winner = firstRel(season.winner as TeamRel | TeamRel[] | null)
   const runnerUp = firstRel(season.runner_up as TeamRel | TeamRel[] | null)
+  const thirdPlace = firstRel(season.third_place as TeamRel | TeamRel[] | null)
   const mvp = firstRel(season.mvp as unknown as ProfileRel | ProfileRel[] | null)
 
   return {
@@ -370,6 +373,14 @@ export const load = async ({
             name: runnerUp.name,
             tag: runnerUp.tag ?? null,
             logo_url: getTeamLogoUrl(runnerUp),
+          }
+        : null,
+      third_place: thirdPlace
+        ? {
+            id: thirdPlace.id,
+            name: thirdPlace.name,
+            tag: thirdPlace.tag ?? null,
+            logo_url: getTeamLogoUrl(thirdPlace),
           }
         : null,
       mvp: mvp ? { id: mvp.id, name: mvp.display_name ?? 'Player' } : null,

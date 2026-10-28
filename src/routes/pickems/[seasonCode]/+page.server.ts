@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit'
 
-import { requireProfile } from '$lib/server/auth/profile'
+import { requireAdmin, requireProfile } from '$lib/server/auth/profile'
 import {
   getPickemContextBySeasonCode,
   getPickemResults,
@@ -8,14 +8,25 @@ import {
   getPickemTeamsByIds,
   listPickemPublicSubmissions,
 } from '$lib/server/pickems'
-import { isPickemComplete, isPickemLocked, rankPickemLeaderboardEntries } from '$lib/pickems'
+import { getSeasonStandingsRanks } from '$lib/server/leaderboard/ranks'
+import {
+  bracketSeedsWithOpponents,
+  isPickemComplete,
+  isPickemLocked,
+  rankPickemLeaderboardEntries,
+} from '$lib/pickems'
 import type { PageServerLoad } from './$types'
 
 export const load: PageServerLoad = async ({ locals, params }) => {
   const context = await getPickemContextBySeasonCode(params.seasonCode)
   const { event, matches } = context
-  if (!event || event.status === 'draft') {
-    throw error(404, 'Pickem not available')
+  if (!event) throw error(404, 'Pickem not available')
+  // A draft is hidden from the public; admins can open it as a read-only preview.
+  const preview = event.status === 'draft'
+  if (preview) {
+    await requireAdmin(locals.user).catch(() => {
+      throw error(404, 'Pickem not available')
+    })
   }
 
   const profile = locals.user ? await requireProfile(locals.user).catch(() => null) : null
@@ -64,12 +75,22 @@ export const load: PageServerLoad = async ({ locals, params }) => {
   const extraTeams =
     referencedTeamIds.size > 0 ? await getPickemTeamsByIds([...referencedTeamIds]) : []
 
+  // Picked opponents have no stored seed; rank them 5–8 by regular season.
+  const seeds =
+    event.format === 'bracket'
+      ? bracketSeedsWithOpponents(
+          event,
+          matches,
+          await getSeasonStandingsRanks(context.season.id).catch(() => ({}))
+        )
+      : (Object.fromEntries(event.seeds.map((s) => [s.teamId, s.seed])) as Record<string, number>)
+
   return {
     season: context.season,
     event,
     matches: resolvedMatches,
     teams: [...context.teams, ...extraTeams],
-    seeds: Object.fromEntries(event.seeds.map((s) => [s.teamId, s.seed])) as Record<string, number>,
+    seeds,
     resolvedSlotKeys: matches.filter((m) => m.actualWinnerId).map((m) => m.slotKey),
     mySubmission,
     submissions,
@@ -82,5 +103,6 @@ export const load: PageServerLoad = async ({ locals, params }) => {
       canEdit: Boolean(profile) && event.status === 'open' && !locked,
     },
     locked,
+    preview,
   }
 }

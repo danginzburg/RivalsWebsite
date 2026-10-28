@@ -1448,6 +1448,7 @@
         summary: season.summary ?? '',
         winnerTeamId: season.winner_team_id ?? '',
         runnerUpTeamId: season.runner_up_team_id ?? '',
+        thirdPlaceTeamId: season.third_place_team_id ?? '',
         mvpProfileId: season.mvp_profile_id ?? '',
         finalLeaderboardBatchId: season.final_leaderboard_batch_id ?? '',
         mapPool: Array.isArray(season.metadata?.map_pool)
@@ -1910,6 +1911,7 @@
           summary: state.summary || null,
           winnerTeamId: state.winnerTeamId || null,
           runnerUpTeamId: state.runnerUpTeamId || null,
+          thirdPlaceTeamId: state.thirdPlaceTeamId || null,
           mvpProfileId: state.mvpProfileId || null,
           finalLeaderboardBatchId: state.finalLeaderboardBatchId || null,
           mapPool: state.mapPool ?? [],

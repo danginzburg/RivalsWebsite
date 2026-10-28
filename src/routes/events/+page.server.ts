@@ -30,10 +30,12 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
       logo_path,
       winner_team_id,
       runner_up_team_id,
+      third_place_team_id,
       mvp_profile_id,
       created_at,
       winner:teams!seasons_winner_team_id_fkey (id, name, tag, logo_path),
       runner_up:teams!seasons_runner_up_team_id_fkey (id, name, tag, logo_path),
+      third_place:teams!seasons_third_place_team_id_fkey (id, name, tag, logo_path),
       mvp:profiles!seasons_mvp_profile_id_fkey (id, display_name)
     `
     )
@@ -102,6 +104,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
   const normalized = (seasons ?? []).map((season) => {
     const winner = firstRel(season.winner as TeamRel | TeamRel[] | null)
     const runnerUp = firstRel(season.runner_up as TeamRel | TeamRel[] | null)
+    const thirdPlace = firstRel(season.third_place as TeamRel | TeamRel[] | null)
     const mvp = firstRel(season.mvp as unknown as ProfileRel | ProfileRel[] | null)
     const pickem = pickemBySeason.get(season.id) ?? null
     const counts = matchCounts.get(season.id) ?? { total: 0, completed: 0 }
@@ -135,6 +138,14 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
             name: runnerUp.name,
             tag: runnerUp.tag ?? null,
             logo_url: getTeamLogoUrl(runnerUp),
+          }
+        : null,
+      third_place: thirdPlace
+        ? {
+            id: thirdPlace.id,
+            name: thirdPlace.name,
+            tag: thirdPlace.tag ?? null,
+            logo_url: getTeamLogoUrl(thirdPlace),
           }
         : null,
       mvp: mvp ? { id: mvp.id, name: mvp.display_name ?? 'Player' } : null,

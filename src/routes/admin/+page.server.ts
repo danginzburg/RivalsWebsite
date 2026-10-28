@@ -8,6 +8,7 @@ import { getValorantMapList } from '$lib/server/valorant/maps'
 import { getAdminPendingCounts } from '$lib/server/admin/pending-counts'
 import { listAdminUsers } from '$lib/server/admin/users'
 import { getStandingsRanksForSeasons } from '$lib/server/leaderboard/ranks'
+import { getPickemContextBySeasonId, getPickemResults } from '$lib/server/pickems'
 import type { MatchStreamRow } from '$lib/server/db-rows'
 
 type RosterProfileRow = {
@@ -35,7 +36,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     // from this payload, and a missing field would be saved back as null.
     .select(
       `id, code, name, kind, starts_on, ends_on, is_active, signups_open, metadata, created_at, logo_path,
-       summary, winner_team_id, runner_up_team_id, mvp_profile_id, final_leaderboard_batch_id`
+       summary, winner_team_id, runner_up_team_id, third_place_team_id, mvp_profile_id, final_leaderboard_batch_id`
     )
     .order('is_active', { ascending: false })
     .order('starts_on', { ascending: false, nullsFirst: false })
@@ -134,6 +135,26 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     console.error('Error fetching pick’em events:', pickemEventsError)
   }
 
+  // The real match auto-detected for each saved bracket slot, so the editor can
+  // show what the results read from and an admin only overrides a misfiled one.
+  const detectedBySeason = new Map<string, Record<string, string>>(
+    await Promise.all(
+      (pickemEventRows ?? [])
+        .filter((row) => row.format === 'bracket')
+        .map(async (row): Promise<[string, Record<string, string>]> => {
+          try {
+            const ctx = await getPickemContextBySeasonId(row.season_id as string)
+            if (!ctx.event) return [row.season_id as string, {}]
+            const { sourceMatchIds } = await getPickemResults(ctx.event, ctx.matches)
+            return [row.season_id as string, sourceMatchIds]
+          } catch (err) {
+            console.error('Error detecting pick’em results:', err)
+            return [row.season_id as string, {}]
+          }
+        })
+    )
+  )
+
   const pickems = (pickemEventRows ?? []).map((row) => {
     const config =
       row.config && typeof row.config === 'object' ? (row.config as Record<string, unknown>) : {}
@@ -160,6 +181,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
       lockAt: (row.lock_at as string | null) ?? null,
       seeds: Array.isArray(config.seeds) ? config.seeds : [],
       matches,
+      detectedMatchIds: detectedBySeason.get(row.season_id as string) ?? {},
     }
   })
 

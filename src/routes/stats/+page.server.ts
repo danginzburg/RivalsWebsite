@@ -9,7 +9,8 @@ import {
   type StatImportBatchRow,
 } from '$lib/server/stats/rivals-batch'
 import { resolveSeasonStatBatchIds, toFullSeasonBatchId } from '$lib/server/stats/season-batches'
-import { eventLabelFromBatchName, isWeekBatch, resolveBatchSection } from '$lib/stats/sections'
+import { isWeekBatch } from '$lib/stats/sections'
+import { groupBatchesByEvent } from '$lib/server/stats/batch-events'
 
 function normalizeSort(value: string | null): string {
   const v = String(value ?? '')
@@ -239,58 +240,11 @@ export const load: PageServerLoad = async ({ fetch, url, locals, cookies }) => {
 
   batches = [...fullSeasonBatches, ...batches]
 
-  // The picker groups batches by event, then offers each event's phases. A
-  // season's curated batches take the season's name; anything else (combined
-  // postseason files, other regions, side leagues) is read from its own name and
-  // folded into a season when the two names agree.
-  const tidy = (s: string) => s.replace(/\s+/g, ' ').trim()
-  const seasonOrderByName = new Map<string, number>()
-  const seasonNameByBatch = new Map<string, string>()
-  const seasonNameById = new Map<string, string>()
-  const externalSeasonNames = new Set<string>()
-  ;(seasonRows ?? []).forEach((s, index) => {
-    const name = tidy((s.name as string | null) ?? '')
-    if (!name) return
-    seasonOrderByName.set(name.toLowerCase(), index)
-    seasonNameById.set(s.id as string, name)
-    if (s.kind === 'external') externalSeasonNames.add(name.toLowerCase())
-    seasonNameByBatch.set(toFullSeasonBatchId(s.code as string), name)
-    for (const id of resolveSeasonStatBatchIds(s)) seasonNameByBatch.set(id, name)
-  })
-
-  // Batches generated from imported matches record the season they came from,
-  // which is the only reliable way to tell an external event's batch apart —
-  // CSV-era batches carry nothing and are always rivals.
-  for (const row of batchRows ?? []) {
-    const sourceSeasonId = (row.metadata as { source_season_id?: string | null } | null)
-      ?.source_season_id
-    const name = sourceSeasonId ? seasonNameById.get(sourceSeasonId) : undefined
-    if (name && !seasonNameByBatch.has(row.id)) seasonNameByBatch.set(row.id, name)
-  }
-
-  const pickerBatches = batches.map((b) => ({
-    ...b,
-    event: seasonNameByBatch.get(b.id) ?? tidy(eventLabelFromBatchName(b.display_name)),
-  }))
-
-  // Seasons newest first; "Season 2 (EMEA)" sits right after "Season 2"; All
-  // Time and anything unmatched go last, in the order they were listed.
-  const eventRank = (event: string) => {
-    if (resolveBatchSection({ display_name: event }) === 'alltime') return Number.MAX_SAFE_INTEGER
-    const key = event.toLowerCase()
-    const exact = seasonOrderByName.get(key)
-    if (exact !== undefined) return exact * 2
-    const base = seasonOrderByName.get(key.replace(/\s*\([^)]*\)$/, ''))
-    if (base !== undefined) return base * 2 + 1
-    return Number.MAX_SAFE_INTEGER - 1
-  }
-  const firstSeen = new Map<string, number>()
-  pickerBatches.forEach((b, i) => {
-    if (!firstSeen.has(b.event)) firstSeen.set(b.event, i)
-  })
-  const events = [...firstSeen.keys()]
-    .sort((a, z) => eventRank(a) - eventRank(z) || firstSeen.get(a)! - firstSeen.get(z)!)
-    .map((name) => ({ name, external: externalSeasonNames.has(name.toLowerCase()) }))
+  const { batches: pickerBatches, events } = groupBatchesByEvent(
+    batches,
+    seasonRows ?? [],
+    batchRows ?? []
+  )
 
   return {
     batchId: body.batchId ?? null,

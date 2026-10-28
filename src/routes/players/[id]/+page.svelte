@@ -2,7 +2,7 @@
   import type { PageProps } from './$types'
   import { formatLeftDay } from '$lib/players/roster-dates'
   import PageContainer from '$lib/components/PageContainer.svelte'
-  import CustomSelect from '$lib/components/CustomSelect.svelte'
+  import BatchPicker from '$lib/components/stats/BatchPicker.svelte'
   import CommentThread from '$lib/components/CommentThread.svelte'
   import ReviewFlagButton from '$lib/components/ReviewFlagButton.svelte'
   import RiotAccountsPanel from '$lib/components/RiotAccountsPanel.svelte'
@@ -20,13 +20,8 @@
   const viewer = $derived(data.viewer ?? { canEditRiotIdBase: false })
   const selected = $derived((data.stats?.selected ?? null) as any | null)
   const selectedBatchId = $derived((data.stats?.selectedBatchId ?? null) as string | null)
-  const batchOptions = $derived(
-    (data.stats?.batchOptions ?? []) as Array<{
-      label: string
-      value: string
-      import_kind?: string | null
-    }>
-  )
+  const statBatches = $derived(data.stats?.batches ?? [])
+  const batchEvents = $derived(data.stats?.batchEvents ?? [])
   const matchHistory = $derived((data.matchHistory ?? []) as any[])
   const teamHistory = $derived(data.teamHistory ?? [])
   const activeSeasonId = $derived((data.activeSeasonId ?? null) as string | null)
@@ -106,9 +101,13 @@
 
   // Swaps the overall KPI tiles for a Main vs Sub comparison. Leaderboard
   // batches carry no starter/sub split, so both sides come from per-map stats.
+  // Only for a batch scoped to imported matches that include sub appearances.
+  const canCompareRoster = $derived(
+    Boolean(data.rosterCompareScoped) && canFilterRoster && rosterTotals !== null
+  )
   let compareRoster = $state(false)
   const rosterCompare = $derived.by(() => {
-    if (!compareRoster || !canFilterRoster || !rosterTotals) return null
+    if (!compareRoster || !canCompareRoster || !rosterTotals) return null
     const { main, sub } = rosterTotals
     return [
       {
@@ -566,7 +565,7 @@
               <span class="stats-batch">{selectedBatchLabel}</span>
             {/if}
             <div class="stats-controls">
-              {#if canFilterRoster && rosterTotals}
+              {#if canCompareRoster}
                 <button
                   type="button"
                   class="toggle-btn"
@@ -577,18 +576,19 @@
                   Main vs Sub
                 </button>
               {/if}
-              {#if batchOptions.length > 0}
-                <div class="batch-select">
-                  <CustomSelect
-                    options={batchOptions}
-                    value={selectedBatchId ?? ''}
-                    compact={true}
-                    onSelect={navToBatch}
-                  />
-                </div>
-              {/if}
             </div>
           </div>
+
+          {#if batchEvents.length > 0}
+            <div class="batch-picker">
+              <BatchPicker
+                batches={statBatches}
+                events={batchEvents}
+                batchId={selectedBatchId}
+                onPick={navToBatch}
+              />
+            </div>
+          {/if}
 
           {#if rosterCompare}
             <!-- Same tiles as the overall row, each holding a Main / Sub pair
@@ -1097,8 +1097,10 @@
     margin-left: auto;
   }
 
-  .batch-select {
-    min-width: 16rem;
+  .batch-picker {
+    display: flex;
+    max-width: 100%;
+    margin-bottom: 0.875rem;
   }
 
   .toggle-btn {
@@ -1727,11 +1729,6 @@
     .stats-controls {
       margin-left: 0;
       width: 100%;
-    }
-
-    .batch-select {
-      flex: 1;
-      min-width: 0;
     }
 
     /* KAST and HS% are the first to go when the row runs out of room. */

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { resolve } from '$app/paths'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
   import { readRememberedAdminSeason, rememberAdminSeason } from '$lib/admin/remembered-season'
   import { Plus, Trash2 } from 'lucide-svelte'
@@ -48,6 +49,8 @@
     lockAt: string | null
     seeds: Array<{ seed: number; teamId: string }>
     matches: Array<Omit<EditMatch, 'feedA' | 'feedB'> & { feedA: unknown; feedB: unknown }>
+    /** Slot key → the real match the saved bracket reads its result from. */
+    detectedMatchIds?: Record<string, string>
   }
 
   interface Props {
@@ -69,7 +72,8 @@
     onSavePickem,
   }: Props = $props()
 
-  let selectedSeasonId = $state<string>(seasons[0]?.id ?? '')
+  const getInitialSeasonId = () => seasons[0]?.id ?? ''
+  let selectedSeasonId = $state<string>(getInitialSeasonId())
 
   onMount(() => {
     const remembered = readRememberedAdminSeason(seasons.map((s) => s.id))
@@ -220,6 +224,14 @@
       : names
   }
 
+  /** The real match each saved slot reads from, as a label (or null). */
+  function detectedMatchLabel(slotKey: string): string | null {
+    const stored = pickems.find((p) => p.seasonId === selectedSeasonId)
+    const matchId = stored?.detectedMatchIds?.[slotKey]
+    const match = matchId ? seasonMatches.find((m) => m.id === matchId) : null
+    return match ? matchLabelFor(match) : null
+  }
+
   const matchOptions = $derived([
     { value: '', label: 'Auto-detect' },
     ...seasonMatches
@@ -352,6 +364,13 @@
         .map((m, i) => ({ ...m, sortOrder: i })),
     })
   }
+
+  /** Saved drafts can be previewed on the public page (admins only). */
+  const previewSeasonCode = $derived.by(() => {
+    const stored = pickems.find((p) => p.seasonId === selectedSeasonId)
+    if (!stored || (stored.status ?? 'draft') !== 'draft') return null
+    return seasons.find((s) => s.id === selectedSeasonId)?.code ?? null
+  })
 
   // ---- Save ----
 
@@ -512,22 +531,28 @@
             result is detected wrong
           </summary>
           <p class="admin-hint mt-2">
-            Each slot's result is the playoff match between its two teams. Pin a specific match if
-            that guess is wrong, or set a winner for a game decided before entries opened (it scores
-            no points).
+            Results come from this season's matches set to the Playoffs stage: each slot reads the
+            playoff match between its two teams. Leave these empty unless a match was entered wrong
+            — pin the right match to a slot, or set a winner for a game decided before entries
+            opened (it scores no points). "Reading" shows what the last saved bracket picked up.
           </p>
           <div class="mt-2 grid grid-cols-1 gap-2">
             {#each bracketSlots as match (match.slotKey)}
               <div
-                class="grid grid-cols-1 items-center gap-2 rounded-md border p-2 sm:grid-cols-[9rem_1fr_1fr]"
+                class="grid grid-cols-1 items-center gap-2 rounded-md border p-2 sm:grid-cols-[13rem_1fr_1fr]"
                 style="border-color: rgba(255,255,255,0.08); background: rgba(0,0,0,0.15);"
               >
-                <span class="text-xs font-semibold" style="color: rgba(255,255,255,0.7);">
-                  {match.label}
-                  <span class="font-normal" style="color: rgba(255,255,255,0.4);">
-                    · {match.points}pt{match.points !== 1 ? 's' : ''}
-                  </span>
-                </span>
+                <div class="text-xs">
+                  <div class="font-semibold" style="color: rgba(255,255,255,0.7);">
+                    {match.label}
+                    <span class="font-normal" style="color: rgba(255,255,255,0.4);">
+                      · {match.points}pt{match.points !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  <div class="mt-0.5" style="color: rgba(255,255,255,0.45);">
+                    Reading: {detectedMatchLabel(match.slotKey) ?? 'no playoff match yet'}
+                  </div>
+                </div>
                 <CustomSelect
                   options={matchOptions}
                   value={match.linkedMatchId ?? ''}
@@ -646,6 +671,17 @@
       {/if}
 
       <div class="mt-4 flex flex-wrap justify-end gap-2">
+        {#if previewSeasonCode}
+          <a
+            class="admin-btn admin-btn-neutral text-sm"
+            href={resolve('/pickems/[seasonCode]', { seasonCode: previewSeasonCode })}
+            target="_blank"
+            rel="noopener"
+            title="Opens the last saved draft as players will see it"
+          >
+            Preview
+          </a>
+        {/if}
         <button type="button" class="admin-btn admin-btn-neutral text-sm" onclick={resetForm}>
           Reset
         </button>

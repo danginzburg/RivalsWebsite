@@ -20,6 +20,7 @@ const SEASON_COLUMNS = `
   summary,
   winner_team_id,
   runner_up_team_id,
+  third_place_team_id,
   mvp_profile_id,
   final_leaderboard_batch_id,
   created_at
@@ -148,6 +149,7 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
     ['summary', 'summary'],
     ['winnerTeamId', 'winner_team_id'],
     ['runnerUpTeamId', 'runner_up_team_id'],
+    ['thirdPlaceTeamId', 'third_place_team_id'],
     ['mvpProfileId', 'mvp_profile_id'],
     ['finalLeaderboardBatchId', 'final_leaderboard_batch_id'],
   ] as const

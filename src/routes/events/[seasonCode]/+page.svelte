@@ -107,7 +107,7 @@
     </div>
 
     <!-- Podium -->
-    {#if season.winner || season.runner_up || season.mvp}
+    {#if season.winner || season.runner_up || season.third_place || season.mvp}
       <div class="podium">
         {#if season.winner}
           <a href={resolve(`/teams/${season.winner.id}`)} class="podium-card podium-champion">
@@ -133,6 +133,20 @@
                   <img src={season.runner_up.logo_url} alt="" class="podium-logo" />
                 {/if}
                 {season.runner_up.name}
+              </div>
+            </div>
+          </a>
+        {/if}
+        {#if season.third_place}
+          <a href={resolve(`/teams/${season.third_place.id}`)} class="podium-card">
+            <Medal size={20} style="color: #d97706;" />
+            <div class="podium-body">
+              <div class="podium-label">3rd Place</div>
+              <div class="podium-value">
+                {#if season.third_place.logo_url}
+                  <img src={season.third_place.logo_url} alt="" class="podium-logo" />
+                {/if}
+                {season.third_place.name}
               </div>
             </div>
           </a>
