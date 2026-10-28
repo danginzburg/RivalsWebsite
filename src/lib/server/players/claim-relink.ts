@@ -5,6 +5,7 @@ import {
   type ProfileRow,
   type RiotAccountRow,
 } from '$lib/server/imports/matching'
+import { syncSeasonAccoladesSafely } from '$lib/server/accolades/season-sync'
 
 /** Approved Riot accounts (primary, alts, aliases) owned by one profile. */
 async function getProfileRiotAccounts(profileId: string): Promise<RiotAccountRow[]> {
@@ -378,6 +379,12 @@ export async function claimRelinkAfterProfileUpdate(profileId: string): Promise<
     rivalsExtra = await syncRivalsGroupStatsByProfileNames(profileId)
   } catch (e) {
     console.warn('syncRivalsGroupStatsByProfileNames failed:', e)
+  }
+
+  // Newly linked roster spots or match stats can put this player on a past
+  // season's podium. Only then: this runs on every login.
+  if (team.linked > 0 || map.rowsLinked > 0) {
+    await syncSeasonAccoladesSafely({ profileId })
   }
 
   return {

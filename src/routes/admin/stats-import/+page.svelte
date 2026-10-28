@@ -1,7 +1,9 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import type { PageProps } from './$types'
   import StatsImport from '$lib/components/admin/StatsImport.svelte'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
+  import { readRememberedAdminSeason, rememberAdminSeason } from '$lib/admin/remembered-season'
   import { Loader2, RefreshCw, Save, Trash2, Wand2 } from 'lucide-svelte'
   import {
     MATCH_STAGES,
@@ -44,6 +46,11 @@
    * advanced stats, which is exactly what a generated batch can use.
    */
   let genSeasonId = $state('')
+
+  onMount(() => {
+    const remembered = readRememberedAdminSeason(seasons.map((s) => s.id))
+    if (remembered) genSeasonId = remembered
+  })
   let genStages = $state<Record<string, boolean>>({})
   let genName = $state('')
   let genNameTouched = $state(false)
@@ -260,7 +267,10 @@
               options={seasonOptions}
               value={genSeasonId}
               compact={true}
-              onSelect={(value) => (genSeasonId = value)}
+              onSelect={(value) => {
+                genSeasonId = value
+                if (value) rememberAdminSeason(value)
+              }}
             />
           </div>
         </label>

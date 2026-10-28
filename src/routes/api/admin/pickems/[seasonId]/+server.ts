@@ -5,6 +5,7 @@ import { savePickemForSeason } from '$lib/server/pickems'
 import { invalidateSeasonSeeds } from '$lib/server/seasons/seeds'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { notifyPickemOpened, notifyPickemScored } from '$lib/server/notifications/events'
+import { syncSeasonAccoladesSafely } from '$lib/server/accolades/season-sync'
 
 export const PATCH: RequestHandler = async ({ locals, params, request }) => {
   await requireAdmin(locals.user)
@@ -28,5 +29,7 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
       await notifyPickemScored(context.season, context.event.id)
     }
   }
+  // Resolved results can settle the pick'em, and with it its champion accolade.
+  await syncSeasonAccoladesSafely({ seasonIds: [params.seasonId] })
   return json({ success: true, context })
 }

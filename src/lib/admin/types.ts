@@ -161,6 +161,11 @@ export type AdminUser = {
    * `IDENTITY_USER_PREFIX + puuid` and only the display name can be edited.
    */
   unclaimed?: boolean
+  /**
+   * Every other name the player goes by — alt Riot IDs, Discord username and
+   * signup handle — so pickers can find them by whichever one an admin types.
+   */
+  aliases?: string[]
   created_at: string
 }
 
