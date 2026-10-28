@@ -1,3 +1,4 @@
+import { requireNavPage } from '$lib/server/nav-visibility'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
 
@@ -11,6 +12,7 @@ function firstRel<T>(value: T | T[] | null | undefined): T | null {
 }
 
 export const load = async ({ locals }: { locals: App.Locals }) => {
+  await requireNavPage(locals, 'hall-of-fame')
   const isAdmin = locals.user?.role === 'admin'
 
   const [{ data: entries, error: entriesError }, { data: champions }] = await Promise.all([
