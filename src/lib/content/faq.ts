@@ -1,6 +1,6 @@
 /**
- * FAQ content. Edit these entries to update the /faq page.
- * Grouped by category; categories render in the order listed here.
+ * Default FAQ content, shown only until an admin saves the FAQ from
+ * /admin/content (stored in `site_content`). Edit it there, not here.
  */
 
 export type FaqEntry = {
