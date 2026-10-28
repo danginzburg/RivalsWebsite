@@ -52,6 +52,7 @@
     TeamEditState,
   } from '$lib/admin/types'
   import { resolveSeasonProfile } from '$lib/seasons/profile'
+  import { resolveSeasonSchedule } from '$lib/seasons/schedule'
   import { readRememberedAdminSeason, rememberAdminSeason } from '$lib/admin/remembered-season'
   import { onMount, tick } from 'svelte'
   import type { PageData, PageProps } from './$types'
@@ -1458,6 +1459,7 @@
           : [],
         sections: profile.sections,
         links: profile.links,
+        schedule: resolveSeasonSchedule(season.metadata as Record<string, unknown> | null),
       }
     }
     const keys = Object.keys(next)
@@ -1916,6 +1918,7 @@
           finalLeaderboardBatchId: state.finalLeaderboardBatchId || null,
           mapPool: state.mapPool ?? [],
           profile: { sections: state.sections, links: state.links },
+          schedule: state.schedule,
         },
         fallbackMessage: 'Failed to update season',
       })

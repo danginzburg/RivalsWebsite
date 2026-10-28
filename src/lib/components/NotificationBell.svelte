@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Bell, Check, ShieldAlert } from 'lucide-svelte'
+  import { Bell, Check, ShieldAlert, Trash2, X } from 'lucide-svelte'
   import { afterNavigate, goto } from '$app/navigation'
   import { page } from '$app/state'
   import type { NotificationRow } from '$lib/server/notifications'
@@ -66,6 +66,29 @@
       fetchedUnread = 0
       notifications = notifications.map((n) => ({ ...n, is_read: true }))
     }
+  }
+
+  async function clearAll() {
+    const res = await fetch('/api/notifications', {
+      method: 'DELETE',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ all: true }),
+    })
+    if (res.ok) {
+      fetchedUnread = 0
+      notifications = []
+    }
+  }
+
+  function dismiss(notification: NotificationRow) {
+    // Drop it optimistically; a failed delete reappears on the next poll.
+    notifications = notifications.filter((n) => n.id !== notification.id)
+    if (!notification.is_read) fetchedUnread = Math.max(0, unread - 1)
+    fetch('/api/notifications', {
+      method: 'DELETE',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ids: [notification.id] }),
+    }).catch(() => {})
   }
 
   async function openQueue(item: AdminQueueItem) {
@@ -164,12 +187,20 @@
     <div class="panel" role="menu">
       <div class="panel-head">
         <span class="panel-title">Notifications</span>
-        {#if unread > 0}
-          <button type="button" class="mark-all" onclick={markAllRead}>
-            <Check class="h-3.5 w-3.5" />
-            Mark all read
-          </button>
-        {/if}
+        <div class="panel-actions">
+          {#if unread > 0}
+            <button type="button" class="mark-all" onclick={markAllRead}>
+              <Check class="h-3.5 w-3.5" />
+              Mark all read
+            </button>
+          {/if}
+          {#if notifications.length > 0}
+            <button type="button" class="mark-all" onclick={clearAll}>
+              <Trash2 class="h-3.5 w-3.5" />
+              Clear all
+            </button>
+          {/if}
+        </div>
       </div>
 
       <div class="panel-body">
@@ -198,7 +229,7 @@
         {:else}
           <ul class="notif-list">
             {#each notifications as n (n.id)}
-              <li>
+              <li class="notif-row">
                 <button
                   type="button"
                   class="notif-item"
@@ -211,6 +242,15 @@
                     {#if n.body}<span class="notif-body">{n.body}</span>{/if}
                     <span class="notif-time">{relativeTime(n.created_at)}</span>
                   </span>
+                </button>
+                <button
+                  type="button"
+                  class="dismiss"
+                  title="Clear notification"
+                  aria-label="Clear notification"
+                  onclick={() => dismiss(n)}
+                >
+                  <X class="h-3.5 w-3.5" />
                 </button>
               </li>
             {/each}
@@ -302,6 +342,12 @@
     color: var(--title, #fff);
   }
 
+  .panel-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
   .mark-all {
     display: inline-flex;
     align-items: center;
@@ -377,13 +423,52 @@
     color: var(--text, #fff);
   }
 
+  .notif-row {
+    position: relative;
+  }
+
+  /* Sits over the row's top-right corner; the row's right padding keeps text
+     clear of it. Hidden until hover on pointer devices, always shown on touch. */
+  .dismiss {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    border: none;
+    border-radius: 0.25rem;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.45);
+    cursor: pointer;
+  }
+
+  .dismiss:hover,
+  .dismiss:focus-visible {
+    color: var(--text, #fff);
+    background-color: rgba(255, 255, 255, 0.1);
+  }
+
+  @media (hover: hover) {
+    .dismiss {
+      opacity: 0;
+    }
+
+    .notif-row:hover .dismiss,
+    .dismiss:focus-visible {
+      opacity: 1;
+    }
+  }
+
   .notif-item {
     display: flex;
     align-items: flex-start;
     gap: 0.5rem;
     width: 100%;
     text-align: left;
-    padding: 0.625rem 0.75rem;
+    padding: 0.625rem 2.25rem 0.625rem 0.75rem;
     border: none;
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     background: transparent;

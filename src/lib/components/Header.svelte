@@ -40,6 +40,7 @@
 
   type NavHref =
     | '/'
+    | '/matches'
     | '/events'
     | '/faq'
     | '/hall-of-fame'
@@ -57,7 +58,7 @@
 
   /** Main navigation — rendered flat, no grouping. */
   const navItems = $derived.by<NavItem[]>(() => [
-    { href: '/', label: 'Matches', icon: Calendar },
+    { href: '/matches', label: 'Matches', icon: Calendar },
     { href: '/leaderboard', label: 'Leaderboard', icon: Trophy },
     ...(hasActivePickem ? [{ href: '/pickems' as NavHref, label: "Pick'ems", icon: Target }] : []),
     { href: '/events', label: 'Events', icon: CalendarClock },
@@ -97,8 +98,7 @@
 
   function isPathActive(href: string) {
     const path = $page.url.pathname
-    // The matches feed lives at the root, so individual match pages count as active too.
-    if (href === '/') return path === '/' || path.startsWith('/matches')
+    if (href === '/matches') return path.startsWith('/matches')
     if (href === '/pickems') return path.startsWith('/pickems')
     if (href === '/events') return path.startsWith('/events')
     return path === href

@@ -10,6 +10,29 @@
     type SeasonKind,
     type SeasonSectionKey,
   } from '$lib/seasons/profile'
+  import {
+    SEASON_STAGE_KEYS,
+    SEASON_STAGE_LABELS,
+    WEEKDAY_LABELS,
+    resolveSeasonSchedule,
+    type SeasonSchedule,
+    type SeasonStageKey,
+  } from '$lib/seasons/schedule'
+
+  const weekdayOptions = WEEKDAY_LABELS.map((label, day) => ({ value: String(day), label }))
+
+  /** Set one date on one stage, leaving the rest of the schedule untouched. */
+  function withStageDate(
+    schedule: SeasonSchedule,
+    key: SeasonStageKey,
+    field: 'startsOn' | 'endsOn',
+    value: string
+  ): SeasonSchedule {
+    return {
+      ...schedule,
+      stages: { ...schedule.stages, [key]: { ...schedule.stages[key], [field]: value || null } },
+    }
+  }
 
   const kindOptions = [
     { value: 'rivals', label: 'Rivals' },
@@ -251,6 +274,7 @@
               : [],
             sections: allSectionsOn(),
             links: [],
+            schedule: resolveSeasonSchedule(season.metadata as Record<string, unknown> | null),
           }}
           {@const isResultsExpanded = expandedResultsSeasonId === season.id}
           <article
@@ -332,6 +356,64 @@
                   })}
                 class="admin-input"
               />
+            </div>
+
+            <!-- Stage schedule: drives the "Week N" / "Play-ins" / "Playoffs"
+                 label in the home page hero. -->
+            <div class="admin-bordered mt-2 p-2">
+              <div class="mb-2 text-xs font-semibold" style="color: rgba(255,255,255,0.82);">
+                Stage Schedule
+              </div>
+              <div class="stage-grid">
+                {#each SEASON_STAGE_KEYS as key (key)}
+                  <span class="stage-label">{SEASON_STAGE_LABELS[key]}</span>
+                  <input
+                    type="date"
+                    aria-label="{SEASON_STAGE_LABELS[key]} start"
+                    value={state.schedule.stages[key].startsOn ?? ''}
+                    oninput={(e) =>
+                      onSeasonEditChange(season.id, {
+                        ...state,
+                        schedule: withStageDate(
+                          state.schedule,
+                          key,
+                          'startsOn',
+                          (e.currentTarget as HTMLInputElement).value
+                        ),
+                      })}
+                    class="admin-input"
+                  />
+                  <input
+                    type="date"
+                    aria-label="{SEASON_STAGE_LABELS[key]} end"
+                    value={state.schedule.stages[key].endsOn ?? ''}
+                    oninput={(e) =>
+                      onSeasonEditChange(season.id, {
+                        ...state,
+                        schedule: withStageDate(
+                          state.schedule,
+                          key,
+                          'endsOn',
+                          (e.currentTarget as HTMLInputElement).value
+                        ),
+                      })}
+                    class="admin-input"
+                  />
+                {/each}
+                <span class="stage-label">Week ends on</span>
+                <div class="stage-weekday">
+                  <CustomSelect
+                    options={weekdayOptions}
+                    value={String(state.schedule.weekEndDay)}
+                    compact={true}
+                    onSelect={(value) =>
+                      onSeasonEditChange(season.id, {
+                        ...state,
+                        schedule: { ...state.schedule, weekEndDay: Number(value) },
+                      })}
+                  />
+                </div>
+              </div>
             </div>
             <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
               <div class="flex flex-wrap items-center gap-3">
@@ -748,6 +830,32 @@
 </div>
 
 <style>
+  .stage-grid {
+    display: grid;
+    grid-template-columns: 8rem minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0.5rem;
+    align-items: center;
+  }
+
+  .stage-label {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.72);
+  }
+
+  .stage-weekday {
+    grid-column: span 2;
+  }
+
+  @media (max-width: 640px) {
+    .stage-grid {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+
+    .stage-label {
+      grid-column: 1 / -1;
+    }
+  }
+
   .map-pool-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));

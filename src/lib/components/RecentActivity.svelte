@@ -5,9 +5,11 @@
 
   interface Props {
     comments?: RecentComment[]
+    /** Stretch to the parent's height and scroll the list inside it. */
+    fill?: boolean
   }
 
-  let { comments = [] }: Props = $props()
+  let { comments = [], fill = false }: Props = $props()
 
   const ENTITY_ICONS = { match: Swords, player: User, season: CalendarClock }
 
@@ -53,7 +55,7 @@
   }
 </script>
 
-<section class="activity">
+<section class="activity" class:activity-fill={fill}>
   <div class="activity-head">
     <MessageSquare size={16} />
     <h2 class="activity-title">Recent Discussion</h2>
@@ -90,6 +92,20 @@
     border: 1px solid rgba(255, 255, 255, 0.07);
     background: rgba(0, 0, 0, 0.2);
     overflow: hidden;
+  }
+
+  .activity-fill {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+
+  .activity-fill .activity-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
   }
 
   .activity-head {

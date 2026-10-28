@@ -629,7 +629,8 @@
                   placeholder="One line per veto item
 Ban: Team A - Haven
 Pick: Team B - Lotus
-Decider: Pearl"
+Decider: Pearl
+…or paste the veto bot's log as-is"
                   oninput={(e) =>
                     onUpdateMatchEditForm(match.id, {
                       mapVetoes: (e.currentTarget as HTMLTextAreaElement).value,

@@ -173,7 +173,8 @@ export function parseVetoLine(line: string, lookup: MapLookup): VetoStep {
 
   const label = text
     .replace(new RegExp(`\\b${escapeRegExp(best.displayName)}\\b`, 'i'), '')
-    .replace(/^[\s:_—–-]+|[\s:_—–-]+$/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/^[\s:_—–·-]+|[\s:_—–·-]+$/g, '')
     .trim()
 
   return {

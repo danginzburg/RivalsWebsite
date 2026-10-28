@@ -229,7 +229,11 @@
                     <td class="col-num tabular muted">{row.stats.maps_played}</td>
                     <td class="col-num tabular">{row.stats.map_wins}</td>
                     <td class="col-num tabular">{row.stats.map_losses}</td>
-                    <td class="col-num tabular">
+                    <td
+                      class="col-num tabular"
+                      class:rd-pos={row.stats.round_diff > 0}
+                      class:rd-neg={row.stats.round_diff < 0}
+                    >
                       {row.stats.round_diff > 0 ? `+${row.stats.round_diff}` : row.stats.round_diff}
                     </td>
                   </tr>
@@ -534,6 +538,14 @@
 
   .muted {
     color: rgba(255, 255, 255, 0.64);
+  }
+
+  .standings td.rd-pos {
+    color: #4ade80;
+  }
+
+  .standings td.rd-neg {
+    color: #f87171;
   }
 
   .rank-badge {
