@@ -7,7 +7,7 @@
   import { resolve } from '$app/paths'
   import { enhance } from '$app/forms'
   import { agentIconUrl, rankIconUrlByKey } from '$lib/icons'
-  import { rankImageKey } from '$lib/ranks/ranks'
+  import { rankImageKey, rankLabel } from '$lib/ranks/ranks'
 
   let { data, form }: PageProps = $props()
 
@@ -97,7 +97,7 @@
     return (value as { name?: string }).name ?? 'Team'
   }
 
-  const playerRank = $derived((data.bestRank ?? null) as string | null)
+  const playerRank = $derived(rankLabel((data.bestRank ?? null) as string | null))
 
   const selectedBatchLabel = $derived.by(() => {
     if (!selected) return null

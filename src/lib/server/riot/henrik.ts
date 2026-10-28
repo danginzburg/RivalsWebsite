@@ -1,7 +1,12 @@
 import { env } from '$env/dynamic/private'
 import { TtlCache } from '$lib/server/cache'
 import { toLeagueRank } from './rank-map'
-import { summarizeRank, type MmrV3Payload } from './rank-window'
+import {
+  peakRankBetween,
+  summarizeRank,
+  type MmrV3Payload,
+  type StoredMmrEntry,
+} from './rank-window'
 import { RateLimitWaitError, RateLimiter } from './rate-limiter'
 
 /**
@@ -281,6 +286,42 @@ export async function fetchRankByPuuid(
 
   puuidRankCache.set(puuid, result)
   return result
+}
+
+const rankHistoryCache = new TtlCache<StoredMmrEntry[]>({ ttlMs: 10 * 60_000, maxEntries: 500 })
+
+/** A player's stored ranked games, newest first as HenrikDev returns them. */
+export async function fetchStoredMmrHistory(
+  puuid: string,
+  opts: LookupOptions = {}
+): Promise<StoredMmrEntry[]> {
+  const cached = rankHistoryCache.get(puuid)
+  if (cached) return cached
+  let history: StoredMmrEntry[]
+  try {
+    const data = await request<StoredMmrEntry[] | { history?: StoredMmrEntry[] }>(
+      `/v2/by-puuid/stored-mmr-history/na/pc/${encodeURIComponent(puuid)}`,
+      opts
+    )
+    history = Array.isArray(data) ? data : (data.history ?? [])
+  } catch (err) {
+    // No ranked record at all is an answer, not a failure.
+    if (!(err instanceof RiotLookupError) || err.status !== 404) throw err
+    history = []
+  }
+  rankHistoryCache.set(puuid, history)
+  return history
+}
+
+/** League rank for a tournament window: the highest held in it (see `peakRankBetween`). */
+export async function fetchPeakRankBetween(
+  puuid: string,
+  start: Date,
+  end: Date,
+  opts: LookupOptions = {}
+): Promise<string | null> {
+  const history = await fetchStoredMmrHistory(puuid, opts)
+  return toLeagueRank(peakRankBetween(history, start, end)?.name)
 }
 
 /** Account plus rank in one call, by Riot ID. */

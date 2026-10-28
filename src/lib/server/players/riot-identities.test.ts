@@ -24,6 +24,18 @@ describe('dedupeObservations', () => {
     ])
 
     expect(rows).toHaveLength(1)
-    expect(rows[0]).toEqual({ puuid: 'p3', name: null, tag: null })
+    expect(rows[0]).toEqual({ puuid: 'p3', name: null, tag: null, rank: null })
+  })
+
+  it('keeps the latest reported rank, and does not lose one to a map without it', () => {
+    const rows = dedupeObservations([
+      { puuid: 'p1', name: 'A', tag: 'NA1', rank: 'Gold 2' },
+      { puuid: 'p1', name: 'A', tag: 'NA1', rank: 'Gold 3' },
+      { puuid: 'p1', name: 'A', tag: 'NA1', rank: null },
+      { puuid: 'p2', name: 'B', tag: 'NA1' },
+    ])
+
+    expect(rows.find((r) => r.puuid === 'p1')?.rank).toBe('Gold 3')
+    expect(rows.find((r) => r.puuid === 'p2')?.rank).toBeNull()
   })
 })

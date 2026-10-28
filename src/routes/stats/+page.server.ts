@@ -86,6 +86,7 @@ export const load: PageServerLoad = async ({ fetch, url, locals, cookies }) => {
   // which would otherwise reset them.
   const initialRankSort = url.searchParams.get('rankSort') === '1'
   const initialDisregardTier = url.searchParams.get('ignoreTier') === '1'
+  const initialView = url.searchParams.get('view') === 'graphs' ? 'graphs' : 'table'
 
   const fetchStats = async (batchId: string | null) => {
     const res = await fetch(
@@ -151,7 +152,7 @@ export const load: PageServerLoad = async ({ fetch, url, locals, cookies }) => {
     }
   }
 
-  let viewer: { profileId: string; displayName: string | null } | null = null
+  let viewer: { profileId: string; displayName: string | null; riotNames: string[] } | null = null
   if (locals.user) {
     const { data: profile } = await supabaseAdmin
       .from('profiles')
@@ -160,7 +161,25 @@ export const load: PageServerLoad = async ({ fetch, url, locals, cookies }) => {
       .maybeSingle()
 
     if (profile?.id) {
-      viewer = { profileId: profile.id, displayName: profile.display_name ?? null }
+      // Stat rows imported before the player linked their account carry only
+      // the Riot name, so Find me matches those as well as the profile id.
+      const { data: directory } = await supabaseAdmin
+        .from('player_directory')
+        .select('riot_ids')
+        .eq('profile_id', profile.id)
+        .maybeSingle()
+      const riotNames = new Set<string>()
+      for (const id of (directory?.riot_ids as string[] | null) ?? []) {
+        const full = String(id).trim().toLowerCase()
+        if (!full) continue
+        riotNames.add(full)
+        riotNames.add(full.split('#')[0])
+      }
+      viewer = {
+        profileId: profile.id,
+        displayName: profile.display_name ?? null,
+        riotNames: [...riotNames],
+      }
     }
   }
 
@@ -287,5 +306,6 @@ export const load: PageServerLoad = async ({ fetch, url, locals, cookies }) => {
     initialDir,
     initialRankSort,
     initialDisregardTier,
+    initialView,
   }
 }

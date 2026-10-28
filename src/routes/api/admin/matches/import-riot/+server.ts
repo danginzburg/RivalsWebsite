@@ -24,7 +24,9 @@ import {
 } from '$lib/server/imports/matching'
 import { backfillRiotAccountPuuids } from '$lib/server/imports/puuid-backfill'
 import { upsertRiotIdentities } from '$lib/server/players/riot-identities'
+import { refreshSeasonRanks } from '$lib/server/players/riot-ranks'
 import { importCompletedSeries } from '$lib/server/matches/import-lifecycle'
+import { resolveTargetSeasonId } from '$lib/server/seasons/resolve'
 import { loadRosterTimeline, matchRosterTime } from '$lib/server/matches/subs'
 
 /** A best-of-seven is the longest series the league runs. */
@@ -156,29 +158,26 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   ])
   const profileMatcher = buildProfileMatcher(profiles, riotAccounts)
 
-  // Only the active season's teams count. A membership stays `is_active` after a
-  // season ends, so a returning player carries live memberships on several teams
+  // Only the import season's teams count (the active one unless the admin is
+  // backfilling a past season). A membership stays `is_active` after a season
+  // ends, so a returning player carries live memberships on several teams
   // across seasons; without this scope the profile→team map takes whichever row
   // happened to be read last and can resolve a player onto a team they were on a
   // season ago, mis-identifying the match.
-  const { data: activeSeason } = await supabaseAdmin
-    .from('seasons')
-    .select('id')
-    .eq('is_active', true)
-    .maybeSingle()
+  const seasonId = await resolveTargetSeasonId(body.seasonId)
 
-  const { data: activeTeams } = await supabaseAdmin
+  const { data: seasonTeams } = await supabaseAdmin
     .from('teams')
     .select('id')
-    .eq('season_id', activeSeason?.id ?? '')
-  const activeTeamIds = (activeTeams ?? []).map((t) => String(t.id))
+    .eq('season_id', seasonId ?? '')
+  const seasonTeamIds = (seasonTeams ?? []).map((t) => String(t.id))
 
   // Rosters as they stood when the game was played, not today: a player who
   // has since moved teams must still resolve onto the team they played for.
   // Without a start time this falls back to the current roster.
   const rosters =
-    activeTeamIds.length > 0
-      ? (await loadRosterTimeline(activeSeason?.id ?? null, activeTeamIds)).at(
+    seasonTeamIds.length > 0
+      ? (await loadRosterTimeline(seasonId, seasonTeamIds)).at(
           matchRosterTime({ scheduled_at: matches[0]?.startedAt ?? null })
         )
       : new Map()
@@ -260,6 +259,22 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       .filter((puuid): puuid is string => Boolean(puuid))
   )
 
+  // Tournament ranks: each player's highest rank between the season's start
+  // and end dates, refreshed for everyone in the series before the import so
+  // the stat batches it rebuilds pick them up. Skipped on a dry run to spare
+  // the rate limit; bounded so a busy limit cannot stall the import.
+  let seasonRanks = new Map<string, string>()
+  if (!dryRun && seasonId) {
+    seasonRanks = await refreshSeasonRanks(
+      seasonId,
+      matches.flatMap((m) => m.players.map((p) => p.puuid)),
+      { deadline: Date.now() + 20_000 }
+    ).catch((err) => {
+      console.warn('Failed to refresh season ranks for import:', err)
+      return new Map<string, string>()
+    })
+  }
+
   const maps = matches.map((match, index) => {
     const perMap = resolveSeries(match)
     const perMapSide = perMap.ok
@@ -337,6 +352,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       displayName: `Riot import ${first.matchId}`,
       bestOf: body.bestOf,
       stage: body.stage,
+      seasonId: body.seasonId,
       maps: seriesMaps,
     },
     adminProfileId: admin.id,
@@ -355,10 +371,20 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   // Record every PUUID seen behind the scenes, whether or not it maps to a
   // profile yet. This is what lets a player be tracked by identity through a
   // rename even when nobody has linked them — the admin does that once, later,
-  // from the review queue. Best-effort: the match is already written.
-  await upsertRiotIdentities(
-    matches.flatMap((m) => m.players.map((p) => ({ puuid: p.puuid, name: p.name, tag: p.tag })))
-  ).catch((err) => {
+  // from the review queue. The tournament rank rides along, moving the
+  // account's rank forward (never back to an older series' rank).
+  // Best-effort: the match is already written.
+  const observations = matches.flatMap((m) =>
+    m.players.map((p) => ({
+      puuid: p.puuid,
+      name: p.name,
+      tag: p.tag,
+      rank: seasonRanks.get(p.puuid) ?? null,
+    }))
+  )
+  // The series is dated by its first map.
+  const playedAt = first.startedAt ? new Date(first.startedAt).toISOString() : null
+  await upsertRiotIdentities(observations, { playedAt }).catch((err) => {
     console.warn('Failed to record Riot identities after import:', err)
   })
 

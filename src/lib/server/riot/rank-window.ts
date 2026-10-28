@@ -136,3 +136,62 @@ export function summarizeRank(payload: MmrV3Payload): RankSummary {
 
   return { currentTier, currentRr, currentSource, currentAct, peakTier, peakAct }
 }
+
+/** One ranked game from HenrikDev's stored MMR history (v2). */
+export type StoredMmrEntry = {
+  date?: string | null
+  tier?: Partial<Tier> | null
+  tier_before_update?: Partial<Tier> | null
+}
+
+/** How far after a match a ranked game may be and still say what rank came in. */
+export const RANK_LOOKAHEAD_MS = 30 * 24 * 60 * 60_000
+
+/**
+ * The rank a player held at `at`, read from their stored ranked games:
+ *
+ * 1. The tier after their last ranked game on or before `at`.
+ * 2. Failing that (history starts later), the tier going into their first
+ *    ranked game within 30 days after — the rank they carried at the time.
+ * 3. Otherwise null: nothing close enough to say.
+ *
+ * Custom games never report a rank, so this is what dates a tournament match.
+ */
+export function rankAtTime(history: StoredMmrEntry[], at: Date): Tier | null {
+  const time = at.getTime()
+  let before: { time: number; tier: Tier } | null = null
+  let after: { time: number; tier: Tier } | null = null
+
+  for (const entry of history) {
+    const played = Date.parse(String(entry.date ?? ''))
+    if (!Number.isFinite(played)) continue
+    if (played <= time) {
+      const tier = rankedTier(entry.tier)
+      if (tier && (!before || played > before.time)) before = { time: played, tier }
+    } else if (played - time <= RANK_LOOKAHEAD_MS) {
+      const tier = rankedTier(entry.tier_before_update)
+      if (tier && (!after || played < after.time)) after = { time: played, tier }
+    }
+  }
+  return before?.tier ?? after?.tier ?? null
+}
+
+/**
+ * A player's rank for a tournament: the highest rank they held at any point
+ * between `start` and `end`. That is the rank they carried in (see
+ * `rankAtTime`) or anything they climbed to with a ranked game inside the
+ * window, whichever is higher. A player who never queued during the
+ * tournament keeps the rank they entered it with.
+ */
+export function peakRankBetween(history: StoredMmrEntry[], start: Date, end: Date): Tier | null {
+  let best = rankAtTime(history, start)
+  const from = start.getTime()
+  const to = end.getTime()
+  for (const entry of history) {
+    const played = Date.parse(String(entry.date ?? ''))
+    if (!Number.isFinite(played) || played < from || played > to) continue
+    const tier = rankedTier(entry.tier)
+    if (tier && (!best || tier.id > best.id)) best = tier
+  }
+  return best
+}

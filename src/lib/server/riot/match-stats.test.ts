@@ -90,6 +90,17 @@ describe('multikills', () => {
     })
   })
 
+  it('reads the match tier, treating Unrated as no rank', () => {
+    const base = match([{ winning_team: 'Red' }], [])
+    base.players[0].tier = { id: 14, name: 'Gold 3' }
+    base.players[1].tier = { id: 0, name: 'Unrated' }
+    const result = derivePlayerStats(base)
+
+    expect(statsFor(result, base.players[0].puuid).tier).toBe('Gold 3')
+    expect(statsFor(result, base.players[1].puuid).tier).toBeNull()
+    expect(statsFor(result, base.players[2].puuid).tier).toBeNull()
+  })
+
   it('records an ace as a 5k', () => {
     const result = derivePlayerStats(
       match(

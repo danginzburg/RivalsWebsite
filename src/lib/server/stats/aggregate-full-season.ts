@@ -14,8 +14,8 @@
  * Difference from the SQL: multikills and clutches are honest counting stats, so
  * they are summed here. The SQL predates those columns and leaves them null; a
  * generated season total is new surface, so it carries the better data.
- * `league_rank` stays null — a player holds one rank per phase, and there is no
- * meaningful single rank across a whole season.
+ * `league_rank` is the rank from the player's latest phase: a player holds one
+ * rank per phase, and the most recent is the one they finished the season on.
  */
 
 /** Counting stats: added straight across every row. */
@@ -76,6 +76,8 @@ type Acc = {
   sums: Record<string, number>
   weightedSums: Record<string, number>
   weightTotal: number
+  rank: string | null
+  rankImportedAt: string
 }
 
 /** `profile_id` when present, else the lowercased name — the SQL's `player_key`. */
@@ -119,8 +121,18 @@ export function aggregateFullSeasonRows(
         sums: Object.fromEntries(SUM_FIELDS.map((f) => [f, 0])),
         weightedSums: Object.fromEntries(WEIGHTED_FIELDS.map((f) => [f, 0])),
         weightTotal: 0,
+        rank: null,
+        rankImportedAt: '',
       }
       byPlayer.set(key, acc)
+    }
+
+    // Latest phase's rank wins; ISO timestamps compare as strings.
+    const rank = typeof row.league_rank === 'string' ? row.league_rank.trim() : ''
+    const importedAt = typeof row.imported_at === 'string' ? row.imported_at : ''
+    if (rank && importedAt >= acc.rankImportedAt) {
+      acc.rank = rank
+      acc.rankImportedAt = importedAt
     }
 
     // First non-null profile id wins, like `min(profile_id) filter (...)`.
@@ -216,8 +228,7 @@ export function aggregateFullSeasonRows(
       fdpg: ratio(s.fd, s.games),
       plants_per_game: ratio(s.plants, s.games),
       defuses_per_game: ratio(s.defuses, s.games),
-      // No single league rank spans a whole season.
-      league_rank: null,
+      league_rank: acc.rank,
     })
   }
 

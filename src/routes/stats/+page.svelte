@@ -3,13 +3,14 @@
   import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import PageHeading from '$lib/components/PageHeading.svelte'
-  import { BarChart3, Search } from 'lucide-svelte'
+  import { BarChart3, ChartScatter, Search, Table2 } from 'lucide-svelte'
   import { SvelteURLSearchParams } from 'svelte/reactivity'
   import { resolve } from '$app/paths'
   import { agentIconUrl, rankIconUrlByKey } from '$lib/icons'
   import { statsRowKey, displayPlayerName } from '$lib/stats/ui'
   import { phaseLabel, resolveBatchSection, sectionOrder } from '$lib/stats/sections'
-  import { rankValue, rankBaseValue, rankImageKey } from '$lib/ranks/ranks'
+  import { parseRank, rankLabel, rankValue, rankBaseValue, rankImageKey } from '$lib/ranks/ranks'
+  import AcsKastScatter, { type ScatterPoint } from '$lib/components/stats/AcsKastScatter.svelte'
 
   let { data }: PageProps = $props()
 
@@ -74,8 +75,22 @@
     }))
   )
   const viewer = $derived(
-    (data.viewer ?? null) as { profileId: string; displayName: string | null } | null
+    (data.viewer ?? null) as {
+      profileId: string
+      displayName: string | null
+      riotNames: string[]
+    } | null
   )
+
+  /** The viewer's own row: claimed by their profile, or imported under one of their Riot names. */
+  function isViewerRow(r: Record<string, unknown>): boolean {
+    if (!viewer) return false
+    if (r.profile_id) return r.profile_id === viewer.profileId
+    const name = String(r.player_name ?? '')
+      .trim()
+      .toLowerCase()
+    return name !== '' && viewer.riotNames.includes(name)
+  }
 
   const initialQ = $derived(String(data.initialQ ?? ''))
   const initialMinGames = $derived(Number(data.initialMinGames ?? 0) || 0)
@@ -89,18 +104,20 @@
   const seed = untrack(() => ({
     rankSort: Boolean(data.initialRankSort),
     disregardTier: Boolean(data.initialDisregardTier),
+    view: (data.initialView === 'graphs' ? 'graphs' : 'table') as 'table' | 'graphs',
   }))
 
   let sortKey = $state<string>('acs')
   let sortDir = $state<'asc' | 'desc'>('desc')
   let rankSort = $state(seed.rankSort)
   let disregardTier = $state(seed.disregardTier)
+  let view = $state(seed.view)
 
   let selectedBatchId = $state<string | null>(null)
   let search = $state('')
   let minGames = $state<number>(0)
   let findMeError = $state<string | null>(null)
-  let highlightedProfileId = $state<string | null>(null)
+  let highlightMe = $state(false)
 
   $effect(() => {
     search = initialQ
@@ -114,7 +131,7 @@
   $effect(() => {
     selectedBatchId = batchId
     findMeError = null
-    highlightedProfileId = null
+    highlightMe = false
   })
 
   let urlSyncTimer: number | null = null
@@ -146,6 +163,9 @@
     if (disregardTier) params.set('ignoreTier', '1')
     else params.delete('ignoreTier')
 
+    if (view === 'graphs') params.set('view', 'graphs')
+    else params.delete('view')
+
     const next = u.pathname + (params.toString() ? `?${params.toString()}` : '')
     const current = window.location.pathname + window.location.search
     if (next !== current) {
@@ -169,6 +189,7 @@
     void minGames
     void rankSort
     void disregardTier
+    void view
     scheduleUrlSync(200)
   })
 
@@ -184,6 +205,7 @@
     if (sortDir) params.set('dir', sortDir)
     if (rankSort) params.set('rankSort', '1')
     if (disregardTier) params.set('ignoreTier', '1')
+    if (view === 'graphs') params.set('view', 'graphs')
 
     const qs = params.toString()
     return qs ? `/stats?${qs}` : '/stats'
@@ -394,28 +416,46 @@
     return copy
   })
 
+  /** Find me on the graph: the viewer's dot stays marked until pressed again. */
+  let graphFound = $state(false)
+
   async function findMe() {
     if (!viewer?.profileId) return
     findMeError = null
+
+    if (showGraphs) {
+      if (graphFound) {
+        graphFound = false
+        return
+      }
+      search = ''
+      minGames = 0
+      syncUrlNow()
+      await tick()
+      if (!scatterPoints.some((p) => p.isViewer)) {
+        findMeError = 'Could not find you in this batch.'
+        return
+      }
+      graphFound = true
+      return
+    }
 
     // Ensure row isn't filtered out.
     search = ''
     minGames = 0
     syncUrlNow()
-    highlightedProfileId = null
+    highlightMe = false
     await tick()
 
-    const el = document.getElementById(`profile-${viewer.profileId}`)
+    const el = document.querySelector('[data-viewer-row]')
     if (!el) {
       findMeError = 'Could not find you in this batch.'
       return
     }
 
-    highlightedProfileId = viewer.profileId
+    highlightMe = true
     el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    window.setTimeout(() => {
-      if (highlightedProfileId === viewer.profileId) highlightedProfileId = null
-    }, 2000)
+    window.setTimeout(() => (highlightMe = false), 2000)
   }
 
   /** Batch name and the visible player count. */
@@ -485,6 +525,46 @@
     batches.find((b) => b.id === batchId)?.event ?? events[0]?.name ?? null
   )
   const activePhases = $derived(activeEvent ? phasesOf(activeEvent) : [])
+
+  /**
+   * Graphs only exist for a season's Full Season tab. `view` stays as picked
+   * so moving between seasons keeps you on the graphs, but any other phase
+   * falls back to the table.
+   */
+  const isFullSeason = $derived.by(() => {
+    const current = batches.find((b) => b.id === batchId)
+    return current ? resolveBatchSection(current) === 'full' : false
+  })
+  const showGraphs = $derived(isFullSeason && view === 'graphs')
+
+  const scatterPoints = $derived.by((): ScatterPoint[] => {
+    if (!showGraphs) return []
+    return filteredRows.flatMap((r: Record<string, unknown>, index: number) => {
+      // Number(null) is 0, which would plot missing stats at the origin.
+      if (r.acs == null || r.kast_pct == null) return []
+      const acs = Number(r.acs)
+      const kast = Number(r.kast_pct)
+      if (!Number.isFinite(acs) || !Number.isFinite(kast)) return []
+      // A KAST of 0 means the import had no KAST, not a real score (Season 2's
+      // one-game "Red/firebug" row). Plotted, it drags the axis down to 0%.
+      if (kast <= 0) return []
+      return [
+        {
+          key: statsRowKey(r, index),
+          name: rowName(r),
+          acs,
+          kast,
+          isViewer: isViewerRow(r),
+          rankLabel: rankLabel(r.league_rank as string | null),
+          rankTier: parseRank(r.league_rank as string | null)?.name ?? null,
+        },
+      ]
+    })
+  })
+
+  const foundPointKey = $derived(
+    graphFound ? (scatterPoints.find((p) => p.isViewer)?.key ?? null) : null
+  )
 
   function goToBatch(id: string) {
     if (id === batchId) return
@@ -577,11 +657,43 @@
           <span class="min-games-value">{Math.max(0, Math.trunc(minGames))}</span>
         </div>
 
+        {#if isFullSeason}
+          <div class="view-toggle" role="tablist" aria-label="View">
+            <button
+              type="button"
+              role="tab"
+              class="view-btn"
+              class:view-btn-on={!showGraphs}
+              aria-selected={!showGraphs}
+              onclick={() => (view = 'table')}
+            >
+              <Table2 size={14} /> Table
+            </button>
+            <button
+              type="button"
+              role="tab"
+              class="view-btn"
+              class:view-btn-on={showGraphs}
+              aria-selected={showGraphs}
+              onclick={() => (view = 'graphs')}
+            >
+              <ChartScatter size={14} /> Graphs
+            </button>
+          </div>
+        {/if}
+
         <div class="chip-group">
           {#if viewer?.profileId}
-            <button type="button" class="chip chip-find" onclick={findMe}>Find me</button>
+            <button
+              type="button"
+              class="chip chip-find"
+              class:chip-find-on={showGraphs && graphFound}
+              aria-pressed={showGraphs ? graphFound : undefined}
+              onclick={findMe}>Find me</button
+            >
           {/if}
-          {#if hasAnyRanks}
+          <!-- Rank sort only reorders the table. -->
+          {#if hasAnyRanks && !showGraphs}
             <button
               type="button"
               class="chip"
@@ -609,7 +721,7 @@
       {/if}
 
       <!-- Column picker: one collapsible panel at every size. -->
-      <details class="columns" open>
+      <details class="columns" open hidden={showGraphs}>
         <summary class="columns-summary">
           <span class="columns-chevron">▶</span>
           <span class="columns-title">Visible columns</span>
@@ -655,7 +767,16 @@
         </div>
       </details>
 
-      {#if sortedRows.length === 0}
+      {#if showGraphs}
+        {#if scatterPoints.length === 0}
+          <div class="empty-state">
+            <BarChart3 size={36} style="color: rgba(255,255,255,0.48);" />
+            <p class="empty-text">No players with ACS and KAST match the current filters.</p>
+          </div>
+        {:else}
+          <AcsKastScatter points={scatterPoints} highlightKey={foundPointKey} />
+        {/if}
+      {:else if sortedRows.length === 0}
         <div class="empty-state">
           <BarChart3 size={36} style="color: rgba(255,255,255,0.48);" />
           <p class="empty-text">No players match the current filters.</p>
@@ -707,7 +828,8 @@
               {#each sortedRows as row, index (statsRowKey(row, index))}
                 <tr
                   id={row.profile_id ? `profile-${row.profile_id}` : undefined}
-                  class:row-highlight={row.profile_id && row.profile_id === highlightedProfileId}
+                  data-viewer-row={isViewerRow(row) || undefined}
+                  class:row-highlight={highlightMe && isViewerRow(row)}
                 >
                   <td class="col-index tabular">{index + 1}</td>
                   {#if hasAnyRanks}
@@ -716,8 +838,8 @@
                       {#if rUrl}
                         <img
                           src={rUrl}
-                          alt={String(row.league_rank ?? '')}
-                          title={String(row.league_rank ?? '')}
+                          alt={rankLabel(row.league_rank as string | null) ?? ''}
+                          title={rankLabel(row.league_rank as string | null) ?? ''}
                           class="rank-icon"
                         />
                       {:else}
@@ -1047,6 +1169,43 @@
     text-align: right;
   }
 
+  /* Table / Graphs switch */
+  .view-toggle {
+    display: flex;
+    padding: 0.1875rem;
+    gap: 0.125rem;
+    border-radius: 0.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(0, 0, 0, 0.25);
+  }
+
+  .view-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.25rem 0.625rem;
+    border-radius: 0.375rem;
+    border: none;
+    background: none;
+    color: rgba(255, 255, 255, 0.62);
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition:
+      background 0.15s,
+      color 0.15s;
+  }
+
+  .view-btn:hover {
+    color: var(--text);
+  }
+
+  .view-btn-on,
+  .view-btn-on:hover {
+    background: var(--accent);
+    color: var(--text);
+  }
+
   /* Chips */
   .chip-group {
     display: flex;
@@ -1101,6 +1260,13 @@
   .chip-find:hover {
     background: rgba(74, 222, 128, 0.18);
     color: #bbf7d0;
+  }
+
+  .chip-find-on,
+  .chip-find-on:hover {
+    background: rgba(74, 222, 128, 0.3);
+    border-color: rgba(74, 222, 128, 0.7);
+    color: #dcfce7;
   }
 
   .alert {
