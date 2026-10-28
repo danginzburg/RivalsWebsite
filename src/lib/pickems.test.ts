@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  bracketSeedsWithOpponents,
   bracketThirdPlaceTeamIds,
   buildPickemSlots,
   rankPickemLeaderboardEntries,
@@ -201,6 +202,34 @@ describe('pickem bracket', () => {
       { name: 'A', rank: 1 },
       { name: 'B', rank: 3 },
     ])
+  })
+})
+
+describe('bracketSeedsWithOpponents', () => {
+  it('seeds picked opponents 5-8 by regular-season standing', () => {
+    const top = { seeds: [1, 2, 3, 4].map((seed) => ({ seed, teamId: `top-${seed}` })) }
+    // Seed 1 picked the best play-in team, seed 2 the worst.
+    const picked = standardDoubleElim8Template({ 1: 'p-a', 2: 'p-d', 3: 'p-b', 4: 'p-c' })
+    const standings = { 'p-a': 9, 'p-b': 6, 'p-c': 12, 'p-d': 5 }
+    expect(bracketSeedsWithOpponents(top, picked, standings)).toEqual({
+      'top-1': 1,
+      'top-2': 2,
+      'top-3': 3,
+      'top-4': 4,
+      'p-d': 5,
+      'p-b': 6,
+      'p-a': 7,
+      'p-c': 8,
+    })
+  })
+
+  it('puts unranked opponents after ranked ones', () => {
+    const top = { seeds: [1, 2, 3, 4].map((seed) => ({ seed, teamId: `top-${seed}` })) }
+    const picked = standardDoubleElim8Template({ 1: 'p-a', 2: 'p-b', 3: 'p-c', 4: null })
+    const seeds = bracketSeedsWithOpponents(top, picked, { 'p-c': 7 })
+    expect(seeds['p-c']).toBe(5)
+    expect(seeds['p-a']).toBe(6)
+    expect(seeds['p-b']).toBe(7)
   })
 })
 

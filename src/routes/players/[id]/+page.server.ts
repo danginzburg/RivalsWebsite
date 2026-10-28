@@ -14,7 +14,13 @@ import {
 } from '$lib/server/stats/rivals-batch'
 import { isWeekBatch } from '$lib/stats/sections'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
-import { resolveSeasonStatBatchIds } from '$lib/server/stats/season-batches'
+import {
+  parseFullSeasonBatchId,
+  resolveSeasonStatBatchIds,
+  toFullSeasonBatchId,
+} from '$lib/server/stats/season-batches'
+import { aggregateFullSeasonRows } from '$lib/server/stats/aggregate-full-season'
+import { groupBatchesByEvent } from '$lib/server/stats/batch-events'
 import { rematchPlayerMatchMapStatsForBase } from '$lib/server/imports/matching'
 import { rankValue } from '$lib/ranks/ranks'
 import { loadCommentThread } from '$lib/server/comments'
@@ -201,8 +207,8 @@ async function loadTeamHistory(profileId: string): Promise<TeamHistoryRow[]> {
     if (entry) entry.left_at = null
   }
 
-  // 3rd place is not stored on the season, so it is read off the bracket — only
-  // for finished seasons where this player's team did not already place 1st/2nd.
+  // 3rd place comes from the season's admin-set result or, failing that, its
+  // bracket — only for finished seasons where this player's team did not already place 1st/2nd.
   const thirdBySeason = new Map(
     await Promise.all(
       [...bracketSeasonIds].map(
@@ -565,13 +571,19 @@ export const load = async ({
       .limit(200),
     // For mapping an aggregate batch back to its season, so the Map/Agent
     // breakdowns can scope to that season's matches.
-    supabaseAdmin.from('seasons').select('id, code, name, metadata'),
+    // Newest first, which is also the order the batch picker lists events in.
+    supabaseAdmin
+      .from('seasons')
+      .select('id, code, name, kind, metadata, starts_on, created_at')
+      .order('starts_on', { ascending: false, nullsFirst: false })
+      .order('created_at', { ascending: false }),
   ])
 
   type SeasonMetaRow = {
     id: string
     code?: string | null
     name?: string | null
+    kind?: string | null
     metadata?: { stat_batches?: unknown } | null
   }
   const allSeasons = (allSeasonsRaw ?? []) as SeasonMetaRow[]
@@ -665,7 +677,39 @@ export const load = async ({
     else batchById.set(b.id, normalized)
   }
 
-  const batchOptions = Array.from(batchById.values())
+  const visibleStatRows = ((statsRows ?? []) as StatRow[]).filter(
+    (r) => !weekBatchIds.has(r.import_batch_id)
+  )
+
+  // One "Full Season" line per season the player has phase rows in, summed the
+  // same way the stats API sums its `season:<code>` batches so the two pages
+  // agree. Nothing is stored under these ids.
+  const fullSeasonStats: NormalizedStatRow[] = []
+  for (const season of allSeasons) {
+    if (!season.code) continue
+    const sourceIds = new Set(resolveSeasonStatBatchIds(season))
+    const rows = visibleStatRows.filter((r) => sourceIds.has(r.import_batch_id))
+    if (rows.length === 0) continue
+    const id = toFullSeasonBatchId(season.code)
+    // Every row is this player's, so the sum is a single line.
+    const [row] = aggregateFullSeasonRows(rows, id)
+    if (!row) continue
+    fullSeasonStats.push({
+      ...row,
+      batch: {
+        id,
+        display_name: `${season.name ?? 'Season'} (Full)`,
+        source_filename: null,
+        import_kind: 'aggregate',
+        week_label: null,
+        section: 'full',
+        created_at: null,
+        sort_order: null,
+      },
+    })
+  }
+
+  const sortedBatches = Array.from(batchById.values())
     .sort((a, b) => {
       const ka = kindOrder(a.import_kind)
       const kb = kindOrder(b.import_kind)
@@ -684,20 +728,38 @@ export const load = async ({
       return toBatchLabel(a).localeCompare(toBatchLabel(b))
     })
     .map((b) => ({
-      label: toBatchLabel(b),
-      value: b.id,
+      id: b.id,
+      display_name: toBatchLabel(b),
+      section: b.section ?? null,
       import_kind: b.import_kind ?? null,
+      week_label: b.week_label ?? null,
     }))
+  // Same event-then-phase picker as the stats page.
+  const { batches: pickerBatches, events: batchEvents } = groupBatchesByEvent(
+    [
+      ...fullSeasonStats.map((r) => ({
+        id: r.batch.id,
+        display_name: r.batch.display_name,
+        section: 'full',
+        import_kind: 'aggregate',
+        week_label: null,
+      })),
+      ...sortedBatches,
+    ],
+    allSeasons,
+    (batches ?? []) as RawBatchRow[]
+  )
 
-  const normalizedStats: NormalizedStatRow[] = ((statsRows ?? []) as StatRow[])
-    .filter((r) => !weekBatchIds.has(r.import_batch_id))
-    .map((r) => ({
+  const normalizedStats: NormalizedStatRow[] = [
+    ...fullSeasonStats,
+    ...visibleStatRows.map((r) => ({
       ...r,
       batch: batchById.get(r.import_batch_id) ?? {
         id: r.import_batch_id,
         display_name: r.import_batch_id,
       },
-    }))
+    })),
+  ]
 
   let selected: NormalizedStatRow | null = null
   if (selectedBatchId) {
@@ -713,7 +775,8 @@ export const load = async ({
     }
 
     const aggregates = Array.from(byBatchId.values()).filter(
-      (r) => r.batch?.import_kind === 'aggregate'
+      // Full Season lines stay opt-in; the default is still an imported batch.
+      (r) => r.batch?.import_kind === 'aggregate' && r.batch?.section !== 'full'
     )
 
     function sortBatches(a: NormalizedStatRow, b: NormalizedStatRow) {
@@ -951,7 +1014,14 @@ export const load = async ({
   let scopedMatchIds: Set<string> | null = null
   let scopedSeasonId: string | null = null
 
-  if (selected?.batch?.import_kind === 'aggregate' && selected.import_batch_id) {
+  const fullSeasonCode = parseFullSeasonBatchId(selected?.import_batch_id)
+  if (fullSeasonCode) {
+    const season = allSeasons.find((s) => s.code === fullSeasonCode)
+    if (season) {
+      scopedSeasonId = season.id
+      mapStatsScope = season.name ?? season.code ?? null
+    }
+  } else if (selected?.batch?.import_kind === 'aggregate' && selected.import_batch_id) {
     const rawBatch = rawBatchById.get(selected.import_batch_id)
     const sourceMatchIds = rawBatch?.metadata?.source_match_ids
     if (Array.isArray(sourceMatchIds) && sourceMatchIds.length > 0) {
@@ -1175,7 +1245,8 @@ export const load = async ({
       rows: normalizedStats,
       selected,
       selectedBatchId: selected?.import_batch_id ?? null,
-      batchOptions,
+      batches: pickerBatches,
+      batchEvents,
     },
     matchHistory,
     mapStats,
@@ -1188,6 +1259,10 @@ export const load = async ({
     mapStatsSub: subBreakdowns.mapStats,
     agentStatsSub: subBreakdowns.agentStats,
     rosterSplit: { subGames, mainGames },
+    // Main vs Sub compares one season's (or one generated batch's) matches. A
+    // batch that resolves to neither would compare every match on record under
+    // a header naming one event, so the comparison is offered only when scoped.
+    rosterCompareScoped: matchIdScope !== null || seasonScope !== null,
     rosterTotals,
     // Non-null when the Map/Agent tables are scoped by the selected aggregate
     // batch (to its source matches or season); null when they show every

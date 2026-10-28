@@ -207,6 +207,7 @@ export type AdminSeason = {
   summary?: string | null
   winner_team_id?: string | null
   runner_up_team_id?: string | null
+  third_place_team_id?: string | null
   mvp_profile_id?: string | null
   final_leaderboard_batch_id?: string | null
 }
@@ -317,6 +318,7 @@ export type SeasonEditState = {
   summary: string
   winnerTeamId: string
   runnerUpTeamId: string
+  thirdPlaceTeamId: string
   mvpProfileId: string
   finalLeaderboardBatchId: string
   /** Canonical Valorant map names shown as the season's map pool. */

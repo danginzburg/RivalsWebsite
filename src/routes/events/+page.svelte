@@ -84,6 +84,12 @@
                       <span class="result-value result-value-muted">{season.runner_up.name}</span>
                     </div>
                   {/if}
+                  {#if season.third_place}
+                    <div class="result">
+                      <span class="result-label">3rd</span>
+                      <span class="result-value result-value-muted">{season.third_place.name}</span>
+                    </div>
+                  {/if}
                   {#if season.mvp}
                     <div class="result">
                       <Crown size={15} style="color: #c084fc; flex-shrink: 0;" />

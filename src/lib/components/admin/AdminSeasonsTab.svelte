@@ -241,6 +241,7 @@
             summary: season.summary ?? '',
             winnerTeamId: season.winner_team_id ?? '',
             runnerUpTeamId: season.runner_up_team_id ?? '',
+            thirdPlaceTeamId: season.third_place_team_id ?? '',
             mvpProfileId: season.mvp_profile_id ?? '',
             finalLeaderboardBatchId: season.final_leaderboard_batch_id ?? '',
             mapPool: Array.isArray(season.metadata?.map_pool)
@@ -425,7 +426,7 @@
 
               {#if isResultsExpanded}
                 <div class="px-3 pb-3">
-                  <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
                     <label class="text-xs" style="color: rgba(255,255,255,0.82);">
                       Champion
                       <div class="mt-1">
@@ -449,6 +450,19 @@
                           placeholder="No runner-up set"
                           onSelect={(value) =>
                             onSeasonEditChange(season.id, { ...state, runnerUpTeamId: value })}
+                        />
+                      </div>
+                    </label>
+                    <label class="text-xs" style="color: rgba(255,255,255,0.82);">
+                      3rd Place
+                      <div class="mt-1">
+                        <CustomSelect
+                          options={teamPickerOptions(season.id)}
+                          value={state.thirdPlaceTeamId}
+                          compact={true}
+                          placeholder="From bracket"
+                          onSelect={(value) =>
+                            onSeasonEditChange(season.id, { ...state, thirdPlaceTeamId: value })}
                         />
                       </div>
                     </label>

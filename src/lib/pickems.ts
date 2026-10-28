@@ -402,6 +402,29 @@ export function bracketOpponents(
 }
 
 /**
+ * Playoff seeds for every bracket team. Seeds 1–4 come from the config; the
+ * four picked opponents take 5–8 in regular-season order, so the better
+ * standings finisher holds the higher seed. Unranked teams fall in last.
+ */
+export function bracketSeedsWithOpponents(
+  event: Pick<PickemEvent, 'seeds'>,
+  matches: PickemMatch[],
+  standings: Record<string, number>
+): Record<string, number> {
+  const seeds: Record<string, number> = {}
+  for (const s of event.seeds) seeds[s.teamId] = s.seed
+  const opponents = Object.values(bracketOpponents(event, matches)).filter(
+    (id): id is string => Boolean(id) && seeds[id!] == null
+  )
+  const rank = (id: string) => standings[id] ?? Number.POSITIVE_INFINITY
+  opponents
+    .map((id, i) => ({ id, i }))
+    .sort((a, b) => rank(a.id) - rank(b.id) || a.i - b.i)
+    .forEach(({ id }, i) => (seeds[id] = DE8_TOP_SEEDS.length + 1 + i))
+  return seeds
+}
+
+/**
  * The canonical 8-team, single-QF double-elimination template. Seeds 1–4 sit
  * on side A of their QF; side B is the opponent each one picked, or — when
  * none is given — the default 1v8 / 4v5 / 2v7 / 3v6 seed pairing (kept for

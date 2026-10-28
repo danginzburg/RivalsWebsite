@@ -22,7 +22,7 @@ import {
  * hand:
  *
  *   1st / 2nd Place  - everyone on `seasons.winner_team_id` / `runner_up_team_id`
- *   3rd Place        - everyone on the team the bracket puts 3rd (thirdPlace.ts)
+ *   3rd Place        - `seasons.third_place_team_id`, else the bracket's 3rd (thirdPlace.ts)
  *   Finals MVP       - `seasons.mvp_profile_id`
  *   Pick'em Champion - the top scorer(s) of the season's finished pick'em
  *

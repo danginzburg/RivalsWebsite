@@ -200,8 +200,18 @@
 </script>
 
 <PageContainer class="pickem-page">
-  <div class="flex min-h-[calc(100vh-4rem)] justify-center px-2 py-4">
+  <!-- `page-content` fills the width: the centring page container would
+       otherwise shrink this wrapper to its contents. -->
+  <div class="page-content flex min-h-[calc(100vh-4rem)] justify-center px-2 py-4">
     <div class="my-auto w-full">
+      {#if data.preview}
+        <div
+          class="mb-4 rounded-md border px-3 py-2 text-sm"
+          style="border-color: rgba(250,204,21,0.4); background: rgba(250,204,21,0.08); color: rgba(255,255,255,0.85);"
+        >
+          Draft preview: only admins can see this page until the pick'em is opened.
+        </div>
+      {/if}
       <!-- Header -->
       <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div>
@@ -261,6 +271,8 @@
             >
               {isSaving ? 'Saving...' : isBracket ? 'Save bracket' : 'Save picks'}
             </button>
+          {:else if data.preview}
+            <span class="text-sm" style="color: rgba(255,255,255,0.6);">Preview only</span>
           {:else}
             <span class="text-sm" style="color: rgba(255,255,255,0.6);">Submissions locked</span>
           {/if}

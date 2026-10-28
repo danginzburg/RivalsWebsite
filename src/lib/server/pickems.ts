@@ -487,17 +487,17 @@ function toRealMatch(row: RealMatchRow): PickemRealMatch {
 
 /**
  * Real matches that can decide a unit on their own, oldest first. A bracket
- * reads the season's playoff matches; anything unfiled counts too once it is
- * played after the lock. Weekly matchups read whatever was played after the
- * lock, or the whole season when there is no lock time.
+ * reads only the season's playoff-stage matches — they are the source of
+ * truth, and a match filed under any other stage (or none) is never guessed
+ * in; a slot override is the fix for a misfiled one. Weekly matchups read
+ * whatever was played after the lock, or the whole season with no lock time.
  */
 function isCandidate(event: PickemEvent, row: RealMatchRow): boolean {
   if (row.status === 'cancelled') return false
-  const afterLock = !event.lockAt || (row.scheduled_at != null && row.scheduled_at >= event.lockAt)
-  if (event.format === 'matchups') return afterLock
-  const stage = resolveMatchStageKey(row.stage, row.metadata?.designation)
-  if (stage === 'playoffs') return true
-  return stage === null && Boolean(event.lockAt) && afterLock
+  if (event.format === 'bracket') {
+    return resolveMatchStageKey(row.stage, row.metadata?.designation) === 'playoffs'
+  }
+  return !event.lockAt || (row.scheduled_at != null && row.scheduled_at >= event.lockAt)
 }
 
 /**
