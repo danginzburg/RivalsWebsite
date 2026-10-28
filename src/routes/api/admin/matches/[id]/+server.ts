@@ -10,6 +10,7 @@ import { supabaseAdmin } from '$lib/supabase/admin'
 import { logAdminAction } from '$lib/server/audit/admin-actions'
 import { resolveTargetSeasonId } from '$lib/server/seasons/resolve'
 import { normalizeSectionKey } from '$lib/stats/sections'
+import { normalizeVetoLines } from '$lib/matches/vetoLog'
 import { refreshStandingsForSeason } from '$lib/server/leaderboard/computed'
 import { refreshLiveBatchesForMatch } from '$lib/server/stats/from-matches'
 import {
@@ -65,10 +66,7 @@ async function refreshStandingsAfterEdit(
 
 function parseMapVetoes(value: unknown): string[] {
   if (typeof value !== 'string') return []
-  return value
-    .split(/\r?\n/)
-    .map((entry) => entry.trim())
-    .filter(Boolean)
+  return normalizeVetoLines(value.split(/\r?\n/))
 }
 
 export const PATCH: RequestHandler = async ({ locals, request, params }) => {
