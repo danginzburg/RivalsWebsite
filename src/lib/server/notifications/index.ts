@@ -229,6 +229,28 @@ export async function markAllRead(profileId: string): Promise<void> {
   if (error) console.error('Failed to mark all notifications read:', error)
 }
 
+/** Delete specific notifications. Scoped to the owner so nobody else's rows go. */
+export async function clearNotifications(profileId: string, ids: string[]): Promise<void> {
+  if (ids.length === 0) return
+  const { error } = await supabaseAdmin
+    .from('notifications')
+    .delete()
+    .eq('recipient_profile_id', profileId)
+    .in('id', ids)
+
+  if (error) console.error('Failed to clear notifications:', error)
+}
+
+/** Delete every notification for a recipient. */
+export async function clearAllNotifications(profileId: string): Promise<void> {
+  const { error } = await supabaseAdmin
+    .from('notifications')
+    .delete()
+    .eq('recipient_profile_id', profileId)
+
+  if (error) console.error('Failed to clear all notifications:', error)
+}
+
 /**
  * Build the page link for a comment on an entity. Seasons route on their `code`,
  * so a lookup is needed; matches and players route on the row id directly.
