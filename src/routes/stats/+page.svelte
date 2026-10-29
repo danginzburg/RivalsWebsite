@@ -3,7 +3,7 @@
   import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import PageHeading from '$lib/components/PageHeading.svelte'
-  import { BarChart3, ChartScatter, Search, Table2 } from 'lucide-svelte'
+  import { BarChart3, ChartScatter, ChevronUp, Search, Table2 } from 'lucide-svelte'
   import { SvelteURLSearchParams } from 'svelte/reactivity'
   import { resolve } from '$app/paths'
   import { agentIconUrl, rankIconUrlByKey } from '$lib/icons'
@@ -477,7 +477,9 @@
    * On phones the heading, filters and column picker take roughly 450px of an
    * 812px screen, leaving the table about four rows tall. Collapse that block
    * once the viewer starts scrolling the table so it stretches to the full
-   * screen height, and bring it back when they return to the top.
+   * screen height. Only the collapsed bar brings it back — unfolding on a
+   * return to the top would shrink the table just as the first rows come into
+   * view, so they could never be read at full height.
    *
    * Only the mobile stylesheet acts on this flag — on desktop there is room for
    * both, so the class is inert.
@@ -485,11 +487,15 @@
   let headerCollapsed = $state(false)
 
   function handleTableScroll(event: Event & { currentTarget: HTMLDivElement }) {
-    const top = event.currentTarget.scrollTop
-    // Two thresholds rather than one: collapsing grows the table under the
-    // finger, and a single boundary makes the header flicker on and off.
-    if (!headerCollapsed && top > 24) headerCollapsed = true
-    else if (headerCollapsed && top < 4) headerCollapsed = false
+    if (!headerCollapsed && event.currentTarget.scrollTop > 24) headerCollapsed = true
+  }
+
+  let tableWrap = $state<HTMLDivElement | null>(null)
+
+  /** Back to the top of the table and unfold the filters. */
+  function expandHeader() {
+    headerCollapsed = false
+    tableWrap?.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   const events = $derived((data.events ?? []) as Array<{ name: string; external: boolean }>)
@@ -541,7 +547,7 @@
 
 <PageContainer class="stats-page">
   <div class="stats-viewport">
-    <div class="stats-shell page-content" class:shell-collapsed={headerCollapsed}>
+    <div class="stats-shell page-content" class:shell-collapsed={headerCollapsed && !showGraphs}>
       <div class="stats-head">
         <PageHeading title="Player Stats" subtitle={batchSubtitle} icon={BarChart3} />
       </div>
@@ -687,6 +693,14 @@
         </div>
       </details>
 
+      <!-- Mobile only: once the filters fold away, keep which table this is in view. -->
+      {#if headerCollapsed && !showGraphs}
+        <button type="button" class="collapsed-bar" onclick={expandHeader}>
+          <span class="collapsed-bar-label">{batchSubtitle}</span>
+          <span class="collapsed-bar-action">Filters <ChevronUp size={14} /></span>
+        </button>
+      {/if}
+
       {#if showGraphs}
         {#if scatterPoints.length === 0}
           <div class="empty-state">
@@ -702,7 +716,7 @@
           <p class="empty-text">No players match the current filters.</p>
         </div>
       {:else}
-        <div class="stats-table-wrap" onscroll={handleTableScroll}>
+        <div class="stats-table-wrap" bind:this={tableWrap} onscroll={handleTableScroll}>
           <table class="stats-table">
             <thead>
               <tr>
@@ -1328,6 +1342,40 @@
     background: rgba(0, 0, 0, 0.18);
   }
 
+  .collapsed-bar {
+    display: none;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    background: var(--surface);
+    font: inherit;
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.85);
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .collapsed-bar-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+  }
+
+  .collapsed-bar-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    flex-shrink: 0;
+    color: #86efac;
+  }
+
   .empty-text {
     font-size: 0.875rem;
     color: rgba(255, 255, 255, 0.5);
@@ -1384,6 +1432,17 @@
     .search-wrap,
     .min-games {
       max-width: none;
+    }
+
+    .collapsed-bar {
+      display: flex;
+    }
+
+    /* Column labels are the only key to the numbers on a phone — make them readable. */
+    .stats-table thead th {
+      font-size: 0.6875rem;
+      color: rgba(255, 255, 255, 0.85);
+      border-bottom-color: rgba(255, 255, 255, 0.2);
     }
   }
 </style>

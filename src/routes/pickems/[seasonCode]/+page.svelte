@@ -17,8 +17,6 @@
 
   let { data }: PageProps = $props()
 
-  const RESULTS_VIEW_ID = '__results__'
-
   const isBracket = $derived(data.event.format === 'bracket')
   const entryNoun = $derived(isBracket ? 'bracket' : 'entry')
   const entryNounPlural = $derived(isBracket ? 'brackets' : 'entries')
@@ -26,35 +24,24 @@
   let picks = $state<Record<string, string>>(
     untrack(() => ({ ...(data.mySubmission?.payload.picks ?? {}) }))
   )
-  let selectedSubmissionId = $state<string>(untrack(() => RESULTS_VIEW_ID))
+  let selectedSubmissionId = $state<string>(untrack(() => data.mySubmission?.id ?? ''))
   let isSaving = $state(false)
   let saveMessage = $state<string | null>(null)
   let errorMessage = $state<string | null>(null)
 
   const teamById = $derived(new Map((data.teams as PickemTeam[]).map((team) => [team.id, team])))
-  const isViewingResults = $derived(selectedSubmissionId === RESULTS_VIEW_ID)
   const selectedSubmission = $derived(
     data.submissions.find((submission) => submission.id === selectedSubmissionId) ?? null
   )
   const displayPayload = $derived<PickemPayload>(
-    isViewingResults
-      ? { picks: { ...data.actualWinners } }
-      : selectedSubmission && selectedSubmission.id !== data.mySubmission?.id
-        ? normalizePickemPayload(selectedSubmission.payload)
-        : { picks }
+    selectedSubmission && selectedSubmission.id !== data.mySubmission?.id
+      ? normalizePickemPayload(selectedSubmission.payload)
+      : { picks }
   )
-  // Only a bracket's Actual view reconstructs from the linked real matches
-  // (their teams and winners can diverge from the seed routing). A submission
-  // view propagates from that person's own picks; matchups already carry their
-  // teams (assigned or filled from the linked game server-side).
-  const slots = $derived(
-    buildPickemSlots(
-      data.event,
-      data.matches,
-      displayPayload,
-      isBracket && isViewingResults ? (data.linkedResults ?? {}) : {}
-    )
-  )
+  // A submission view propagates from that person's own picks; matchups
+  // already carry their teams (assigned or filled from the linked game
+  // server-side). The real bracket is drawn on the leaderboard page.
+  const slots = $derived(buildPickemSlots(data.event, data.matches, displayPayload))
 
   /** Matchup slots grouped by week, preserving row order. */
   const matchupGroups = $derived.by(() => {
@@ -72,7 +59,7 @@
     return groups
   })
   const isViewingOwn = $derived(
-    !isViewingResults && (!selectedSubmission || selectedSubmission.id === data.mySubmission?.id)
+    !selectedSubmission || selectedSubmission.id === data.mySubmission?.id
   )
 
   /*
@@ -116,7 +103,6 @@
 
   const submissionOptions = $derived.by(() => {
     const opts: Array<{ value: string; label: string }> = []
-    opts.push({ value: RESULTS_VIEW_ID, label: isBracket ? 'Actual Bracket' : 'Actual Results' })
     if (data.mySubmission) {
       opts.push({ value: data.mySubmission.id, label: isBracket ? 'My bracket' : 'My picks' })
     } else if (data.viewer.canEdit) {
@@ -149,7 +135,6 @@
   }
 
   function pickResult(matchId: string): 'correct' | 'wrong' | 'no-pick' | null {
-    if (isViewingResults) return null
     if (resolvedIds.has(matchId)) return null
     const winner = actualWinners[matchId]
     if (!winner) return null
@@ -240,6 +225,7 @@
               <CustomSelect
                 options={submissionOptions}
                 value={selectedSubmissionId}
+                placeholder={isBracket ? 'View a bracket' : 'View picks'}
                 compact={true}
                 onSelect={(value) => (selectedSubmissionId = value)}
               />
@@ -435,7 +421,7 @@
   <article
     class="match-card"
     class:gf={slot.id === 'grand_final'}
-    class:resolved={isDecided && result === null && !isViewingResults}
+    class:resolved={isDecided && result === null}
     class:pick-correct={result === 'correct'}
     class:pick-wrong={result === 'wrong'}
   >
@@ -452,7 +438,7 @@
       {/if}
     </div>
     {#each [slot.teamAId, slot.teamBId] as teamId, index (`${slot.id}-${index}`)}
-      {@const isPick = !isViewingResults && slot.winnerId === teamId}
+      {@const isPick = slot.winnerId === teamId}
       {@const isWinner = isDecided && teamId === (actualWinners[slot.id] ?? null)}
       {@const seed = teamSeed(teamId)}
       <button
@@ -462,8 +448,7 @@
         class:pick-pending={isPick && result === null}
         class:pick-hit={isPick && result === 'correct'}
         class:pick-miss={isPick && result === 'wrong'}
-        class:won={isWinner && !isViewingResults}
-        class:won-result={isWinner && isViewingResults}
+        class:won={isWinner}
         disabled={isResolved || !data.viewer.canEdit || !isViewingOwn || !teamId}
         onclick={() => chooseWinner(slot.id, teamId)}
       >
@@ -484,9 +469,7 @@
         {:else if isPick}
           <span class="team-mark mark-pick" title="Your pick">●</span>
         {/if}
-        {#if isWinner && isViewingResults}
-          <span class="team-mark mark-hit" title="Won this match">✓</span>
-        {:else if isWinner && !isPick}
+        {#if isWinner && !isPick}
           <span class="team-mark mark-won" title="Won this match">W</span>
         {/if}
       </button>
@@ -698,21 +681,6 @@
   .team-btn.won {
     border-color: rgba(255, 255, 255, 0.5);
     background: rgba(255, 255, 255, 0.07);
-  }
-
-  /*
-   * The Actual Bracket view has no picks to contradict, so the winner gets
-   * plain "this team won" green.
-   */
-  .team-btn.won-result {
-    border-color: rgba(74, 222, 128, 0.55);
-    background: rgba(74, 222, 128, 0.16);
-    box-shadow: 0 0 0 1px rgba(74, 222, 128, 0.35);
-  }
-
-  .team-btn.won-result .team-name {
-    color: #bbf7d0;
-    font-weight: 700;
   }
 
   .team-btn.pick-hit {

@@ -32,9 +32,8 @@ export const load: PageServerLoad = async ({ locals, params }) => {
   const profile = locals.user ? await requireProfile(locals.user).catch(() => null) : null
   const mySubmission = profile ? await getPickemSubmissionForProfile(event.id, profile.id) : null
   // Results come from the real matches behind each slot — linked by an admin or
-  // detected from the two teams that met. Their teams also feed the "Actual
-  // Bracket" view, since a reconstructed bracket can route teams differently
-  // than the seed layout.
+  // detected from the two teams that met. (The real bracket itself is drawn on
+  // the leaderboard page.)
   const { actualWinners, linkedResults } = await getPickemResults(event, matches)
   const submissions = await listPickemPublicSubmissions(event.id, matches, actualWinners)
   const leaderboard = rankPickemLeaderboardEntries(submissions)
@@ -43,8 +42,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 
   // Weekly matchups can be defined by linking a real match instead of assigning
   // teams, so fill each slot's teams from its linked game when not set directly.
-  // (Brackets keep their seed/propagation teams; the linked results only feed
-  // the Actual Bracket view.)
+  // (Brackets keep their seed/propagation teams.)
   const resolvedMatches =
     event.format === 'matchups'
       ? matches.map((m) => {
@@ -96,7 +94,6 @@ export const load: PageServerLoad = async ({ locals, params }) => {
     submissions,
     leaderboard,
     actualWinners,
-    linkedResults,
     complete,
     viewer: {
       isLoggedIn: Boolean(profile),

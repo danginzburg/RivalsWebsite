@@ -517,7 +517,9 @@ export function standardDoubleElim8Template(
       groupKey: 'Lower R2',
       label: 'Lower R2 1',
       points: 2,
-      feedA: lose('ub_sf_1'),
+      // Upper SF losers cross over to the other half of the lower bracket, so
+      // they never meet a team from their own QF pair straight away.
+      feedA: lose('ub_sf_2'),
       feedB: win('lb_r1_1'),
     },
     {
@@ -525,7 +527,7 @@ export function standardDoubleElim8Template(
       groupKey: 'Lower R2',
       label: 'Lower R2 2',
       points: 2,
-      feedA: lose('ub_sf_2'),
+      feedA: lose('ub_sf_1'),
       feedB: win('lb_r1_2'),
     },
     {

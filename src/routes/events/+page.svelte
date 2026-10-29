@@ -4,9 +4,33 @@
   import PageHeading from '$lib/components/PageHeading.svelte'
   import { CalendarClock, Trophy, Crown, Users, Swords, ChevronRight } from 'lucide-svelte'
   import { resolve } from '$app/paths'
+  import { onMount } from 'svelte'
+
+  const HIDE_EXTERNAL_STORAGE_KEY = 'events:hide-external'
 
   let { data }: PageProps = $props()
-  const seasons = $derived(data.seasons ?? [])
+  let hideExternal = $state(false)
+  const allSeasons = $derived(data.seasons ?? [])
+  const hasExternal = $derived(allSeasons.some((s) => s.external))
+  const seasons = $derived(hideExternal ? allSeasons.filter((s) => !s.external) : allSeasons)
+
+  // localStorage only exists in the browser, so read it after mount.
+  onMount(() => {
+    try {
+      hideExternal = localStorage.getItem(HIDE_EXTERNAL_STORAGE_KEY) === '1'
+    } catch {
+      // Storage blocked; keep the default.
+    }
+  })
+
+  function toggleHideExternal() {
+    hideExternal = !hideExternal
+    try {
+      localStorage.setItem(HIDE_EXTERNAL_STORAGE_KEY, hideExternal ? '1' : '0')
+    } catch {
+      // Storage blocked; the toggle still works for this visit.
+    }
+  }
 
   function formatRange(startsOn: string | null, endsOn: string | null) {
     if (!startsOn && !endsOn) return 'Dates TBD'
@@ -29,7 +53,21 @@
       title="Events"
       subtitle="Every season, its champions, and how it played out."
       icon={CalendarClock}
-    ></PageHeading>
+    >
+      {#snippet actions()}
+        {#if hasExternal}
+          <button
+            type="button"
+            class="filter-toggle"
+            class:filter-toggle-on={hideExternal}
+            aria-pressed={hideExternal}
+            onclick={toggleHideExternal}
+          >
+            {hideExternal ? 'Show external events' : 'Hide external events'}
+          </button>
+        {/if}
+      {/snippet}
+    </PageHeading>
 
     {#if seasons.length === 0}
       <div class="empty-state">
@@ -130,6 +168,30 @@
 </PageContainer>
 
 <style>
+  .filter-toggle {
+    padding: 0.4375rem 0.875rem;
+    border-radius: 9999px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(0, 0, 0, 0.2);
+    color: rgba(255, 255, 255, 0.75);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition:
+      border-color 0.15s,
+      color 0.15s;
+  }
+
+  .filter-toggle:hover {
+    border-color: rgba(120, 67, 145, 0.55);
+    color: var(--text);
+  }
+
+  .filter-toggle-on {
+    border-color: rgba(120, 67, 145, 0.55);
+    color: var(--accent-text);
+  }
+
   .season-list {
     display: flex;
     flex-direction: column;

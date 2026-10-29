@@ -1,6 +1,8 @@
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { TtlCache } from '$lib/server/cache'
-import { normalizePickemSeeds } from '$lib/pickems'
+import { bracketSeedsWithOpponents } from '$lib/pickems'
+import { getSeasonStandingsRanks } from '$lib/server/leaderboard/ranks'
+import { getPublishedPickemContextBySeasonId } from '$lib/server/pickems'
 
 /**
  * Playoff seeds, keyed by team id.
@@ -14,28 +16,24 @@ export type SeedMap = Record<string, number>
 /** Seeds change only when an admin edits the bracket. */
 const seedCache = new TtlCache<SeedMap>({ ttlMs: 5 * 60_000, maxEntries: 50 })
 
-function toSeedMap(config: unknown): SeedMap {
-  const raw = config && typeof config === 'object' ? (config as Record<string, unknown>) : {}
-  const map: SeedMap = {}
-  for (const entry of normalizePickemSeeds(raw.seeds)) {
-    if (entry.teamId) map[entry.teamId] = entry.seed
-  }
-  return map
-}
-
-/** Seeds for one season. Empty when the season has no bracket configured. */
+/**
+ * Seeds for one season. Empty when the season has no published bracket.
+ *
+ * Only seeds 1–4 are stored; the opponents they picked take 5–8 in
+ * regular-season order (see `bracketSeedsWithOpponents`), so every bracket
+ * team has a seed here, matching the pick'em page.
+ */
 export async function getSeasonSeeds(seasonId: string | null | undefined): Promise<SeedMap> {
   if (!seasonId) return {}
 
   return seedCache.wrap(seasonId, async () => {
-    const { data } = await supabaseAdmin
-      .from('pickem_events')
-      .select('config')
-      .eq('season_id', seasonId)
-      .neq('status', 'draft')
-      .maybeSingle()
-
-    return toSeedMap(data?.config)
+    const { event, matches } = await getPublishedPickemContextBySeasonId(seasonId)
+    if (!event) return {}
+    if (event.format !== 'bracket') {
+      return Object.fromEntries(event.seeds.map((s) => [s.teamId, s.seed])) as SeedMap
+    }
+    const standings = await getSeasonStandingsRanks(seasonId).catch(() => ({}))
+    return bracketSeedsWithOpponents(event, matches, standings)
   })
 }
 
@@ -46,13 +44,12 @@ export async function getSeasonSeeds(seasonId: string | null | undefined): Promi
 export async function getActiveSeasonSeeds(): Promise<SeedMap> {
   return seedCache.wrap('__active__', async () => {
     const { data } = await supabaseAdmin
-      .from('pickem_events')
-      .select('config, seasons!inner (is_active)')
-      .eq('seasons.is_active', true)
-      .neq('status', 'draft')
+      .from('seasons')
+      .select('id')
+      .eq('is_active', true)
       .maybeSingle()
 
-    return toSeedMap(data?.config)
+    return getSeasonSeeds(data?.id as string | undefined)
   })
 }
 

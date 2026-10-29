@@ -158,8 +158,8 @@ async function loadStandings() {
       .order('name', { ascending: true }),
     // Seeds come from the active season's bracket, matching the team list.
     getSeasonSeeds(activeSeasonId),
-    // Only drawn once the event has moved on to playoffs.
-    zones.stage === 'playoffs' ? loadSeasonBracket(activeSeasonId) : null,
+    // Drawn whenever the season has a published bracket pick'em.
+    loadSeasonBracket(activeSeasonId),
   ])
 
   const teamIds = (teams ?? []).map((t) => t.id)
