@@ -74,6 +74,10 @@
   const RADIUS = 4.5
   /** Screen-space distance that counts as "on" a point — also gathers stacked ones. */
   const HOVER_RADIUS = 9
+  /** A fingertip is far less precise than a cursor. */
+  const TAP_RADIUS = 14
+  /** Movement beyond this between touch down and up is a pan, not a tap. */
+  const TAP_SLOP = 10
   const MAX_ZOOM = 25
 
   let container: HTMLDivElement
@@ -260,33 +264,74 @@
     )
   })
 
-  function handlePointerMove(event: PointerEvent) {
+  function pointsNear(event: PointerEvent, radius: number) {
     const [mx, my] = d3.pointer(event, svgEl)
     const px = mx - MARGIN.left
     const py = my - MARGIN.top
-    if (px < 0 || py < 0 || px > innerW || py > innerH) {
-      hovered = null
-      return
-    }
+    if (px < 0 || py < 0 || px > innerW || py > innerH) return null
     const near = points
       .map((p) => ({ p, d: Math.hypot(x(p.kast) - px, y(p.acs) - py) }))
-      .filter((n) => n.d <= HOVER_RADIUS)
+      .filter((n) => n.d <= radius)
       .sort((a, b) => a.d - b.d)
       .map((n) => n.p)
-    hovered = near.length > 0 ? { x: mx, y: my, items: near } : null
+    return near.length > 0 ? { x: mx, y: my, items: near } : null
   }
 
-  const tooltipItems = $derived(hovered ? hovered.items.slice(0, 8) : [])
-  const tooltipLeft = $derived(hovered ? hovered.x > width * 0.6 : false)
-  const tooltipUp = $derived(hovered ? hovered.y > height * 0.6 : false)
+  // Touch has no hover: a stationary tap fires no pointermove, and pointerleave
+  // follows every lift. So touch selects on tap and keeps it until the next tap.
+  function handlePointerMove(event: PointerEvent) {
+    if (event.pointerType === 'touch') return
+    hovered = pointsNear(event, HOVER_RADIUS)
+  }
+
+  function handlePointerLeave(event: PointerEvent) {
+    if (event.pointerType !== 'touch') hovered = null
+  }
+
+  let tapStart: { x: number; y: number } | null = null
+
+  function handlePointerDown(event: PointerEvent) {
+    tapStart =
+      event.pointerType === 'touch' && event.isPrimary
+        ? { x: event.clientX, y: event.clientY }
+        : null
+  }
+
+  function handlePointerUp(event: PointerEvent) {
+    if (!tapStart || event.pointerType !== 'touch') return
+    const moved = Math.hypot(event.clientX - tapStart.x, event.clientY - tapStart.y)
+    tapStart = null
+    if (moved <= TAP_SLOP) hovered = pointsNear(event, TAP_RADIUS)
+  }
+
+  /** As many rows (~64px each) as fit in the plot, so a short phone plot never clips. */
+  const maxTooltipItems = $derived(Math.max(1, Math.min(8, Math.floor((height - 56) / 64))))
+  const tooltipItems = $derived(hovered ? hovered.items.slice(0, maxTooltipItems) : [])
+
+  /** Beside the pointer where it fits, flipped and then clamped so it never clips. */
+  let tipW = $state(0)
+  let tipH = $state(0)
+  const tooltipPos = $derived.by(() => {
+    if (!hovered) return null
+    const gap = 12
+    const edge = 4
+    let left = hovered.x + gap
+    if (left + tipW > width - edge) left = hovered.x - gap - tipW
+    left = Math.max(edge, Math.min(left, width - tipW - edge))
+    let top = hovered.y + gap
+    if (top + tipH > height - edge) top = hovered.y - gap - tipH
+    top = Math.max(edge, Math.min(top, height - tipH - edge))
+    return { left, top }
+  })
 </script>
 
 <div class="scatter">
   <div class="scatter-bar">
     <span class="scatter-title">ACS vs KAST</span>
-    <span class="scatter-hint"
+    <span class="scatter-hint scatter-hint-mouse"
       >Scroll to zoom · drag to pan · double-click or reset to zoom out</span
     >
+    <span class="scatter-hint scatter-hint-touch">Tap a dot · pinch to zoom · drag to pan</span>
     <span class="bar-actions">
       {#if transform.k > 1}
         <button type="button" class="bar-btn" onclick={resetZoom}>
@@ -347,7 +392,10 @@
       {width}
       {height}
       onpointermove={handlePointerMove}
-      onpointerleave={() => (hovered = null)}
+      onpointerleave={handlePointerLeave}
+      onpointerdown={handlePointerDown}
+      onpointerup={handlePointerUp}
+      onpointercancel={() => (tapStart = null)}
       ondblclick={resetZoom}
       role="img"
       aria-label="Scatter plot of each player's ACS against KAST percentage"
@@ -407,12 +455,12 @@
       </g>
     </svg>
 
-    {#if hovered}
+    {#if hovered && tooltipPos}
       <div
         class="tooltip"
-        class:tooltip-left={tooltipLeft}
-        class:tooltip-up={tooltipUp}
-        style="left: {hovered.x}px; top: {hovered.y}px"
+        bind:offsetWidth={tipW}
+        bind:offsetHeight={tipH}
+        style="left: {tooltipPos.left}px; top: {tooltipPos.top}px"
       >
         {#if hovered.items.length > 1}
           <div class="tooltip-head">{hovered.items.length} players here</div>
@@ -471,6 +519,20 @@
   .scatter-hint {
     font-size: 0.6875rem;
     color: rgba(255, 255, 255, 0.5);
+  }
+
+  .scatter-hint-touch {
+    display: none;
+  }
+
+  @media (hover: none) {
+    .scatter-hint-mouse {
+      display: none;
+    }
+
+    .scatter-hint-touch {
+      display: inline;
+    }
   }
 
   .bar-actions {
@@ -671,28 +733,15 @@
   .tooltip {
     position: absolute;
     z-index: 10;
-    transform: translate(12px, 12px);
     pointer-events: none;
     min-width: 10rem;
-    max-width: 16rem;
+    max-width: min(16rem, calc(100% - 8px));
     padding: 0.5rem 0.625rem;
     border-radius: 0.5rem;
     border: 1px solid rgba(255, 255, 255, 0.15);
     background: rgba(20, 10, 36, 0.96);
     box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
     font-size: 0.75rem;
-  }
-
-  .tooltip-left {
-    transform: translate(calc(-100% - 12px), 12px);
-  }
-
-  .tooltip-up {
-    transform: translate(12px, calc(-100% - 12px));
-  }
-
-  .tooltip-left.tooltip-up {
-    transform: translate(calc(-100% - 12px), calc(-100% - 12px));
   }
 
   .tooltip-head {

@@ -24,8 +24,8 @@
   const zones = $derived(data.zones ?? EMPTY_STANDINGS_CONFIG)
   const bracket = $derived(data.bracket ?? null)
   const isAdmin = $derived(data.viewer?.isAdmin ?? false)
-  /** Playoffs with a bracket to draw: the bracket leads and the table steps back. */
-  const inPlayoffs = $derived(zones.stage === 'playoffs' && bracket != null)
+  /** A published bracket to draw: the bracket leads and the table steps back. */
+  const inPlayoffs = $derived(bracket != null)
 
   let editingZones = $state(false)
 
@@ -130,7 +130,10 @@
 
       {#if inPlayoffs && bracket}
         <section class="bracket-block">
-          <h2 class="section-title">Playoffs</h2>
+          <h2 class="playoffs-title">
+            <Trophy size={18} class="playoffs-icon" />
+            Playoffs
+          </h2>
           <ArchiveBracket slots={bracket.slots} teams={bracket.teams} {seeds} />
         </section>
         <h2 class="section-title">Regular season standings</h2>
@@ -402,6 +405,26 @@
     letter-spacing: 0.08em;
     color: rgba(255, 255, 255, 0.64);
     margin-bottom: 0.625rem;
+  }
+
+  /* The bracket's heading leads the page, so it reads louder than a section label. */
+  .playoffs-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 1.125rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text);
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid var(--accent);
+    margin-bottom: 0.875rem;
+  }
+
+  .playoffs-title :global(.playoffs-icon) {
+    color: #facc15;
+    flex-shrink: 0;
   }
 
   .table-compact .standings {

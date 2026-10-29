@@ -25,6 +25,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
       starts_on,
       ends_on,
       is_active,
+      kind,
       summary,
       metadata,
       logo_path,
@@ -122,6 +123,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
       starts_on: season.starts_on,
       ends_on: season.ends_on,
       is_active: season.is_active,
+      external: season.kind === 'external',
       summary: season.summary ?? null,
       logo_url: getSeasonLogoUrl(season),
       winner: winner

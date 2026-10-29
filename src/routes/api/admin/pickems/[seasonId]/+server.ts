@@ -1,6 +1,7 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit'
 
 import { requireAdmin } from '$lib/server/auth/profile'
+import { publicDataCache } from '$lib/server/cache'
 import { savePickemForSeason } from '$lib/server/pickems'
 import { invalidateSeasonSeeds } from '$lib/server/seasons/seeds'
 import { supabaseAdmin } from '$lib/supabase/admin'
@@ -19,6 +20,8 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
   const context = await savePickemForSeason(params.seasonId, body)
   // Seeds are read from this config across the site, so drop the cached copy.
   invalidateSeasonSeeds(params.seasonId)
+  // The leaderboard draws this bracket and its seeds.
+  publicDataCache.delete('leaderboard:standings')
 
   // Announce the transitions players care about: picks opening, and scores landing.
   const status = context.event?.status

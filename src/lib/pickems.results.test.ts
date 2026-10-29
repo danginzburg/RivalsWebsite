@@ -69,8 +69,9 @@ describe('resolvePickemResults', () => {
       played('team-2', 'team-5'),
       played('team-6', 'team-7'),
       played('team-8', 'team-3'),
-      played('team-4', 'team-6'),
-      played('team-5', 'team-8'),
+      // Upper SF losers cross over: SF 2's loser meets lower R1 1's winner.
+      played('team-5', 'team-6'),
+      played('team-4', 'team-8'),
       played('team-1', 'team-2'),
       played('team-4', 'team-5'),
       played('team-2', 'team-4', 'team-4'),

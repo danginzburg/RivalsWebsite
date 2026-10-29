@@ -68,8 +68,8 @@ const upperRunPayload: PickemPayload = {
     ub_final: 'team-1',
     lb_r1_1: 'team-8',
     lb_r1_2: 'team-7',
-    lb_r2_1: 'team-4',
-    lb_r2_2: 'team-3',
+    lb_r2_1: 'team-3',
+    lb_r2_2: 'team-4',
     lb_r3: 'team-4',
     lb_final: 'team-4',
     grand_final: 'team-1',
@@ -87,10 +87,12 @@ describe('pickem bracket', () => {
     expect(byId.ub_sf_1.teamBId).toBe('team-4')
     expect(byId.lb_r1_1.teamAId).toBe('team-8')
     expect(byId.lb_r1_1.teamBId).toBe('team-5')
-    expect(byId.lb_r2_1.teamAId).toBe('team-4')
+    // The SF 1 loser crosses to the SF 2 half of the lower bracket.
+    expect(byId.lb_r2_1.teamAId).toBe('team-3')
     expect(byId.lb_r2_1.teamBId).toBe('team-8')
-    expect(byId.lb_r3.teamAId).toBe('team-4')
-    expect(byId.lb_r3.teamBId).toBe('team-3')
+    expect(byId.lb_r2_2.teamAId).toBe('team-4')
+    expect(byId.lb_r3.teamAId).toBe('team-3')
+    expect(byId.lb_r3.teamBId).toBe('team-4')
     expect(byId.lb_final.teamAId).toBe('team-2')
     expect(byId.lb_final.teamBId).toBe('team-4')
     expect(byId.grand_final.teamAId).toBe('team-1')
