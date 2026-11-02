@@ -58,6 +58,7 @@
       season={data.season}
       upcomingSignup={data.upcomingSignup}
       signupsOpen={data.signupsOpen ?? false}
+      rulebookPublished={data.rulebookPublished ?? false}
       hasActivePickem={data.hasActivePickem ?? false}
       {liveMatch}
       {nextMatch}

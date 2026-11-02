@@ -228,6 +228,24 @@ function formatRiotId(name: string | null | undefined, tag: string | null | unde
  * primary account wins when it has a PUUID, then the earliest approved one.
  */
 export async function loadRiotLinks(profileIds?: string[]): Promise<Map<string, RiotLink>> {
+  const links = new Map<string, RiotLink>()
+  for (const [profileId, accounts] of await linkedRiotAccountsFor(profileIds)) {
+    links.set(profileId, accounts[0])
+  }
+  return links
+}
+
+export type AltAccount = {
+  id: string
+  riotId: string
+  puuid: string | null
+  status: 'pending' | 'approved'
+}
+
+/** Every PUUID-backed Riot ID each profile is linked to, in `loadRiotLinks` order. */
+export async function linkedRiotAccountsFor(
+  profileIds?: string[]
+): Promise<Map<string, RiotLink[]>> {
   let query = supabaseAdmin
     .from('riot_accounts')
     .select('profile_id, riot_name, riot_tag, puuid, is_primary, created_at')
@@ -241,17 +259,55 @@ export async function loadRiotLinks(profileIds?: string[]): Promise<Map<string, 
   const { data, error } = await query
   if (error) throw new Error('Failed to load Riot links')
 
-  const links = new Map<string, RiotLink>()
+  const links = new Map<string, RiotLink[]>()
   for (const a of data ?? []) {
-    if (links.has(a.profile_id)) continue
-    links.set(a.profile_id, {
+    const accounts = links.get(a.profile_id) ?? []
+    accounts.push({
       riotId: formatRiotId(a.riot_name, a.riot_tag),
       riotName: a.riot_name,
       riotTag: String(a.riot_tag ?? '').trim() || null,
       puuid: a.puuid,
     })
+    links.set(a.profile_id, accounts)
   }
   return links
+}
+
+/**
+ * Each profile's other accounts to compare on a signup, oldest first: everything
+ * but the account its rank is looked up by, rejected alts, and bare name aliases.
+ * Pending alts count, since signups add theirs while the signup is under review.
+ */
+export async function loadAltAccounts(profileIds: string[]): Promise<Map<string, AltAccount[]>> {
+  const ids = [...new Set(profileIds.filter(Boolean))]
+  const alts = new Map<string, AltAccount[]>()
+  if (ids.length === 0) return alts
+
+  const [links, { data, error }] = await Promise.all([
+    loadRiotLinks(ids),
+    supabaseAdmin
+      .from('riot_accounts')
+      .select('id, profile_id, riot_name, riot_tag, puuid, status')
+      .in('profile_id', ids)
+      .eq('is_primary', false)
+      .neq('status', 'rejected')
+      .order('created_at', { ascending: true }),
+  ])
+  if (error) throw new Error('Failed to load alt Riot accounts')
+
+  for (const a of data ?? []) {
+    if (!a.puuid && !storedTag(a.riot_tag)) continue
+    if (a.puuid && a.puuid === links.get(a.profile_id)?.puuid) continue
+    const list = alts.get(a.profile_id) ?? []
+    list.push({
+      id: a.id,
+      riotId: formatRiotId(a.riot_name, a.riot_tag),
+      puuid: a.puuid,
+      status: a.status,
+    })
+    alts.set(a.profile_id, list)
+  }
+  return alts
 }
 
 /** True once the profile has an approved account with a PUUID. */

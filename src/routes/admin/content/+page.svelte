@@ -67,6 +67,7 @@
 
   const rulebookDirty = $derived(snapshot(rulebook.draft) !== rulebook.saved)
   const faqDirty = $derived(snapshot(faq.draft) !== faq.saved)
+  const activeEditor = $derived(activeTab === 'rulebook' ? rulebook : faq)
   const activeDirty = $derived(activeTab === 'rulebook' ? rulebookDirty : faqDirty)
   const activeUpdatedAt = $derived(activeTab === 'rulebook' ? rulebook.updatedAt : faq.updatedAt)
 
@@ -248,7 +249,8 @@
           <h1 class="admin-import-title">Rulebook & FAQ</h1>
           <p class="admin-hint mt-1">
             Add, reorder, hide and delete sections and questions, then save. Changes stay in this
-            editor until you press Save; hidden items are kept here but not shown publicly.
+            editor until you press Save; hidden items are kept here but not shown publicly. An
+            unpublished page and its links stay hidden from everyone but admins.
           </p>
         </div>
         <div class="flex flex-shrink-0 items-center gap-2">
@@ -290,6 +292,9 @@
           {#if activeDirty}<span class="ce-unsaved">Unsaved changes</span>{/if}
         </div>
         <div class="ce-toolbar-actions">
+          <label class="ce-check" title="Takes effect when you press Save">
+            <input type="checkbox" bind:checked={activeEditor.draft.published} /> Published
+          </label>
           <label class="ce-check">
             <input type="checkbox" bind:checked={showPreview} /> Preview
           </label>

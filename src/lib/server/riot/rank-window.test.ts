@@ -6,6 +6,7 @@ import {
   peakRankBetween,
   rankAtTime,
   summarizeRank,
+  v26Games,
   type MmrSeasonal,
 } from './rank-window'
 
@@ -23,6 +24,24 @@ describe('isInRankWindow', () => {
     expect(isInRankWindow('e11a6')).toBe(true)
     expect(isInRankWindow('e12a1')).toBe(true)
     expect(isInRankWindow('garbage')).toBe(false)
+  })
+})
+
+describe('v26Games', () => {
+  it('adds up only the V26 acts', () => {
+    const gold = tier(12, 'Gold 1')
+    const seasonal = [
+      act('e10a6', gold, [gold], 300),
+      act('e11a1', gold, [gold], 35),
+      act('e11a6', gold, [gold], 7),
+      act('e12a1', gold, [gold], 50),
+    ]
+
+    expect(v26Games({ seasonal })).toBe(42)
+  })
+
+  it('is zero with no act list', () => {
+    expect(v26Games({})).toBe(0)
   })
 })
 

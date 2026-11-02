@@ -2,10 +2,11 @@
   import PageContainer from '$lib/components/PageContainer.svelte'
   import PageHeading from '$lib/components/PageHeading.svelte'
   import { CheckCircle, XCircle, Users, RotateCcw, Search, AlertCircle } from 'lucide-svelte'
-  import { MAX_TEAM_AVERAGE, MAX_TEAM_AVERAGE_IS_PLACEHOLDER } from '$lib/team-balance'
+  import { enhance } from '$app/forms'
+  import { TEAM_CAP_LIMIT } from '$lib/team-balance'
   import type { PageProps } from './$types'
 
-  let { data }: PageProps = $props()
+  let { data, form }: PageProps = $props()
 
   type RatedPlayer = {
     profileId: string
@@ -20,6 +21,10 @@
   const ratedPlayers = $derived((data.ratedPlayers ?? []) as RatedPlayer[])
   const hasRoster = $derived(ratedPlayers.length > 0)
   const season = $derived(data.season)
+  const maxAverage = $derived(data.cap.maxAverage)
+  const isAdmin = $derived(data.user?.role === 'admin')
+
+  let savingCap = $state(false)
 
   const nameKey = (name: string) => name.trim().toLowerCase()
 
@@ -54,9 +59,17 @@
     return ratedByName.get(key) ?? null
   }
 
-  /** A row that has text typed but resolves to nobody. */
-  function isUnknown(name: string) {
-    return name.trim().length > 0 && matchedPlayer(name) === null
+  /** The slot whose suggestion dropdown is showing, and the option highlighted in it. */
+  let openSlot: number | null = $state(null)
+  let highlighted = $state(0)
+
+  const MAX_SUGGESTIONS = 8
+
+  /** A row that has text typed but resolves to nobody, once suggestions run out. */
+  function isUnknown(index: number) {
+    const name = names[index]
+    if (name.trim().length === 0 || matchedPlayer(name) !== null) return false
+    return openSlot !== index || suggestionsFor(index).length === 0
   }
 
   const matchedRoster = $derived(
@@ -66,17 +79,17 @@
       // The same player typed twice (say by name and by Riot ID) counts once.
       .filter((p, i, all) => all.findIndex((q) => q.profileId === p.profileId) === i)
   )
-  const unknownCount = $derived(names.filter(isUnknown).length)
+  const unknownCount = $derived(names.filter((_, i) => isUnknown(i)).length)
 
   const totalValue = $derived(matchedRoster.reduce((sum, p) => sum + p.value, 0))
   const average = $derived(matchedRoster.length > 0 ? totalValue / matchedRoster.length : 0)
   const allFilled = $derived(matchedRoster.length === ROSTER_SIZE)
-  const isEligible = $derived(allFilled && average <= MAX_TEAM_AVERAGE)
+  const isEligible = $derived(allFilled && average <= maxAverage)
 
   /** Rating headroom left for the slots still empty. */
   const slotsLeft = $derived(ROSTER_SIZE - matchedRoster.length)
   const maxForNext = $derived(
-    slotsLeft > 0 ? (MAX_TEAM_AVERAGE * ROSTER_SIZE - totalValue) / slotsLeft : 0
+    slotsLeft > 0 ? (maxAverage * ROSTER_SIZE - totalValue) / slotsLeft : 0
   )
 
   /** Players already picked, so the picker does not offer duplicates. */
@@ -85,6 +98,62 @@
   function availableFor(index: number) {
     const own = matchedPlayer(names[index])?.profileId
     return ratedPlayers.filter((p) => p.profileId === own || !usedIds.has(p.profileId))
+  }
+
+  /** How well a player fits the typed text; lower is better, null is no match. */
+  function matchScore(player: RatedPlayer, query: string) {
+    const name = nameKey(player.name)
+    const ids = [player.riotId, ...player.riotIds].filter((id) => id !== null).map(nameKey)
+    if (name.startsWith(query)) return 0
+    if (ids.some((id) => id.startsWith(query))) return 1
+    if (name.includes(query) || ids.some((id) => id.includes(query))) return 2
+    return null
+  }
+
+  /** Best matches for what is typed in a slot; the sort keeps same-score players by name. */
+  function suggestionsFor(index: number) {
+    const query = nameKey(names[index])
+    if (!query) return []
+    return availableFor(index)
+      .map((player) => ({ player, score: matchScore(player, query) }))
+      .filter((s): s is { player: RatedPlayer; score: number } => s.score !== null)
+      .sort((a, b) => a.score - b.score)
+      .slice(0, MAX_SUGGESTIONS)
+      .map((s) => s.player)
+  }
+
+  function handleInput(index: number) {
+    openSlot = index
+    highlighted = 0
+  }
+
+  function pick(index: number, player: RatedPlayer) {
+    // Two players can share a display name, so fall back to the Riot ID to keep the pick exact.
+    names[index] =
+      ratedByName.get(nameKey(player.name)) === player
+        ? player.name
+        : (player.riotId ?? player.name)
+    openSlot = null
+  }
+
+  function handleKeydown(e: KeyboardEvent, index: number) {
+    const suggestions = suggestionsFor(index)
+    if (e.key === 'Escape') {
+      openSlot = null
+    } else if (suggestions.length === 0) {
+      return
+    } else if (openSlot !== index) {
+      if (e.key === 'ArrowDown') handleInput(index)
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      highlighted = (highlighted + 1) % suggestions.length
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      highlighted = (highlighted - 1 + suggestions.length) % suggestions.length
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      pick(index, suggestions[highlighted])
+    }
   }
 
   function clearAll() {
@@ -104,15 +173,57 @@
       icon={Users}
     />
 
-    {#if MAX_TEAM_AVERAGE_IS_PLACEHOLDER}
+    {#if data.cap.isDefault}
       <div class="notice">
         <AlertCircle size={16} style="flex-shrink: 0; margin-top: 1px;" />
         <div>
           <strong>Provisional cap.</strong>
-          The team average cap hasn't been finalised — {MAX_TEAM_AVERAGE} is a placeholder and may change
-          before the season starts.
+          The team average cap hasn't been finalised — {maxAverage} is a placeholder and may change before
+          the season starts.
         </div>
       </div>
+    {/if}
+
+    {#if isAdmin}
+      <form
+        class="cap-form"
+        method="POST"
+        action="?/setCap"
+        use:enhance={({ formData, cancel }) => {
+          const next = formData.get('maxAverage')
+          const prompt = `Change the team average cap from ${maxAverage} to ${next}? This changes the cap for everyone.`
+          if (!window.confirm(prompt)) {
+            cancel()
+            return
+          }
+          savingCap = true
+          return async ({ update }) => {
+            await update({ reset: false })
+            savingCap = false
+          }
+        }}
+      >
+        <label class="cap-label" for="cap-input">Team average cap</label>
+        <input
+          id="cap-input"
+          class="input cap-input"
+          type="number"
+          name="maxAverage"
+          step="0.01"
+          min="0.01"
+          max={TEAM_CAP_LIMIT}
+          required
+          value={maxAverage}
+        />
+        <button type="submit" class="clear-btn" disabled={savingCap}>
+          {savingCap ? 'Saving…' : 'Save cap'}
+        </button>
+        {#if form?.capError}
+          <span class="cap-form-msg cap-over">{form.capError}</span>
+        {:else if form?.capSaved}
+          <span class="cap-form-msg cap-ok">Saved. This is now the cap for everyone.</span>
+        {/if}
+      </form>
     {/if}
 
     {#if !hasRoster}
@@ -137,7 +248,7 @@
       <div class="cap-divider"></div>
       <div class="cap-item">
         <span class="cap-label">Maximum</span>
-        <span class="cap-value cap-muted">{MAX_TEAM_AVERAGE}</span>
+        <span class="cap-value cap-muted">{maxAverage}</span>
       </div>
       <div class="cap-divider"></div>
       <div class="cap-item">
@@ -160,13 +271,13 @@
           <CheckCircle size={20} />
           <span>
             <strong>Eligible.</strong> Average {average.toFixed(2)} is within the
-            {MAX_TEAM_AVERAGE} cap.
+            {maxAverage} cap.
           </span>
         {:else}
           <XCircle size={20} />
           <span>
             <strong>Over the cap.</strong> Average {average.toFixed(2)} exceeds
-            {MAX_TEAM_AVERAGE} by {(average - MAX_TEAM_AVERAGE).toFixed(2)}.
+            {maxAverage} by {(average - maxAverage).toFixed(2)}.
           </span>
         {/if}
       </div>
@@ -188,7 +299,8 @@
       <div class="rows">
         {#each names as name, i (i)}
           {@const matched = matchedPlayer(name)}
-          {@const unknown = isUnknown(name)}
+          {@const unknown = isUnknown(i)}
+          {@const suggestions = openSlot === i ? suggestionsFor(i) : []}
           <div class="row" class:row-matched={matched} class:row-unknown={unknown}>
             <span class="row-num">{i + 1}</span>
 
@@ -196,17 +308,49 @@
               <input
                 type="text"
                 id="player-{i}"
-                list="rated-players-{i}"
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded={suggestions.length > 0}
+                aria-controls="player-options-{i}"
+                aria-activedescendant={suggestions.length > 0
+                  ? `player-option-${i}-${highlighted}`
+                  : undefined}
+                autocomplete="off"
                 bind:value={names[i]}
+                oninput={() => handleInput(i)}
+                onkeydown={(e) => handleKeydown(e, i)}
+                onblur={() => (openSlot = null)}
                 placeholder={hasRoster ? 'Search by name or Riot ID' : 'No players available'}
                 disabled={!hasRoster}
                 class="input"
               />
-              <datalist id="rated-players-{i}">
-                {#each availableFor(i) as player (player.profileId)}
-                  <option value={player.name}>{player.riotId ?? ''}</option>
-                {/each}
-              </datalist>
+
+              {#if suggestions.length > 0}
+                <div class="suggestions" id="player-options-{i}" role="listbox">
+                  {#each suggestions as player, s (player.profileId)}
+                    <button
+                      type="button"
+                      id="player-option-{i}-{s}"
+                      class="suggestion"
+                      class:suggestion-active={s === highlighted}
+                      role="option"
+                      aria-selected={s === highlighted}
+                      tabindex="-1"
+                      onmousedown={(e) => e.preventDefault()}
+                      onmouseenter={() => (highlighted = s)}
+                      onclick={() => pick(i, player)}
+                    >
+                      <span class="suggestion-text">
+                        <span class="suggestion-name">{player.name}</span>
+                        {#if player.riotId && player.riotId !== player.name}
+                          <span class="suggestion-riot">{player.riotId}</span>
+                        {/if}
+                      </span>
+                      <span class="suggestion-value">{player.value}</span>
+                    </button>
+                  {/each}
+                </div>
+              {/if}
 
               {#if !name}
                 <span class="row-icon"><Search size={13} /></span>
@@ -269,6 +413,27 @@
     font-size: 0.8125rem;
     line-height: 1.5;
     margin-bottom: 0.75rem;
+  }
+
+  /* Admin cap control */
+  .cap-form {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.625rem;
+    padding: 0.625rem 1.25rem;
+    border-radius: 0.75rem;
+    border: 1px dashed rgba(255, 255, 255, 0.14);
+    margin-bottom: 0.75rem;
+  }
+
+  .cap-input {
+    width: 6rem;
+    padding-right: 0.5rem;
+  }
+
+  .cap-form-msg {
+    font-size: 0.75rem;
   }
 
   /* Cap summary */
@@ -459,6 +624,74 @@
     cursor: not-allowed;
   }
 
+  .suggestions {
+    position: absolute;
+    top: calc(100% + 0.25rem);
+    left: 0;
+    right: 0;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    padding: 0.25rem;
+    border-radius: 0.4375rem;
+    border: 1px solid var(--border);
+    background: var(--background);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+  }
+
+  .suggestion {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.4375rem 0.625rem;
+    border: none;
+    border-radius: 0.25rem;
+    background: transparent;
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .suggestion-active {
+    background: var(--hover);
+  }
+
+  .suggestion-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .suggestion-name,
+  .suggestion-riot {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .suggestion-name {
+    font-size: 0.875rem;
+    font-weight: 600;
+  }
+
+  .suggestion-riot {
+    font-size: 0.6875rem;
+    color: rgba(255, 255, 255, 0.6);
+  }
+
+  .suggestion-value {
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: #d8b4fe;
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+  }
+
+  .suggestion-active .suggestion-value {
+    color: var(--text);
+  }
+
   .row-icon {
     position: absolute;
     top: 50%;
@@ -561,7 +794,12 @@
       color 0.15s;
   }
 
-  .clear-btn:hover {
+  .clear-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  .clear-btn:hover:not(:disabled) {
     background: rgba(255, 255, 255, 0.06);
     color: var(--text);
   }

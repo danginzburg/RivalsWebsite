@@ -12,6 +12,7 @@ import {
 import { loadSignupSeason } from '$lib/server/signups/season'
 import { riotIdOwnedByOther, upsertPrimaryRiotAccount } from '$lib/server/players/riot-accounts'
 import { lookupPlayer } from '$lib/server/players/directory'
+import { addAltsFromTrackerLinks } from '$lib/server/signups/alts'
 import { withSignupRiotIds } from '$lib/server/signups/riot-ids'
 import { trackerProfileUrl } from '$lib/players/tracker-url'
 
@@ -191,6 +192,12 @@ export const actions = {
       tracker_links: trackerLinks,
       // Editing returns the signup to review.
       status: 'pending' as const,
+      // The Riot ID may have changed, so the game count no longer applies.
+      v26_comp_games: null,
+      v26_comp_games_account: null,
+      v26_comp_games_checked_at: null,
+      // Likewise the alt check: the tracker links may have changed too.
+      alt_check: null,
     }
 
     const { error: upsertError } = await supabaseAdmin
@@ -210,11 +217,21 @@ export const actions = {
       .eq('id', profile.id)
       .eq('display_name_is_custom', false)
 
+    const failedAlts = await addAltsFromTrackerLinks(
+      profile.id,
+      { riotName: riotId, riotTag },
+      trackerLinks
+    )
+
+    const saved = existing
+      ? 'Signup updated. An admin will review it again.'
+      : 'Signup submitted. An admin will review it shortly.'
+
     return {
       success: true,
-      message: existing
-        ? 'Signup updated. An admin will review it again.'
-        : 'Signup submitted. An admin will review it shortly.',
+      message: failedAlts.length
+        ? `${saved} These accounts could not be added as alts: ${failedAlts.join(', ')}.`
+        : saved,
     }
   },
 

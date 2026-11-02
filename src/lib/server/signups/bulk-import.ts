@@ -1,4 +1,7 @@
+import type { SignupAltCheck } from '$lib/signups/alt-check'
 import { computeSignupValue } from './index'
+import type { RankTarget } from './rank-account'
+import { meetsGamesMinimum, type AccountGames, type GamesAccount } from '$lib/signups/comp-games'
 
 /**
  * Bulk fill of signup ranks from the HenrikDev Riot lookup, run from a single
@@ -17,6 +20,13 @@ import { computeSignupValue } from './index'
  *    call, along with how long to wait before making it.
  * 4. It never touches `manual_value_override` — a hand-set value is the
  *    admin's decision and outranks anything fetched.
+ * 5. A row with nothing to fetch still has its score refreshed, so a rating
+ *    that arrived after the ranks reaches the stored value without a lookup.
+ * 6. V26 games are counted whether or not the ranks need filling. A player
+ *    under the minimum is counted again on every run, because they may have
+ *    played since; one who has reached it never drops back.
+ * 7. A row with alts and no alt check is looked up even when its ranks are
+ *    filled, so the check is never skipped; the filled ranks are still kept.
  */
 
 /** Safety cap on the rows one run walks; well above a season's signups. */
@@ -34,21 +44,31 @@ export type BulkSignupRow = {
   riot_tag: string | null
   current_rank: string | null
   peak_rank: string | null
+  computed_value: number | null
   /** PUUID linked to the player's account; preferred over the Riot ID. */
   puuid: string | null
   /** The player's imported rating, used only to recompute the score. */
   rating: number | null
+  /** Stored V26 game count; null until first checked. */
+  v26_comp_games: number | null
+  /** The accounts to count V26 games on. */
+  accounts: GamesAccount[]
+  /** The player's other accounts, compared with the main. */
+  alts: RankTarget[]
+  alt_check: SignupAltCheck | null
 }
 
 export type SignupPatch = {
   current_rank: string | null
   peak_rank: string | null
   computed_value: number | null
+  alt_check?: SignupAltCheck
 }
 
 export type RiotResult = {
   currentRank: string | null
   peakRank: string | null
+  altCheck?: SignupAltCheck | null
 }
 
 export type BulkImportDeps = {
@@ -57,9 +77,11 @@ export type BulkImportDeps = {
    * with `status: 429` instead, as it does when rate limited.
    */
   lookupRiot(
-    target: { riotId: string | null; puuid: string | null },
+    target: RankTarget & { alts: RankTarget[] },
     opts: { deadline: number }
   ): Promise<RiotResult | null>
+  /** Count and store a row's V26 games. Same `deadline` contract as `lookupRiot`. */
+  checkGames(row: BulkSignupRow, opts: { deadline: number }): Promise<AccountGames>
   save(signupId: string, patch: SignupPatch): Promise<void>
   now(): number
 }
@@ -99,6 +121,14 @@ function riotIdFor(row: BulkSignupRow): string | null {
   return `${name}#${tag}`
 }
 
+function altPatch(altCheck: SignupAltCheck | null | undefined) {
+  return altCheck ? { alt_check: altCheck } : {}
+}
+
+function altNote(altCheck: SignupAltCheck | null | undefined): string {
+  return altCheck?.higherAlt ? ` · Alt higher: ${altCheck.higherAlt}` : ''
+}
+
 function errorMessage(err: unknown): string {
   return err instanceof Error && err.message ? err.message : 'Lookup failed'
 }
@@ -130,8 +160,14 @@ export async function runBulkImport(
     rows: [],
   }
   const deadline = startedAt + budgetMs
+  /** What the games check on the current row found, added to its report line. */
+  let gamesNote: { detail: string; changed: boolean; failed: boolean } | null = null
 
-  const record = (row: BulkSignupRow, outcome: BulkImportOutcome, detail: string) => {
+  const record = (row: BulkSignupRow, rankOutcome: BulkImportOutcome, rankDetail: string) => {
+    let outcome = rankOutcome
+    if (outcome === 'skipped' && gamesNote?.failed) outcome = 'failed'
+    else if (outcome === 'skipped' && gamesNote?.changed) outcome = 'updated'
+    const detail = gamesNote ? `${rankDetail} ${gamesNote.detail}` : rankDetail
     report.rows.push({
       id: row.id,
       name: riotIdFor(row) ?? row.display_name ?? 'Unknown',
@@ -140,6 +176,36 @@ export async function runBulkImport(
     })
     report[outcome === 'updated' ? 'updated' : outcome === 'failed' ? 'failed' : 'skipped'] += 1
     report.processed += 1
+  }
+
+  /** Save the row's score if its ranks and rating now give a different one. */
+  const refreshScore = async (
+    row: BulkSignupRow,
+    skipDetail: string,
+    altCheck?: SignupAltCheck | null
+  ) => {
+    const computedValue = computeSignupValue(row)
+    const stored = row.computed_value == null ? null : Number(row.computed_value)
+    if (computedValue === stored && !altCheck) {
+      record(row, 'skipped', skipDetail)
+      return
+    }
+
+    try {
+      await deps.save(row.id, {
+        current_rank: row.current_rank,
+        peak_rank: row.peak_rank,
+        computed_value: computedValue,
+        ...altPatch(altCheck),
+      })
+      const change =
+        computedValue === stored
+          ? 'Alts checked'
+          : `Score ${stored ?? 'unset'} → ${computedValue ?? 'unset'}`
+      record(row, 'updated', `${change}${altNote(altCheck)}`)
+    } catch (err) {
+      record(row, 'failed', `Save failed: ${errorMessage(err)}`)
+    }
   }
 
   let networkCalls = 0
@@ -153,21 +219,49 @@ export async function runBulkImport(
       break
     }
 
+    gamesNote = null
     const riotId = riotIdFor(row)
     if (!riotId && !row.puuid) {
       record(row, 'skipped', 'No linked Riot account or tagline.')
       continue
     }
 
-    if (!overwrite && row.current_rank != null && row.peak_rank != null) {
-      record(row, 'skipped', 'Already filled.')
+    if (row.accounts.length > 0 && !meetsGamesMinimum(row.v26_comp_games)) {
+      try {
+        networkCalls += 1
+        const { games } = await deps.checkGames(row, { deadline })
+        gamesNote = {
+          detail: `V26 games: ${games}.`,
+          changed: games !== row.v26_comp_games,
+          failed: false,
+        }
+      } catch (err) {
+        const wait = rateLimitWait(err)
+        if (wait !== undefined) {
+          report.stoppedEarly = true
+          report.remaining = rows.length - index
+          report.retryAfterMs = wait
+          break
+        }
+        // The ranks can still be filled; the flag just stays as it was.
+        gamesNote = {
+          detail: `V26 games: ${errorMessage(err)}`,
+          changed: false,
+          failed: true,
+        }
+      }
+    }
+
+    const altsUnchecked = row.alts.length > 0 && !row.alt_check
+    if (!overwrite && row.current_rank != null && row.peak_rank != null && !altsUnchecked) {
+      await refreshScore(row, 'Already filled.')
       continue
     }
 
     let riot: RiotResult | null
     try {
       networkCalls += 1
-      riot = await deps.lookupRiot({ riotId, puuid: row.puuid }, { deadline })
+      riot = await deps.lookupRiot({ riotId, puuid: row.puuid, alts: row.alts }, { deadline })
     } catch (err) {
       const wait = rateLimitWait(err)
       if (wait !== undefined) {
@@ -182,7 +276,7 @@ export async function runBulkImport(
     }
 
     if (!riot) {
-      record(row, 'skipped', 'Nothing to fill — no competitive rank since V26 Act 1.')
+      await refreshScore(row, 'Nothing to fill — no competitive rank since V26 Act 1.')
       continue
     }
 
@@ -198,7 +292,7 @@ export async function runBulkImport(
     }
 
     if (patch.current_rank === row.current_rank && patch.peak_rank === row.peak_rank) {
-      record(row, 'skipped', 'Nothing to fill.')
+      await refreshScore(row, 'Nothing to fill.', riot.altCheck)
       continue
     }
 
@@ -206,6 +300,7 @@ export async function runBulkImport(
       await deps.save(row.id, {
         ...patch,
         computed_value: computeSignupValue({ ...patch, rating: row.rating }),
+        ...altPatch(riot.altCheck),
       })
     } catch (err) {
       record(row, 'failed', `Save failed: ${errorMessage(err)}`)
@@ -215,7 +310,7 @@ export async function runBulkImport(
     const filled: string[] = []
     if (patch.current_rank !== row.current_rank) filled.push(`C ${patch.current_rank}`)
     if (patch.peak_rank !== row.peak_rank) filled.push(`P ${patch.peak_rank}`)
-    record(row, 'updated', filled.join(', '))
+    record(row, 'updated', `${filled.join(', ')}${altNote(riot.altCheck)}`)
   }
 
   return report

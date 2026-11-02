@@ -9,9 +9,9 @@ import {
   parseAdjustment,
   parseScore,
 } from '$lib/server/signups'
-import { loadRatingFor, loadRatingsByName, ratingNameKey } from '$lib/server/signups/ratings'
+import { loadRatingFor, loadRatingsForPlayers } from '$lib/server/signups/ratings'
 import { createNotification } from '$lib/server/notifications'
-import { syncPrimaryRiotName } from '$lib/server/players/riot-accounts'
+import { loadAltAccounts, syncPrimaryRiotName } from '$lib/server/players/riot-accounts'
 import { withSignupRiotIds } from '$lib/server/signups/riot-ids'
 
 const SELECT_COLUMNS = `
@@ -25,8 +25,11 @@ const SELECT_COLUMNS = `
   computed_value,
   manual_value_override,
   manual_adjustment,
+  v26_comp_games,
+  v26_comp_games_account,
   status,
   admin_notes,
+  alt_check,
   created_at,
   updated_at
 `
@@ -62,15 +65,26 @@ export const GET: RequestHandler = async ({ locals, url }) => {
     .in('id', profileIds)
 
   const profileById = new Map((profiles ?? []).map((p) => [p.id, p]))
+  // A player's alts are reviewed inside their signup.
+  const alts = await loadAltAccounts(profileIds)
   // The rating is shown in the score breakdown; a missing one means no bonus.
-  const ratings = await loadRatingsByName(rows.map((r) => r.display_name))
+  const ratings = await loadRatingsForPlayers(
+    rows.map((r) => ({ profile_id: r.profile_id, riot_name: r.display_name }))
+  )
 
   return json({
     signups: rows.map((row) => {
       const profile = profileById.get(row.profile_id)
+      const rating = ratings.get(row.profile_id)
       return {
         ...row,
-        rating: ratings.get(ratingNameKey(row.display_name)) ?? null,
+        rating: rating?.rating ?? null,
+        rating_name: rating?.name ?? null,
+        alts: (alts.get(row.profile_id) ?? []).map(({ id, riotId, status }) => ({
+          id,
+          riotId,
+          status,
+        })),
         profile: {
           id: row.profile_id,
           name: profile?.display_name ?? profile?.email ?? 'Unknown player',
@@ -109,7 +123,7 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
   const computedValue = computeSignupValue({
     current_rank: currentRank,
     peak_rank: peakRank,
-    rating: await loadRatingFor(displayName),
+    rating: await loadRatingFor(existing.profile_id, displayName),
   })
 
   const manualOverride =
@@ -148,9 +162,11 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
   }
 
   if (status) {
+    // Back to pending means no one has reviewed it any more.
+    const reviewed = status !== 'pending'
     updates.status = status
-    updates.reviewed_by_profile_id = admin.id
-    updates.reviewed_at = new Date().toISOString()
+    updates.reviewed_by_profile_id = reviewed ? admin.id : null
+    updates.reviewed_at = reviewed ? new Date().toISOString() : null
   }
 
   const { data: updated, error: updateError } = await supabaseAdmin

@@ -462,8 +462,8 @@
   let riotLookupSignupId = $state<string | null>(null)
 
   /**
-   * Look the player up through HenrikDev and fill current and peak rank (peak
-   * since V26 Act 1). Only touches ranks; any manual override is left alone.
+   * Look the player up through HenrikDev: fill current and peak rank (peak since
+   * V26 Act 1) and store their V26 game count. Any manual override is left alone.
    */
   async function fetchRiotRank(signupId: string) {
     const signup = playerSignups.find((s) => s.id === signupId)
@@ -475,14 +475,28 @@
     const tag = signup.riot_tag?.trim()
     const query =
       `profileId=${encodeURIComponent(signup.profile_id)}` +
+      `&signupId=${encodeURIComponent(signupId)}` +
       (name && tag ? `&riotId=${encodeURIComponent(`${name}#${tag}`)}` : '')
 
     riotLookupSignupId = signupId
     errorMessage = null
     successMessage = null
     try {
+      // Counted first: a player with no rank to fill still has a game count,
+      // and this lookup leaves the rank below already cached.
+      const games = await adminJsonRequest<{ games: number; account: string | null }>(
+        '/api/admin/signups/comp-games',
+        { method: 'POST', body: { id: signupId }, fallbackMessage: 'V26 games lookup failed' }
+      )
+      playerSignups = playerSignups.map((s) =>
+        s.id === signupId
+          ? { ...s, v26_comp_games: games.games, v26_comp_games_account: games.account }
+          : s
+      )
+
       const result = await adminJsonRequest<{
         account: { name: string; tag: string }
+        altCheck: PlayerSignup['alt_check']
         rank: {
           currentTier: string | null
           currentRank: string | null
@@ -495,6 +509,8 @@
       }>(`/api/admin/riot-lookup?${query}`, {
         fallbackMessage: 'Riot lookup failed',
       })
+
+      if (result.altCheck) signup.alt_check = result.altCheck
 
       if (!result.rank || (!result.rank.currentTier && !result.rank.peakTier)) {
         successMessage = `${result.account.name}#${result.account.tag} verified, but has no competitive rank since V26 Act 1.`
@@ -517,7 +533,11 @@
           ? ` (unrated now, end of ${result.rank.currentAct})`
           : ''
       const peakNote = result.rank.peakSeason ? ` (${result.rank.peakSeason})` : ''
-      successMessage = `Filled from Riot: ${result.rank.currentRank ?? '—'} current${currentNote}, ${result.rank.peakRank ?? '—'} peak since V26 A1${peakNote}. Save to apply.`
+      const altNote =
+        result.altCheck && result.altCheck.usedRiotId !== result.altCheck.main.riotId
+          ? ` Used alt ${result.altCheck.usedRiotId}: the main has under 100 games.`
+          : ''
+      successMessage = `Filled from Riot: ${result.rank.currentRank ?? '—'} current${currentNote}, ${result.rank.peakRank ?? '—'} peak since V26 A1${peakNote}.${altNote} Save to apply.`
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Riot lookup failed'
     } finally {
@@ -580,7 +600,9 @@
   async function runSignupBulkImport(overwrite: boolean) {
     const scope = signupStatusFilter === 'all' ? '' : `${signupStatusFilter} `
     const warning = overwrite ? '\n\nExisting values will be replaced.' : ''
-    if (!window.confirm(`Fetch ranks from Riot for the ${scope}signups?${warning}`)) return
+    if (!window.confirm(`Fetch ranks and V26 games from Riot for the ${scope}signups?${warning}`)) {
+      return
+    }
 
     bulkImportRunning = true
     bulkImportStopRequested = false
@@ -663,7 +685,8 @@
         body: { id: signupId, ...signupBody(state), ...(status ? { status } : {}) },
         fallbackMessage: 'Failed to update signup',
       })
-      successMessage = status ? `Signup ${status}.` : 'Signup updated.'
+      if (status === 'pending') successMessage = 'Signup moved back to pending.'
+      else successMessage = status ? `Signup ${status}.` : 'Signup updated.'
       await Promise.all([loadSignups(), refreshPendingCounts()])
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Failed to update signup'

@@ -13,6 +13,7 @@
     ClipboardList,
     Bell,
     FileText,
+    Calculator,
   } from 'lucide-svelte'
   import { resolve } from '$app/paths'
 
@@ -125,6 +126,16 @@
         >
           <FileText size={16} />
           <span class="admin-refresh-text">Rulebook & FAQ</span>
+        </a>
+        <!-- Admins can reach this page even while it is hidden from the header. -->
+        <a
+          href={resolve('/team-balance')}
+          class="admin-btn admin-btn-neutral admin-refresh"
+          title="Open the team calculator"
+          aria-label="Team calculator"
+        >
+          <Calculator size={16} />
+          <span class="admin-refresh-text">Calculator</span>
         </a>
         <button
           type="button"

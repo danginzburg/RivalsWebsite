@@ -197,6 +197,21 @@ function stripForfeitFromMetadata(meta: Record<string, unknown> | null | undefin
   return rest
 }
 
+/**
+ * An imported result means the series is over, so its streams are too. Best-effort
+ * on purpose: the match is already written, and a stale status can be fixed by
+ * hand from the match's stream list.
+ */
+async function endMatchStreams(matchId: string) {
+  const { error: streamsError } = await supabaseAdmin
+    .from('match_streams')
+    .update({ status: 'ended' })
+    .eq('match_id', matchId)
+    .neq('status', 'ended')
+
+  if (streamsError) console.error('Failed to end match streams after import:', streamsError)
+}
+
 export const POST: RequestHandler = async ({ locals, request }) => {
   const admin = await requireAdmin(locals.user)
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>
@@ -761,6 +776,8 @@ export async function importCompletedSeries({
 
   if (updateMatchError) throw error(500, 'Failed to update imported match result')
 
+  await endMatchStreams(match.id)
+
   // Live stat batches covering this match refill themselves here — that is how
   // a "Season 5 Kickoff" batch set up in advance stays current. Best-effort on
   // purpose: the match is already written, and a batch that failed to rebuild
@@ -932,6 +949,8 @@ export async function importNoShowForfeit({
     .eq('id', match.id)
 
   if (updateMatchError) throw error(500, 'Failed to update forfeit match')
+
+  await endMatchStreams(match.id)
 
   await refreshStandingsForMatch(match.id, adminProfileId)
 

@@ -3,7 +3,6 @@
 
   import { resolve } from '$app/paths'
   import PageContainer from '$lib/components/PageContainer.svelte'
-  import CustomSelect from '$lib/components/CustomSelect.svelte'
   import pickemMedal from '$lib/assets/accolades/pickem_medal.svg'
   import {
     buildPickemSlots,
@@ -100,21 +99,6 @@
   const lbR3 = $derived(getSlots(['lb_r3']))
   const lbFinal = $derived(getSlots(['lb_final']))
   const grandFinal = $derived(getSlots(['grand_final']))
-
-  const submissionOptions = $derived.by(() => {
-    const opts: Array<{ value: string; label: string }> = []
-    if (data.mySubmission) {
-      opts.push({ value: data.mySubmission.id, label: isBracket ? 'My bracket' : 'My picks' })
-    } else if (data.viewer.canEdit) {
-      opts.push({ value: '', label: 'Current picks' })
-    }
-    for (const s of data.submissions) {
-      if (s.id !== data.mySubmission?.id) {
-        opts.push({ value: s.id, label: s.user.name })
-      }
-    }
-    return opts
-  })
 
   function teamLabel(teamId: string | null) {
     if (!teamId) return 'TBD'
@@ -220,17 +204,6 @@
           </p>
         </div>
         <div class="flex items-center gap-3">
-          {#if data.submissions.length > 0}
-            <div class="min-w-[180px]">
-              <CustomSelect
-                options={submissionOptions}
-                value={selectedSubmissionId}
-                placeholder={isBracket ? 'View a bracket' : 'View picks'}
-                compact={true}
-                onSelect={(value) => (selectedSubmissionId = value)}
-              />
-            </div>
-          {/if}
           {#if !data.viewer.isLoggedIn}
             <a
               class="inline-flex items-center rounded-md px-4 py-2 text-sm font-bold"
@@ -408,6 +381,16 @@
               {/each}
             </div>
           {/if}
+          <!-- Someone still drafting has no row to click back to. -->
+          {#if !isViewingOwn && (data.mySubmission || data.viewer.canEdit)}
+            <button
+              type="button"
+              class="lb-back"
+              onclick={() => (selectedSubmissionId = data.mySubmission?.id ?? '')}
+            >
+              {isBracket ? 'Back to my bracket' : 'Back to my picks'}
+            </button>
+          {/if}
         </aside>
       </div>
     </div>
@@ -459,9 +442,10 @@
           <img src={teamLogo(teamId) ?? ''} alt="" class="team-logo" />
         {/if}
         <span class="team-name">{teamLabel(teamId)}</span>
-        <!-- Outcome markers: the pick carries right/wrong, the winner is
-             stated separately so a correct-looking colour never lands on a
-             team the viewer did not pick. -->
+        <!-- Outcome markers: the pick carries right/wrong. The winner is only
+             stated when no pick implies it (a wrong pick already does), so a
+             correct-looking colour never lands on a team the viewer did not
+             pick. -->
         {#if isPick && result === 'correct'}
           <span class="team-mark mark-hit" title="Your pick — correct">✓</span>
         {:else if isPick && result === 'wrong'}
@@ -469,7 +453,7 @@
         {:else if isPick}
           <span class="team-mark mark-pick" title="Your pick">●</span>
         {/if}
-        {#if isWinner && !isPick}
+        {#if isWinner && !isPick && result !== 'wrong'}
           <span class="team-mark mark-won" title="Won this match">W</span>
         {/if}
       </button>
@@ -930,6 +914,23 @@
   .lb-row.lb-active {
     border-color: var(--hover);
     background: rgba(120, 67, 145, 0.15);
+  }
+
+  .lb-back {
+    width: 100%;
+    margin-top: 0.5rem;
+    border-radius: 0.25rem;
+    background: rgba(255, 255, 255, 0.08);
+    padding: 0.4rem 0.5rem;
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background-color 0.15s;
+  }
+
+  .lb-back:hover {
+    background: var(--hover);
   }
 
   .lb-rank {

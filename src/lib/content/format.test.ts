@@ -59,8 +59,15 @@ describe('normalizeRulebook', () => {
   })
 
   it('survives garbage input', () => {
-    expect(normalizeRulebook(null)).toEqual({ intro: '', sections: [] })
-    expect(normalizeFaq('nope')).toEqual({ intro: '', categories: [] })
+    expect(normalizeRulebook(null)).toEqual({ published: false, intro: '', sections: [] })
+    expect(normalizeFaq('nope')).toEqual({ published: false, intro: '', categories: [] })
+  })
+
+  it('stays unpublished unless explicitly published', () => {
+    expect(normalizeRulebook({ sections: [{ title: 'Ok' }] }).published).toBe(false)
+    expect(normalizeFaq({ published: 'yes' }).published).toBe(false)
+    expect(normalizeRulebook({ published: true }).published).toBe(true)
+    expect(normalizeFaq({ published: true }).published).toBe(true)
   })
 })
 

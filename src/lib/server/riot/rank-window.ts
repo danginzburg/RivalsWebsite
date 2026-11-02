@@ -45,6 +45,8 @@ export type RankSummary = {
   /** Highest tier reached in any act since V26 Act 1. */
   peakTier: Tier | null
   peakAct: string | null
+  /** Ranked games across every act since V26 Act 1. */
+  gamesInWindow: number
 }
 
 /** Parse Henrik's "e11a4" act code. */
@@ -69,6 +71,18 @@ export function actLabel(short: string | null | undefined): string | null {
   const code = parseActCode(short)
   if (!code) return short ?? null
   return `V${code.episode + 15} A${code.act}`
+}
+
+/** Henrik's episode number for V26: see `actLabel`. */
+const V26_EPISODE = 11
+
+/** Competitive games on this account across every V26 act. */
+export function v26Games(payload: MmrV3Payload): number {
+  let games = 0
+  for (const act of payload.seasonal ?? []) {
+    if (parseActCode(act.season?.short)?.episode === V26_EPISODE) games += Number(act.games ?? 0)
+  }
+  return games
 }
 
 function rankedTier(tier: Partial<Tier> | null | undefined): Tier | null {
@@ -134,7 +148,9 @@ export function summarizeRank(payload: MmrV3Payload): RankSummary {
     peakAct = actLabel(acts.at(-1)?.season?.short)
   }
 
-  return { currentTier, currentRr, currentSource, currentAct, peakTier, peakAct }
+  const gamesInWindow = acts.reduce((sum, act) => sum + Number(act.games ?? 0), 0)
+
+  return { currentTier, currentRr, currentSource, currentAct, peakTier, peakAct, gamesInWindow }
 }
 
 /** One ranked game from HenrikDev's stored MMR history (v2). */

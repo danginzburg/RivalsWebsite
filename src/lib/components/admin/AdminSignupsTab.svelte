@@ -3,6 +3,7 @@
   import AdminRiotAccountsPanel from '$lib/components/admin/AdminRiotAccountsPanel.svelte'
   import { resolve } from '$app/paths'
   import { SIGNUP_RANK_OPTIONS, computePlayerScore, roundRating } from '$lib/signups/formula'
+  import { MIN_V26_COMP_GAMES, meetsGamesMinimum } from '$lib/signups/comp-games'
   import { signupsToCsv } from '$lib/signups/export-csv'
   import type { PlayerSignup, SignupEditState } from '$lib/admin/types'
 
@@ -69,6 +70,44 @@
   let expandedId = $state<string | null>(null)
   let bulkOverwrite = $state(false)
 
+  /** Alts reviewed since the list loaded; a rejected one drops out of the signup. */
+  let reviewedAlts = $state<Partial<Record<string, 'approved' | 'rejected'>>>({})
+  let reviewingAltId = $state<string | null>(null)
+  let altError = $state<string | null>(null)
+
+  function altsFor(signup: PlayerSignup) {
+    return (signup.alts ?? [])
+      .map((alt) => ({ ...alt, status: reviewedAlts[alt.id] ?? alt.status }))
+      .filter((alt) => alt.status !== 'rejected')
+  }
+
+  /** The alt that out-scores the main, unless it has since been rejected. */
+  function higherAltFor(signup: PlayerSignup) {
+    const riotId = signup.alt_check?.higherAlt
+    return riotId && altsFor(signup).some((alt) => alt.riotId === riotId) ? riotId : null
+  }
+
+  async function reviewAlt(id: string, status: 'approved' | 'rejected') {
+    reviewingAltId = id
+    altError = null
+    try {
+      const res = await fetch('/api/admin/riot-accounts', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id, status }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        altError = body?.message ?? `Failed to update account (${res.status}).`
+        return
+      }
+      reviewedAlts[id] = status
+      onRiotAccountReviewed?.()
+    } finally {
+      reviewingAltId = null
+    }
+  }
+
   function outcomeStyle(outcome: string) {
     if (outcome === 'updated') return 'background: rgba(74,222,128,0.16); color: #86efac;'
     if (outcome === 'failed') return 'background: rgba(248,113,113,0.16); color: #fca5a5;'
@@ -81,6 +120,19 @@
     { value: 'rejected', label: 'Rejected' },
     { value: 'all', label: 'All' },
   ]
+
+  const sortOptions = [
+    { value: 'newest', label: 'Newest first' },
+    { value: 'score', label: 'Highest score' },
+  ]
+
+  let sortBy = $state('newest')
+
+  /** Unscored signups go last; ties keep the newest-first order from the API. */
+  const sortKey = (signup: PlayerSignup) => effectiveValue(signup) ?? -Number.MAX_VALUE
+  const sortedSignups = $derived(
+    sortBy === 'score' ? [...signups].sort((a, b) => sortKey(b) - sortKey(a)) : signups
+  )
 
   const rankOptions = [{ value: '', label: '— None —' }, ...SIGNUP_RANK_OPTIONS]
 
@@ -124,7 +176,11 @@
     const blob = new Blob(
       [
         signupsToCsv(
-          signups.map((s) => ({ ...s, discord_handle: discordFor(s), score: effectiveValue(s) }))
+          sortedSignups.map((s) => ({
+            ...s,
+            discord_handle: discordFor(s),
+            score: effectiveValue(s),
+          }))
         ),
       ],
       { type: 'text/csv;charset=utf-8' }
@@ -155,7 +211,13 @@
   }
 </script>
 
-<AdminRiotAccountsPanel onReviewed={onRiotAccountReviewed} />
+<!-- Waits for the signups, or alts reviewed inside them would flash up here first. -->
+{#if signupsLoaded}
+  <AdminRiotAccountsPanel
+    onReviewed={onRiotAccountReviewed}
+    hiddenProfileIds={signups.map((s) => s.profile_id)}
+  />
+{/if}
 
 <section class="admin-bordered p-3">
   <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
@@ -165,14 +227,25 @@
     >
       Player Signups ({signups.length})
     </div>
-    <div class="w-full md:w-48">
-      <CustomSelect
-        options={statusFilterOptions}
-        value={statusFilter}
-        compact={true}
-        placeholder="Filter by status"
-        onSelect={onStatusFilterChange}
-      />
+    <div class="flex w-full flex-wrap gap-2 md:w-auto">
+      <div class="w-full md:w-48">
+        <CustomSelect
+          options={sortOptions}
+          value={sortBy}
+          compact={true}
+          placeholder="Sort by"
+          onSelect={(value) => (sortBy = value)}
+        />
+      </div>
+      <div class="w-full md:w-48">
+        <CustomSelect
+          options={statusFilterOptions}
+          value={statusFilter}
+          compact={true}
+          placeholder="Filter by status"
+          onSelect={onStatusFilterChange}
+        />
+      </div>
     </div>
   </div>
 
@@ -192,7 +265,7 @@
         type="button"
         class="admin-btn admin-btn-sm admin-btn-info"
         disabled={bulkImportRunning}
-        title="Fetch current rank and peak since V26 Act 1 for every signup in this filter"
+        title="Fetch current rank, peak since V26 Act 1 and V26 games for every signup in this filter"
         onclick={() => onBulkImport(bulkOverwrite)}
       >
         Ranks from Riot
@@ -294,10 +367,13 @@
     </div>
   {:else}
     <div class="grid grid-cols-1 gap-2">
-      {#each signups as signup (signup.id)}
+      {#each sortedSignups as signup (signup.id)}
         {@const state = stateFor(signup)}
         {@const score = scoreFor(signup, state)}
         {@const isExpanded = expandedId === signup.id}
+        {@const alts = altsFor(signup)}
+        {@const higherAlt = higherAltFor(signup)}
+        {@const pendingAlts = alts.filter((alt) => alt.status === 'pending').length}
         <article
           class="rounded-md border"
           style="border-color: rgba(255,255,255,0.10); background: rgba(0,0,0,0.2);"
@@ -326,6 +402,41 @@
                 <span style="color: rgba(255,255,255,0.5);"> · {signup.current_rank}</span>
               {/if}
             </span>
+            {#if pendingAlts > 0}
+              <span
+                class="rounded px-2 py-0.5 text-[10px] font-bold uppercase"
+                style="background: rgba(147,197,253,0.16); color: #93c5fd;"
+                title="Expand this signup to approve or reject"
+              >
+                {pendingAlts} pending {pendingAlts === 1 ? 'alt' : 'alts'}
+              </span>
+            {/if}
+            {#if higherAlt}
+              <span
+                class="rounded px-2 py-0.5 text-[10px] font-bold uppercase"
+                style="background: rgba(251,191,36,0.16); color: #fcd34d;"
+                title="{higherAlt} has a higher base score than the main account"
+              >
+                Alt higher
+              </span>
+            {/if}
+            {#if signup.v26_comp_games == null}
+              <span
+                class="rounded px-2 py-0.5 text-[10px] font-bold uppercase"
+                style="background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.6);"
+                title="V26 games not checked yet. Run Ranks from Riot, or Fetch rank from Riot on this signup."
+              >
+                Games unchecked
+              </span>
+            {:else if !meetsGamesMinimum(signup.v26_comp_games)}
+              <span
+                class="rounded px-2 py-0.5 text-[10px] font-bold uppercase"
+                style="background: rgba(248,113,113,0.16); color: #fca5a5; font-variant-numeric: tabular-nums;"
+                title="Needs {MIN_V26_COMP_GAMES} V26 competitive games on the main account"
+              >
+                ⚠ {signup.v26_comp_games}/{MIN_V26_COMP_GAMES} V26 games
+              </span>
+            {/if}
             {#if effectiveValue(signup) != null}
               <span
                 class="rounded px-2 py-0.5 text-xs font-bold"
@@ -362,6 +473,18 @@
                 <span style="color: rgba(255,255,255,0.6);">
                   Submitted {new Date(signup.created_at).toLocaleDateString()}
                 </span>
+                {#if signup.v26_comp_games != null}
+                  <span style="color: rgba(255,255,255,0.6);">
+                    V26 comp games: <strong
+                      style="color: {meetsGamesMinimum(signup.v26_comp_games)
+                        ? 'rgba(255,255,255,0.85)'
+                        : '#fca5a5'};">{signup.v26_comp_games}</strong
+                    >
+                    {#if signup.v26_comp_games_account}
+                      on {signup.v26_comp_games_account}
+                    {/if}
+                  </span>
+                {/if}
               </div>
 
               <!-- Tracker links to verify by eye, beside the lookup that fills the ranks. -->
@@ -398,6 +521,71 @@
                   </span>
                 {/if}
               </div>
+
+              <!-- Main against alts: games since V26 Act 1 and base score, without rating. -->
+              {#if signup.alt_check || alts.length > 0}
+                <ul
+                  class="mb-3 rounded-md p-2 text-[11px]"
+                  style="background: rgba(0,0,0,0.2); color: rgba(255,255,255,0.72); font-variant-numeric: tabular-nums;"
+                >
+                  {#if signup.alt_check}
+                    {@const main = signup.alt_check.main}
+                    <li class="flex flex-wrap items-center gap-x-2 py-0.5">
+                      <strong style="color: rgba(255,255,255,0.85);">{main.riotId}</strong>
+                      <span>main</span>
+                      <span>{main.games} games</span>
+                      <span>{main.currentRank ?? '—'} / {main.peakRank ?? '—'}</span>
+                      <span>base {fmt(main.baseScore)}</span>
+                      {#if main.riotId === signup.alt_check.usedRiotId}
+                        <span style="color: #86efac;">ranks from this account</span>
+                      {/if}
+                    </li>
+                  {/if}
+                  {#each alts as alt (alt.id)}
+                    {@const checked = signup.alt_check?.alts.find((a) => a.riotId === alt.riotId)}
+                    <li class="flex flex-wrap items-center gap-x-2 py-0.5">
+                      <strong style="color: rgba(255,255,255,0.85);">{alt.riotId}</strong>
+                      <span>alt</span>
+                      {#if checked}
+                        <span>{checked.games} games</span>
+                        <span>{checked.currentRank ?? '—'} / {checked.peakRank ?? '—'}</span>
+                        <span>base {fmt(checked.baseScore)}</span>
+                      {:else}
+                        <span>not checked yet</span>
+                      {/if}
+                      {#if alt.riotId === signup.alt_check?.usedRiotId}
+                        <span style="color: #86efac;">ranks from this account</span>
+                      {/if}
+                      {#if alt.riotId === higherAlt}
+                        <span style="color: #fcd34d;">higher than main</span>
+                      {/if}
+                      {#if alt.status === 'pending'}
+                        <span class="ml-auto flex gap-1">
+                          <button
+                            type="button"
+                            class="admin-btn admin-btn-sm admin-btn-danger"
+                            disabled={reviewingAltId === alt.id}
+                            onclick={() => reviewAlt(alt.id, 'rejected')}
+                          >
+                            Reject alt
+                          </button>
+                          <button
+                            type="button"
+                            class="admin-btn admin-btn-sm admin-btn-go"
+                            disabled={reviewingAltId === alt.id}
+                            onclick={() => reviewAlt(alt.id, 'approved')}
+                          >
+                            Approve alt
+                          </button>
+                        </span>
+                      {/if}
+                    </li>
+                  {/each}
+                  {#if altError}
+                    <li style="color: #fca5a5;">{altError}</li>
+                  {/if}
+                </ul>
+              {/if}
 
               <!-- Editable fields -->
               <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
@@ -468,7 +656,10 @@
                   <span>
                     Bonus {signed(score.bonus)}
                     {#if signup.rating != null}
-                      (rating {signup.rating.toFixed(3)})
+                      (rating {signup.rating.toFixed(3)}{signup.rating_name &&
+                      signup.rating_name.toLowerCase() !== signup.display_name?.toLowerCase()
+                        ? ` as ${signup.rating_name}`
+                        : ''})
                     {:else}
                       (no rating)
                     {/if}
@@ -549,7 +740,17 @@
                       Reject
                     </button>
                   {/if}
-                  {#if signup.status !== 'approved'}
+                  {#if signup.status === 'approved'}
+                    <button
+                      type="button"
+                      class="admin-btn admin-btn-sm admin-btn-neutral"
+                      disabled={processingSignupId === signup.id}
+                      title="Move back to pending without rejecting"
+                      onclick={() => onSetStatus(signup.id, 'pending')}
+                    >
+                      Unapprove
+                    </button>
+                  {:else}
                     <button
                       type="button"
                       class="admin-btn admin-btn-sm admin-btn-go"

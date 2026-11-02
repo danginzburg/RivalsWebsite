@@ -5,7 +5,8 @@ import { getAdminQueue } from '$lib/server/admin/pending-counts'
 import { loadNavVisibility } from '$lib/server/nav-visibility'
 
 export const load: LayoutServerLoad = async ({ locals }) => {
-  const { activeSeasonKind, signupsOpen, hasActivePickem } = await loadNavVisibility()
+  const { activeSeasonKind, signupsOpen, hasActivePickem, rulebookPublished, faqPublished } =
+    await loadNavVisibility()
 
   // Seed the header bell so the unread count is correct on first paint.
   const viewerProfileId = locals.user ? await getViewerProfileId(locals.user) : null
@@ -19,6 +20,8 @@ export const load: LayoutServerLoad = async ({ locals }) => {
     hasActivePickem,
     activeSeasonKind,
     signupsOpen,
+    rulebookPublished,
+    faqPublished,
     unreadNotifications,
     adminQueue,
   }

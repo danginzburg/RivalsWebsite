@@ -1,11 +1,14 @@
 import { error } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { loadPublishedContent } from '$lib/server/content/site-content'
 import { loadSignupSeason } from '$lib/server/signups/season'
 
 export type NavVisibility = {
   activeSeasonKind: 'rivals' | 'external'
   signupsOpen: boolean
   hasActivePickem: boolean
+  rulebookPublished: boolean
+  faqPublished: boolean
 }
 
 /** Pages that can drop out of the header. Everything else in the nav is always shown. */
@@ -32,7 +35,8 @@ export async function loadNavVisibility(): Promise<NavVisibility> {
 
   // A season can take signups while another event is active, in which case the
   // Signup tab stays visible even during an external event.
-  const signupsOpen = Boolean(await loadSignupSeason())
+  const [signupSeason, published] = await Promise.all([loadSignupSeason(), loadPublishedContent()])
+  const signupsOpen = Boolean(signupSeason)
 
   const pickemStatus = (
     Array.isArray(activeSeason?.pickem_events)
@@ -41,7 +45,13 @@ export async function loadNavVisibility(): Promise<NavVisibility> {
   )?.status as string | undefined
   const hasActivePickem = Boolean(pickemStatus && pickemStatus !== 'draft')
 
-  return { activeSeasonKind, signupsOpen, hasActivePickem }
+  return {
+    activeSeasonKind,
+    signupsOpen,
+    hasActivePickem,
+    rulebookPublished: published.rulebook,
+    faqPublished: published.faq,
+  }
 }
 
 /** Mirrors the header's nav list in Header.svelte — keep the two in sync. */
@@ -52,9 +62,11 @@ export function isNavPageVisible(page: GatedNavPage, vis: NavVisibility): boolea
     case 'scrim-finder':
       return false
     case 'team-balance':
-    case 'rulebook':
-    case 'faq':
       return !external
+    case 'rulebook':
+      return !external && vis.rulebookPublished
+    case 'faq':
+      return !external && vis.faqPublished
     case 'signup':
       return !external || vis.signupsOpen
   }

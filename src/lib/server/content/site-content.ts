@@ -31,6 +31,22 @@ export async function loadSiteContent<K extends SiteContentKey>(
   }
 }
 
+/**
+ * Which documents are published. Reads only the flag, since the layout needs
+ * this on every load. A document with no saved row is unpublished, and so is
+ * everything when the table cannot be read: placeholders stay hidden.
+ */
+export async function loadPublishedContent(): Promise<Record<SiteContentKey, boolean>> {
+  const { data, error } = await supabaseAdmin
+    .from('site_content')
+    .select('key, published:document->published')
+  if (error) console.error('[site-content] failed to load published flags', error.message)
+
+  const isPublished = (key: SiteContentKey) =>
+    (data ?? []).some((row) => row.key === key && row.published === true)
+  return { rulebook: isPublished('rulebook'), faq: isPublished('faq') }
+}
+
 export class SiteContentConflictError extends Error {}
 
 const CONFLICT_MESSAGE =
