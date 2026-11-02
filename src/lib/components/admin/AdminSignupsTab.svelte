@@ -121,6 +121,19 @@
     { value: 'all', label: 'All' },
   ]
 
+  const sortOptions = [
+    { value: 'newest', label: 'Newest first' },
+    { value: 'score', label: 'Highest score' },
+  ]
+
+  let sortBy = $state('newest')
+
+  /** Unscored signups go last; ties keep the newest-first order from the API. */
+  const sortKey = (signup: PlayerSignup) => effectiveValue(signup) ?? -Number.MAX_VALUE
+  const sortedSignups = $derived(
+    sortBy === 'score' ? [...signups].sort((a, b) => sortKey(b) - sortKey(a)) : signups
+  )
+
   const rankOptions = [{ value: '', label: '— None —' }, ...SIGNUP_RANK_OPTIONS]
 
   function stateFor(signup: PlayerSignup): SignupEditState {
@@ -163,7 +176,11 @@
     const blob = new Blob(
       [
         signupsToCsv(
-          signups.map((s) => ({ ...s, discord_handle: discordFor(s), score: effectiveValue(s) }))
+          sortedSignups.map((s) => ({
+            ...s,
+            discord_handle: discordFor(s),
+            score: effectiveValue(s),
+          }))
         ),
       ],
       { type: 'text/csv;charset=utf-8' }
@@ -210,14 +227,25 @@
     >
       Player Signups ({signups.length})
     </div>
-    <div class="w-full md:w-48">
-      <CustomSelect
-        options={statusFilterOptions}
-        value={statusFilter}
-        compact={true}
-        placeholder="Filter by status"
-        onSelect={onStatusFilterChange}
-      />
+    <div class="flex w-full flex-wrap gap-2 md:w-auto">
+      <div class="w-full md:w-48">
+        <CustomSelect
+          options={sortOptions}
+          value={sortBy}
+          compact={true}
+          placeholder="Sort by"
+          onSelect={(value) => (sortBy = value)}
+        />
+      </div>
+      <div class="w-full md:w-48">
+        <CustomSelect
+          options={statusFilterOptions}
+          value={statusFilter}
+          compact={true}
+          placeholder="Filter by status"
+          onSelect={onStatusFilterChange}
+        />
+      </div>
     </div>
   </div>
 
@@ -339,7 +367,7 @@
     </div>
   {:else}
     <div class="grid grid-cols-1 gap-2">
-      {#each signups as signup (signup.id)}
+      {#each sortedSignups as signup (signup.id)}
         {@const state = stateFor(signup)}
         {@const score = scoreFor(signup, state)}
         {@const isExpanded = expandedId === signup.id}
