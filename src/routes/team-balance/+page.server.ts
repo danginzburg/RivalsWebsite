@@ -18,9 +18,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
 
   const { data: signups, error: signupsError } = await supabaseAdmin
     .from('player_signups')
-    .select(
-      'profile_id, display_name, current_rank, computed_value, manual_value_override, manual_adjustment'
-    )
+    .select('profile_id, current_rank, computed_value, manual_value_override, manual_adjustment')
     .eq('status', 'approved')
     .eq('season_id', season.id)
 
@@ -49,7 +47,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
         : null
       return {
         profileId: row.profile_id,
-        name: row.display_name ?? entry?.display_name ?? riotId ?? 'Player',
+        name: entry?.display_name ?? riotId ?? 'Player',
         riotId,
         /** Every approved Riot ID, so a player can be found by an alt or old name. */
         riotIds: (entry?.riot_ids ?? []) as string[],

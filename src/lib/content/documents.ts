@@ -26,6 +26,8 @@ export type RulebookSection = RulebookSubsection & {
 }
 
 export type RulebookDocument = {
+  /** Off until an admin publishes it: the page and its links stay hidden from the public. */
+  published: boolean
   /** Optional text above the first section. */
   intro: string
   sections: RulebookSection[]
@@ -46,6 +48,8 @@ export type FaqCategory = {
 }
 
 export type FaqDocument = {
+  /** Off until an admin publishes it: the page and its links stay hidden from the public. */
+  published: boolean
   intro: string
   categories: FaqCategory[]
 }
@@ -143,12 +147,13 @@ export function normalizeRulebook(raw: unknown): RulebookDocument {
     subsections: list(record(s).subsections).map(normalizeSubsection),
   }))
   assignAnchors(sections)
-  return { intro: text(r.intro, LIMITS.body), sections }
+  return { published: r.published === true, intro: text(r.intro, LIMITS.body), sections }
 }
 
 export function normalizeFaq(raw: unknown): FaqDocument {
   const r = record(raw)
   return {
+    published: r.published === true,
     intro: text(r.intro, LIMITS.body),
     categories: list(r.categories).map((c) => {
       const cat = record(c)

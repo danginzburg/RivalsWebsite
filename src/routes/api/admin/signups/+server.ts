@@ -9,7 +9,7 @@ import {
   parseAdjustment,
   parseScore,
 } from '$lib/server/signups'
-import { loadRatingFor, loadRatingsByName, ratingNameKey } from '$lib/server/signups/ratings'
+import { loadRatingFor, loadRatingsForPlayers } from '$lib/server/signups/ratings'
 import { createNotification } from '$lib/server/notifications'
 import { syncPrimaryRiotName } from '$lib/server/players/riot-accounts'
 import { withSignupRiotIds } from '$lib/server/signups/riot-ids'
@@ -63,14 +63,18 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 
   const profileById = new Map((profiles ?? []).map((p) => [p.id, p]))
   // The rating is shown in the score breakdown; a missing one means no bonus.
-  const ratings = await loadRatingsByName(rows.map((r) => r.display_name))
+  const ratings = await loadRatingsForPlayers(
+    rows.map((r) => ({ profile_id: r.profile_id, riot_name: r.display_name }))
+  )
 
   return json({
     signups: rows.map((row) => {
       const profile = profileById.get(row.profile_id)
+      const rating = ratings.get(row.profile_id)
       return {
         ...row,
-        rating: ratings.get(ratingNameKey(row.display_name)) ?? null,
+        rating: rating?.rating ?? null,
+        rating_name: rating?.name ?? null,
         profile: {
           id: row.profile_id,
           name: profile?.display_name ?? profile?.email ?? 'Unknown player',
@@ -109,7 +113,7 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
   const computedValue = computeSignupValue({
     current_rank: currentRank,
     peak_rank: peakRank,
-    rating: await loadRatingFor(displayName),
+    rating: await loadRatingFor(existing.profile_id, displayName),
   })
 
   const manualOverride =

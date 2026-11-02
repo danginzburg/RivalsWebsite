@@ -12,7 +12,7 @@ import {
   type BulkSignupRow,
   type SignupPatch,
 } from '$lib/server/signups/bulk-import'
-import { loadRatingsByName, ratingNameKey } from '$lib/server/signups/ratings'
+import { loadRatingsForPlayers } from '$lib/server/signups/ratings'
 
 /**
  * Fill current and peak ranks for many signups.
@@ -45,7 +45,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   // A stable order, so a cursor means the same row from one call to the next.
   let query = supabaseAdmin
     .from('player_signups')
-    .select('id, profile_id, current_rank, peak_rank')
+    .select('id, profile_id, current_rank, peak_rank, computed_value')
     .order('created_at', { ascending: true })
     .order('id', { ascending: true })
     .limit(MAX_BULK_ROWS)
@@ -63,7 +63,9 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   const total = data?.length ?? 0
   const signups = await withSignupRiotIds((data ?? []).slice(cursor))
   const [ratings, puuids] = await Promise.all([
-    loadRatingsByName(signups.map((s) => s.display_name)),
+    loadRatingsForPlayers(
+      signups.map((s) => ({ profile_id: s.profile_id, riot_name: s.display_name }))
+    ),
     linkedPuuidsFor(signups.map((s) => s.profile_id)),
   ])
   const rows: BulkSignupRow[] = signups.map((s) => ({
@@ -72,8 +74,9 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     riot_tag: s.riot_tag,
     current_rank: s.current_rank,
     peak_rank: s.peak_rank,
+    computed_value: s.computed_value,
     puuid: puuids.get(s.profile_id) ?? null,
-    rating: ratings.get(ratingNameKey(s.display_name)) ?? null,
+    rating: ratings.get(s.profile_id)?.rating ?? null,
   }))
   if (rows.length === 0) {
     return json({

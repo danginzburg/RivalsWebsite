@@ -468,7 +468,10 @@
                   <span>
                     Bonus {signed(score.bonus)}
                     {#if signup.rating != null}
-                      (rating {signup.rating.toFixed(3)})
+                      (rating {signup.rating.toFixed(3)}{signup.rating_name &&
+                      signup.rating_name.toLowerCase() !== signup.display_name?.toLowerCase()
+                        ? ` as ${signup.rating_name}`
+                        : ''})
                     {:else}
                       (no rating)
                     {/if}

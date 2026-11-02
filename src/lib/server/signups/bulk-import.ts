@@ -17,6 +17,8 @@ import { computeSignupValue } from './index'
  *    call, along with how long to wait before making it.
  * 4. It never touches `manual_value_override` — a hand-set value is the
  *    admin's decision and outranks anything fetched.
+ * 5. A row with nothing to fetch still has its score refreshed, so a rating
+ *    that arrived after the ranks reaches the stored value without a lookup.
  */
 
 /** Safety cap on the rows one run walks; well above a season's signups. */
@@ -34,6 +36,7 @@ export type BulkSignupRow = {
   riot_tag: string | null
   current_rank: string | null
   peak_rank: string | null
+  computed_value: number | null
   /** PUUID linked to the player's account; preferred over the Riot ID. */
   puuid: string | null
   /** The player's imported rating, used only to recompute the score. */
@@ -142,6 +145,27 @@ export async function runBulkImport(
     report.processed += 1
   }
 
+  /** Save the row's score if its ranks and rating now give a different one. */
+  const refreshScore = async (row: BulkSignupRow, skipDetail: string) => {
+    const computedValue = computeSignupValue(row)
+    const stored = row.computed_value == null ? null : Number(row.computed_value)
+    if (computedValue === stored) {
+      record(row, 'skipped', skipDetail)
+      return
+    }
+
+    try {
+      await deps.save(row.id, {
+        current_rank: row.current_rank,
+        peak_rank: row.peak_rank,
+        computed_value: computedValue,
+      })
+      record(row, 'updated', `Score ${stored ?? 'unset'} → ${computedValue ?? 'unset'}`)
+    } catch (err) {
+      record(row, 'failed', `Save failed: ${errorMessage(err)}`)
+    }
+  }
+
   let networkCalls = 0
 
   for (const [index, row] of rows.entries()) {
@@ -160,7 +184,7 @@ export async function runBulkImport(
     }
 
     if (!overwrite && row.current_rank != null && row.peak_rank != null) {
-      record(row, 'skipped', 'Already filled.')
+      await refreshScore(row, 'Already filled.')
       continue
     }
 
@@ -182,7 +206,7 @@ export async function runBulkImport(
     }
 
     if (!riot) {
-      record(row, 'skipped', 'Nothing to fill — no competitive rank since V26 Act 1.')
+      await refreshScore(row, 'Nothing to fill — no competitive rank since V26 Act 1.')
       continue
     }
 
@@ -198,7 +222,7 @@ export async function runBulkImport(
     }
 
     if (patch.current_rank === row.current_rank && patch.peak_rank === row.peak_rank) {
-      record(row, 'skipped', 'Nothing to fill.')
+      await refreshScore(row, 'Nothing to fill.')
       continue
     }
 

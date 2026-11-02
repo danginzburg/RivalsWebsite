@@ -13,6 +13,7 @@ function row(overrides: Partial<BulkSignupRow> = {}): BulkSignupRow {
     riot_tag: 'na1',
     current_rank: null,
     peak_rank: null,
+    computed_value: null,
     puuid: null,
     rating: null,
     ...overrides,
@@ -59,13 +60,54 @@ describe('runBulkImport', () => {
   it('skips rows that already have both ranks', async () => {
     const { deps: d, saved } = deps()
     const report = await runBulkImport(
-      [row({ current_rank: 'Gold 1', peak_rank: 'Platinum 3' })],
+      [row({ current_rank: 'Gold 1', peak_rank: 'Platinum 3', computed_value: 13.25 })],
       d
     )
 
     expect(report.skipped).toBe(1)
     expect(saved).toHaveLength(0)
     expect(d.lookupRiot).not.toHaveBeenCalled()
+  })
+
+  it('refreshes the score of a filled row when a rating has arrived', async () => {
+    const { deps: d, saved } = deps()
+    const report = await runBulkImport(
+      [
+        row({
+          current_rank: 'Gold 1',
+          peak_rank: 'Platinum 3',
+          computed_value: 13.25,
+          rating: 1.2,
+        }),
+      ],
+      d
+    )
+
+    expect(report.updated).toBe(1)
+    expect(saved[0].patch).toEqual({
+      current_rank: 'Gold 1',
+      peak_rank: 'Platinum 3',
+      computed_value: 15.25,
+    })
+    expect(d.lookupRiot).not.toHaveBeenCalled()
+  })
+
+  it('refreshes the score when a lookup has no new ranks to add', async () => {
+    const { deps: d, saved } = deps({ lookupRiot: vi.fn(async () => null) })
+    await runBulkImport(
+      [
+        row({
+          current_rank: 'Gold 1',
+          peak_rank: 'Platinum 3',
+          computed_value: 13.25,
+          rating: 1.2,
+        }),
+      ],
+      d,
+      { overwrite: true }
+    )
+
+    expect(saved[0].patch.computed_value).toBe(15.25)
   })
 
   it('does not overwrite an existing value unless asked to', async () => {

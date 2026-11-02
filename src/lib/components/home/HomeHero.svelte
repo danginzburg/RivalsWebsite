@@ -39,6 +39,8 @@
     } | null
     /** Signups for the active season itself, which never close mid-season. */
     signupsOpen: boolean
+    /** The signup hero links to the rulebook only once it's published. */
+    rulebookPublished: boolean
     hasActivePickem: boolean
     liveMatch: HeroMatch | null
     nextMatch: HeroMatch | null
@@ -54,6 +56,7 @@
     season,
     upcomingSignup,
     signupsOpen,
+    rulebookPublished,
     hasActivePickem,
     liveMatch,
     nextMatch,
@@ -226,7 +229,9 @@
           <a href={resolve('/signup')} class="btn btn-primary">
             <ClipboardList size={17} /> Sign up
           </a>
-          <a href={resolve('/rulebook')} class="btn btn-ghost"><BookOpen size={16} /> Rulebook</a>
+          {#if rulebookPublished}
+            <a href={resolve('/rulebook')} class="btn btn-ghost"><BookOpen size={16} /> Rulebook</a>
+          {/if}
         {:else if mode === 'season'}
           <a href={resolve('/leaderboard')} class="btn btn-primary">
             <Trophy size={17} /> Standings

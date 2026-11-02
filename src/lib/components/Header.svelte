@@ -35,6 +35,9 @@
   // Signups for the next season can open while an external event is active, so
   // the Signup tab follows the signup season instead.
   const signupsOpen = $derived($page.data.signupsOpen ?? false)
+  // Rulebook and FAQ stay out of the nav until an admin publishes them.
+  const rulebookPublished = $derived($page.data.rulebookPublished ?? false)
+  const faqPublished = $derived($page.data.faqPublished ?? false)
   const unreadNotifications = $derived($page.data.unreadNotifications ?? 0)
   const adminQueue = $derived($page.data.adminQueue ?? [])
 
@@ -68,8 +71,10 @@
       ? []
       : [
           { href: '/team-balance' as NavHref, label: 'Calculator', icon: Calculator },
-          { href: '/rulebook' as NavHref, label: 'Rulebook', icon: BookOpen },
-          { href: '/faq' as NavHref, label: 'FAQ', icon: HelpCircle },
+          ...(rulebookPublished
+            ? [{ href: '/rulebook' as NavHref, label: 'Rulebook', icon: BookOpen }]
+            : []),
+          ...(faqPublished ? [{ href: '/faq' as NavHref, label: 'FAQ', icon: HelpCircle }] : []),
         ]),
     ...(isExternalSeason && !signupsOpen
       ? []

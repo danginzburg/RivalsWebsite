@@ -89,17 +89,36 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     seasonIds.length > 0
       ? await supabaseAdmin
           .from('pickem_events')
-          .select('season_id, format, config')
+          .select('season_id, format, config, pickem_matches (team_a_id, team_b_id)')
           .in('season_id', seasonIds)
           .neq('status', 'draft')
-      : { data: [] as Array<{ season_id: string; format: string; config: unknown }> }
+      : {
+          data: [] as Array<{
+            season_id: string
+            format: string
+            config: unknown
+            pickem_matches: unknown
+          }>,
+        }
 
-  const pickemBySeason = new Map<string, { format: string; seedCount: number }>()
+  const pickemBySeason = new Map<string, { format: string; seedCount: number; teamCount: number }>()
   for (const row of pickemRows ?? []) {
     const config =
       row.config && typeof row.config === 'object' ? (row.config as Record<string, unknown>) : {}
-    const seedCount = normalizePickemSeeds(config.seeds).filter((s) => s.teamId).length
-    pickemBySeason.set(String(row.season_id), { format: row.format, seedCount })
+    const seedIds = normalizePickemSeeds(config.seeds).map((s) => s.teamId)
+    // Only the top seeds are seeded; the teams they picked sit on the QF rows.
+    const matchRows = (row.pickem_matches ?? []) as Array<{
+      team_a_id: string | null
+      team_b_id: string | null
+    }>
+    const teamCount = new Set(
+      [...seedIds, ...matchRows.flatMap((m) => [m.team_a_id, m.team_b_id])].filter(Boolean)
+    ).size
+    pickemBySeason.set(String(row.season_id), {
+      format: row.format,
+      seedCount: seedIds.length,
+      teamCount,
+    })
   }
 
   const normalized = (seasons ?? []).map((season) => {
@@ -114,7 +133,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     // those seasons show no playoff label despite rendering a full bracket.
     const legacySeedCount =
       pickem && pickem.seedCount > 0 ? 0 : legacyBracketSeedCount(season.metadata)
-    const playoffTeamCount = pickem?.seedCount ? pickem.seedCount : legacySeedCount
+    const playoffTeamCount = pickem?.seedCount ? pickem.teamCount : legacySeedCount
 
     return {
       id: season.id,
@@ -155,7 +174,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
       completed_count: counts.completed,
       team_count: teamCounts.get(season.id) ?? 0,
       has_bracket: (pickem?.format === 'bracket' && pickem.seedCount > 0) || legacySeedCount > 0,
-      // Seeds actually assigned a team — how many made playoffs.
+      // Teams in the bracket — how many made playoffs.
       playoff_team_count: playoffTeamCount,
     }
   })

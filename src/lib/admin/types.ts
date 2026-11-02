@@ -28,6 +28,8 @@ export type PlayerSignup = {
   manual_adjustment: number
   /** Imported performance rating behind the score bonus, if any. */
   rating: number | null
+  /** The name the rating is listed under, which can differ from the Riot name. */
+  rating_name?: string | null
   status: 'pending' | 'approved' | 'rejected'
   admin_notes: string | null
   created_at: string
