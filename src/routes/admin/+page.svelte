@@ -53,6 +53,7 @@
   } from '$lib/admin/types'
   import { resolveSeasonProfile } from '$lib/seasons/profile'
   import { resolveSeasonSchedule } from '$lib/seasons/schedule'
+  import { seasonMvpName } from '$lib/seasons/mvp'
   import { readRememberedAdminSeason, rememberAdminSeason } from '$lib/admin/remembered-season'
   import { onMount, tick } from 'svelte'
   import type { PageData, PageProps } from './$types'
@@ -275,9 +276,7 @@
 
   let hallOfFameEntries = $state<HallOfFameEntry[]>([])
   let hallOfFameLoaded = $state(false)
-  let hallOfFameCreateForm = $state<HallOfFameFormState>(blankHallOfFameForm())
   let hallOfFameEditForm = $state<Record<string, HallOfFameFormState>>({})
-  let isCreatingHallOfFameEntry = $state(false)
   let processingHallOfFameId = $state<string | null>(null)
 
   /** Options shared by the create and edit forms. Blank entry clears the field. */
@@ -334,31 +333,6 @@
       seasonId: state.seasonId || null,
       isPublished: state.isPublished,
       sortOrder: Number(state.sortOrder) || 0,
-    }
-  }
-
-  async function createHallOfFameEntry() {
-    if (!hallOfFameCreateForm.title.trim()) {
-      errorMessage = 'Title is required'
-      return
-    }
-
-    isCreatingHallOfFameEntry = true
-    errorMessage = null
-    successMessage = null
-    try {
-      await adminJsonRequest('/api/admin/hall-of-fame', {
-        method: 'POST',
-        body: hallOfFameBody(hallOfFameCreateForm),
-        fallbackMessage: 'Failed to create entry',
-      })
-      successMessage = 'Entry added.'
-      hallOfFameCreateForm = blankHallOfFameForm()
-      await loadHallOfFame()
-    } catch (err) {
-      errorMessage = err instanceof Error ? err.message : 'Failed to create entry'
-    } finally {
-      isCreatingHallOfFameEntry = false
     }
   }
 
@@ -556,11 +530,62 @@
     rows: Array<{ id: string; name: string; outcome: string; detail: string }>
   }
 
+  type BulkImportRow = BulkImportReport['rows'][number]
+
   type BulkImportChunk = {
     report: BulkImportReport
     total: number
     /** Where the next call should start, or null once the list is done. */
     nextCursor: number | null
+  }
+
+  /** One line of the bulk import's streamed response. */
+  type BulkImportLine =
+    | { type: 'begin'; total: number; cursor: number }
+    | { type: 'start'; index: number; name: string }
+    | { type: 'row'; index: number; row: BulkImportRow }
+    | { type: 'alt'; row: BulkImportRow }
+    | ({ type: 'done' } & BulkImportChunk)
+    | { type: 'error'; message: string }
+
+  /**
+   * One call to the bulk import. The server streams a line per row as it goes,
+   * handed to `onLine`; resolves with the closing summary.
+   */
+  async function requestBulkImportChunk(
+    body: Record<string, unknown>,
+    onLine: (line: BulkImportLine) => void
+  ): Promise<BulkImportChunk> {
+    const response = await fetch('/api/admin/signups/bulk-import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!response.ok || !response.body) {
+      const payload = await response.json().catch(() => null)
+      throw new Error(payload?.message ?? `Bulk import failed (${response.status})`)
+    }
+
+    const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
+    let buffer = ''
+    let done: BulkImportChunk | null = null
+    for (;;) {
+      const { value, done: ended } = await reader.read()
+      if (value) buffer += value
+      const lines = buffer.split('\n')
+      buffer = ended ? '' : (lines.pop() ?? '')
+      for (const text of lines) {
+        if (!text.trim()) continue
+        const line = JSON.parse(text) as BulkImportLine
+        if (line.type === 'error') throw new Error(line.message)
+        if (line.type === 'done') done = line
+        else onLine(line)
+      }
+      if (ended) break
+    }
+    // A cut-off stream (platform timeout) never sends its closing line.
+    if (!done) throw new Error('Bulk import was cut off. Run it again to continue.')
+    return done
   }
 
   /** Calls in a row that got through no rows before the run gives up. */
@@ -570,7 +595,14 @@
 
   let bulkImportRunning = $state(false)
   let bulkImportReport = $state<BulkImportReport | null>(null)
-  let bulkImportProgress = $state<{ done: number; total: number } | null>(null)
+  let bulkImportProgress = $state<{
+    done: number
+    total: number
+    /** The player being looked up now. */
+    current: string | null
+    /** Seconds left in a rate-limit pause. */
+    waitSeconds: number | null
+  } | null>(null)
   let bulkImportStopRequested = false
   let wakeBulkImport: (() => void) | null = null
 
@@ -581,13 +613,25 @@
 
   /** A pause that Stop cuts short. */
   function bulkImportPause(ms: number) {
+    const endsAt = Date.now() + ms
+    const tick = () => {
+      if (bulkImportProgress) {
+        bulkImportProgress.waitSeconds = Math.max(0, Math.ceil((endsAt - Date.now()) / 1000))
+      }
+    }
+    tick()
+    const countdown = setInterval(tick, 1000)
     return new Promise<void>((resolve) => {
       const timer = setTimeout(resolve, ms)
       wakeBulkImport = () => {
         clearTimeout(timer)
         resolve()
       }
-    }).finally(() => (wakeBulkImport = null))
+    }).finally(() => {
+      clearInterval(countdown)
+      wakeBulkImport = null
+      if (bulkImportProgress) bulkImportProgress.waitSeconds = null
+    })
   }
 
   /**
@@ -622,27 +666,56 @@
     }
     let cursor = 0
     let stalls = 0
+    /** Outcomes streamed in the current call, until its summary arrives. */
+    let liveCounts: Record<string, number> = {}
 
     try {
       for (;;) {
-        const { report, total, nextCursor } = await adminJsonRequest<BulkImportChunk>(
-          '/api/admin/signups/bulk-import',
-          {
-            method: 'POST',
-            body: { overwrite, status: signupStatusFilter, cursor },
-            fallbackMessage: 'Bulk import failed',
+        const chunkStart = cursor
+        const { report, total, nextCursor } = await requestBulkImportChunk(
+          { overwrite, status: signupStatusFilter, cursor },
+          (line) => {
+            if (line.type === 'begin') {
+              bulkImportProgress = {
+                done: line.cursor,
+                total: line.total,
+                current: null,
+                waitSeconds: null,
+              }
+            } else if (line.type === 'start') {
+              if (bulkImportProgress) bulkImportProgress.current = line.name
+            } else if (line.type === 'row' || line.type === 'alt') {
+              // Counted from the closing summary; shown now.
+              totals.rows.push(line.row)
+              liveCounts[line.row.outcome] = (liveCounts[line.row.outcome] ?? 0) + 1
+              bulkImportReport = {
+                ...totals,
+                updated: totals.updated + (liveCounts.updated ?? 0),
+                skipped: totals.skipped + (liveCounts.skipped ?? 0),
+                failed: totals.failed + (liveCounts.failed ?? 0),
+                rows: [...totals.rows],
+              }
+              if (bulkImportProgress && line.type === 'row') {
+                bulkImportProgress.done = chunkStart + line.index + 1
+              }
+            }
           }
         )
+        liveCounts = {}
 
         totals.processed += report.processed
         totals.updated += report.updated
         totals.skipped += report.skipped
         totals.failed += report.failed
-        totals.rows.push(...report.rows)
         totals.remaining = report.remaining
         totals.stoppedEarly = nextCursor != null
         bulkImportReport = { ...totals, rows: [...totals.rows] }
-        bulkImportProgress = { done: nextCursor ?? total, total }
+        bulkImportProgress = {
+          done: nextCursor ?? total,
+          total,
+          current: null,
+          waitSeconds: null,
+        }
 
         if (nextCursor == null) break
         stalls = report.processed === 0 ? stalls + 1 : 0
@@ -1474,6 +1547,7 @@
         runnerUpTeamId: season.runner_up_team_id ?? '',
         thirdPlaceTeamId: season.third_place_team_id ?? '',
         mvpProfileId: season.mvp_profile_id ?? '',
+        mvpName: seasonMvpName(season.metadata),
         finalLeaderboardBatchId: season.final_leaderboard_batch_id ?? '',
         mapPool: Array.isArray(season.metadata?.map_pool)
           ? (season.metadata.map_pool as unknown[]).filter(
@@ -1938,6 +2012,7 @@
           runnerUpTeamId: state.runnerUpTeamId || null,
           thirdPlaceTeamId: state.thirdPlaceTeamId || null,
           mvpProfileId: state.mvpProfileId || null,
+          mvpName: state.mvpName || null,
           finalLeaderboardBatchId: state.finalLeaderboardBatchId || null,
           mapPool: state.mapPool ?? [],
           profile: { sections: state.sections, links: state.links },
@@ -2684,19 +2759,15 @@
       <AdminHallOfFameTab
         entries={hallOfFameEntries}
         entriesLoaded={hallOfFameLoaded}
-        createForm={hallOfFameCreateForm}
         editForm={hallOfFameEditForm}
         teamOptions={hofTeamOptions}
         playerOptions={hofPlayerOptions}
         seasonOptions={hofSeasonOptions}
         processingEntryId={processingHallOfFameId}
-        isCreating={isCreatingHallOfFameEntry}
-        onCreateFormChange={(patch) =>
-          (hallOfFameCreateForm = { ...hallOfFameCreateForm, ...patch })}
         onEditFormChange={updateHallOfFameEditForm}
-        onCreate={createHallOfFameEntry}
         onSave={saveHallOfFameEntry}
         onDelete={deleteHallOfFameEntry}
+        onCreated={loadHallOfFame}
       />
     {/if}
 

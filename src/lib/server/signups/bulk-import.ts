@@ -90,6 +90,8 @@ export type BulkImportOptions = {
   /** Replace values that are already set instead of only filling blanks. */
   overwrite?: boolean
   timeBudgetMs?: number
+  /** Called as each row starts and finishes, so the admin page can show progress live. */
+  onProgress?: (event: BulkImportProgressEvent) => void
 }
 
 export type BulkImportOutcome = 'updated' | 'skipped' | 'failed'
@@ -100,6 +102,10 @@ export type BulkImportRow = {
   outcome: BulkImportOutcome
   detail: string
 }
+
+export type BulkImportProgressEvent =
+  | { type: 'start'; index: number; name: string }
+  | { type: 'row'; index: number; row: BulkImportRow }
 
 export type BulkImportReport = {
   processed: number
@@ -145,7 +151,7 @@ export async function runBulkImport(
   deps: BulkImportDeps,
   options: BulkImportOptions = {}
 ): Promise<BulkImportReport> {
-  const { overwrite = false } = options
+  const { overwrite = false, onProgress } = options
   const budgetMs = options.timeBudgetMs ?? DEFAULT_TIME_BUDGET_MS
   const startedAt = deps.now()
 
@@ -163,17 +169,16 @@ export async function runBulkImport(
   /** What the games check on the current row found, added to its report line. */
   let gamesNote: { detail: string; changed: boolean; failed: boolean } | null = null
 
+  const nameFor = (row: BulkSignupRow) => riotIdFor(row) ?? row.display_name ?? 'Unknown'
+
   const record = (row: BulkSignupRow, rankOutcome: BulkImportOutcome, rankDetail: string) => {
     let outcome = rankOutcome
     if (outcome === 'skipped' && gamesNote?.failed) outcome = 'failed'
     else if (outcome === 'skipped' && gamesNote?.changed) outcome = 'updated'
     const detail = gamesNote ? `${rankDetail} ${gamesNote.detail}` : rankDetail
-    report.rows.push({
-      id: row.id,
-      name: riotIdFor(row) ?? row.display_name ?? 'Unknown',
-      outcome,
-      detail,
-    })
+    const line = { id: row.id, name: nameFor(row), outcome, detail }
+    report.rows.push(line)
+    onProgress?.({ type: 'row', index: report.processed, row: line })
     report[outcome === 'updated' ? 'updated' : outcome === 'failed' ? 'failed' : 'skipped'] += 1
     report.processed += 1
   }
@@ -220,6 +225,7 @@ export async function runBulkImport(
     }
 
     gamesNote = null
+    onProgress?.({ type: 'start', index, name: nameFor(row) })
     const riotId = riotIdFor(row)
     if (!riotId && !row.puuid) {
       record(row, 'skipped', 'No linked Riot account or tagline.')

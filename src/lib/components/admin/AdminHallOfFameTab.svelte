@@ -1,39 +1,36 @@
 <script lang="ts">
   import CustomSelect from '$lib/components/CustomSelect.svelte'
+  import AdminStatRecordsEditor from '$lib/components/admin/AdminStatRecordsEditor.svelte'
+  import AdminMomentForm from '$lib/components/admin/AdminMomentForm.svelte'
   import type { HallOfFameEntry, HallOfFameFormState } from '$lib/admin/types'
 
   interface Props {
     entries: HallOfFameEntry[]
     entriesLoaded: boolean
-    createForm: HallOfFameFormState
     editForm: Record<string, HallOfFameFormState>
     teamOptions: Array<{ value: string; label: string }>
     playerOptions: Array<{ value: string; label: string }>
     seasonOptions: Array<{ value: string; label: string }>
     processingEntryId: string | null
-    isCreating: boolean
-    onCreateFormChange: (patch: Partial<HallOfFameFormState>) => void
     onEditFormChange: (entryId: string, patch: Partial<HallOfFameFormState>) => void
-    onCreate: () => void
     onSave: (entryId: string) => void
     onDelete: (entryId: string, title: string) => void
+    /** Reload the entries list after the moment form adds one. */
+    onCreated: () => void
   }
 
   let {
     entries,
     entriesLoaded,
-    createForm,
     editForm,
     teamOptions,
     playerOptions,
     seasonOptions,
     processingEntryId,
-    isCreating,
-    onCreateFormChange,
     onEditFormChange,
-    onCreate,
     onSave,
     onDelete,
+    onCreated,
   }: Props = $props()
 
   let expandedEntryId = $state<string | null>(null)
@@ -78,125 +75,9 @@
 </script>
 
 <div class="grid grid-cols-1 gap-4">
-  <!-- Create -->
-  <section class="admin-bordered p-3">
-    <div
-      class="mb-3 text-sm font-semibold tracking-wide uppercase"
-      style="color: rgba(255,255,255,0.8);"
-    >
-      Add Entry
-    </div>
+  <AdminStatRecordsEditor {teamOptions} {playerOptions} />
 
-    <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-      <div>
-        <div class="mb-1 text-xs font-semibold" style="color: rgba(255,255,255,0.68);">Type</div>
-        <CustomSelect
-          options={typeOptions}
-          value={createForm.entryType}
-          compact={true}
-          placeholder="Type"
-          onSelect={(value) =>
-            onCreateFormChange({ entryType: value as HallOfFameFormState['entryType'] })}
-        />
-      </div>
-      <input
-        value={createForm.title}
-        class="admin-input md:col-span-3"
-        placeholder="Title (e.g. Most Kills in a Map)"
-        oninput={(e) => onCreateFormChange({ title: (e.currentTarget as HTMLInputElement).value })}
-      />
-    </div>
-
-    <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-      <input
-        value={createForm.statValue}
-        class="admin-input"
-        placeholder="Stat value (42)"
-        oninput={(e) =>
-          onCreateFormChange({ statValue: (e.currentTarget as HTMLInputElement).value })}
-      />
-      <input
-        value={createForm.statLabel}
-        class="admin-input"
-        placeholder="Stat label (kills)"
-        oninput={(e) =>
-          onCreateFormChange({ statLabel: (e.currentTarget as HTMLInputElement).value })}
-      />
-      <div>
-        <CustomSelect
-          options={playerOptions}
-          value={createForm.profileId}
-          compact={true}
-          placeholder="Player (optional)"
-          onSelect={(value) => onCreateFormChange({ profileId: value })}
-        />
-      </div>
-      <div>
-        <CustomSelect
-          options={seasonOptions}
-          value={createForm.seasonId}
-          compact={true}
-          placeholder="Season (optional)"
-          onSelect={(value) => onCreateFormChange({ seasonId: value })}
-        />
-      </div>
-    </div>
-
-    <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-      <input
-        value={createForm.playerName}
-        class="admin-input"
-        placeholder="Or type a name (unclaimed player)"
-        oninput={(e) =>
-          onCreateFormChange({ playerName: (e.currentTarget as HTMLInputElement).value })}
-      />
-      <div>
-        <CustomSelect
-          options={teamOptions}
-          value={createForm.teamId}
-          compact={true}
-          placeholder="Team (optional)"
-          onSelect={(value) => onCreateFormChange({ teamId: value })}
-        />
-      </div>
-      <input
-        value={createForm.mediaUrl}
-        class="admin-input"
-        placeholder="Clip URL (optional)"
-        oninput={(e) =>
-          onCreateFormChange({ mediaUrl: (e.currentTarget as HTMLInputElement).value })}
-      />
-    </div>
-
-    <textarea
-      rows="2"
-      value={createForm.description}
-      class="admin-input mt-2 leading-5"
-      placeholder="Description (optional)"
-      oninput={(e) =>
-        onCreateFormChange({ description: (e.currentTarget as HTMLTextAreaElement).value })}
-    ></textarea>
-
-    <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
-      <label class="inline-flex items-center gap-2 text-sm" style="color: rgba(255,255,255,0.82);">
-        <input
-          type="checkbox"
-          checked={createForm.isPublished}
-          onchange={(e) =>
-            onCreateFormChange({ isPublished: (e.currentTarget as HTMLInputElement).checked })}
-        />
-        Published
-      </label>
-      <button
-        type="button"
-        class="admin-btn admin-btn-go text-sm"
-        onclick={onCreate}
-        disabled={isCreating}
-      >
-        {isCreating ? 'Adding...' : 'Add Entry'}
-      </button>
-    </div>
-  </section>
+  <AdminMomentForm {teamOptions} {playerOptions} {seasonOptions} {onCreated} />
 
   <!-- List -->
   <section class="admin-bordered p-3">

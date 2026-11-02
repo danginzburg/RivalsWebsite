@@ -14,6 +14,7 @@ import { loadLegacyBracket } from '$lib/server/seasons/legacyBracket'
 import { isUnreachableError } from '$lib/server/supabase/unreachable'
 import { getValorantMapLookup, resolveMapPool, type MapPoolEntry } from '$lib/server/valorant/maps'
 import { resolveSeasonProfile } from '$lib/seasons/profile'
+import { resolveSeasonMvp } from '$lib/seasons/mvp'
 import { pickStandingsBatch } from '$lib/server/leaderboard/batch'
 
 type TeamRel = { id: string; name: string; tag?: string | null; logo_path?: string | null }
@@ -383,7 +384,7 @@ export const load = async ({
             logo_url: getTeamLogoUrl(thirdPlace),
           }
         : null,
-      mvp: mvp ? { id: mvp.id, name: mvp.display_name ?? 'Player' } : null,
+      mvp: resolveSeasonMvp(mvp, season.metadata),
       map_pool: mapPool,
     },
     teams,

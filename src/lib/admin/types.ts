@@ -236,6 +236,7 @@ export type HallOfFameEntry = {
   profile_id: string | null
   team_id: string | null
   season_id: string | null
+  match_id?: string | null
   is_published: boolean
   sort_order: number
   created_at: string
@@ -332,6 +333,8 @@ export type SeasonEditState = {
   runnerUpTeamId: string
   thirdPlaceTeamId: string
   mvpProfileId: string
+  /** Placeholder MVP name, used when no profile is picked. */
+  mvpName: string
   finalLeaderboardBatchId: string
   /** Canonical Valorant map names shown as the season's map pool. */
   mapPool: string[]

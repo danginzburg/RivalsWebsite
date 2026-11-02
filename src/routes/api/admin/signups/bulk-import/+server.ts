@@ -1,4 +1,4 @@
-import { error, json, type RequestHandler } from '@sveltejs/kit'
+import { error, type RequestHandler } from '@sveltejs/kit'
 
 import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
@@ -12,6 +12,7 @@ import { checkSignupGames, gamesAccountsFor } from '$lib/server/signups/comp-gam
 import {
   MAX_BULK_ROWS,
   runBulkImport,
+  type BulkImportDeps,
   type BulkSignupRow,
   type SignupPatch,
 } from '$lib/server/signups/bulk-import'
@@ -25,6 +26,10 @@ import { loadRatingsForPlayers } from '$lib/server/signups/ratings'
  * page keeps calling until that is null. The HenrikDev client paces every
  * request, so a list of any size finishes without tripping the API's limit —
  * it just takes a few minutes for a few hundred players.
+ *
+ * The response is newline-delimited JSON so the page can show each row as it
+ * finishes instead of waiting out the whole call: `start` and `row` lines as
+ * the run goes, then one `done` line (or `error` if the run itself broke).
  */
 export const POST: RequestHandler = async ({ locals, request }) => {
   const admin = await requireAdmin(locals.user)
@@ -92,66 +97,74 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     alts: alts.get(s.profile_id) ?? [],
     alt_check: s.alt_check,
   }))
-  if (rows.length === 0) {
-    return json({
-      success: true,
-      total,
-      nextCursor: null,
-      report: {
-        processed: 0,
-        updated: 0,
-        skipped: 0,
-        failed: 0,
-        stoppedEarly: false,
-        remaining: 0,
-        retryAfterMs: null,
-        rows: [],
-      },
-    })
+  const deps: BulkImportDeps = {
+    async lookupRiot(target, opts) {
+      const { lookup, check } = await pickSignupAccount(target, target.alts, (account) =>
+        lookupSignupRank(account, opts)
+      )
+      const currentRank = lookup.rank?.currentRank ?? null
+      const peakRank = lookup.rank?.peakRank ?? null
+      if (!check && !currentRank && !peakRank) return null
+      return { currentRank, peakRank, altCheck: check }
+    },
+
+    checkGames: (row, opts) => checkSignupGames(row.id, row.accounts, opts),
+
+    async save(signupId: string, patch: SignupPatch) {
+      const { error: updateError } = await supabaseAdmin
+        .from('player_signups')
+        .update(patch)
+        .eq('id', signupId)
+      if (updateError) throw new Error(updateError.message)
+    },
+
+    now: () => Date.now(),
   }
 
-  const report = await runBulkImport(
-    rows,
-    {
-      async lookupRiot(target, opts) {
-        const { lookup, check } = await pickSignupAccount(target, target.alts, (account) =>
-          lookupSignupRank(account, opts)
-        )
-        const currentRank = lookup.rank?.currentRank ?? null
-        const peakRank = lookup.rank?.peakRank ?? null
-        if (!check && !currentRank && !peakRank) return null
-        return { currentRank, peakRank, altCheck: check }
-      },
+  const encoder = new TextEncoder()
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (line: unknown) =>
+        controller.enqueue(encoder.encode(`${JSON.stringify(line)}\n`))
+      // Rows here are relative to this call; the page adds the cursor.
+      send({ type: 'begin', total, cursor })
 
-      checkGames: (row, opts) => checkSignupGames(row.id, row.accounts, opts),
+      const altRows = altFailures.map(({ signupId, riotId }) => ({
+        id: `alt:${signupId}:${riotId}`,
+        name: riotId,
+        outcome: 'failed' as const,
+        detail: 'Could not be added as an alt.',
+      }))
+      for (const row of altRows) send({ type: 'alt', row })
 
-      async save(signupId: string, patch: SignupPatch) {
-        const { error: updateError } = await supabaseAdmin
-          .from('player_signups')
-          .update(patch)
-          .eq('id', signupId)
-        if (updateError) throw new Error(updateError.message)
-      },
-
-      now: () => Date.now(),
+      try {
+        const report = await runBulkImport(rows, deps, {
+          overwrite,
+          onProgress: (event) => send(event),
+        })
+        report.failed += altRows.length
+        send({
+          type: 'done',
+          total,
+          nextCursor: report.stoppedEarly ? cursor + report.processed : null,
+          // The rows already went out one by one.
+          report: { ...report, rows: [] },
+        })
+      } catch (err) {
+        console.error('Bulk import failed:', err)
+        send({ type: 'error', message: err instanceof Error ? err.message : 'Bulk import failed' })
+      } finally {
+        controller.close()
+      }
     },
-    { overwrite }
-  )
+  })
 
-  report.failed += altFailures.length
-  report.rows.unshift(
-    ...altFailures.map(({ signupId, riotId }) => ({
-      id: `alt:${signupId}:${riotId}`,
-      name: riotId,
-      outcome: 'failed' as const,
-      detail: 'Could not be added as an alt.',
-    }))
-  )
-
-  return json({
-    success: true,
-    total,
-    nextCursor: report.stoppedEarly ? cursor + report.processed : null,
-    report,
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'application/x-ndjson; charset=utf-8',
+      'Cache-Control': 'no-cache',
+      // Ask proxies not to hold the lines back until the end.
+      'X-Accel-Buffering': 'no',
+    },
   })
 }

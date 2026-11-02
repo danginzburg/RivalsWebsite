@@ -54,6 +54,20 @@ function deps(overrides: Partial<BulkImportDeps> = {}) {
 describe('runBulkImport', () => {
   const filled = { current_rank: 'Gold 1', peak_rank: 'Platinum 3', computed_value: 13.25 }
 
+  it('reports each row as it starts and finishes', async () => {
+    const { deps: d } = deps()
+    const events: unknown[] = []
+    await runBulkImport([row(), row({ id: 's2', display_name: null, riot_tag: null })], d, {
+      onProgress: (event) => events.push(event),
+    })
+    expect(events).toEqual([
+      { type: 'start', index: 0, name: 'ginzburg#na1' },
+      { type: 'row', index: 0, row: expect.objectContaining({ id: 's1', outcome: 'updated' }) },
+      { type: 'start', index: 1, name: 'Unknown' },
+      { type: 'row', index: 1, row: expect.objectContaining({ id: 's2', outcome: 'skipped' }) },
+    ])
+  })
+
   it('counts games for a filled row that has not been checked', async () => {
     const { deps: d } = deps()
     const report = await runBulkImport([row({ ...filled, v26_comp_games: null })], d)

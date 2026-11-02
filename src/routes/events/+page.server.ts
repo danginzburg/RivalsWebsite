@@ -3,6 +3,7 @@ import { getTeamLogoUrl } from '$lib/server/teams/logo'
 import { getSeasonLogoUrl } from '$lib/server/seasons/logo'
 import { normalizePickemSeeds } from '$lib/pickems'
 import { legacyBracketSeedCount } from '$lib/server/seasons/legacyBracket'
+import { resolveSeasonMvp } from '$lib/seasons/mvp'
 
 type TeamRel = { id: string; name: string; tag?: string | null; logo_path?: string | null }
 type ProfileRel = { id: string; display_name: string | null }
@@ -169,7 +170,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
             logo_url: getTeamLogoUrl(thirdPlace),
           }
         : null,
-      mvp: mvp ? { id: mvp.id, name: mvp.display_name ?? 'Player' } : null,
+      mvp: resolveSeasonMvp(mvp, season.metadata),
       match_count: counts.total,
       completed_count: counts.completed,
       team_count: teamCounts.get(season.id) ?? 0,

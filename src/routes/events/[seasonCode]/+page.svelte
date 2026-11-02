@@ -151,7 +151,7 @@
             </div>
           </a>
         {/if}
-        {#if season.mvp}
+        {#if season.mvp?.id}
           <a href={resolve(`/players/${season.mvp.id}`)} class="podium-card podium-mvp">
             <Crown size={20} style="color: #c084fc;" />
             <div class="podium-body">
@@ -159,6 +159,14 @@
               <div class="podium-value">{season.mvp.name}</div>
             </div>
           </a>
+        {:else if season.mvp}
+          <div class="podium-card podium-mvp">
+            <Crown size={20} style="color: #c084fc;" />
+            <div class="podium-body">
+              <div class="podium-label">MVP</div>
+              <div class="podium-value">{season.mvp.name}</div>
+            </div>
+          </div>
         {/if}
       </div>
     {/if}
@@ -535,7 +543,7 @@
       background 0.15s;
   }
 
-  .podium-card:hover {
+  a.podium-card:hover {
     background: rgba(255, 255, 255, 0.03);
   }
 
