@@ -4,8 +4,11 @@ import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { enforceRateLimit } from '$lib/server/rate-limit'
 import { lookupSignupRank } from '$lib/server/riot/henrik'
-import { linkedPuuidsFor } from '$lib/server/players/riot-accounts'
+import { linkedPuuidsFor, loadAltAccounts } from '$lib/server/players/riot-accounts'
+import { addAltsForSignups } from '$lib/server/signups/alts'
+import { pickSignupAccount } from '$lib/server/signups/rank-account'
 import { withSignupRiotIds } from '$lib/server/signups/riot-ids'
+import { checkSignupGames, gamesAccountsFor } from '$lib/server/signups/comp-games'
 import {
   MAX_BULK_ROWS,
   runBulkImport,
@@ -45,7 +48,9 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   // A stable order, so a cursor means the same row from one call to the next.
   let query = supabaseAdmin
     .from('player_signups')
-    .select('id, profile_id, current_rank, peak_rank, computed_value')
+    .select(
+      'id, profile_id, tracker_links, current_rank, peak_rank, computed_value, v26_comp_games, alt_check'
+    )
     .order('created_at', { ascending: true })
     .order('id', { ascending: true })
     .limit(MAX_BULK_ROWS)
@@ -62,11 +67,16 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
   const total = data?.length ?? 0
   const signups = await withSignupRiotIds((data ?? []).slice(cursor))
-  const [ratings, puuids] = await Promise.all([
+  // Signups saved before their tracker links became alts catch up here, ahead of
+  // loading the alts so this run compares them too.
+  const altFailures = cursor === 0 ? await addAltsForSignups(signups) : []
+  const [ratings, puuids, gamesAccounts, alts] = await Promise.all([
     loadRatingsForPlayers(
       signups.map((s) => ({ profile_id: s.profile_id, riot_name: s.display_name }))
     ),
     linkedPuuidsFor(signups.map((s) => s.profile_id)),
+    gamesAccountsFor(signups),
+    loadAltAccounts(signups.map((s) => s.profile_id)),
   ])
   const rows: BulkSignupRow[] = signups.map((s) => ({
     id: s.id,
@@ -77,6 +87,10 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     computed_value: s.computed_value,
     puuid: puuids.get(s.profile_id) ?? null,
     rating: ratings.get(s.profile_id)?.rating ?? null,
+    v26_comp_games: s.v26_comp_games,
+    accounts: gamesAccounts.get(s.profile_id) ?? [],
+    alts: alts.get(s.profile_id) ?? [],
+    alt_check: s.alt_check,
   }))
   if (rows.length === 0) {
     return json({
@@ -100,11 +114,16 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     rows,
     {
       async lookupRiot(target, opts) {
-        const { rank } = await lookupSignupRank(target, opts)
-        if (!rank) return null
-        if (!rank.currentRank && !rank.peakRank) return null
-        return { currentRank: rank.currentRank, peakRank: rank.peakRank }
+        const { lookup, check } = await pickSignupAccount(target, target.alts, (account) =>
+          lookupSignupRank(account, opts)
+        )
+        const currentRank = lookup.rank?.currentRank ?? null
+        const peakRank = lookup.rank?.peakRank ?? null
+        if (!check && !currentRank && !peakRank) return null
+        return { currentRank, peakRank, altCheck: check }
       },
+
+      checkGames: (row, opts) => checkSignupGames(row.id, row.accounts, opts),
 
       async save(signupId: string, patch: SignupPatch) {
         const { error: updateError } = await supabaseAdmin
@@ -117,6 +136,16 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       now: () => Date.now(),
     },
     { overwrite }
+  )
+
+  report.failed += altFailures.length
+  report.rows.unshift(
+    ...altFailures.map(({ signupId, riotId }) => ({
+      id: `alt:${signupId}:${riotId}`,
+      name: riotId,
+      outcome: 'failed' as const,
+      detail: 'Could not be added as an alt.',
+    }))
   )
 
   return json({

@@ -1,13 +1,18 @@
 /**
- * Highest average signup score a five-player roster may have.
+ * Highest average signup score a five-player roster may have, until an admin
+ * saves a cap from the calculator (see `$lib/server/team-balance`).
  *
- * PLACEHOLDER — the league has not settled on a cap yet. Signup scores run
- * Iron 1 = 1 … Radiant = 25 plus up to 5 rating bonus (see
+ * Signup scores run Iron 1 = 1 … Radiant = 25 plus up to 5 rating bonus (see
  * `$lib/signups/formula`), so 18 is roughly a Diamond 3 average.
  */
-export const MAX_TEAM_AVERAGE = 18
-/** Flip off once the real cap is decided; the calculator shows a notice while true. */
-export const MAX_TEAM_AVERAGE_IS_PLACEHOLDER = true
+export const DEFAULT_MAX_TEAM_AVERAGE = 18
+/** The best possible signup score: no roster can average above this. */
+export const TEAM_CAP_LIMIT = 30
+
+export function isValidTeamCap(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 && value <= TEAM_CAP_LIMIT
+}
+
 export const MIN_TEAM_PLAYERS = 5
 export const MAX_TEAM_PLAYERS = 8
 

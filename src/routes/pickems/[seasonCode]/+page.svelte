@@ -442,9 +442,10 @@
           <img src={teamLogo(teamId) ?? ''} alt="" class="team-logo" />
         {/if}
         <span class="team-name">{teamLabel(teamId)}</span>
-        <!-- Outcome markers: the pick carries right/wrong, the winner is
-             stated separately so a correct-looking colour never lands on a
-             team the viewer did not pick. -->
+        <!-- Outcome markers: the pick carries right/wrong. The winner is only
+             stated when no pick implies it (a wrong pick already does), so a
+             correct-looking colour never lands on a team the viewer did not
+             pick. -->
         {#if isPick && result === 'correct'}
           <span class="team-mark mark-hit" title="Your pick — correct">✓</span>
         {:else if isPick && result === 'wrong'}
@@ -452,7 +453,7 @@
         {:else if isPick}
           <span class="team-mark mark-pick" title="Your pick">●</span>
         {/if}
-        {#if isWinner && !isPick}
+        {#if isWinner && !isPick && result !== 'wrong'}
           <span class="team-mark mark-won" title="Won this match">W</span>
         {/if}
       </button>

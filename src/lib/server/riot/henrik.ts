@@ -4,6 +4,7 @@ import { toLeagueRank } from './rank-map'
 import {
   peakRankBetween,
   summarizeRank,
+  v26Games,
   type MmrV3Payload,
   type StoredMmrEntry,
 } from './rank-window'
@@ -48,6 +49,10 @@ export type RiotRank = {
   peakRank: string | null
   /** Act the peak was reached in, e.g. "V26 A1". */
   peakSeason: string | null
+  /** Ranked games since V26 Act 1. */
+  gamesInWindow: number
+  /** Competitive games played on this account in V26. */
+  v26Games: number
 }
 
 export class RiotLookupError extends Error {
@@ -218,6 +223,8 @@ function toRiotRank(data: MmrV3Payload): RiotRank {
     peakTier,
     peakRank: toLeagueRank(peakTier),
     peakSeason: summary.peakAct,
+    gamesInWindow: summary.gamesInWindow,
+    v26Games: v26Games(data),
   }
 }
 
@@ -355,4 +362,13 @@ export async function lookupSignupRank(
   }
   const { account, rank } = await lookupPlayer(target.riotId, opts)
   return { account: { name: account.name, tag: account.tag, puuid: account.puuid }, rank }
+}
+
+/** V26 competitive games on one account; no competitive record counts as none. */
+export async function fetchV26Games(
+  target: { puuid: string | null; riotId: string | null },
+  opts: LookupOptions = {}
+): Promise<number> {
+  const { rank } = await lookupSignupRank(target, opts)
+  return rank?.v26Games ?? 0
 }

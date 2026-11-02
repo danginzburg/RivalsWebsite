@@ -16,9 +16,23 @@ function row(overrides: Partial<BulkSignupRow> = {}): BulkSignupRow {
     computed_value: null,
     puuid: null,
     rating: null,
+    v26_comp_games: 150,
+    accounts: [{ riotId: 'ginzburg#na1', puuid: 'p1' }],
+    alts: [],
+    alt_check: null,
     ...overrides,
   }
 }
+
+const ALT = { riotId: 'alt#NA1', puuid: 'p-alt' }
+const CHECKED = {
+  riotId: 'ginzburg#na1',
+  currentRank: null,
+  peakRank: null,
+  games: 0,
+  baseScore: null,
+}
+const ALT_CHECK = { main: CHECKED, alts: [], usedRiotId: CHECKED.riotId, higherAlt: 'alt#NA1' }
 
 function deps(overrides: Partial<BulkImportDeps> = {}) {
   const saved: Array<{ id: string; patch: SignupPatch }> = []
@@ -27,6 +41,7 @@ function deps(overrides: Partial<BulkImportDeps> = {}) {
       currentRank: 'Gold 1',
       peakRank: 'Platinum 3',
     })),
+    checkGames: vi.fn(async () => ({ games: 40, account: 'ginzburg#na1' })),
     save: vi.fn(async (id: string, patch: SignupPatch) => {
       saved.push({ id, patch })
     }),
@@ -37,6 +52,53 @@ function deps(overrides: Partial<BulkImportDeps> = {}) {
 }
 
 describe('runBulkImport', () => {
+  const filled = { current_rank: 'Gold 1', peak_rank: 'Platinum 3', computed_value: 13.25 }
+
+  it('counts games for a filled row that has not been checked', async () => {
+    const { deps: d } = deps()
+    const report = await runBulkImport([row({ ...filled, v26_comp_games: null })], d)
+
+    expect(d.checkGames).toHaveBeenCalledTimes(1)
+    expect(d.lookupRiot).not.toHaveBeenCalled()
+    expect(report.updated).toBe(1)
+    expect(report.rows[0].detail).toContain('V26 games: 40.')
+  })
+
+  it('counts a player under the minimum again, but not one who reached it', async () => {
+    const { deps: d } = deps()
+    await runBulkImport([row({ ...filled, v26_comp_games: 99 })], d)
+    await runBulkImport([row({ ...filled, v26_comp_games: 100 })], d, { overwrite: true })
+
+    expect(d.checkGames).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves the row for the next call when the games check is rate limited', async () => {
+    const limited = Object.assign(new Error('slow down'), { status: 429, retryAfterMs: 5000 })
+    const { deps: d } = deps({
+      checkGames: vi.fn(async () => {
+        throw limited
+      }),
+    })
+    const report = await runBulkImport([row({ v26_comp_games: null })], d)
+
+    expect(report.processed).toBe(0)
+    expect(report.stoppedEarly).toBe(true)
+    expect(report.retryAfterMs).toBe(5000)
+    expect(d.lookupRiot).not.toHaveBeenCalled()
+  })
+
+  it('still fills ranks when the games check fails', async () => {
+    const { deps: d, saved } = deps({
+      checkGames: vi.fn(async () => {
+        throw new Error('down')
+      }),
+    })
+    const report = await runBulkImport([row({ v26_comp_games: null })], d)
+
+    expect(saved).toHaveLength(1)
+    expect(report.rows[0].detail).toContain('V26 games: down')
+  })
+
   it('fills blank ranks and recomputes the value', async () => {
     const { deps: d, saved } = deps()
     const report = await runBulkImport([row()], d)
@@ -55,6 +117,53 @@ describe('runBulkImport', () => {
     // Gold 1 (10) and Platinum 3 (15): 0.35·10 + 0.65·15 = 13.25, plus a bonus of 2.
     expect(saved[0].patch.computed_value).toBe(13.25)
     expect(saved[1].patch.computed_value).toBe(15.25)
+  })
+
+  it('checks alts on a filled row without changing its ranks', async () => {
+    const { deps: d, saved } = deps({
+      lookupRiot: vi.fn(async () => ({
+        currentRank: 'Diamond 1',
+        peakRank: 'Diamond 1',
+        altCheck: ALT_CHECK,
+      })),
+    })
+    const report = await runBulkImport(
+      [
+        row({
+          current_rank: 'Gold 1',
+          peak_rank: 'Platinum 3',
+          computed_value: 13.25,
+          alts: [ALT],
+        }),
+      ],
+      d
+    )
+
+    expect(report.updated).toBe(1)
+    expect(report.rows[0].detail).toContain('Alt higher: alt#NA1')
+    expect(saved[0].patch).toMatchObject({
+      current_rank: 'Gold 1',
+      peak_rank: 'Platinum 3',
+      alt_check: ALT_CHECK,
+    })
+  })
+
+  it('does not check alts twice', async () => {
+    const { deps: d } = deps()
+    await runBulkImport(
+      [
+        row({
+          current_rank: 'Gold 1',
+          peak_rank: 'Platinum 3',
+          computed_value: 13.25,
+          alts: [ALT],
+          alt_check: ALT_CHECK,
+        }),
+      ],
+      d
+    )
+
+    expect(d.lookupRiot).not.toHaveBeenCalled()
   })
 
   it('skips rows that already have both ranks', async () => {
@@ -129,7 +238,10 @@ describe('runBulkImport', () => {
     const { deps: d, saved } = deps()
     await runBulkImport([row({ riot_tag: null, puuid: 'puuid-1' })], d)
 
-    expect(d.lookupRiot).toHaveBeenCalledWith({ riotId: null, puuid: 'puuid-1' }, expect.anything())
+    expect(d.lookupRiot).toHaveBeenCalledWith(
+      { riotId: null, puuid: 'puuid-1', alts: [] },
+      expect.anything()
+    )
     expect(saved).toHaveLength(1)
   })
 

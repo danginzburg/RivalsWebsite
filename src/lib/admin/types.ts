@@ -1,6 +1,7 @@
 import type { MatchStreamRow } from '$lib/server/db-rows'
 import type { SeasonExternalLink, SeasonKind, SeasonSectionKey } from '$lib/seasons/profile'
 import type { SeasonSchedule } from '$lib/seasons/schedule'
+import type { SignupAltCheck } from '$lib/signups/alt-check'
 
 export type AdminTabId =
   | 'users'
@@ -30,8 +31,16 @@ export type PlayerSignup = {
   rating: number | null
   /** The name the rating is listed under, which can differ from the Riot name. */
   rating_name?: string | null
+  /** V26 competitive games on the main account; null until checked. */
+  v26_comp_games: number | null
+  /** The Riot ID that total is from. */
+  v26_comp_games_account: string | null
   status: 'pending' | 'approved' | 'rejected'
   admin_notes: string | null
+  /** The player's other accounts, reviewed inside this signup. */
+  alts?: Array<{ id: string; riotId: string; status: 'pending' | 'approved' | 'rejected' }>
+  /** The last comparison with the player's alts; null until one has run. */
+  alt_check: SignupAltCheck | null
   created_at: string
   profile: {
     id: string

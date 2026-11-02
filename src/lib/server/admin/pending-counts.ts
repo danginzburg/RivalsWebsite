@@ -14,14 +14,11 @@ export type AdminPendingCounts = {
  * reads zero before the tab is opened or once the filter leaves "pending".
  * A failed count falls back to zero rather than blocking the dashboard.
  */
-async function countPending(table: string, nonPrimaryOnly = false): Promise<number> {
-  let query = supabaseAdmin
+async function countPending(table: string): Promise<number> {
+  const { count, error } = await supabaseAdmin
     .from(table)
     .select('id', { count: 'exact', head: true })
     .eq('status', 'pending')
-  // Primary Riot accounts are never reviewed; only alternates enter the queue.
-  if (nonPrimaryOnly) query = query.eq('is_primary', false)
-  const { count, error } = await query
   if (error) {
     console.error(`Error counting pending ${table}:`, error)
     return 0
@@ -29,10 +26,33 @@ async function countPending(table: string, nonPrimaryOnly = false): Promise<numb
   return count ?? 0
 }
 
+/**
+ * Pending alternate accounts that need reviewing on their own. A player with a
+ * pending signup already counts once, and their alts are reviewed inside it.
+ * Primary accounts are never reviewed, so they are not in this queue.
+ */
+async function countStandaloneAlts(): Promise<number> {
+  const [alts, signups] = await Promise.all([
+    supabaseAdmin
+      .from('riot_accounts')
+      .select('profile_id')
+      .eq('status', 'pending')
+      .eq('is_primary', false),
+    supabaseAdmin.from('player_signups').select('profile_id').eq('status', 'pending'),
+  ])
+  const error = alts.error ?? signups.error
+  if (error) {
+    console.error('Error counting pending alternate accounts:', error)
+    return 0
+  }
+  const signedUp = new Set((signups.data ?? []).map((s) => s.profile_id))
+  return (alts.data ?? []).filter((a) => !signedUp.has(a.profile_id)).length
+}
+
 function countAll() {
   return Promise.all([
     countPending('player_signups'),
-    countPending('riot_accounts', true),
+    countStandaloneAlts(),
     countPending('comment_reports'),
     countPending('review_flags'),
     countPending('bug_reports'),
