@@ -59,6 +59,7 @@ export function isNavPageVisible(page: GatedNavPage, vis: NavVisibility): boolea
   const external = vis.activeSeasonKind === 'external'
   switch (page) {
     case 'hall-of-fame':
+      return true
     case 'scrim-finder':
       return false
     case 'team-balance':

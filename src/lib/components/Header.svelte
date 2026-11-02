@@ -18,6 +18,7 @@
     UserCog,
     Target,
     ClipboardList,
+    Award,
   } from 'lucide-svelte'
   import DiscordIcon from '$lib/components/icons/DiscordIcon.svelte'
   import NotificationBell from '$lib/components/NotificationBell.svelte'
@@ -65,7 +66,7 @@
     { href: '/leaderboard', label: 'Leaderboard', icon: Trophy },
     ...(hasActivePickem ? [{ href: '/pickems' as NavHref, label: "Pick'ems", icon: Target }] : []),
     { href: '/events', label: 'Events', icon: CalendarClock },
-    // { href: '/hall-of-fame', label: 'Hall of Fame', icon: Award },
+    { href: '/hall-of-fame', label: 'Hall of Fame', icon: Award },
     { href: '/stats', label: 'Stats', icon: BarChart3 },
     ...(isExternalSeason
       ? []

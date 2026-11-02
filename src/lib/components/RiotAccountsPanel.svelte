@@ -1,7 +1,8 @@
 <script lang="ts">
   import { enhance } from '$app/forms'
   import { invalidateAll } from '$app/navigation'
-  import { Plus, X, Star, Pencil, ExternalLink } from 'lucide-svelte'
+  import { onMount } from 'svelte'
+  import { Plus, X, Star, Pencil, ExternalLink, ChevronDown } from 'lucide-svelte'
   import DiscordIcon from '$lib/components/icons/DiscordIcon.svelte'
   import { trackerProfileUrl } from '$lib/players/tracker-url'
 
@@ -33,6 +34,27 @@
   const alts = $derived(accounts.filter((a) => !a.is_primary))
 
   const trackerUrl = $derived(trackerProfileUrl(primary?.riot_name, primary?.riot_tag))
+
+  const EXPANDED_STORAGE_KEY = 'profile-player-info-expanded'
+
+  let expanded = $state(true)
+
+  onMount(() => {
+    try {
+      if (localStorage.getItem(EXPANDED_STORAGE_KEY) === 'false') expanded = false
+    } catch {
+      // storage unavailable — stay expanded
+    }
+  })
+
+  function setExpanded(value: boolean) {
+    expanded = value
+    try {
+      localStorage.setItem(EXPANDED_STORAGE_KEY, String(value))
+    } catch {
+      // ignore
+    }
+  }
 
   let editingName = $state(false)
   let addingAlt = $state(false)
@@ -100,141 +122,165 @@
   >
 {/snippet}
 
-<section class="panel">
+<section class="panel" class:open={expanded}>
   <div class="panel-head">
-    <span class="panel-title">Player info</span>
+    <button
+      type="button"
+      class="panel-toggle"
+      aria-expanded={expanded}
+      onclick={() => setExpanded(!expanded)}
+    >
+      <span class="panel-title">Player info</span>
+      <ChevronDown size={14} class="chevron" />
+    </button>
     {#if canEdit && !addingAlt}
-      <button type="button" class="link-btn" onclick={() => (addingAlt = true)}>
+      <button
+        type="button"
+        class="link-btn"
+        onclick={() => {
+          setExpanded(true)
+          addingAlt = true
+        }}
+      >
         <Plus size={13} /> Add account
       </button>
     {/if}
   </div>
 
-  <!-- Chosen display name -->
-  <div class="row">
-    <div class="row-main">
-      <span class="row-label">Display name</span>
-      {#if editingName && canEdit}
-        <form
-          method="POST"
-          action="?/setDisplayName"
-          class="name-form"
-          use:enhance={() => {
-            return async ({ update }) => {
-              await update()
-              editingName = false
-            }
-          }}
-        >
-          <input
-            name="display_name"
-            value={displayName ?? ''}
-            class="input"
-            maxlength="40"
-            placeholder="Your name"
-          />
-          <button type="submit" class="save-btn">Save</button>
-          <button type="button" class="cancel-btn" onclick={() => (editingName = false)}
-            >Cancel</button
+  {#if expanded}
+    <!-- Chosen display name -->
+    <div class="row">
+      <div class="row-main">
+        <span class="row-label">Display name</span>
+        {#if editingName && canEdit}
+          <form
+            method="POST"
+            action="?/setDisplayName"
+            class="name-form"
+            use:enhance={() => {
+              return async ({ update }) => {
+                await update()
+                editingName = false
+              }
+            }}
           >
-        </form>
-      {:else}
-        <span class="row-value">{displayName ?? '—'}</span>
-      {/if}
-    </div>
-    {#if canEdit && !editingName}
-      <button
-        type="button"
-        class="icon-btn"
-        aria-label="Edit display name"
-        onclick={() => (editingName = true)}
-      >
-        <Pencil size={13} />
-      </button>
-    {/if}
-  </div>
-
-  <!-- Primary account -->
-  {#if primary}
-    <div class="row">
-      <div class="row-main">
-        <span class="row-label"><Star size={11} /> Primary Riot ID</span>
-        <span class="row-value">
-          {primary.riot_name}{#if primary.riot_tag}<span class="tag">#{primary.riot_tag}</span>{/if}
-        </span>
-        {#if primary.riot_puuid}{@render linkedMark()}{/if}
-      </div>
-      {#if trackerUrl}
-        <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
-        <a href={trackerUrl} target="_blank" rel="noopener noreferrer" class="tracker-link">
-          <ExternalLink size={12} />
-          Tracker
-        </a>
-      {/if}
-    </div>
-  {/if}
-
-  {#if discordHandle}
-    <div class="row">
-      <div class="row-main">
-        <span class="row-label"><DiscordIcon size={11} /> Discord</span>
-        <span class="row-value">{discordHandle}</span>
-      </div>
-    </div>
-  {/if}
-
-  <!-- Alternate accounts -->
-  {#each alts as alt (alt.id)}
-    <div class="row">
-      <div class="row-main">
-        <span class="row-value">
-          {alt.riot_name}{#if alt.riot_tag}<span class="tag">#{alt.riot_tag}</span>{/if}
-          {#if alt.label}<span class="alt-label">{alt.label}</span>{/if}
-        </span>
-        {#if alt.riot_puuid}{@render linkedMark()}{/if}
-        {#if alt.status !== 'approved'}
-          <span class="status-pill" style={statusStyle[alt.status] ?? ''}>{alt.status}</span>
+            <input
+              name="display_name"
+              value={displayName ?? ''}
+              class="input"
+              maxlength="40"
+              placeholder="Your name"
+            />
+            <button type="submit" class="save-btn">Save</button>
+            <button type="button" class="cancel-btn" onclick={() => (editingName = false)}
+              >Cancel</button
+            >
+          </form>
+        {:else}
+          <span class="row-value">{displayName ?? '—'}</span>
         {/if}
       </div>
-      {#if canEdit && alt.source !== 'identity'}
+      {#if canEdit && !editingName}
         <button
           type="button"
           class="icon-btn"
-          aria-label="Remove account"
-          onclick={() => removeAlt(alt.id)}
-          disabled={busy}
+          aria-label="Edit display name"
+          onclick={() => (editingName = true)}
         >
-          <X size={13} />
+          <Pencil size={13} />
         </button>
       {/if}
     </div>
-  {/each}
 
-  {#if canEdit && addingAlt}
-    <div class="add-form">
-      <div class="add-inputs">
-        <input bind:value={altName} class="input" placeholder="Alt Riot name" maxlength="24" />
-        <span class="hash">#</span>
-        <input bind:value={altTag} class="input input-tag" placeholder="NA1" maxlength="5" />
-        <input bind:value={altLabel} class="input" placeholder="Label (optional)" maxlength="40" />
+    <!-- Primary account -->
+    {#if primary}
+      <div class="row">
+        <div class="row-main">
+          <span class="row-label"><Star size={11} /> Primary Riot ID</span>
+          <span class="row-value">
+            {primary.riot_name}{#if primary.riot_tag}<span class="tag">#{primary.riot_tag}</span
+              >{/if}
+          </span>
+          {#if primary.riot_puuid}{@render linkedMark()}{/if}
+        </div>
+        {#if trackerUrl}
+          <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+          <a href={trackerUrl} target="_blank" rel="noopener noreferrer" class="tracker-link">
+            <ExternalLink size={12} />
+            Tracker
+          </a>
+        {/if}
       </div>
-      {#if errorMessage}<div class="error">{errorMessage}</div>{/if}
-      <div class="add-actions">
-        <span class="hint">Verified against Riot. An admin approves it before its stats merge.</span
-        >
-        <div class="add-buttons">
-          <button
-            type="button"
-            class="cancel-btn"
-            onclick={() => (addingAlt = false)}
-            disabled={busy}>Cancel</button
-          >
-          <button type="button" class="save-btn" onclick={addAlt} disabled={busy}>
-            {busy ? 'Adding…' : 'Add'}
-          </button>
+    {/if}
+
+    {#if discordHandle}
+      <div class="row">
+        <div class="row-main">
+          <span class="row-label"><DiscordIcon size={11} /> Discord</span>
+          <span class="row-value">{discordHandle}</span>
         </div>
       </div>
-    </div>
+    {/if}
+
+    <!-- Alternate accounts -->
+    {#each alts as alt (alt.id)}
+      <div class="row">
+        <div class="row-main">
+          <span class="row-value">
+            {alt.riot_name}{#if alt.riot_tag}<span class="tag">#{alt.riot_tag}</span>{/if}
+            {#if alt.label}<span class="alt-label">{alt.label}</span>{/if}
+          </span>
+          {#if alt.riot_puuid}{@render linkedMark()}{/if}
+          {#if alt.status !== 'approved'}
+            <span class="status-pill" style={statusStyle[alt.status] ?? ''}>{alt.status}</span>
+          {/if}
+        </div>
+        {#if canEdit && alt.source !== 'identity'}
+          <button
+            type="button"
+            class="icon-btn"
+            aria-label="Remove account"
+            onclick={() => removeAlt(alt.id)}
+            disabled={busy}
+          >
+            <X size={13} />
+          </button>
+        {/if}
+      </div>
+    {/each}
+
+    {#if canEdit && addingAlt}
+      <div class="add-form">
+        <div class="add-inputs">
+          <input bind:value={altName} class="input" placeholder="Alt Riot name" maxlength="24" />
+          <span class="hash">#</span>
+          <input bind:value={altTag} class="input input-tag" placeholder="NA1" maxlength="5" />
+          <input
+            bind:value={altLabel}
+            class="input"
+            placeholder="Label (optional)"
+            maxlength="40"
+          />
+        </div>
+        {#if errorMessage}<div class="error">{errorMessage}</div>{/if}
+        <div class="add-actions">
+          <span class="hint"
+            >Verified against Riot. An admin approves it before its stats merge.</span
+          >
+          <div class="add-buttons">
+            <button
+              type="button"
+              class="cancel-btn"
+              onclick={() => (addingAlt = false)}
+              disabled={busy}>Cancel</button
+            >
+            <button type="button" class="save-btn" onclick={addAlt} disabled={busy}>
+              {busy ? 'Adding…' : 'Add'}
+            </button>
+          </div>
+        </div>
+      </div>
+    {/if}
   {/if}
 </section>
 
@@ -250,7 +296,30 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+  }
+  .panel.open .panel-head {
     margin-bottom: 0.625rem;
+  }
+  .panel-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    color: rgba(255, 255, 255, 0.6);
+  }
+  .panel-toggle:hover .panel-title,
+  .panel-toggle:hover {
+    color: rgba(255, 255, 255, 0.85);
+  }
+  .panel-toggle :global(.chevron) {
+    transform: rotate(-90deg);
+    transition: transform 0.15s ease;
+  }
+  .panel.open .panel-toggle :global(.chevron) {
+    transform: none;
   }
   .panel-title {
     font-size: 0.6875rem;

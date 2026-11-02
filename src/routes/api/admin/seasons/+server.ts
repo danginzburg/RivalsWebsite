@@ -162,7 +162,12 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
   // Map pool, the presentation profile and the stage schedule all live on
   // metadata. Read the existing object once and merge onto it, so a save that
   // sends one can't drop the others (or any other metadata key the season carries).
-  if (body.mapPool !== undefined || body.profile !== undefined || body.schedule !== undefined) {
+  if (
+    body.mapPool !== undefined ||
+    body.profile !== undefined ||
+    body.schedule !== undefined ||
+    body.mvpName !== undefined
+  ) {
     const { data: current } = await supabaseAdmin
       .from('seasons')
       .select('metadata')
@@ -188,6 +193,13 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
 
     if (body.schedule !== undefined) {
       merged.schedule = sanitizeSeasonSchedule(body.schedule)
+    }
+
+    // Placeholder MVP for a player who hasn't signed up yet; a picked profile wins.
+    if (body.mvpName !== undefined) {
+      const mvpName = normalizeOptional(body.mvpName)
+      if (mvpName) merged.mvp_name = mvpName
+      else delete merged.mvp_name
     }
 
     updates.metadata = merged

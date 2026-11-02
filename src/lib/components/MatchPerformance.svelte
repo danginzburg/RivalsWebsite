@@ -9,6 +9,8 @@
     team_id: string | null
     kills?: number | null
     acs?: number | null
+    fk?: number | null
+    fd?: number | null
     mk_2k: number | null
     mk_3k: number | null
     mk_4k: number | null
@@ -132,6 +134,51 @@
     return value === null ? '—' : String(value)
   }
 
+  /** First kills minus first deaths, or null when neither was recorded. */
+  function entryDiff(r: PerfRow): number | null {
+    if (r.fk == null && r.fd == null) return null
+    return (r.fk ?? 0) - (r.fd ?? 0)
+  }
+
+  /** Sum of one count across a team; null when no player had it recorded. */
+  function sumCount(list: PerfRow[], pick: (r: PerfRow) => number | null | undefined) {
+    const present = list.map(pick).filter((v): v is number => v != null)
+    return present.length > 0 ? present.reduce((a, b) => a + b, 0) : null
+  }
+
+  /** A team's totals, shaped as a row so it renders through the same cells. */
+  function teamTotal(list: PerfRow[]): PerfRow {
+    const breakdowns = list.map((r) => r.clutch_breakdown).filter((b) => b !== null)
+    let clutch_breakdown: PerfRow['clutch_breakdown'] = null
+    if (breakdowns.length > 0) {
+      clutch_breakdown = { won: {}, attempted: {} }
+      for (const b of breakdowns) {
+        for (const half of ['won', 'attempted'] as const) {
+          for (const [size, count] of Object.entries(b[half] ?? {})) {
+            clutch_breakdown[half][size] = (clutch_breakdown[half][size] ?? 0) + count
+          }
+        }
+      }
+    }
+    return {
+      puuid: null,
+      player_name: 'Team total',
+      team_id: list[0]?.team_id ?? null,
+      fk: sumCount(list, (r) => r.fk),
+      fd: sumCount(list, (r) => r.fd),
+      mk_2k: sumCount(list, (r) => r.mk_2k),
+      mk_3k: sumCount(list, (r) => r.mk_3k),
+      mk_4k: sumCount(list, (r) => r.mk_4k),
+      mk_5k: sumCount(list, (r) => r.mk_5k),
+      mk_6k: sumCount(list, (r) => r.mk_6k),
+      mk_7k: sumCount(list, (r) => r.mk_7k),
+      clutches_won: sumCount(list, (r) => r.clutches_won),
+      clutches_attempted: sumCount(list, (r) => r.clutches_attempted),
+      clutch_breakdown,
+      duels: null,
+    }
+  }
+
   /**
    * One clutch size for one player. `attempted` of zero means the situation
    * never came up, which reads better as a dash than as "0/0".
@@ -144,6 +191,47 @@
     return { won: breakdown.won?.[String(size)] ?? 0, attempted }
   }
 </script>
+
+{#snippet perfRow(row: PerfRow, isTotal: boolean)}
+  {@const who = isTotal ? row.player_name : displayName(row.player_name)}
+  <tr class:total-row={isTotal}>
+    <td class="col-player">{who}</td>
+    <td class="num">{fmt(row.fk ?? null)}</td>
+    <td class="num">{fmt(row.fd ?? null)}</td>
+    <td
+      class="num"
+      class:hot={(entryDiff(row) ?? 0) > 0}
+      class:clutch-lost={(entryDiff(row) ?? 0) < 0}
+    >
+      {entryDiff(row) === null ? '—' : entryDiff(row)! > 0 ? `+${entryDiff(row)}` : entryDiff(row)}
+    </td>
+    <td class="num">{fmt(row.mk_2k)}</td>
+    <td class="num" class:hot={(row.mk_3k ?? 0) > 0}>{fmt(row.mk_3k)}</td>
+    <td class="num" class:hot={(row.mk_4k ?? 0) > 0}>{fmt(row.mk_4k)}</td>
+    <td class="num" class:ace={(row.mk_5k ?? 0) > 0}>{fmt(row.mk_5k)}</td>
+    <td class="num" class:ace={(row.mk_6k ?? 0) > 0}>{fmt(row.mk_6k)}</td>
+    <td class="num" class:ace={(row.mk_7k ?? 0) > 0}>{fmt(row.mk_7k)}</td>
+    {#each CLUTCH_SIZES as size (size)}
+      {@const c = clutchAt(row, size)}
+      <td
+        class="num col-clutch"
+        class:hot={(c?.won ?? 0) > 0}
+        class:clutch-lost={c !== null && c.won === 0}
+        title={c
+          ? `${who} won ${c.won} of ${c.attempted} 1v${size} situations`
+          : `${who} was never alone against ${size}`}
+      >
+        {#if row.clutches_attempted === null}
+          —
+        {:else if c}
+          {c.won}/{c.attempted}
+        {:else}
+          <span class="clutch-none">·</span>
+        {/if}
+      </td>
+    {/each}
+  </tr>
+{/snippet}
 
 {#if hasData}
   <div class="perf">
@@ -159,6 +247,9 @@
               <thead>
                 <tr>
                   <th class="col-player">Player</th>
+                  <th title="First kills — opening kills of a round">FK</th>
+                  <th title="First deaths — first to die in a round">FD</th>
+                  <th title="First kills minus first deaths">+/−</th>
                   <th title="Rounds with exactly two kills">2K</th>
                   <th title="Rounds with exactly three kills">3K</th>
                   <th title="Rounds with exactly four kills">4K</th>
@@ -177,39 +268,17 @@
               </thead>
               <tbody>
                 {#each group.list as row (row.player_name)}
-                  <tr>
-                    <td class="col-player">{displayName(row.player_name)}</td>
-                    <td class="num">{fmt(row.mk_2k)}</td>
-                    <td class="num" class:hot={(row.mk_3k ?? 0) > 0}>{fmt(row.mk_3k)}</td>
-                    <td class="num" class:hot={(row.mk_4k ?? 0) > 0}>{fmt(row.mk_4k)}</td>
-                    <td class="num" class:ace={(row.mk_5k ?? 0) > 0}>{fmt(row.mk_5k)}</td>
-                    <td class="num" class:ace={(row.mk_6k ?? 0) > 0}>{fmt(row.mk_6k)}</td>
-                    <td class="num" class:ace={(row.mk_7k ?? 0) > 0}>{fmt(row.mk_7k)}</td>
-                    {#each CLUTCH_SIZES as size (size)}
-                      {@const c = clutchAt(row, size)}
-                      <td
-                        class="num col-clutch"
-                        class:hot={(c?.won ?? 0) > 0}
-                        class:clutch-lost={c !== null && c.won === 0}
-                        title={c
-                          ? `${displayName(row.player_name)} won ${c.won} of ${c.attempted} 1v${size} situations`
-                          : `${displayName(row.player_name)} was never alone against ${size}`}
-                      >
-                        {#if row.clutches_attempted === null}
-                          —
-                        {:else if c}
-                          {c.won}/{c.attempted}
-                        {:else}
-                          <span class="clutch-none">·</span>
-                        {/if}
-                      </td>
-                    {/each}
-                  </tr>
+                  {@render perfRow(row, false)}
                 {/each}
                 {#if group.list.length === 0}
-                  <tr><td colspan="10" class="empty">No players recorded.</td></tr>
+                  <tr><td colspan="15" class="empty">No players recorded.</td></tr>
                 {/if}
               </tbody>
+              {#if group.list.length > 0}
+                <tfoot>
+                  {@render perfRow(teamTotal(group.list), true)}
+                </tfoot>
+              {/if}
             </table>
           </div>
         </section>
@@ -438,6 +507,20 @@
 
   .num {
     font-variant-numeric: tabular-nums;
+  }
+
+  /* Team total: a heavier rule above it, like the head-to-head footer. */
+  .perf-table .total-row td {
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+    font-weight: 600;
+  }
+
+  .perf-table .total-row .col-player {
+    font-size: 0.5625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: rgba(255, 255, 255, 0.62);
   }
 
   /*

@@ -17,6 +17,7 @@ const SELECT_COLUMNS = `
   profile_id,
   team_id,
   season_id,
+  match_id,
   is_published,
   sort_order,
   created_at
@@ -42,6 +43,8 @@ function buildRow(body: Record<string, unknown>) {
   if (!title) throw error(400, 'Title is required')
 
   return {
+    // Only the moment form sends a match; an edit that leaves it out keeps it.
+    ...('matchId' in body ? { match_id: normalizeOptional(body.matchId) } : {}),
     entry_type: parseEntryType(body.entryType),
     title,
     description: normalizeOptional(body.description),

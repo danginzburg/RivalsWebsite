@@ -2,6 +2,7 @@ import { supabaseAdmin } from '$lib/supabase/admin'
 import { rankValue } from '$lib/ranks/ranks'
 import { average, sum } from '$lib/server/math'
 import { fetchAllRows } from '$lib/server/supabase/fetch-all'
+import { rebuildStatRecords } from '$lib/server/records/rebuild'
 import { currentRiotIdsByPuuid } from '$lib/server/players/directory'
 import { normalizeSectionKey, resolveMatchStageKey, type SectionKey } from '$lib/stats/sections'
 import {
@@ -730,6 +731,11 @@ async function refreshLiveBatchesForMatchUnsafe(options: {
       playerCount: result.playerCount,
     })
   }
+
+  // Hall of Fame stat records follow the same matches, so they rebuild here too.
+  await rebuildStatRecords().catch((err) => {
+    console.error('Failed to rebuild stat records:', err)
+  })
 
   return refreshed
 }

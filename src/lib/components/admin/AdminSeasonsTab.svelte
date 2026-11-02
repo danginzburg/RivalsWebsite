@@ -18,6 +18,7 @@
     type SeasonSchedule,
     type SeasonStageKey,
   } from '$lib/seasons/schedule'
+  import { seasonMvpName } from '$lib/seasons/mvp'
 
   const weekdayOptions = WEEKDAY_LABELS.map((label, day) => ({ value: String(day), label }))
 
@@ -266,6 +267,7 @@
             runnerUpTeamId: season.runner_up_team_id ?? '',
             thirdPlaceTeamId: season.third_place_team_id ?? '',
             mvpProfileId: season.mvp_profile_id ?? '',
+            mvpName: seasonMvpName(season.metadata),
             finalLeaderboardBatchId: season.final_leaderboard_batch_id ?? '',
             mapPool: Array.isArray(season.metadata?.map_pool)
               ? (season.metadata.map_pool as unknown[]).filter(
@@ -560,6 +562,18 @@
                             onSeasonEditChange(season.id, { ...state, mvpProfileId: value })}
                         />
                       </div>
+                      {#if !state.mvpProfileId}
+                        <input
+                          value={state.mvpName}
+                          class="admin-input mt-1"
+                          placeholder="Or type a name (not signed up)"
+                          oninput={(e) =>
+                            onSeasonEditChange(season.id, {
+                              ...state,
+                              mvpName: (e.currentTarget as HTMLInputElement).value,
+                            })}
+                        />
+                      {/if}
                     </label>
                   </div>
 

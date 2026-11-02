@@ -31,7 +31,12 @@
     bulkImportRunning?: boolean
     bulkImportReport?: BulkImportReport | null
     /** Rows checked so far in a running bulk import. */
-    bulkImportProgress?: { done: number; total: number } | null
+    bulkImportProgress?: {
+      done: number
+      total: number
+      current: string | null
+      waitSeconds: number | null
+    } | null
     onBulkImport: (overwrite: boolean) => void
     onStopBulkImport: () => void
     onDismissBulkReport: () => void
@@ -296,16 +301,52 @@
       </label>
     </div>
 
+    {#if bulkImportRunning}
+      <div class="mt-3">
+        <div class="flex flex-wrap items-baseline justify-between gap-2 text-xs">
+          <span style="color: rgba(255,255,255,0.82);">
+            {#if !bulkImportProgress}
+              Loading signups…
+            {:else if bulkImportProgress.waitSeconds != null}
+              <span style="color: #fcd34d;">
+                Rate limited — resuming in {bulkImportProgress.waitSeconds}s
+              </span>
+            {:else if bulkImportProgress.current}
+              Checking <strong>{bulkImportProgress.current}</strong>
+            {:else}
+              Working…
+            {/if}
+          </span>
+          {#if bulkImportProgress}
+            <span class="tabular-nums" style="color: rgba(255,255,255,0.72);">
+              <strong style="color: rgba(255,255,255,0.9);">{bulkImportProgress.done}</strong>
+              / {bulkImportProgress.total}
+            </span>
+          {/if}
+        </div>
+        <div
+          class="mt-1.5 h-1.5 overflow-hidden rounded-full"
+          style="background: rgba(255,255,255,0.08);"
+          role="progressbar"
+          aria-label="Bulk fill progress"
+          aria-valuemin={0}
+          aria-valuemax={bulkImportProgress?.total ?? 0}
+          aria-valuenow={bulkImportProgress?.done ?? 0}
+        >
+          <div
+            class="h-full rounded-full transition-[width] duration-300"
+            style="background: #d8b4fe; width: {bulkImportProgress && bulkImportProgress.total > 0
+              ? (bulkImportProgress.done / bulkImportProgress.total) * 100
+              : 0}%;"
+          ></div>
+        </div>
+      </div>
+    {/if}
+
     <p class="mt-2 text-[11px]" style="color: rgba(255,255,255,0.6);">
       {#if bulkImportRunning}
-        {#if bulkImportProgress}
-          <strong style="color: rgba(255,255,255,0.82);">
-            {bulkImportProgress.done} / {bulkImportProgress.total}
-          </strong>
-          checked.
-        {/if}
-        Running — Riot lookups are paced to stay under the API's rate limit (about 30 a minute), so a
-        few hundred players take several minutes. Leave this tab open.
+        Running — Riot lookups are paced to stay under the API's rate limit (about 30 a minute), so
+        a few hundred players take several minutes. Leave this tab open.
       {:else}
         Applies to the <strong style="color: rgba(255,255,255,0.82);">{statusFilter}</strong> filter and
         saves directly. Rows that already have values are skipped unless overwrite is on, and a manual
