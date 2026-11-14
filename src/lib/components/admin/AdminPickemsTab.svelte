@@ -397,7 +397,7 @@
       >
         Pick'em
       </div>
-      <div class="min-w-[220px]">
+      <div class="w-full sm:w-auto sm:min-w-[220px]">
         <CustomSelect
           options={seasonOptions}
           value={selectedSeasonId}
@@ -486,7 +486,7 @@
         <div class="mt-2 grid grid-cols-1 gap-2 lg:grid-cols-2">
           {#each DE8_TOP_SEEDS as seed (seed)}
             <div
-              class="grid grid-cols-[1fr_auto_1fr] items-end gap-2 rounded-md border p-2"
+              class="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-2 rounded-md border p-2"
               style="border-color: rgba(255,255,255,0.08); background: rgba(0,0,0,0.15);"
             >
               <div>
@@ -539,7 +539,7 @@
           <div class="mt-2 grid grid-cols-1 gap-2">
             {#each bracketSlots as match (match.slotKey)}
               <div
-                class="grid grid-cols-1 items-center gap-2 rounded-md border p-2 sm:grid-cols-[13rem_1fr_1fr]"
+                class="grid grid-cols-1 items-center gap-2 rounded-md border p-2 sm:grid-cols-[13rem_minmax(0,1fr)_minmax(0,1fr)]"
                 style="border-color: rgba(255,255,255,0.08); background: rgba(0,0,0,0.15);"
               >
                 <div class="text-xs">
@@ -615,7 +615,7 @@
             <div class="grid grid-cols-1 gap-2">
               {#each week.matches as match (match.slotKey)}
                 <div
-                  class="grid grid-cols-1 gap-2 rounded-md border p-2 sm:grid-cols-[1fr_1fr_1fr_4.5rem_auto]"
+                  class="grid grid-cols-1 gap-2 rounded-md border p-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_4.5rem_auto]"
                   style="border-color: rgba(255,255,255,0.08); background: rgba(0,0,0,0.15);"
                 >
                   <CustomSelect

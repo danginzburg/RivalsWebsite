@@ -111,6 +111,66 @@
     }))
   )
 
+  /**
+   * The existing match the stats belong to — one scheduled by hand, or live
+   * right now. Empty leaves it to the import to find the match by teams and
+   * date (creating one if none is near). Picking one fixes the teams, season
+   * and (by default) the stage to that match's.
+   */
+  type TargetMatch = (typeof data.targetMatches)[number]
+  const stageLabelByKey = new Map<string, string>(MATCH_STAGES.map((s) => [s.key, s.label]))
+  let targetMatchId = $state('')
+
+  function targetMatchLabel(match: TargetMatch) {
+    const teams = `${match.teamA?.name ?? 'TBD'} vs ${match.teamB?.name ?? 'TBD'}`
+    const when = match.scheduledAt
+      ? new Date(match.scheduledAt).toLocaleString(undefined, {
+          month: 'short',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+        })
+      : 'unscheduled'
+    const status =
+      match.status === 'live'
+        ? '● LIVE'
+        : match.hasStats
+          ? 'Has stats'
+          : match.status === 'completed'
+            ? 'Result only'
+            : 'Scheduled'
+    const stageLabel = match.stage ? (stageLabelByKey.get(match.stage) ?? match.stage) : null
+    return [status, teams, when, stageLabel].filter(Boolean).join(' · ')
+  }
+
+  const targetMatchOptions = $derived([
+    { value: '', label: 'Auto — find or create by teams and date' },
+    ...(data.targetMatches ?? []).map((match) => ({
+      value: match.id,
+      label: targetMatchLabel(match),
+    })),
+  ])
+
+  const targetMatch = $derived(
+    (data.targetMatches ?? []).find((match) => match.id === targetMatchId) ?? null
+  )
+
+  function selectTargetMatch(id: string) {
+    targetMatchId = id
+    const match = (data.targetMatches ?? []).find((m) => m.id === id)
+    if (!match) return
+    if (match.seasonId) importSeasonId = match.seasonId
+    if (match.stage) stage = match.stage
+    if (match.bestOf === 3 || match.bestOf === 5) riotBestOf = String(match.bestOf)
+    // The match names the teams, so the roster fallback never applies.
+    riotNeedsManualTeams = false
+    riotPreview = null
+  }
+
+  onMount(() => {
+    if (data.requestedMatchId) selectTargetMatch(data.requestedMatchId)
+  })
+
   const importSeasonTeams = $derived(
     (data.teams ?? []).filter((team) => !importSeasonId || team.season_id === importSeasonId)
   )
@@ -214,6 +274,7 @@
           ...(riotBestOf ? { bestOf: Number(riotBestOf) } : {}),
           ...(stage ? { stage } : {}),
           ...(importSeasonId ? { seasonId: importSeasonId } : {}),
+          ...(targetMatchId ? { targetMatchId } : {}),
           ...manualTeams,
           ...forfeitMap,
         }),
@@ -239,6 +300,7 @@
         riotInput = ''
         riotManualTeamAId = ''
         riotManualTeamBId = ''
+        targetMatchId = ''
       }
     } catch (err) {
       parseError = err instanceof Error ? err.message : 'Import failed'
@@ -598,6 +660,7 @@
           maps: seriesMaps,
           ...(stage ? { stage } : {}),
           ...(importSeasonId ? { seasonId: importSeasonId } : {}),
+          ...(targetMatchId ? { targetMatchId } : {}),
           ...(sendOfficial && officialTeamId ? { officialWinnerTeamId: officialTeamId } : {}),
           ...(sendOfficial && forfeitReason.trim() ? { forfeitReason: forfeitReason.trim() } : {}),
           ...(sendOfficial && mapNotes && Object.keys(mapNotes).length > 0 ? { mapNotes } : {}),
@@ -613,6 +676,7 @@
       seriesMaps = []
       fileName = ''
       displayName = ''
+      targetMatchId = ''
       officialWinnerSide = 'map'
       forfeitReason = ''
       mapNoteByOrder = {}
@@ -661,6 +725,34 @@
             <span>No-show forfeit (no stats)</span>
           </label>
         </div>
+
+        {#if importMode !== 'forfeit_no_show'}
+          <div class="mb-4">
+            <div class="admin-field-label">Import into match</div>
+            <CustomSelect
+              options={targetMatchOptions}
+              value={targetMatchId}
+              onSelect={selectTargetMatch}
+              placeholder="Auto — find or create by teams and date"
+              disabled={isSubmitting}
+            />
+            <p class="mt-1 text-xs" style="color: rgba(255,255,255,0.6);">
+              {#if targetMatch}
+                Stats attach to this match: its teams are used as-is, and its season is kept. The
+                maps must be {targetMatch.teamA?.name} vs {targetMatch.teamB?.name}.
+                {#if targetMatch.hasStats}
+                  This match already has map stats — importing replaces them.
+                {/if}
+              {:else if (data.targetMatches ?? []).length === 0}
+                No live or recent matches are waiting on stats. The import will find or create the
+                match by teams and date.
+              {:else}
+                Live matches and ones from the last three weeks with no map stats yet. Leave on Auto
+                to match by teams and date.
+              {/if}
+            </p>
+          </div>
+        {/if}
 
         {#if importMode === 'riot_links'}
           <div class="riot-import">
@@ -1046,7 +1138,8 @@
                 rememberAdminSeason(value)
               }}
               placeholder="Select a season"
-              disabled={isSubmitting}
+              disabled={isSubmitting ||
+                (Boolean(targetMatch?.seasonId) && importMode !== 'forfeit_no_show')}
             />
           </label>
           <label class="block">

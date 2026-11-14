@@ -221,6 +221,8 @@
   let createMatchTeamBId = $state('')
   let createMatchBestOf = $state<BestOfValue>('3')
   let createMatchScheduledAt = $state('')
+  // Kept between creates so a run of same-stage matches doesn't need re-picking.
+  let createMatchStage = $state('')
   let isCreatingMatch = $state(false)
   let expandedAdminMatchId = $state<string | null>(null)
   let matchMapsCache = $state<
@@ -1741,6 +1743,7 @@
         teamBId: createMatchTeamBId,
         bestOf: createMatchBestOf,
         scheduledAt: createMatchScheduledAt,
+        stage: createMatchStage,
         // New rows land in whichever season is being viewed, so filtering to a
         // past season is how you backfill its history.
         seasonId: adminMatchSeasonId || undefined,
@@ -2602,6 +2605,7 @@
         {createMatchTeamBId}
         {createMatchBestOf}
         {createMatchScheduledAt}
+        {createMatchStage}
         {isCreatingMatch}
         {matches}
         {matchSearchQuery}
@@ -2622,6 +2626,7 @@
         onCreateMatchTeamBIdChange={(value) => (createMatchTeamBId = value)}
         onCreateMatchBestOfChange={(value) => (createMatchBestOf = value as BestOfValue)}
         onCreateMatchScheduledAtChange={(value) => (createMatchScheduledAt = value)}
+        onCreateMatchStageChange={(value) => (createMatchStage = value)}
         onCreateMatch={createMatch}
         onMatchSearchChange={(value) => (matchSearchQuery = value)}
         onShowCompletedChange={(value) => (showCompletedAdminMatches = value)}

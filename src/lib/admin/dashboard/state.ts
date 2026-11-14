@@ -95,6 +95,8 @@ export function createAdminDashboardState({ fetchAdapter }: { fetchAdapter: Fetc
       teamBId: string
       bestOf: BestOfValue
       scheduledAt: string
+      /** Stage key; empty leaves the match unfiled. */
+      stage?: string
       /** Omitted files the match under the active season. */
       seasonId?: string
     }) {
@@ -111,6 +113,7 @@ export function createAdminDashboardState({ fetchAdapter }: { fetchAdapter: Fetc
           // viewer's timezone is known. Sending the bare datetime-local string
           // would let the server reinterpret it in its own (UTC) zone.
           scheduledAt: fromDatetimeLocal(input.scheduledAt),
+          ...(input.stage ? { stage: input.stage } : {}),
           ...(input.seasonId ? { seasonId: input.seasonId } : {}),
         },
         fallbackMessage: 'Failed to create match',

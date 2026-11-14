@@ -2,7 +2,7 @@
   import TeamSeed from '$lib/components/TeamSeed.svelte'
   import { resolve } from '$app/paths'
 
-  type CardTeam = { id?: string; name?: string; logo_url?: string | null }
+  type CardTeam = { id?: string; name?: string; tag?: string | null; logo_url?: string | null }
 
   interface Props {
     match: {
@@ -18,9 +18,16 @@
     }
     /** Standings position per team id, from each match's own season. */
     seeds?: Record<string, number>
+    /**
+     * Underway. Callers decide this from their own clock, since a match past its
+     * start time still has a stored status of "scheduled".
+     */
+    live?: boolean
   }
 
-  let { match, seeds = {} }: Props = $props()
+  let { match, seeds = {}, live = false }: Props = $props()
+
+  const isLive = $derived(live && match.status !== 'completed' && match.status !== 'cancelled')
 
   function team(value: CardTeam | CardTeam[] | null): CardTeam | null {
     if (!value) return null
@@ -42,7 +49,7 @@
   }
 </script>
 
-<a href={resolve(`/matches/${match.id}`)} class="match-card">
+<a href={resolve(`/matches/${match.id}`)} class="match-card" class:match-card-live={isLive}>
   {#if match.designation}
     <div class="designation">{match.designation}</div>
   {/if}
@@ -54,7 +61,10 @@
       {:else}
         <div class="team-logo-placeholder"></div>
       {/if}
-      <strong class="team-name">{teamA?.name ?? 'Team'}</strong>
+      <strong class="team-name" title={teamA?.name ?? 'Team'}>
+        <span class="name-full">{teamA?.name ?? 'Team'}</span>
+        <span class="name-short">{teamA?.tag || teamA?.name || 'Team'}</span>
+      </strong>
     </div>
 
     {#if match.status === 'completed'}
@@ -63,12 +73,17 @@
         <span class="score-sep">–</span>
         <span class="score-num" class:score-winner={scoreB > scoreA}>{scoreB}</span>
       </div>
+    {:else if isLive}
+      <span class="match-live"><span class="live-dot"></span>Live</span>
     {:else}
       <span class="match-vs">vs</span>
     {/if}
 
     <div class="match-team match-team-right">
-      <strong class="team-name">{teamB?.name ?? 'Team'}</strong>
+      <strong class="team-name" title={teamB?.name ?? 'Team'}>
+        <span class="name-full">{teamB?.name ?? 'Team'}</span>
+        <span class="name-short">{teamB?.tag || teamB?.name || 'Team'}</span>
+      </strong>
       {#if teamB?.logo_url}
         <img src={teamB.logo_url} alt="{teamB.name ?? 'Team'} logo" class="team-logo" />
       {:else}
@@ -161,6 +176,10 @@
     white-space: nowrap;
   }
 
+  .name-short {
+    display: none;
+  }
+
   .match-vs {
     font-size: 0.75rem;
     font-weight: 600;
@@ -168,6 +187,50 @@
     text-transform: uppercase;
     letter-spacing: 0.05em;
     flex-shrink: 0;
+  }
+
+  .match-card-live {
+    border-color: rgba(74, 222, 128, 0.35);
+    background: rgba(74, 222, 128, 0.05);
+  }
+
+  .match-card-live:hover {
+    border-color: rgba(74, 222, 128, 0.55);
+    background: rgba(74, 222, 128, 0.08);
+  }
+
+  .match-live {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 999px;
+    border: 1px solid rgba(74, 222, 128, 0.4);
+    background: rgba(74, 222, 128, 0.12);
+    color: #4ade80;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    flex-shrink: 0;
+  }
+
+  .live-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #4ade80;
+    animation: pulse-live 1.5s ease-in-out infinite;
+  }
+
+  @keyframes pulse-live {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.4;
+    }
   }
 
   .match-score {
@@ -229,6 +292,14 @@
 
     .team-name {
       font-size: 0.8125rem;
+    }
+
+    .name-full {
+      display: none;
+    }
+
+    .name-short {
+      display: inline;
     }
 
     .score-num {

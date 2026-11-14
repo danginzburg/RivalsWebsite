@@ -25,7 +25,7 @@ import {
 import { backfillRiotAccountPuuids } from '$lib/server/imports/puuid-backfill'
 import { upsertRiotIdentities } from '$lib/server/players/riot-identities'
 import { refreshSeasonRanks } from '$lib/server/players/riot-ranks'
-import { importCompletedSeries } from '$lib/server/matches/import-lifecycle'
+import { importCompletedSeries, loadTargetMatch } from '$lib/server/matches/import-lifecycle'
 import { resolveTargetSeasonId } from '$lib/server/seasons/resolve'
 import { loadRosterTimeline, matchRosterTime } from '$lib/server/matches/subs'
 
@@ -96,18 +96,33 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
   const region = parseRegion(body.region)
   const dryRun = body.dryRun === true
+
+  // An import aimed at an existing match (scheduled by hand, or live) takes its
+  // teams, season and stage from that match — there is nothing to infer.
+  const targetMatch = await loadTargetMatch(body.targetMatchId)
+  const stage =
+    typeof body.stage === 'string' && body.stage.trim() ? body.stage.trim() : targetMatch?.stage
+
   // importCompletedSeries enforces this too; checking up front saves the Riot
   // fetches on a save that would be rejected anyway. Previews don't need it.
-  if (!dryRun && (typeof body.stage !== 'string' || !body.stage.trim())) {
+  if (!dryRun && !stage) {
     throw error(400, 'Select a stage before importing.')
   }
   const { ids, unparsed } = parseMatchIdList(typeof body.input === 'string' ? body.input : '')
 
   // When the rosters can't identify the teams, the admin picks them by hand and
   // resends with these two ids — the import then runs exactly as it would have,
-  // just with the teams given rather than inferred.
-  const manualTeamAId = typeof body.teamAId === 'string' ? body.teamAId.trim() : ''
-  const manualTeamBId = typeof body.teamBId === 'string' ? body.teamBId.trim() : ''
+  // just with the teams given rather than inferred. A target match supplies them.
+  const manualTeamAId = targetMatch
+    ? targetMatch.team_a_id
+    : typeof body.teamAId === 'string'
+      ? body.teamAId.trim()
+      : ''
+  const manualTeamBId = targetMatch
+    ? targetMatch.team_b_id
+    : typeof body.teamBId === 'string'
+      ? body.teamBId.trim()
+      : ''
   const hasManualTeams = manualTeamAId.length > 0 && manualTeamBId.length > 0
   if (hasManualTeams && manualTeamAId === manualTeamBId) {
     throw error(400, 'Pick two different teams.')
@@ -164,7 +179,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   // across seasons; without this scope the profile→team map takes whichever row
   // happened to be read last and can resolve a player onto a team they were on a
   // season ago, mis-identifying the match.
-  const seasonId = await resolveTargetSeasonId(body.seasonId)
+  const seasonId = targetMatch?.season_id ?? (await resolveTargetSeasonId(body.seasonId))
 
   const { data: seasonTeams } = await supabaseAdmin
     .from('teams')
@@ -351,9 +366,10 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     payload: {
       displayName: `Riot import ${first.matchId}`,
       bestOf: body.bestOf,
-      stage: body.stage,
-      seasonId: body.seasonId,
+      stage,
+      seasonId: seasonId ?? body.seasonId,
       maps: seriesMaps,
+      ...(targetMatch ? { targetMatchId: targetMatch.id } : {}),
     },
     adminProfileId: admin.id,
   })

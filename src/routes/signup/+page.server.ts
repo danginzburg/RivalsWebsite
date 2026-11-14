@@ -10,6 +10,7 @@ import {
   MAX_TRACKER_LINKS,
 } from '$lib/server/signups'
 import { loadSignupSeason } from '$lib/server/signups/season'
+import { loadSignupRatings } from '$lib/server/signups/ratings-list'
 import { riotIdOwnedByOther, upsertPrimaryRiotAccount } from '$lib/server/players/riot-accounts'
 import { lookupPlayer } from '$lib/server/players/directory'
 import { addAltsFromTrackerLinks } from '$lib/server/signups/alts'
@@ -51,6 +52,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
    * asks them to sign in over the top of the form instead.
    */
   if (!locals.user) {
+    const signupSeason = await loadSignupSeason()
     return {
       signedIn: false,
       profile: {
@@ -61,9 +63,10 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
         discord_handle: null,
         tracker_url: null,
       },
-      signupSeason: await loadSignupSeason(),
+      signupSeason,
       signup: null,
       maxTrackerLinks: MAX_TRACKER_LINKS,
+      ratings: signupSeason ? await loadSignupRatings(signupSeason.id, { isAdmin: false }) : null,
     }
   }
 
@@ -95,6 +98,9 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     // The value shown to the player includes any admin adjustment.
     signup: existing && { ...existing, assigned_value: effectiveValue(existing) },
     maxTrackerLinks: MAX_TRACKER_LINKS,
+    ratings: signupSeason
+      ? await loadSignupRatings(signupSeason.id, { isAdmin: locals.user.role === 'admin' })
+      : null,
   }
 }
 

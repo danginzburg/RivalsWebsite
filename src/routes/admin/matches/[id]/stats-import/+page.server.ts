@@ -11,7 +11,7 @@ import {
 } from '$lib/server/imports/matching'
 import { errorMessage } from '$lib/server/errors'
 import { loadRosterTimeline, matchRosterTime } from '$lib/server/matches/subs'
-import { refreshLiveBatchesForMatch } from '$lib/server/stats/from-matches'
+import { refreshDerivedDataForMatch } from '$lib/server/matches/refresh-derived'
 
 type MatchMapRow = {
   id: string
@@ -575,7 +575,7 @@ export const actions: Actions = {
       throw error(500, 'Failed to rebuild player match stats')
     }
 
-    await refreshLiveBatchesForMatch({ matchId, adminProfileId: admin.id })
+    await refreshDerivedDataForMatch({ matchId, adminProfileId: admin.id })
 
     return { success: true }
   },

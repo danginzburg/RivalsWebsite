@@ -11,6 +11,7 @@ import { loadSeasonThirdPlaceTeamIds } from '$lib/server/seasons/thirdPlace'
 import { isShortStint } from '$lib/server/matches/subs'
 import {
   planAccoladeSync,
+  regularMapPlayers,
   seasonContextLabel,
   type AwardDismissal,
   type ExistingAssignment,
@@ -27,7 +28,8 @@ import {
  *   Pick'em Champion - the top scorer(s) of the season's finished pick'em
  *
  * A team's players are its roster for that season plus anyone who played a map
- * for it, less anyone whose only stint on the roster was closed (they left).
+ * for at least a quarter of its maps (not one-off subs), less anyone whose only
+ * stint on the roster was closed (they left).
  * Each player is matched to a profile through the roster row, their PUUID, or a
  * Riot ID / name that only one profile answers to; anyone who cannot be matched
  * is skipped and picked up by a later sync once their account is linked.
@@ -149,10 +151,10 @@ async function loadTeamPlayers(
       .from('team_memberships')
       .select('profile_id, puuid, player_name, is_active, joined_at, left_at')
       .eq('team_id', teamId),
-    fetchAllRows<RosterSource & { id: string }>(() =>
+    fetchAllRows<RosterSource & { id: string; match_map_id: string }>(() =>
       supabaseAdmin
         .from('player_match_map_stats')
-        .select('id, profile_id, puuid, player_name')
+        .select('id, match_map_id, profile_id, puuid, player_name')
         .eq('team_id', teamId)
         .order('id')
     ),
@@ -173,15 +175,24 @@ async function loadTeamPlayers(
   }
 
   const players = new Set(onRoster)
+  const offRoster: Array<{ profileId: string; mapId: string }> = []
+  const allAppearances: Array<{ profileId: string; mapId: string }> = []
   for (const row of maps) {
     const profileId = resolve(row)
+    // Unmatched players still count toward the team's map total.
+    allAppearances.push({ profileId: profileId ?? `?${row.player_name}`, mapId: row.match_map_id })
     if (!profileId) {
       if (row.player_name) unmatched.add(row.player_name)
       continue
     }
     // Someone who played and then left the roster did not finish with the team.
-    if (leftRoster.has(profileId) && !onRoster.has(profileId)) continue
-    players.add(profileId)
+    if (onRoster.has(profileId) || leftRoster.has(profileId)) continue
+    offRoster.push({ profileId, mapId: row.match_map_id })
+  }
+  // Off-roster players count only if they were regulars, not one-off subs.
+  const regulars = regularMapPlayers(allAppearances)
+  for (const { profileId } of offRoster) {
+    if (regulars.has(profileId)) players.add(profileId)
   }
   return players
 }

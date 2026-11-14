@@ -214,7 +214,7 @@
           {:else}
             <div class="match-list" class:match-list-collapsed={!showAllOnMobile}>
               {#each filteredMatches as match (match.id)}
-                <MatchCard {match} {seeds} />
+                <MatchCard {match} {seeds} live={isLive(match)} />
               {/each}
             </div>
 

@@ -22,11 +22,25 @@ describe('buildRecordTracks', () => {
     const tracks = buildRecordTracks([season('rivals5', true), season('shitq1')])
     expect(tracks.sideLeague).toBeNull()
     expect(tracks.display.key).toBe('rivals')
+    expect(tracks.pastSideLeagues.map((t) => t.key)).toEqual(['shitq1'])
+  })
+
+  it('does not list the running side league as a past one', () => {
+    const tracks = buildRecordTracks([season('rivals5'), season('shitq1', true)])
+    expect(tracks.pastSideLeagues).toEqual([])
   })
 
   it('never treats an older Rivals season as a side league', () => {
     const tracks = buildRecordTracks([season('rivals4', true)])
     expect(tracks.sideLeague).toBeNull()
+    expect(tracks.pastSideLeagues).toEqual([])
     expect(tracks.display.key).toBe('rivals')
+  })
+
+  it('defaults to Rivals while a Rivals season is active alongside a side league', () => {
+    const tracks = buildRecordTracks([season('rivals5', true), season('shitq1', true)])
+    expect(tracks.sideLeague?.key).toBe('shitq1')
+    expect(tracks.display.key).toBe('rivals')
+    expect(tracks.pastSideLeagues).toEqual([])
   })
 })

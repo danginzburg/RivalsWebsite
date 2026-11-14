@@ -11,8 +11,7 @@ import { logAdminAction } from '$lib/server/audit/admin-actions'
 import { resolveTargetSeasonId } from '$lib/server/seasons/resolve'
 import { normalizeSectionKey } from '$lib/stats/sections'
 import { normalizeVetoLines } from '$lib/matches/vetoLog'
-import { refreshStandingsForSeason } from '$lib/server/leaderboard/computed'
-import { refreshLiveBatchesForMatch } from '$lib/server/stats/from-matches'
+import { refreshDerivedDataForMatch } from '$lib/server/matches/refresh-derived'
 import {
   notifyMatchCancelled,
   notifyMatchResult,
@@ -47,7 +46,7 @@ async function loadMatchSeasonId(matchId: string): Promise<string | null> {
 }
 
 /**
- * Standings and live stat batches follow every result edit. An update can
+ * Standings, stat batches, records, seeds and accolades follow every result edit. An update can
  * re-file the match into another season or stage, so the season it left is
  * recalculated too, and batches it moves into or out of are rebuilt.
  */
@@ -56,12 +55,7 @@ async function refreshStandingsAfterEdit(
   previousSeasonId: string | null,
   adminProfileId: string
 ) {
-  const currentSeasonId = await loadMatchSeasonId(matchId)
-  await refreshStandingsForSeason(currentSeasonId, adminProfileId)
-  if (previousSeasonId && previousSeasonId !== currentSeasonId) {
-    await refreshStandingsForSeason(previousSeasonId, adminProfileId)
-  }
-  await refreshLiveBatchesForMatch({ matchId, adminProfileId })
+  await refreshDerivedDataForMatch({ matchId, adminProfileId, previousSeasonId })
 }
 
 function parseMapVetoes(value: unknown): string[] {
@@ -203,9 +197,15 @@ export const DELETE: RequestHandler = async ({ locals, params }) => {
   const { error: deleteError } = await supabaseAdmin.from('matches').delete().eq('id', matchId)
   if (deleteError) throw error(500, 'Failed to delete match')
 
-  await refreshStandingsForSeason(seasonId, admin.id)
-  // The match row is gone, so this rebuilds the batches that held it.
-  if (matchId) await refreshLiveBatchesForMatch({ matchId, adminProfileId: admin.id })
+  // The match row is gone, so its season is passed in, and the batches that
+  // held it rebuild without it.
+  if (matchId) {
+    await refreshDerivedDataForMatch({
+      matchId,
+      adminProfileId: admin.id,
+      previousSeasonId: seasonId,
+    })
+  }
 
   return json({ success: true })
 }

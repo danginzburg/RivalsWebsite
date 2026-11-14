@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   planAccoladeSync,
+  regularMapPlayers,
   seasonContextLabel,
   type ExistingAssignment,
   type SeasonAward,
@@ -110,5 +111,24 @@ describe('planAccoladeSync', () => {
       scope,
     })
     expect(plan.insert).toEqual([])
+  })
+})
+
+describe('regularMapPlayers', () => {
+  const played = (profileId: string, maps: number, offset = 0) =>
+    Array.from({ length: maps }, (_, i) => ({ profileId, mapId: `m${offset + i}` }))
+
+  it('counts players who played a quarter of the maps, not one-off subs', () => {
+    const regulars = regularMapPlayers([
+      ...played('regular', 8),
+      ...played('halfer', 3),
+      ...played('sub', 1),
+      ...played('newcomer', 2, 6), // m6, m7: exactly 2 of 8
+    ])
+    expect([...regulars].sort()).toEqual(['halfer', 'newcomer', 'regular'])
+  })
+
+  it('drops players under a quarter', () => {
+    expect(regularMapPlayers([...played('a', 9), ...played('b', 2)]).has('b')).toBe(false)
   })
 })

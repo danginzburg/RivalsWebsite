@@ -134,7 +134,12 @@
             <Trophy size={18} class="playoffs-icon" />
             Playoffs
           </h2>
-          <ArchiveBracket slots={bracket.slots} teams={bracket.teams} {seeds} />
+          <ArchiveBracket
+            slots={bracket.slots}
+            teams={bracket.teams}
+            {seeds}
+            matchIds={bracket.matchIds}
+          />
         </section>
         <h2 class="section-title">Regular season standings</h2>
       {/if}

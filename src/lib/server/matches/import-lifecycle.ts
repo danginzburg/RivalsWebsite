@@ -19,9 +19,8 @@ import {
 } from '$lib/server/imports/matching'
 import { applyMatchStatReassignments } from '$lib/server/matches/reassignments'
 import { loadRosterTimeline, matchRosterTime } from '$lib/server/matches/subs'
-import { refreshLiveBatchesForMatch } from '$lib/server/stats/from-matches'
+import { refreshDerivedDataForMatch } from '$lib/server/matches/refresh-derived'
 import { resolveTargetSeasonId } from '$lib/server/seasons/resolve'
-import { refreshStandingsForMatch } from '$lib/server/leaderboard/computed'
 import { MATCH_STAGES, normalizeSectionKey, type SectionKey } from '$lib/stats/sections'
 
 type PlayerRowInput = {
@@ -212,6 +211,31 @@ async function endMatchStreams(matchId: string) {
   if (streamsError) console.error('Failed to end match streams after import:', streamsError)
 }
 
+type TargetMatchRow = MatchRow & { season_id: string | null; stage: string | null }
+
+/**
+ * The existing match an import was explicitly aimed at, or null when the import
+ * should find (or create) its match by teams and date as before.
+ */
+export async function loadTargetMatch(value: unknown): Promise<TargetMatchRow | null> {
+  const id = normalizeOptional(value)
+  if (!id) return null
+  if (!parseOptionalUuid(id)) throw error(400, 'Invalid target match id')
+
+  const { data, error: targetError } = await supabaseAdmin
+    .from('matches')
+    .select('id, team_a_id, team_b_id, metadata, status, scheduled_at, season_id, stage')
+    .eq('id', id)
+    .maybeSingle()
+
+  if (targetError) throw error(500, 'Failed to load the selected match')
+  if (!data) throw error(404, 'The selected match no longer exists')
+  if (!data.team_a_id || !data.team_b_id) {
+    throw error(400, 'The selected match does not have both teams set yet')
+  }
+  return data as TargetMatchRow
+}
+
 export const POST: RequestHandler = async ({ locals, request }) => {
   const admin = await requireAdmin(locals.user)
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>
@@ -266,7 +290,13 @@ export async function importCompletedSeries({
   const bestOf = [3, 5].includes(Number(body.bestOf))
     ? Number(body.bestOf)
     : inferBestOf(normalizedMaps.length)
-  const stage = parseImportStage(body.stage)
+
+  // An admin can point the import at a match that already exists (scheduled by
+  // hand, or live right now) instead of leaving it to the team + date search —
+  // which misses a match whose scheduled time drifted, and then creates a
+  // duplicate. The target also supplies the stage and season when not given.
+  const targetMatch = await loadTargetMatch(body.targetMatchId)
+  const stage = parseImportStage(normalizeOptional(body.stage) ?? targetMatch?.stage)
 
   if (!teamAName || !teamBName) throw error(400, 'Both team names are required')
   if (teamAName === teamBName) throw error(400, 'Teams must be different')
@@ -290,7 +320,10 @@ export async function importCompletedSeries({
 
   // Defaults to the active season; an explicit id backfills a past one without
   // having to make it active first.
-  const seasonId = await resolveTargetSeasonId(body.seasonId)
+  const seasonId =
+    targetMatch && targetMatch.season_id
+      ? targetMatch.season_id
+      : await resolveTargetSeasonId(body.seasonId)
 
   const [teams, profiles, riotAccounts] = await Promise.all([
     getApprovedTeamsForImports(seasonId),
@@ -311,19 +344,32 @@ export async function importCompletedSeries({
   if (importedTeamA.id === importedTeamB.id)
     throw error(400, 'Teams must resolve to different teams')
 
-  const { start, end } = resolutionWindow(scheduledAt)
-  const { data: existingMatches, error: existingMatchesError } = await supabaseAdmin
-    .from('matches')
-    .select('id, team_a_id, team_b_id, metadata, status, scheduled_at')
-    .or(
-      `and(team_a_id.eq.${importedTeamA.id},team_b_id.eq.${importedTeamB.id}),and(team_a_id.eq.${importedTeamB.id},team_b_id.eq.${importedTeamA.id})`
-    )
-    .gte('scheduled_at', start)
-    .lte('scheduled_at', end)
+  let match: MatchRow | null = null
+  if (targetMatch) {
+    const targetTeams = [targetMatch.team_a_id, targetMatch.team_b_id].sort()
+    const importedTeams = [importedTeamA.id, importedTeamB.id].sort()
+    if (targetTeams[0] !== importedTeams[0] || targetTeams[1] !== importedTeams[1]) {
+      throw error(
+        400,
+        `These maps are ${importedTeamA.name} vs ${importedTeamB.name}, which is not the selected match.`
+      )
+    }
+    match = targetMatch
+  } else {
+    const { start, end } = resolutionWindow(scheduledAt)
+    const { data: existingMatches, error: existingMatchesError } = await supabaseAdmin
+      .from('matches')
+      .select('id, team_a_id, team_b_id, metadata, status, scheduled_at')
+      .or(
+        `and(team_a_id.eq.${importedTeamA.id},team_b_id.eq.${importedTeamB.id}),and(team_a_id.eq.${importedTeamB.id},team_b_id.eq.${importedTeamA.id})`
+      )
+      .gte('scheduled_at', start)
+      .lte('scheduled_at', end)
 
-  if (existingMatchesError) throw error(500, 'Failed to check existing matches')
+    if (existingMatchesError) throw error(500, 'Failed to check existing matches')
 
-  let match = pickNearestMatch(existingMatches ?? [], scheduledAt) as MatchRow
+    match = pickNearestMatch(existingMatches ?? [], scheduledAt)
+  }
   if (!match) {
     const { data: createdMatch, error: createMatchError } = await supabaseAdmin
       .from('matches')
@@ -782,14 +828,14 @@ export async function importCompletedSeries({
   // a "Season 5 Kickoff" batch set up in advance stays current. Best-effort on
   // purpose: the match is already written, and a batch that failed to rebuild
   // can be fixed with the Regenerate button.
-  const refreshedBatches = await refreshLiveBatchesForMatch({
+  // Standings, seeds and season accolades follow the same way.
+  const refreshedBatches = await refreshDerivedDataForMatch({
     matchId: match.id,
     adminProfileId,
   }).catch((err) => {
-    console.error('Failed to refresh live stat batches after match import:', err)
+    console.error('Failed to refresh derived data after match import:', err)
     return []
   })
-  await refreshStandingsForMatch(match.id, adminProfileId)
 
   return json({
     success: true,
@@ -858,19 +904,33 @@ export async function importNoShowForfeit({
     throw error(400, 'Scores must favor the winning team')
   }
 
-  const { start, end } = resolutionWindow(scheduledAt)
-  const { data: existingMatches, error: existingMatchesError } = await supabaseAdmin
-    .from('matches')
-    .select('id, team_a_id, team_b_id, metadata, status, scheduled_at')
-    .or(
-      `and(team_a_id.eq.${importedTeamA.id},team_b_id.eq.${importedTeamB.id}),and(team_a_id.eq.${importedTeamB.id},team_b_id.eq.${importedTeamA.id})`
-    )
-    .gte('scheduled_at', start)
-    .lte('scheduled_at', end)
+  const targetMatch = await loadTargetMatch(body.targetMatchId)
+  let match: MatchRow | null = null
+  if (targetMatch) {
+    const targetTeams = [targetMatch.team_a_id, targetMatch.team_b_id].sort()
+    const importedTeams = [importedTeamA.id, importedTeamB.id].sort()
+    if (targetTeams[0] !== importedTeams[0] || targetTeams[1] !== importedTeams[1]) {
+      throw error(
+        400,
+        `These maps are ${importedTeamA.name} vs ${importedTeamB.name}, which is not the selected match.`
+      )
+    }
+    match = targetMatch
+  } else {
+    const { start, end } = resolutionWindow(scheduledAt)
+    const { data: existingMatches, error: existingMatchesError } = await supabaseAdmin
+      .from('matches')
+      .select('id, team_a_id, team_b_id, metadata, status, scheduled_at')
+      .or(
+        `and(team_a_id.eq.${importedTeamA.id},team_b_id.eq.${importedTeamB.id}),and(team_a_id.eq.${importedTeamB.id},team_b_id.eq.${importedTeamA.id})`
+      )
+      .gte('scheduled_at', start)
+      .lte('scheduled_at', end)
 
-  if (existingMatchesError) throw error(500, 'Failed to check existing matches')
+    if (existingMatchesError) throw error(500, 'Failed to check existing matches')
 
-  let match = pickNearestMatch(existingMatches ?? [], scheduledAt) as MatchRow
+    match = pickNearestMatch(existingMatches ?? [], scheduledAt)
+  }
   if (!match) {
     const { data: createdMatch, error: createMatchError } = await supabaseAdmin
       .from('matches')
@@ -952,7 +1012,15 @@ export async function importNoShowForfeit({
 
   await endMatchStreams(match.id)
 
-  await refreshStandingsForMatch(match.id, adminProfileId)
+  // Any maps it held before were just deleted, so the stat batches and records
+  // that counted them rebuild too, not only the standings.
+  const refreshedBatches = await refreshDerivedDataForMatch({
+    matchId: match.id,
+    adminProfileId,
+  }).catch((err) => {
+    console.error('Failed to refresh derived data after forfeit import:', err)
+    return []
+  })
 
   return json({
     success: true,
@@ -961,5 +1029,6 @@ export async function importNoShowForfeit({
     teamAScore: canonicalAScore,
     teamBScore: canonicalBScore,
     unresolvedPlayers: [] as string[],
+    refreshedBatches,
   })
 }
