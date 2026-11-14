@@ -26,10 +26,20 @@ function firstRel<T>(value: T | T[] | null | undefined): T | null {
   return Array.isArray(value) ? (value[0] ?? null) : value
 }
 
-export const load = async ({ locals }: { locals: App.Locals }) => {
+export const load = async ({ locals, url }: { locals: App.Locals; url: URL }) => {
   await requireNavPage(locals, 'hall-of-fame')
-  // A side league's records show while it is the active season; Rivals otherwise.
-  const { display: recordTrack } = await loadRecordTracks()
+  // Rivals records show while a Rivals season is active; a side league's show only
+  // when it is the sole active season.
+  // Rivals and any ended side league stay one click away via ?track=.
+  const { rivals, sideLeague, display, pastSideLeagues } = await loadRecordTracks()
+  const trackOptions = [
+    display,
+    ...[rivals, sideLeague, ...pastSideLeagues].filter(
+      (t): t is NonNullable<typeof t> => !!t && t.key !== display.key
+    ),
+  ]
+  const requested = url.searchParams.get('track')
+  const recordTrack = trackOptions.find((t) => t.key === requested) ?? display
   const isAdmin = locals.user?.role === 'admin'
 
   const [{ data: entries, error: entriesError }, { data: champions }, trackRecords, viewer] =
@@ -163,7 +173,17 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     awards: normalized.filter((e) => e.entry_type === 'award'),
     seasonChampions,
     statRecords,
-    recordTrack: { label: recordTrack.label, isSideLeague: recordTrack.isSideLeague },
+    recordTrack: {
+      key: recordTrack.key,
+      label: recordTrack.label,
+      isSideLeague: recordTrack.isSideLeague,
+    },
+    trackOptions: trackOptions.map((t) => ({
+      key: t.key,
+      label: t.isSideLeague ? t.label : 'Rivals',
+      isDefault: t.key === display.key,
+      isPast: pastSideLeagues.some((p) => p.key === t.key),
+    })),
     viewer: { isAdmin },
   }
 }

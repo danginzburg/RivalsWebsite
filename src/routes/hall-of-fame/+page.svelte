@@ -14,6 +14,7 @@
   const seasonChampions = $derived(data.seasonChampions ?? [])
   const statRecords = $derived(data.statRecords ?? [])
   const recordTrack = $derived(data.recordTrack)
+  const trackOptions = $derived(data.trackOptions ?? [])
 
   type StatRecord = PageProps['data']['statRecords'][number]
   type Holderish = {
@@ -165,17 +166,42 @@
     {/if}
 
     <!-- Stat records (generated from match stats, Season 5 onward) -->
-    {#if statRecords.length > 0}
+    {#if statRecords.length > 0 || trackOptions.length > 1}
       <section class="hof-section">
         <h2 class="section-title">
           <TrendingUp size={16} style="color: #34d399;" />
           {recordTrack.isSideLeague ? `${recordTrack.label} Records` : 'Stat Records'}
         </h2>
-        <div class="record-grid four-up">
-          {#each statRecords as record (record.category)}
-            {@render statRecordCard(record)}
-          {/each}
-        </div>
+        {#if trackOptions.length > 1}
+          <!-- Rivals is permanent; ended side leagues keep their frozen records here. -->
+          <nav class="track-tabs" aria-label="Record books">
+            {#each trackOptions as option (option.key)}
+              <!-- eslint-disable svelte/no-navigation-without-resolve -->
+              <!-- resolve() plus a ?track= query; the rule cannot see through the concatenation -->
+              <a
+                href={resolve('/hall-of-fame') +
+                  (option.isDefault ? '' : `?track=${encodeURIComponent(option.key)}`)}
+                class="track-tab"
+                class:active={option.key === recordTrack.key}
+                aria-current={option.key === recordTrack.key ? 'page' : undefined}
+                data-sveltekit-noscroll
+              >
+                {option.label}
+                {#if option.isPast}<span class="track-tab-note">Archived</span>{/if}
+              </a>
+              <!-- eslint-enable svelte/no-navigation-without-resolve -->
+            {/each}
+          </nav>
+        {/if}
+        {#if statRecords.length > 0}
+          <div class="record-grid four-up">
+            {#each statRecords as record (record.category)}
+              {@render statRecordCard(record)}
+            {/each}
+          </div>
+        {:else}
+          <p class="record-desc">No records in this book yet.</p>
+        {/if}
       </section>
     {/if}
 
@@ -318,6 +344,54 @@
     margin-bottom: 0.75rem;
     padding-bottom: 0.5rem;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  /* Record book switcher */
+  .track-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+    width: fit-content;
+    max-width: 100%;
+    margin-bottom: 0.875rem;
+    box-shadow: none;
+  }
+
+  .track-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.3125rem 0.75rem;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.03);
+    color: rgba(255, 255, 255, 0.62);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    text-decoration: none;
+    transition:
+      background 0.15s,
+      color 0.15s,
+      border-color 0.15s;
+  }
+
+  .track-tab:hover {
+    color: rgba(255, 255, 255, 0.9);
+    border-color: rgba(255, 255, 255, 0.2);
+  }
+
+  .track-tab.active {
+    color: #fff;
+    background: rgba(52, 211, 153, 0.14);
+    border-color: rgba(52, 211, 153, 0.45);
+  }
+
+  .track-tab-note {
+    font-size: 0.625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: rgba(255, 255, 255, 0.42);
   }
 
   /* Champions */

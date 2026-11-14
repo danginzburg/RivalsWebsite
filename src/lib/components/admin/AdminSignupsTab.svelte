@@ -4,7 +4,6 @@
   import { resolve } from '$app/paths'
   import { SIGNUP_RANK_OPTIONS, computePlayerScore, roundRating } from '$lib/signups/formula'
   import { MIN_V26_COMP_GAMES, meetsGamesMinimum } from '$lib/signups/comp-games'
-  import { signupsToCsv } from '$lib/signups/export-csv'
   import type { PlayerSignup, SignupEditState } from '$lib/admin/types'
 
   type BulkImportReport = {
@@ -176,28 +175,6 @@
   const fmt = (n: number | null, digits = 2) => (n == null ? '—' : n.toFixed(digits))
   const signed = (n: number) => `${n < 0 ? '−' : '+'}${Math.abs(n).toFixed(2)}`
 
-  /** Download the signups in the current filter as a CSV. */
-  function exportSignupsCsv() {
-    const blob = new Blob(
-      [
-        signupsToCsv(
-          sortedSignups.map((s) => ({
-            ...s,
-            discord_handle: discordFor(s),
-            score: effectiveValue(s),
-          }))
-        ),
-      ],
-      { type: 'text/csv;charset=utf-8' }
-    )
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `signups-${statusFilter}-${new Date().toISOString().slice(0, 10)}.csv`
-    link.click()
-    URL.revokeObjectURL(url)
-  }
-
   /** The handle on the signup, else the Discord name the player logged in with. */
   function discordFor(signup: PlayerSignup) {
     return signup.discord_handle || signup.profile.discord_username || null
@@ -285,15 +262,13 @@
           Stop
         </button>
       {/if}
-      <button
-        type="button"
+      <a
+        href={resolve('/signup')}
         class="admin-btn admin-btn-sm admin-btn-accent"
-        disabled={signups.length === 0}
-        title="Download every signup in this filter as a CSV: Riot ID, Discord and final score"
-        onclick={exportSignupsCsv}
+        title="Approved players' ratings live on the signup page; before any approval admins see a preview there"
       >
-        Bulk output
-      </button>
+        Ratings list →
+      </a>
 
       <label class="ml-auto flex items-center gap-2 text-xs" style="color: rgba(255,255,255,0.72);">
         <input type="checkbox" bind:checked={bulkOverwrite} disabled={bulkImportRunning} />

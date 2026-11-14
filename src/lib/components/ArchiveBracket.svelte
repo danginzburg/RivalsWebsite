@@ -8,9 +8,11 @@
     teams: Record<string, BracketTeam>
     /** Playoff seeds keyed by team id, from the bracket config. */
     seeds?: Record<string, number>
+    /** The real match behind each slot, keyed by slot id; linked cards open it. */
+    matchIds?: Record<string, string>
   }
 
-  let { slots, teams, seeds = {} }: Props = $props()
+  let { slots, teams, seeds = {}, matchIds = {} }: Props = $props()
 
   function teamSeed(id: string | null): number | null {
     return id ? (seeds[id] ?? null) : null
@@ -102,7 +104,14 @@
 </div>
 
 {#snippet matchCard(slot: PickemSlot, isGrandFinal = false)}
-  <article class="match-card" class:gf={isGrandFinal}>
+  {@const matchId = matchIds[slot.id]}
+  <svelte:element
+    this={matchId ? 'a' : 'article'}
+    href={matchId ? `/matches/${matchId}` : undefined}
+    class="match-card"
+    class:gf={isGrandFinal}
+    class:linked={Boolean(matchId)}
+  >
     <div class="match-header">
       <span class="match-label">{slot.label}</span>
     </div>
@@ -124,7 +133,7 @@
         <span class="team-name">{teamLabel(teamId)}</span>
       </div>
     {/each}
-  </article>
+  </svelte:element>
 {/snippet}
 
 <style>
@@ -212,6 +221,26 @@
     border: 1px solid rgba(255, 255, 255, 0.08);
     background: rgba(0, 0, 0, 0.28);
     overflow: hidden;
+  }
+
+  a.match-card {
+    display: block;
+    color: inherit;
+    text-decoration: none;
+    transition:
+      border-color 0.15s ease,
+      background-color 0.15s ease;
+  }
+
+  a.match-card:hover,
+  a.match-card:focus-visible {
+    border-color: rgba(255, 255, 255, 0.24);
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  a.match-card:focus-visible {
+    outline: 2px solid rgba(255, 255, 255, 0.5);
+    outline-offset: 1px;
   }
 
   .match-card.gf {

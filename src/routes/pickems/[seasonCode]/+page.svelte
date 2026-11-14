@@ -198,7 +198,7 @@
             >
               {statusLabel}
             </span>
-            {#if data.event.lockAt}
+            {#if data.event.lockAt && !data.locked && !isScored}
               <span>Locks {new Date(data.event.lockAt).toLocaleString()}</span>
             {/if}
           </p>

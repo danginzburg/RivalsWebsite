@@ -81,7 +81,7 @@
         {#if upNext.length > 0}
           <div class="match-list">
             {#each upNext as match (match.id)}
-              <MatchCard {match} {seeds} />
+              <MatchCard {match} {seeds} live={isLive(match)} />
             {/each}
           </div>
         {/if}

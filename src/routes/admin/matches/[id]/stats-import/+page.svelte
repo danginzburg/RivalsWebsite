@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
-  import { Upload, Swords, ArrowLeft } from 'lucide-svelte'
+  import { Upload, Swords, ArrowLeft, Link2 } from 'lucide-svelte'
   import { resolve } from '$app/paths'
 
   let { data }: PageProps = $props()
@@ -48,9 +48,15 @@
             </p>
           </div>
         </div>
-        <a href={resolve('/admin')} class="admin-back-link">
-          <ArrowLeft size={14} /> Admin
-        </a>
+        <div class="flex flex-wrap items-center gap-3">
+          <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- resolve() takes no query string -->
+          <a href={`${resolve('/admin/matches-import')}?match=${match.id}`} class="admin-back-link">
+            <Link2 size={14} /> Import from tracker links
+          </a>
+          <a href={resolve('/admin')} class="admin-back-link">
+            <ArrowLeft size={14} /> Admin
+          </a>
+        </div>
       </header>
 
       <section class="admin-card admin-card-pad">

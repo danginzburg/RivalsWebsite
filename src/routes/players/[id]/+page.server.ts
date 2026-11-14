@@ -42,6 +42,12 @@ import {
 } from '$lib/server/players/riot-accounts'
 import { loadPlayerDirectory, riotNamesByProfile } from '$lib/server/players/directory'
 import { loadSeasonThirdPlaceTeamIds } from '$lib/server/seasons/thirdPlace'
+import {
+  loadReassignmentsForMatches,
+  loadReassignmentsToProfile,
+  reassignedProfileFor,
+  type MatchStatReassignment,
+} from '$lib/server/matches/reassignments'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -281,6 +287,7 @@ type ParticipatedRow = {
   match_id?: string | null
   profile_id?: string | null
   player_name?: string | null
+  puuid?: string | null
   team_id?: string | null
   metadata?: Record<string, unknown> | null
   agents?: string | null
@@ -335,6 +342,8 @@ type AggregatedStatEntry = {
 type PerMapStatRow = {
   match_id: string | null
   team_id: string | null
+  puuid?: string | null
+  player_name?: string | null
   agents: string | null
   acs: number | null
   kills: number | null
@@ -820,6 +829,7 @@ export const load = async ({
       match_id,
       profile_id,
       player_name,
+      puuid,
       team_id,
       metadata,
       agents,
@@ -861,7 +871,7 @@ export const load = async ({
   )
 
   const perMapSelect =
-    'id, match_id, team_id, agents, acs, kills, deaths, assists, kd, adr, kast_pct, hs_pct, rounds, fk, fd, plants, defuses, match_maps(map_name, is_voided, team_a_rounds, team_b_rounds, matches(team_a_id, team_b_id, season_id))'
+    'id, match_id, team_id, puuid, player_name, agents, acs, kills, deaths, assists, kd, adr, kast_pct, hs_pct, rounds, fk, fd, plants, defuses, match_maps(map_name, is_voided, team_a_rounds, team_b_rounds, matches(team_a_id, team_b_id, season_id))'
 
   const [
     { data: accoladeAssignments },
@@ -869,6 +879,7 @@ export const load = async ({
     { data: unmatchedParticipation },
     { data: perMapClaimedStats },
     { data: perMapUnmatchedStats },
+    reassignedToProfile,
   ] = await Promise.all([
     supabaseAdmin
       .from('accolade_assignments')
@@ -918,7 +929,57 @@ export const load = async ({
           )
           .limit(1000)
       : Promise.resolve({ data: [] }),
+    loadReassignmentsToProfile(profileId).catch(() => [] as MatchStatReassignment[]),
   ])
+
+  // Admin stat reassignments (an alt account's match moved onto a player) are
+  // the authority on who owns those rows. Fetch the moved matches' rows
+  // directly so the match shows in this history even if a later write left the
+  // rows on another owner, and drop rows that were moved off this profile (a
+  // name match would otherwise pull them back in).
+  const reassignedMatchIds = Array.from(new Set(reassignedToProfile.map((r) => r.match_id)))
+  const seenMatchIds = [
+    ...reassignedMatchIds,
+    ...[
+      ...(claimedParticipation ?? []),
+      ...(unmatchedParticipation ?? []),
+      ...(perMapClaimedStats ?? []),
+      ...(perMapUnmatchedStats ?? []),
+    ].map((row) => String((row as { match_id?: string | null }).match_id ?? '')),
+  ]
+  const [
+    { data: reassignedParticipationAll },
+    { data: reassignedPerMapAll },
+    reassignmentsByMatch,
+  ] = await Promise.all([
+    reassignedMatchIds.length > 0
+      ? supabaseAdmin
+          .from('player_match_map_stats')
+          .select(matchMapStatsSelect)
+          .in('match_id', reassignedMatchIds)
+      : Promise.resolve({ data: [] }),
+    reassignedMatchIds.length > 0
+      ? supabaseAdmin
+          .from('player_match_map_stats')
+          .select(perMapSelect)
+          .in('match_id', reassignedMatchIds)
+      : Promise.resolve({ data: [] }),
+    loadReassignmentsForMatches(seenMatchIds).catch(
+      () => new Map<string, MatchStatReassignment[]>()
+    ),
+  ])
+  const reassignedOwner = (row: {
+    match_id?: string | null
+    puuid?: string | null
+    player_name?: string | null
+    metadata?: Record<string, unknown> | null
+  }) => reassignedProfileFor(reassignmentsByMatch.get(String(row.match_id ?? '')), row)
+  const ownsRow = (row: Parameters<typeof reassignedOwner>[0]) => {
+    const owner = reassignedOwner(row)
+    return owner === undefined || owner === profileId
+  }
+  const movedHere = (row: Parameters<typeof reassignedOwner>[0]) =>
+    reassignedOwner(row) === profileId
 
   const playerAccolades = (accoladeAssignments ?? []).map((a: any) => {
     const acc = Array.isArray(a.accolades) ? a.accolades[0] : a.accolades
@@ -938,9 +999,10 @@ export const load = async ({
   for (const row of [
     ...((claimedParticipation ?? []) as ParticipatedRow[]),
     ...((unmatchedParticipation ?? []) as ParticipatedRow[]),
+    ...((reassignedParticipationAll ?? []) as ParticipatedRow[]).filter(movedHere),
   ]) {
     const id = String(row.id ?? '')
-    if (!id || seenParticipationIds.has(id)) continue
+    if (!id || seenParticipationIds.has(id) || !ownsRow(row)) continue
     seenParticipationIds.add(id)
 
     const matchRel = Array.isArray(row.matches) ? row.matches[0] : row.matches
@@ -1129,8 +1191,11 @@ export const load = async ({
   for (const r of [
     ...((perMapClaimedStats ?? []) as unknown as (PerMapStatRow & { id: string })[]),
     ...((perMapUnmatchedStats ?? []) as unknown as (PerMapStatRow & { id: string })[]),
+    ...((reassignedPerMapAll ?? []) as unknown as (PerMapStatRow & { id: string })[]).filter(
+      movedHere
+    ),
   ]) {
-    if (seenPerMapIds.has(r.id)) continue
+    if (seenPerMapIds.has(r.id) || !ownsRow(r)) continue
     seenPerMapIds.add(r.id)
     perMapRawStats.push(r)
   }

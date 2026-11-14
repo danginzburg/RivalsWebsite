@@ -2,7 +2,8 @@
   import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import PageHeading from '$lib/components/PageHeading.svelte'
-  import { ClipboardList, Plus, X, Lock, Info } from 'lucide-svelte'
+  import { ClipboardList, Plus, X, Lock, Info, Eye } from 'lucide-svelte'
+  import { resolve } from '$app/paths'
   import DiscordIcon from '$lib/components/icons/DiscordIcon.svelte'
   import { enhance } from '$app/forms'
   import { untrack } from 'svelte'
@@ -68,6 +69,19 @@
     trackerLinks = trackerLinks.filter((_, i) => i !== index)
     if (trackerLinks.length === 0) trackerLinks = [{ label: '', url: '' }]
   }
+
+  /** Approved players' ratings; admin-only until the first signup is approved. */
+  const ratings = $derived(data.ratings)
+  let previewOpen = $state(false)
+  let ratingsQuery = $state('')
+  const ratingRows = $derived.by(() => {
+    const rows = (ratings?.rows ?? []).map((row, i) => ({ ...row, place: i + 1 }))
+    const q = ratingsQuery.trim().toLowerCase()
+    if (!q) return rows
+    return rows.filter(
+      (r) => r.riotId?.toLowerCase().includes(q) || r.discord?.toLowerCase().includes(q)
+    )
+  })
 
   const statusStyle: Record<string, string> = {
     pending: 'background: rgba(251,191,36,0.16); color: #fcd34d;',
@@ -339,6 +353,77 @@
             }}
           ></form>
         {/if}
+      {/if}
+
+      {#if ratings}
+        <section class="form-section ratings-section">
+          <div class="ratings-head">
+            <h2 class="section-title ratings-title">
+              {ratings.preview ? 'Player ratings preview' : 'Approved players'}
+              <span class="ratings-count">{ratings.rows.length}</span>
+            </h2>
+            {#if ratings.preview}
+              <button
+                type="button"
+                class="preview-toggle"
+                aria-expanded={previewOpen}
+                onclick={() => (previewOpen = !previewOpen)}
+              >
+                <Eye size={13} />
+                {previewOpen ? 'Hide preview' : 'Preview'}
+              </button>
+            {/if}
+          </div>
+
+          {#if ratings.preview}
+            <p class="section-intro">
+              Only admins can see this. The list shows approved players only and goes public once
+              the first signup is accepted.
+            </p>
+          {/if}
+
+          {#if !ratings.preview || previewOpen}
+            {#if ratings.rows.length === 0}
+              <p class="section-intro">No approved signups yet.</p>
+            {:else}
+              <input
+                class="input ratings-search"
+                type="search"
+                placeholder="Search Riot ID or Discord"
+                aria-label="Search player ratings"
+                bind:value={ratingsQuery}
+              />
+              <div class="ratings-table-wrap">
+                <table class="ratings-table">
+                  <thead>
+                    <tr>
+                      <th class="col-place">#</th>
+                      <th>Player</th>
+                      <th class="col-discord">Discord</th>
+                      <th class="col-score">Rating</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {#each ratingRows as row (row.profileId)}
+                      <tr>
+                        <td class="col-place">{row.place}</td>
+                        <td>
+                          <a href={resolve(`/players/${row.profileId}`)} class="ratings-player">
+                            {row.riotId ?? 'Unknown'}
+                          </a>
+                        </td>
+                        <td class="col-discord">{row.discord ?? '—'}</td>
+                        <td class="col-score">{row.score ?? '—'}</td>
+                      </tr>
+                    {:else}
+                      <tr><td colspan="4" class="ratings-empty">No players match.</td></tr>
+                    {/each}
+                  </tbody>
+                </table>
+              </div>
+            {/if}
+          {/if}
+        </section>
       {/if}
     {/if}
   </div>
@@ -868,6 +953,116 @@
     color: rgba(255, 255, 255, 0.75);
   }
 
+  /* Ratings list */
+  .ratings-section {
+    margin-top: 1.25rem;
+  }
+
+  .ratings-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+
+  .ratings-title {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .ratings-count {
+    padding: 0.0625rem 0.4375rem;
+    border-radius: 9999px;
+    background: rgba(120, 67, 145, 0.24);
+    color: #d8b4fe;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .preview-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3125rem;
+    flex-shrink: 0;
+    padding: 0.3125rem 0.625rem;
+    border-radius: 0.375rem;
+    border: 1px solid rgba(147, 197, 253, 0.3);
+    background: rgba(147, 197, 253, 0.1);
+    color: #93c5fd;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .preview-toggle:hover {
+    background: rgba(147, 197, 253, 0.18);
+  }
+
+  .ratings-search {
+    margin-bottom: 0.75rem;
+  }
+
+  .ratings-table-wrap {
+    max-height: 32rem;
+    overflow-y: auto;
+  }
+
+  .ratings-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8125rem;
+  }
+
+  .ratings-table th {
+    position: sticky;
+    top: 0;
+    background: #24153b;
+    text-align: left;
+    font-size: 0.625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: rgba(255, 255, 255, 0.6);
+    padding: 0.375rem 0.5rem;
+  }
+
+  .ratings-table td {
+    padding: 0.4375rem 0.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.8);
+    word-break: break-word;
+  }
+
+  .ratings-table .col-place {
+    width: 2.5rem;
+    color: rgba(255, 255, 255, 0.5);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .ratings-table .col-score {
+    width: 4.5rem;
+    text-align: right;
+    font-weight: 700;
+    color: #d8b4fe;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .ratings-player {
+    color: var(--text);
+    text-decoration: none;
+    font-weight: 600;
+  }
+
+  .ratings-player:hover {
+    text-decoration: underline;
+  }
+
+  .ratings-empty {
+    text-align: center;
+    color: rgba(255, 255, 255, 0.55);
+  }
+
   @media (max-width: 640px) {
     .form-section {
       padding: 0.875rem;
@@ -889,6 +1084,10 @@
 
     .withdraw-btn {
       margin-right: 0;
+    }
+
+    .ratings-table .col-discord {
+      display: none;
     }
   }
 </style>

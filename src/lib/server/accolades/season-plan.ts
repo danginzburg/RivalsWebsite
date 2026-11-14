@@ -61,6 +61,37 @@ function assignmentSeasonId(row: ExistingAssignment, seasons: SeasonLabel[]): st
   return match?.id ?? null
 }
 
+/**
+ * Share of a team's maps a player who is not on its roster must have played to
+ * count as one of its players. Keeps one-off subs (a map or two) from sharing
+ * the team's placement while still counting regulars the roster never linked.
+ */
+export const MIN_MAP_SHARE_OFF_ROSTER = 0.25
+
+/**
+ * The off-roster players who played enough of a team's maps to count as its
+ * players. `appearances` is one entry per player per map; the team's map count
+ * is the number of distinct maps among them.
+ */
+export function regularMapPlayers(
+  appearances: Array<{ profileId: string; mapId: string }>,
+  minShare = MIN_MAP_SHARE_OFF_ROSTER
+): Set<string> {
+  const allMaps = new Set<string>()
+  const mapsByPlayer = new Map<string, Set<string>>()
+  for (const { profileId, mapId } of appearances) {
+    allMaps.add(mapId)
+    const maps = mapsByPlayer.get(profileId) ?? new Set<string>()
+    maps.add(mapId)
+    mapsByPlayer.set(profileId, maps)
+  }
+  const regulars = new Set<string>()
+  for (const [profileId, maps] of mapsByPlayer) {
+    if (maps.size >= allMaps.size * minShare) regulars.add(profileId)
+  }
+  return regulars
+}
+
 const awardKey = (accoladeId: string, profileId: string, seasonId: string) =>
   `${accoladeId}|${profileId}|${seasonId}`
 

@@ -31,10 +31,68 @@ export async function loadMatchStatReassignments(
   return (data ?? []) as MatchStatReassignment[]
 }
 
+/** Every reassignment that moves stats onto this profile. */
+export async function loadReassignmentsToProfile(
+  profileId: string
+): Promise<MatchStatReassignment[]> {
+  const { data, error } = await supabaseAdmin
+    .from('match_stat_reassignments')
+    .select('id, match_id, puuid, player_name, profile_id, note')
+    .eq('profile_id', profileId)
+
+  if (error) throw new Error('Failed to load match stat reassignments')
+  return (data ?? []) as MatchStatReassignment[]
+}
+
+/** Reassignments for many matches at once, grouped by match id. */
+export async function loadReassignmentsForMatches(
+  matchIds: string[]
+): Promise<Map<string, MatchStatReassignment[]>> {
+  const byMatch = new Map<string, MatchStatReassignment[]>()
+  const ids = Array.from(new Set(matchIds.filter(Boolean)))
+  for (let i = 0; i < ids.length; i += 100) {
+    const { data, error } = await supabaseAdmin
+      .from('match_stat_reassignments')
+      .select('id, match_id, puuid, player_name, profile_id, note')
+      .in('match_id', ids.slice(i, i + 100))
+    if (error) throw new Error('Failed to load match stat reassignments')
+    for (const r of (data ?? []) as MatchStatReassignment[]) {
+      const list = byMatch.get(r.match_id) ?? []
+      list.push(r)
+      byMatch.set(r.match_id, list)
+    }
+  }
+  return byMatch
+}
+
+/**
+ * The profile a stat row is reassigned to, or undefined when no override in
+ * its match covers it. Same keying as `applyMatchStatReassignments`: PUUID when
+ * the override has one, else the exact player name.
+ */
+export function reassignedProfileFor(
+  reassignments: MatchStatReassignment[] | undefined,
+  row: {
+    puuid?: string | null
+    player_name?: string | null
+    metadata?: Record<string, unknown> | null
+  }
+): string | undefined {
+  if (!reassignments || reassignments.length === 0) return undefined
+  const metaPuuid = row.metadata?.puuid
+  const puuid = row.puuid ?? (typeof metaPuuid === 'string' ? metaPuuid : null)
+  for (const r of reassignments) {
+    if (r.puuid ? r.puuid === puuid : r.player_name && r.player_name === row.player_name) {
+      return r.profile_id
+    }
+  }
+  return undefined
+}
+
 /**
  * Re-point player_match_map_stats.profile_id for a match according to its
- * reassignments, and return how many stat rows were moved. The caller rebuilds
- * player_match_stats afterwards so the series aggregate follows.
+ * reassignments, and return how many stat rows actually changed owner. The
+ * caller rebuilds player_match_stats afterwards so the series aggregate follows.
  */
 export async function applyMatchStatReassignments(matchId: string): Promise<number> {
   const reassignments = await loadMatchStatReassignments(matchId)
@@ -46,11 +104,14 @@ export async function applyMatchStatReassignments(matchId: string): Promise<numb
       .from('player_match_map_stats')
       .update({ profile_id: r.profile_id })
       .eq('match_id', matchId)
+      // Only rows not already on the target, so the count means "changed".
+      // `neq` alone would skip null owners (SQL null comparison).
+      .or(`profile_id.is.null,profile_id.neq.${r.profile_id}`)
 
     // PUUID is the reliable key; fall back to the exact player name for rows
     // (CSV imports) that never carried one.
     if (r.puuid) {
-      query = query.eq('metadata->>puuid', r.puuid)
+      query = query.eq('puuid', r.puuid)
     } else if (r.player_name) {
       query = query.eq('player_name', r.player_name)
     } else {
@@ -99,9 +160,7 @@ export async function upsertMatchStatReassignment(opts: {
       .select('profile_id')
       .eq('match_id', matchId)
       .limit(1)
-    capture = puuid
-      ? capture.eq('metadata->>puuid', puuid)
-      : capture.eq('player_name', playerName as string)
+    capture = puuid ? capture.eq('puuid', puuid) : capture.eq('player_name', playerName as string)
     const { data: rows } = await capture
     previousProfileId = (rows?.[0]?.profile_id as string | null) ?? null
   }
@@ -155,7 +214,7 @@ export async function removeMatchStatReassignment(
     .eq('match_id', matchId)
     .eq('profile_id', reassignment.profile_id)
   if (reassignment.puuid) {
-    restore = restore.eq('metadata->>puuid', reassignment.puuid)
+    restore = restore.eq('puuid', reassignment.puuid)
   } else if (reassignment.player_name) {
     restore = restore.eq('player_name', reassignment.player_name)
   }

@@ -9,6 +9,8 @@ import type { PickemSlot, PickemTeam } from '$lib/pickems'
 export type SeasonBracket = {
   slots: PickemSlot[]
   teams: Record<string, PickemTeam>
+  /** The real match behind each slot (linked or detected), keyed by slot id. */
+  matchIds: Record<string, string>
 }
 
 /**
@@ -23,7 +25,7 @@ export async function loadSeasonBracket(seasonId: string): Promise<SeasonBracket
   const ctx = await getPublishedPickemContextBySeasonId(seasonId)
   if (ctx.event?.format !== 'bracket' || ctx.matches.length === 0) return null
 
-  const { linkedResults } = await getPickemResults(ctx.event, ctx.matches)
+  const { linkedResults, sourceMatchIds } = await getPickemResults(ctx.event, ctx.matches)
   const slots = buildPickemSlots(ctx.event, ctx.matches, { picks: {} }, linkedResults)
 
   const teams: Record<string, PickemTeam> = {}
@@ -35,5 +37,5 @@ export async function loadSeasonBracket(seasonId: string): Promise<SeasonBracket
     .filter((id): id is string => Boolean(id) && !teams[id!])
   for (const team of await getPickemTeamsByIds(missing)) teams[team.id] = team
 
-  return { slots, teams }
+  return { slots, teams, matchIds: sourceMatchIds }
 }

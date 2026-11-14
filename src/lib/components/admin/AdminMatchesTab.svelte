@@ -20,6 +20,7 @@
     createMatchTeamBId: string
     createMatchBestOf: string
     createMatchScheduledAt: string
+    createMatchStage: string
     isCreatingMatch: boolean
     matches: AdminMatch[]
     matchSearchQuery: string
@@ -43,6 +44,7 @@
     onCreateMatchTeamBIdChange: (value: string) => void
     onCreateMatchBestOfChange: (value: string) => void
     onCreateMatchScheduledAtChange: (value: string) => void
+    onCreateMatchStageChange: (value: string) => void
     onCreateMatch: () => void
     onMatchSearchChange: (value: string) => void
     onShowCompletedChange: (value: boolean) => void
@@ -73,6 +75,7 @@
     createMatchTeamBId,
     createMatchBestOf,
     createMatchScheduledAt,
+    createMatchStage,
     isCreatingMatch,
     matches,
     matchSearchQuery,
@@ -93,6 +96,7 @@
     onCreateMatchTeamBIdChange,
     onCreateMatchBestOfChange,
     onCreateMatchScheduledAtChange,
+    onCreateMatchStageChange,
     onCreateMatch,
     onMatchSearchChange,
     onShowCompletedChange,
@@ -127,6 +131,12 @@
         ? 'no season'
         : (selectedSeason?.label ?? 'the selected season')
   )
+  // A brand-new match has no designation to guess a stage from, so the empty
+  // option just means "no stage" here.
+  const createStageOptions = matchStageOptions.map((option) =>
+    option.value === '' ? { ...option, label: 'No stage' } : option
+  )
+
   const targetSeasonIsPast = $derived(
     Boolean(adminMatchSeasonId) &&
       adminMatchSeasonId !== '__none__' &&
@@ -185,7 +195,20 @@
     </div>
 
     <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-      <div class="md:col-span-4">
+      <div class="md:col-span-2">
+        <CustomSelect
+          options={createStageOptions}
+          value={createMatchStage}
+          placeholder="Stage"
+          compact={true}
+          disabled={isCreatingMatch}
+          onSelect={onCreateMatchStageChange}
+        />
+        <div class="mt-1 text-xs" style="color: rgba(255,255,255,0.65);">
+          Stage-filtered stat batches only pick up staged matches.
+        </div>
+      </div>
+      <div class="md:col-span-2">
         <input
           type="datetime-local"
           bind:value={createMatchScheduledAt}
@@ -873,6 +896,14 @@ Decider: Pearl
                 >
                   Import Map Stats
                 </a>
+                <!-- eslint-disable svelte/no-navigation-without-resolve -- resolve() takes no query string -->
+                <a
+                  href={`${resolve('/admin/matches-import')}?match=${match.id}`}
+                  class="admin-btn admin-btn-sm admin-btn-info"
+                >
+                  Import from Tracker
+                </a>
+                <!-- eslint-enable svelte/no-navigation-without-resolve -->
               </div>
             {/if}
           </article>
