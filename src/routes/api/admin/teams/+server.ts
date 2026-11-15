@@ -1,5 +1,6 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { uploadLogo } from '$lib/server/logo-upload'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { logAdminAction } from '$lib/server/audit/admin-actions'
 import { resolveTargetSeasonId } from '$lib/server/seasons/resolve'
@@ -14,20 +15,6 @@ function normalizeOptional(value: unknown): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
   return trimmed.length > 0 ? trimmed : null
-}
-
-function sanitizeFilename(name: string): string {
-  const ascii = name.replace(/[\u0080-\uFFFF]/g, '')
-  return ascii
-    .replace(/[^A-Za-z0-9._-]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-+/, '')
-    .replace(/-+$/, '')
-    .slice(0, 80)
-}
-
-function isImageFile(file: File) {
-  return typeof file.type === 'string' && file.type.startsWith('image/')
 }
 
 export const GET: RequestHandler = async ({ locals, url }) => {
@@ -180,22 +167,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     }
 
     if (logo instanceof File && logo.size > 0) {
-      if (!isImageFile(logo)) throw error(400, 'Logo must be an image file')
-
-      const cleanName = sanitizeFilename(logo.name || 'logo')
-      const objectPath = `admin/${crypto.randomUUID()}-${cleanName || 'logo'}`
-      const bytes = new Uint8Array(await logo.arrayBuffer())
-      const { error: uploadError } = await supabaseAdmin.storage
-        .from('team-logos')
-        .upload(objectPath, bytes, {
-          contentType: logo.type || 'application/octet-stream',
-          upsert: false,
-        })
-
-      if (uploadError) {
-        throw error(500, 'Failed to upload team logo')
-      }
-      uploadedLogoPath = objectPath
+      uploadedLogoPath = await uploadLogo('admin', logo)
     }
 
     // Defaults to the active season; an explicit id lets an admin add teams

@@ -1,9 +1,7 @@
 <script lang="ts">
   import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
-  import PageHeading from '$lib/components/PageHeading.svelte'
-  import { Trophy, Search, ChevronRight, Lock, SlidersHorizontal } from 'lucide-svelte'
-  import TeamSeed from '$lib/components/TeamSeed.svelte'
+  import { Search, Lock } from 'lucide-svelte'
   import ArchiveBracket from '$lib/components/ArchiveBracket.svelte'
   import StandingsZonesEditor from '$lib/components/StandingsZonesEditor.svelte'
   import { resolve } from '$app/paths'
@@ -12,6 +10,7 @@
     ZONE_TONE_COLORS,
     zoneForTeam,
     zoneRangeLabel,
+    type StandingsZone,
   } from '$lib/seasons/standingsZones'
 
   let { data }: PageProps = $props()
@@ -24,503 +23,455 @@
   const zones = $derived(data.zones ?? EMPTY_STANDINGS_CONFIG)
   const bracket = $derived(data.bracket ?? null)
   const isAdmin = $derived(data.viewer?.isAdmin ?? false)
-  /** A published bracket to draw: the bracket leads and the table steps back. */
-  const inPlayoffs = $derived(bracket != null)
+  const asOf = $derived(data.batch?.as_of_date ?? null)
 
   let editingZones = $state(false)
+  let search = $state('')
 
   type Row = (typeof rows)[number]
   /** A row that has an entry in the current standings. */
   type RankedRow = Row & { stats: NonNullable<Row['stats']> }
 
-  let search = $state('')
+  const q = $derived(search.trim().toLowerCase())
 
-  const filtered = $derived.by(() => {
-    const q = search.trim().toLowerCase()
-    if (!q) return rows
-    return rows.filter((r) =>
-      [r.name, r.tag, r.org].filter(Boolean).join(' ').toLowerCase().includes(q)
-    )
-  })
-
-  // Type predicates so the table can read `row.stats` without a null check.
-  const ranked = $derived(filtered.filter((r): r is RankedRow => r.stats != null))
-
-  /** The ranks zones end on, for drawing a cutoff line under those rows. */
-  const zoneEnds = $derived(
-    new Set(zones.zones.map((z) => z.to).filter((to): to is number => to != null))
+  const allRanked = $derived(rows.filter((r): r is RankedRow => r.stats != null))
+  const ranked = $derived(
+    q
+      ? allRanked.filter((r) =>
+          [r.name, r.tag, r.org].filter(Boolean).join(' ').toLowerCase().includes(q)
+        )
+      : allRanked
   )
 
-  /** Medal colouring for the top three. */
-  function rankStyle(rank: number | null) {
-    if (rank === 1) return 'background: rgba(252,211,77,0.16); color: #fcd34d;'
-    if (rank === 2) return 'background: rgba(203,213,225,0.16); color: #cbd5e1;'
-    if (rank === 3) return 'background: rgba(217,119,6,0.18); color: #fbbf24;'
-    return 'background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.55);'
+  const myRank = $derived(
+    myTeam ? (allRanked.find((r) => r.id === myTeam.id)?.stats.rank ?? null) : null
+  )
+
+  /**
+   * Standings grouped by zone, in zone order: each group gets one small label
+   * row instead of a coloured stripe on every row. Teams outside every zone
+   * (or a season with no zones) fall into an unlabelled group.
+   */
+  type Group = {
+    zone: StandingsZone | null
+    dim: boolean
+    rows: (RankedRow & { locked: boolean })[]
   }
+  const groups = $derived.by<Group[]>(() => {
+    const byZone = new Map<string | null, Group>()
+    const lastZone = zones.zones.at(-1)
+    // Only an open-ended bottom zone reads as "out"; dimming a lone zone would dim everything.
+    const dimId = zones.zones.length > 1 && lastZone?.to == null ? lastZone?.id : undefined
+    for (const zone of zones.zones) byZone.set(zone.id, { zone, dim: zone.id === dimId, rows: [] })
+    byZone.set(null, { zone: null, dim: false, rows: [] })
+    for (const row of ranked) {
+      const placed = zoneForTeam(zones, row.id, row.stats.rank)
+      byZone.get(placed.zone?.id ?? null)!.rows.push({ ...row, locked: placed.locked })
+    }
+    return [...byZone.values()].filter((g) => g.rows.length > 0)
+  })
+
+  function ordinal(n: number) {
+    const suffix = ['th', 'st', 'nd', 'rd']
+    const v = n % 100
+    return n + (suffix[(v - 20) % 10] ?? suffix[v] ?? suffix[0])
+  }
+
+  const asOfLabel = $derived(
+    asOf
+      ? new Intl.DateTimeFormat('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+          timeZone: 'UTC',
+        }).format(new Date(String(asOf)))
+      : null
+  )
+
+  const metaLine = $derived(
+    [
+      asOfLabel ? `Standings as of ${asOfLabel}` : 'Standings',
+      allRanked.length ? `${allRanked.length} teams` : null,
+      bracket ? 'Playoffs in progress' : null,
+    ]
+      .filter(Boolean)
+      .join(' · ')
+  )
+
+  const playoffNote = $derived.by(() => {
+    if (!bracket) return ''
+    const total = bracket.slots.length
+    const played = bracket.slots.filter((s) => s.winnerId).length
+    const teamCount = Object.keys(seeds).length
+    return [
+      'Double elimination',
+      teamCount ? `${teamCount} teams` : null,
+      played === total ? 'Complete' : `${played} of ${total} series played`,
+    ]
+      .filter(Boolean)
+      .join(' · ')
+  })
+
+  const signed = (n: number) => (n > 0 ? `+${n}` : n < 0 ? `−${Math.abs(n)}` : '0')
 </script>
 
 <svelte:head><title>Leaderboard</title></svelte:head>
 
 <PageContainer>
   <div class="page-content py-6">
-    <PageHeading
-      title="Leaderboard"
-      subtitle={season?.name ? `${season.name} standings` : 'Standings'}
-      icon={Trophy}
-    ></PageHeading>
-
-    {#if !season}
-      <!-- Off-season: no standings, no roster, nothing to search. -->
-      <div class="empty-state">
-        <Trophy size={40} style="color: rgba(255,255,255,0.48);" />
-        <p class="empty-title">No season in progress</p>
-        <p class="empty-text">
-          Standings and teams appear here once the next season starts. Past seasons are on the
-          <a href={resolve('/events')} class="empty-link">events page</a>.
-        </p>
-      </div>
-    {:else}
-      <!-- Viewer's own team -->
-      {#if myTeam}
-        <a href={resolve(`/teams/${myTeam.id}`)} class="my-team">
-          {#if myTeam.logo_url}
-            <img src={myTeam.logo_url} alt="" class="my-team-logo" />
-          {:else}
-            <div class="my-team-logo my-team-logo-blank"></div>
-          {/if}
-          <div class="my-team-body">
-            <div class="my-team-label">Your team</div>
-            <div class="my-team-name">
-              {myTeam.name}{#if myTeam.tag}<span class="my-team-tag"
-                  >[{String(myTeam.tag).toUpperCase()}]</span
-                >{/if}
-            </div>
-            {#if myTeam.role}
-              <div class="my-team-role">{myTeam.role}</div>
-            {/if}
-          </div>
-          <ChevronRight size={18} class="my-team-arrow" />
-        </a>
-      {/if}
-
-      <!-- Search -->
-      <div class="toolbar">
-        <div class="search-wrap">
-          <span class="search-icon"><Search size={14} /></span>
-          <input bind:value={search} class="search-input" placeholder="Search teams..." />
+    <article class="sheet">
+      <header class="lb-head">
+        <div class="min-w-0">
+          {#if season?.name}<div class="lb-eyebrow">{season.name}</div>{/if}
+          <h1 class="lb-title">Leaderboard</h1>
+          {#if season}<p class="lb-meta">{metaLine}</p>{/if}
         </div>
-        {#if isAdmin && !editingZones}
-          <button type="button" class="zones-btn" onclick={() => (editingZones = true)}>
-            <SlidersHorizontal size={14} /> Edit zones
-          </button>
+        {#if myTeam}
+          <a href={resolve(`/teams/${myTeam.id}`)} class="my-team">
+            <span class="lb-label">Your team</span>
+            {#if myTeam.logo_url}<img src={myTeam.logo_url} alt="" class="my-team-logo" />{/if}
+            <span class="my-team-name">{myTeam.name}</span>
+            {#if myRank != null}<span class="my-team-rank">{ordinal(myRank)}</span>{/if}
+          </a>
         {/if}
-      </div>
+      </header>
 
-      {#if isAdmin && editingZones}
-        <StandingsZonesEditor
-          seasonId={season.id}
-          config={zones}
-          teams={rows
-            .filter((r) => r.stats != null)
-            .map((r) => ({ id: r.id, name: r.name, rank: r.stats?.rank ?? null }))}
-          onClose={() => (editingZones = false)}
-        />
-      {/if}
-
-      {#if inPlayoffs && bracket}
-        <section class="bracket-block">
-          <h2 class="playoffs-title">
-            <Trophy size={18} class="playoffs-icon" />
-            Playoffs
-          </h2>
-          <ArchiveBracket
-            slots={bracket.slots}
-            teams={bracket.teams}
-            {seeds}
-            matchIds={bracket.matchIds}
-          />
-        </section>
-        <h2 class="section-title">Regular season standings</h2>
-      {/if}
-
-      {#if rows.length === 0}
-        <div class="empty-state">
-          <Trophy size={40} style="color: rgba(255,255,255,0.48);" />
-          <p class="empty-title">No teams yet</p>
-          <p class="empty-text">Approved teams and their standings will appear here.</p>
-        </div>
-      {:else if filtered.length === 0}
-        <div class="empty-state">
-          <p class="empty-text">No teams match “{search}”.</p>
+      {#if !season}
+        <!-- Off-season: no standings, no roster, nothing to search. -->
+        <div class="lb-empty sheet-section">
+          <p class="lb-empty-title">No season in progress</p>
+          <p>
+            Standings and teams appear here once the next season starts. Past seasons are on the
+            <a href={resolve('/events')}>events page</a>.
+          </p>
         </div>
       {:else}
-        <!-- Standings -->
-        {#if ranked.length > 0}
-          {#if zones.zones.length > 0}
-            <div class="zone-legend">
-              {#each zones.zones as zone (zone.id)}
-                <span class="zone-key">
-                  <span class="zone-dot" style="background: {ZONE_TONE_COLORS[zone.tone]};"></span>
-                  {zone.label}
-                  <span class="zone-range">{zoneRangeLabel(zone)}</span>
-                </span>
-              {/each}
-              {#if Object.keys(zones.locked).length > 0}
-                <span class="zone-key zone-key-lock"><Lock size={11} /> Locked in</span>
-              {/if}
-            </div>
+        <div class="lb-bar">
+          <label class="lb-search">
+            <Search size={14} aria-hidden="true" />
+            <input
+              type="search"
+              bind:value={search}
+              placeholder="Search teams"
+              aria-label="Search teams"
+            />
+          </label>
+          {#if isAdmin && !editingZones}
+            <button type="button" class="zones-btn" onclick={() => (editingZones = true)}>
+              Edit zones
+            </button>
           {/if}
-          <div class="table-wrap" class:table-compact={inPlayoffs}>
-            <table class="standings">
-              <thead>
-                <tr>
-                  <th class="col-rank">#</th>
-                  <th class="col-team">Team</th>
-                  {#if season?.showPoints}<th class="col-num">Pts</th>{/if}
-                  <th class="col-num">Series</th>
-                  <th class="col-num">W</th>
-                  <th class="col-num">L</th>
-                  <th class="col-num">Maps</th>
-                  <th class="col-num">MW</th>
-                  <th class="col-num">ML</th>
-                  <th class="col-num" title="Round differential — used to break ties">RD</th>
-                </tr>
-              </thead>
-              <tbody>
-                {#each ranked as row (row.id)}
-                  {@const isMine = myTeam?.id === row.id}
-                  {@const placed = zoneForTeam(zones, row.id, row.stats.rank)}
-                  <tr
-                    class:row-mine={isMine}
-                    class:zone-cut={!search.trim() &&
-                      row.stats.rank != null &&
-                      zoneEnds.has(row.stats.rank)}
-                    style={placed.zone
-                      ? `--zone-color: ${ZONE_TONE_COLORS[placed.zone.tone]};`
-                      : undefined}
-                  >
-                    <td class="col-rank" class:zoned={placed.zone != null}>
-                      <span class="rank-badge" style={rankStyle(row.stats.rank)}>
-                        <!-- No rank until the season's first import. -->
-                        {row.stats.rank ?? '—'}
-                      </span>
-                    </td>
-                    <td class="col-team">
-                      <a href={resolve(`/teams/${row.id}`)} class="team-cell">
-                        {#if row.logo_url}
-                          <img src={row.logo_url} alt="" class="team-logo" />
-                        {:else}
-                          <div class="team-logo team-logo-blank"></div>
-                        {/if}
-                        <span class="team-text">
-                          <span class="team-name">{row.name}</span>
-                          {#if row.tag}
-                            <span class="team-tag">[{String(row.tag).toUpperCase()}]</span>
-                          {/if}
-                          <TeamSeed seed={seeds[row.id] ?? null} label="Playoff seed" />
-                          {#if placed.locked && placed.zone}
-                            <span class="zone-chip" title="Locked in — decided regardless of rank">
-                              <Lock size={10} />
-                              {placed.zone.label}
-                            </span>
-                          {/if}
-                        </span>
-                      </a>
-                    </td>
-                    {#if season?.showPoints}
-                      <td class="col-num tabular col-points">{row.stats.points}</td>
-                    {/if}
-                    <td class="col-num tabular muted">{row.stats.series_played}</td>
-                    <td class="col-num tabular">{row.stats.series_wins}</td>
-                    <td class="col-num tabular">{row.stats.series_losses}</td>
-                    <td class="col-num tabular muted">{row.stats.maps_played}</td>
-                    <td class="col-num tabular">{row.stats.map_wins}</td>
-                    <td class="col-num tabular">{row.stats.map_losses}</td>
-                    <td
-                      class="col-num tabular"
-                      class:rd-pos={row.stats.round_diff > 0}
-                      class:rd-neg={row.stats.round_diff < 0}
-                    >
-                      {row.stats.round_diff > 0 ? `+${row.stats.round_diff}` : row.stats.round_diff}
-                    </td>
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
-          </div>
-        {:else}
-          <div class="empty-state">
-            <p class="empty-text">No standings yet.</p>
+        </div>
+
+        {#if isAdmin && editingZones}
+          <div class="sheet-section sheet-body">
+            <StandingsZonesEditor
+              seasonId={season.id}
+              config={zones}
+              teams={allRanked.map((r) => ({ id: r.id, name: r.name, rank: r.stats.rank ?? null }))}
+              onClose={() => (editingZones = false)}
+            />
           </div>
         {/if}
+
+        {#if bracket}
+          <section class="sheet-section" aria-labelledby="playoffs-title">
+            <div class="sheet-head">
+              <h2 class="sheet-title" id="playoffs-title">Playoffs</h2>
+              <span class="sheet-note">{playoffNote}</span>
+            </div>
+            <div class="sheet-body">
+              <ArchiveBracket
+                slots={bracket.slots}
+                teams={bracket.teams}
+                {seeds}
+                matchIds={bracket.matchIds}
+                series={bracket.series}
+                query={search}
+                myTeamId={myTeam?.id ?? null}
+              />
+            </div>
+          </section>
+        {/if}
+
+        <section class="sheet-section" aria-labelledby="standings-title">
+          <div class="sheet-head">
+            <h2 class="sheet-title" id="standings-title">Standings</h2>
+            <span class="sheet-note">Regular season · ties broken by round differential</span>
+          </div>
+
+          {#if rows.length === 0}
+            <p class="lb-empty">Approved teams and their standings will appear here.</p>
+          {:else if allRanked.length === 0}
+            <p class="lb-empty">No standings yet.</p>
+          {:else if ranked.length === 0}
+            <p class="lb-empty">No teams match “{search}”.</p>
+          {:else}
+            <div class="table-wrap">
+              <table class="standings">
+                <thead>
+                  <tr>
+                    <th class="col-rank">#</th>
+                    <th class="col-team">Team</th>
+                    <th class="col-num col-seed">Seed</th>
+                    {#if season.showPoints}<th class="col-num">Pts</th>{/if}
+                    <th class="col-num">Series</th>
+                    <th class="col-num col-maps">Maps</th>
+                    <th class="col-num" title="Round differential, used to break ties">RD</th>
+                  </tr>
+                </thead>
+                {#each groups as group (group.zone?.id ?? 'none')}
+                  <tbody
+                    class:dim={group.dim}
+                    style={group.zone
+                      ? `--zone-color: ${ZONE_TONE_COLORS[group.zone.tone]};`
+                      : undefined}
+                  >
+                    {#if group.zone}
+                      <tr class="zone-row">
+                        <td colspan="7">
+                          <span class="zone-label">
+                            <span class="zone-dot"></span>
+                            {group.zone.label}
+                            <span class="zone-range">{zoneRangeLabel(group.zone)}</span>
+                          </span>
+                        </td>
+                      </tr>
+                    {/if}
+                    {#each group.rows as row (row.id)}
+                      <tr class:row-mine={myTeam?.id === row.id}>
+                        <!-- No rank until the season's first import. -->
+                        <td class="col-rank" class:zoned={group.zone != null}>
+                          {row.stats.rank ?? '—'}
+                        </td>
+                        <td class="col-team">
+                          <a href={resolve(`/teams/${row.id}`)} class="team-cell">
+                            {#if row.logo_url}
+                              <img src={row.logo_url} alt="" class="team-logo" />
+                            {:else}
+                              <span class="team-logo team-logo-blank"></span>
+                            {/if}
+                            <span class="team-name">{row.name}</span>
+                            {#if row.tag}
+                              <span class="team-tag">{String(row.tag).toUpperCase()}</span>
+                            {/if}
+                            {#if row.locked}
+                              <span
+                                class="team-locked"
+                                title="Locked in: decided regardless of rank"
+                              >
+                                <Lock size={10} aria-hidden="true" /> Locked
+                              </span>
+                            {/if}
+                          </a>
+                        </td>
+                        <td class="col-num col-seed muted">{seeds[row.id] ?? '–'}</td>
+                        {#if season.showPoints}
+                          <td class="col-num col-points">{row.stats.points}</td>
+                        {/if}
+                        <td class="col-num" title="{row.stats.series_played} played">
+                          {row.stats.series_wins}–{row.stats.series_losses}
+                        </td>
+                        <td class="col-num col-maps" title="{row.stats.maps_played} played">
+                          {row.stats.map_wins}–{row.stats.map_losses}
+                        </td>
+                        <td
+                          class="col-num"
+                          class:rd-pos={row.stats.round_diff > 0}
+                          class:rd-neg={row.stats.round_diff < 0}
+                        >
+                          {signed(row.stats.round_diff)}
+                        </td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                {/each}
+              </table>
+            </div>
+          {/if}
+        </section>
       {/if}
-    {/if}
+    </article>
   </div>
 </PageContainer>
 
 <style>
-  /* Viewer's team */
-  .my-team {
+  /* Header: the top of the sheet */
+  .lb-head {
     display: flex;
-    align-items: center;
-    gap: 0.875rem;
-    padding: 0.875rem 1.125rem;
-    border-radius: 0.75rem;
-    border: 1px solid rgba(120, 67, 145, 0.35);
-    background: rgba(120, 67, 145, 0.08);
-    text-decoration: none;
-    color: var(--text);
-    margin-bottom: 0.75rem;
-    transition: background 0.15s;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.5rem 1.5rem 1.125rem;
   }
 
-  .my-team:hover {
-    background: rgba(120, 67, 145, 0.14);
-  }
-
-  .my-team-logo {
-    width: 2.75rem;
-    height: 2.75rem;
-    border-radius: 0.5rem;
-    object-fit: contain;
-    flex-shrink: 0;
-  }
-
-  .my-team-logo-blank,
-  .team-logo-blank {
-    background: rgba(255, 255, 255, 0.06);
-  }
-
-  .my-team-body {
-    min-width: 0;
-    flex: 1;
-  }
-
-  .my-team-label {
-    font-size: 0.625rem;
+  .lb-eyebrow {
+    font-size: 0.6875rem;
     font-weight: 700;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
-    letter-spacing: 0.08em;
     color: var(--accent-text);
   }
 
-  .my-team-name {
-    font-size: 1rem;
+  .lb-title {
+    margin: 0.375rem 0 0;
+    font-size: 1.75rem;
+    line-height: 1.1;
     font-weight: 700;
-    margin-top: 0.125rem;
+    color: var(--text);
   }
 
-  .my-team-tag {
+  .lb-meta {
+    margin: 0.5rem 0 0;
     font-size: 0.8125rem;
-    font-weight: 500;
-    color: rgba(255, 255, 255, 0.5);
-    margin-left: 0.375rem;
+    color: rgba(255, 255, 255, 0.66);
   }
 
-  .my-team-role {
-    font-size: 0.6875rem;
-    color: rgba(255, 255, 255, 0.64);
-    text-transform: capitalize;
-    margin-top: 0.125rem;
+  .lb-label {
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.55);
   }
 
-  :global(.my-team-arrow) {
-    color: rgba(255, 255, 255, 0.52);
-    flex-shrink: 0;
+  .my-team {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.75rem;
+    padding: 0 0.625rem;
+    border-radius: 0.5rem;
+    font-size: 0.8125rem;
+    color: rgba(255, 255, 255, 0.82);
+    text-decoration: none;
   }
 
-  /* Toolbar */
-  .toolbar {
+  .my-team:hover {
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text);
+  }
+
+  .my-team-logo {
+    width: 1.375rem;
+    height: 1.375rem;
+    border-radius: 0.25rem;
+    object-fit: contain;
+  }
+
+  .my-team-name {
+    font-weight: 600;
+  }
+
+  .my-team-rank {
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  /* Search bar, docked under the header */
+  .lb-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.625rem 1.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .lb-search {
+    position: relative;
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    flex-wrap: wrap;
-    margin-bottom: 0.75rem;
+    flex: 1 1 16rem;
+    max-width: 21rem;
+    color: rgba(255, 255, 255, 0.5);
   }
 
-  .search-wrap {
-    position: relative;
-    flex: 1;
-    max-width: 20rem;
-    min-width: 12rem;
-  }
-
-  .search-icon {
+  .lb-search :global(svg) {
     position: absolute;
-    top: 50%;
-    left: 0.625rem;
-    transform: translateY(-50%);
-    color: rgba(255, 255, 255, 0.52);
+    left: 0.6875rem;
     pointer-events: none;
-    display: flex;
   }
 
-  .search-input {
+  .lb-search input {
     width: 100%;
-    padding: 0.5rem 0.75rem 0.5rem 2rem;
+    height: 2.375rem;
+    padding: 0 0.75rem 0 2.125rem;
     border-radius: 0.5rem;
     border: 1px solid rgba(255, 255, 255, 0.1);
-    background: rgba(0, 0, 0, 0.2);
+    background: rgba(0, 0, 0, 0.18);
     color: var(--text);
     font-size: 0.8125rem;
   }
 
-  .search-input::placeholder {
-    color: rgba(255, 255, 255, 0.54);
+  .lb-search input::placeholder {
+    color: rgba(255, 255, 255, 0.5);
   }
 
-  .search-input:focus {
+  .lb-search input:focus {
     outline: none;
-    border-color: var(--hover);
+    border-color: rgba(192, 132, 252, 0.6);
   }
 
-  /* Admin zone editor toggle */
   .zones-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.375rem;
-    padding: 0.4375rem 0.75rem;
+    margin-left: auto;
+    height: 2.375rem;
+    padding: 0 0.75rem;
     border-radius: 0.5rem;
     border: 1px solid rgba(255, 255, 255, 0.08);
     font-size: 0.75rem;
-    color: rgba(255, 255, 255, 0.55);
+    color: rgba(255, 255, 255, 0.6);
     cursor: pointer;
   }
 
   .zones-btn:hover {
-    border-color: rgba(255, 255, 255, 0.16);
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  /* Playoffs stage */
-  .bracket-block {
-    margin-bottom: 1.25rem;
-    padding: 1rem;
-    border-radius: 0.75rem;
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    background: rgba(0, 0, 0, 0.2);
-  }
-
-  .section-title {
-    font-size: 0.6875rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: rgba(255, 255, 255, 0.64);
-    margin-bottom: 0.625rem;
-  }
-
-  /* The bracket's heading leads the page, so it reads louder than a section label. */
-  .playoffs-title {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 1.125rem;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
+    border-color: rgba(255, 255, 255, 0.18);
     color: var(--text);
-    padding-bottom: 0.5rem;
-    border-bottom: 2px solid var(--accent);
-    margin-bottom: 0.875rem;
   }
 
-  .playoffs-title :global(.playoffs-icon) {
-    color: #facc15;
-    flex-shrink: 0;
-  }
-
-  .table-compact .standings {
-    font-size: 0.75rem;
-  }
-
-  .table-compact .standings td {
-    padding-top: 0.3125rem;
-    padding-bottom: 0.3125rem;
-  }
-
-  /* Zones */
-  .zone-legend {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.375rem 1rem;
-    margin-bottom: 0.5rem;
-    font-size: 0.75rem;
-    color: rgba(255, 255, 255, 0.78);
-  }
-
-  .zone-key {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.375rem;
-  }
-
-  .zone-key-lock {
-    color: rgba(255, 255, 255, 0.6);
-  }
-
-  .zone-dot {
-    width: 0.5rem;
-    height: 0.5rem;
-    border-radius: 9999px;
-  }
-
-  .zone-range {
-    color: rgba(255, 255, 255, 0.5);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .standings td.zoned {
-    box-shadow: inset 3px 0 0 var(--zone-color);
-  }
-
-  .standings tbody tr.zone-cut td {
-    border-bottom: 1px dashed rgba(255, 255, 255, 0.28);
-  }
-
-  .zone-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    padding: 0.0625rem 0.375rem;
-    border-radius: 9999px;
-    font-size: 0.625rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--zone-color);
-    background: color-mix(in srgb, var(--zone-color) 14%, transparent);
-    flex-shrink: 0;
-    align-self: center;
-  }
-
-  /* Standings table */
+  /* Standings */
   .table-wrap {
     overflow-x: auto;
-    border-radius: 0.75rem;
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    background: rgba(0, 0, 0, 0.2);
+    padding-bottom: 0.75rem;
   }
 
   .standings {
     width: 100%;
     border-collapse: collapse;
     font-size: 0.8125rem;
-    min-width: 44rem;
   }
 
   .standings th {
+    height: 2rem;
+    padding: 0 0.5rem;
     text-align: right;
     font-size: 0.625rem;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.07em;
-    color: rgba(255, 255, 255, 0.6);
-    padding: 0.75rem 0.625rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    letter-spacing: 0.1em;
+    color: rgba(255, 255, 255, 0.5);
     white-space: nowrap;
+  }
+
+  .standings td {
+    height: 2.25rem;
+    padding: 0 0.5rem;
+    color: rgba(255, 255, 255, 0.82);
+    white-space: nowrap;
+  }
+
+  .standings th:first-child,
+  .standings td:first-child {
+    padding-left: 1.5rem;
+  }
+
+  .standings th:last-child,
+  .standings td:last-child {
+    padding-right: 1.5rem;
+  }
+
+  .standings tbody tr:not(.zone-row):hover {
+    background: rgba(255, 255, 255, 0.025);
   }
 
   .standings th.col-rank,
@@ -528,44 +479,63 @@
     text-align: left;
   }
 
-  .standings td {
-    padding: 0.5rem 0.625rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-    color: rgba(255, 255, 255, 0.82);
-  }
-
-  .standings tbody tr:last-child td {
-    border-bottom: none;
-  }
-
-  .standings tbody tr:hover {
-    background: rgba(255, 255, 255, 0.03);
-  }
-
-  .row-mine {
-    background: rgba(120, 67, 145, 0.08);
-  }
-
-  .col-rank {
-    width: 3.25rem;
+  .standings .col-rank {
+    width: 2.75rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.5);
+    font-variant-numeric: tabular-nums;
   }
 
   .col-team {
-    min-width: 12rem;
+    width: 100%;
+    max-width: 0;
   }
 
   .col-num {
     text-align: right;
-    width: 3.75rem;
+    min-width: 3.25rem;
+    font-variant-numeric: tabular-nums;
   }
 
-  .col-points {
+  .standings .col-points {
     font-weight: 700;
     color: var(--text);
   }
 
-  .muted {
-    color: rgba(255, 255, 255, 0.64);
+  .standings .muted {
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  /* Zones: one label row per group, a hairline above it, colour only on the dot. */
+  .standings .zone-row td {
+    height: auto;
+    padding-top: 0.875rem;
+    padding-bottom: 0.375rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .zone-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: color-mix(in srgb, var(--zone-color) 80%, white);
+  }
+
+  .zone-dot {
+    width: 0.375rem;
+    height: 0.375rem;
+    border-radius: 9999px;
+    background: var(--zone-color);
+  }
+
+  /* A thin zone-coloured marker on each rank, so the cut lines read at a glance. */
+  .standings td.zoned {
+    box-shadow: inset 2px 0 0 color-mix(in srgb, var(--zone-color) 70%, transparent);
   }
 
   .standings td.rd-pos {
@@ -576,47 +546,69 @@
     color: #f87171;
   }
 
-  .rank-badge {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 1.625rem;
-    padding: 0.1875rem 0.375rem;
-    border-radius: 0.3125rem;
-    font-size: 0.75rem;
-    font-weight: 700;
-    font-variant-numeric: tabular-nums;
+  .standings tbody.dim td.rd-pos,
+  .standings tbody.dim td.rd-neg {
+    opacity: 0.75;
+  }
+
+  .zone-range {
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  /* The open-ended bottom zone (e.g. eliminated) steps back. */
+  .standings tbody.dim tr:not(.zone-row) td:not(.rd-pos):not(.rd-neg) {
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  .standings tbody.dim .team-name {
+    color: rgba(255, 255, 255, 0.62);
+  }
+
+  .standings tbody.dim .team-logo {
+    opacity: 0.7;
+  }
+
+  .standings tbody.dim td.col-points {
+    color: rgba(255, 255, 255, 0.7);
+  }
+
+  /* The viewer's team: accent means "you". */
+  .row-mine {
+    background: rgba(192, 132, 252, 0.07);
+  }
+
+  .standings .row-mine .team-name {
+    color: var(--accent-text);
   }
 
   .team-cell {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    text-decoration: none;
-    color: var(--text);
+    gap: 0.5625rem;
     min-width: 0;
+    text-decoration: none;
+    color: inherit;
   }
 
   .team-logo {
-    width: 1.5rem;
-    height: 1.5rem;
+    width: 1.375rem;
+    height: 1.375rem;
     border-radius: 0.25rem;
     object-fit: contain;
     flex-shrink: 0;
   }
 
-  .team-text {
-    min-width: 0;
-    display: flex;
-    align-items: baseline;
-    gap: 0.375rem;
+  .team-logo-blank {
+    background: rgba(255, 255, 255, 0.06);
   }
 
   .team-name {
     font-weight: 600;
+    color: rgba(255, 255, 255, 0.82);
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   .team-cell:hover .team-name {
@@ -624,51 +616,87 @@
   }
 
   .team-tag {
-    font-size: 0.6875rem;
-    color: rgba(255, 255, 255, 0.62);
     flex-shrink: 0;
-  }
-
-  /* Empty */
-  .empty-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.75rem;
-    text-align: center;
-    padding: 4rem 1.5rem;
-    border-radius: 0.75rem;
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    background: rgba(0, 0, 0, 0.18);
-  }
-
-  .empty-title {
-    font-size: 1rem;
-    font-weight: 600;
-  }
-
-  .empty-text {
-    font-size: 0.875rem;
+    font-size: 0.6875rem;
     color: rgba(255, 255, 255, 0.5);
   }
 
-  .empty-link {
-    color: var(--accent-text);
-    text-decoration: none;
+  .team-locked {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    flex-shrink: 0;
+    font-size: 0.6875rem;
+    color: rgba(255, 255, 255, 0.5);
   }
 
-  .empty-link:hover {
-    text-decoration: underline;
+  /* Empty */
+  .lb-empty {
+    padding: 1.5rem;
+    font-size: 0.8125rem;
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  .lb-empty-title {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 0.375rem;
+  }
+
+  .lb-empty a {
+    color: var(--accent-text);
   }
 
   @media (max-width: 640px) {
-    .toolbar {
-      flex-direction: column;
-      align-items: stretch;
+    .lb-head {
+      padding: 1.125rem 0.875rem 0.875rem;
     }
 
-    .search-wrap {
+    .lb-title {
+      font-size: 1.5rem;
+    }
+
+    .my-team {
+      padding: 0;
+    }
+
+    .lb-bar {
+      padding: 0.625rem 0.875rem;
+    }
+
+    .lb-search {
       max-width: none;
+    }
+
+    .standings th,
+    .standings td {
+      padding-left: 0.375rem;
+      padding-right: 0.375rem;
+    }
+
+    .standings th:first-child,
+    .standings td:first-child {
+      padding-left: 0.875rem;
+    }
+
+    .standings th:last-child,
+    .standings td:last-child {
+      padding-right: 0.875rem;
+    }
+
+    .col-seed,
+    .col-maps,
+    .team-tag {
+      display: none;
+    }
+
+    .standings .col-rank {
+      width: 1.75rem;
+    }
+
+    .col-num {
+      min-width: 2.5rem;
     }
   }
 </style>

@@ -1,4 +1,4 @@
-import { isPickemComplete, rankPickemLeaderboardEntries } from '$lib/pickems'
+import { combinePickemSeasonTotals, isPickemComplete } from '$lib/pickems'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { fetchAllRows } from '$lib/server/supabase/fetch-all'
 import { createNotification } from '$lib/server/notifications'
@@ -197,14 +197,21 @@ async function loadTeamPlayers(
   return players
 }
 
-/** Top scorer(s) of the season's pick'em, once every result is in. */
+/**
+ * Top scorer(s) of the season's pick'em total (bracket + weekly matchups
+ * combined), once every published pick'em has all its results in.
+ */
 async function loadPickemChampions(seasonId: string): Promise<string[]> {
-  const ctx = await getPublishedPickemContextBySeasonId(seasonId)
-  if (!ctx.event || ctx.matches.length === 0) return []
-  const { actualWinners } = await getPickemResults(ctx.event, ctx.matches)
-  if (!isPickemComplete(ctx.matches, actualWinners)) return []
-  const submissions = await listPickemPublicSubmissions(ctx.event.id, ctx.matches, actualWinners)
-  return rankPickemLeaderboardEntries(submissions)
+  const boards = []
+  for (const format of ['bracket', 'matchups'] as const) {
+    const ctx = await getPublishedPickemContextBySeasonId(seasonId, format)
+    if (!ctx.event || ctx.matches.length === 0) continue
+    const { actualWinners } = await getPickemResults(ctx.event, ctx.matches)
+    if (!isPickemComplete(ctx.matches, actualWinners)) return []
+    boards.push(await listPickemPublicSubmissions(ctx.event.id, ctx.matches, actualWinners))
+  }
+  if (boards.length === 0) return []
+  return combinePickemSeasonTotals(boards)
     .filter((s) => s.rank === 1 && s.score > 0 && s.user.id)
     .map((s) => s.user.id!)
 }

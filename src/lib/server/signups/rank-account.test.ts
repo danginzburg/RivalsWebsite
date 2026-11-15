@@ -33,16 +33,28 @@ describe('pickSignupAccount', () => {
     expect(lookup).toHaveBeenCalledTimes(1)
   })
 
-  it('uses a main with 100 games, and still flags a higher alt', async () => {
+  it('uses a higher alt even when the main has 100 games, and flags it', async () => {
     const { lookup, check } = await pickSignupAccount(
       main,
       [alt],
-      lookups({ 'main#NA1': found(...GOLD, 100), 'alt#NA1': found(...DIAMOND, 300) })
+      lookups({ 'main#NA1': found(...GOLD, 100), 'alt#NA1': found(...DIAMOND, 3) })
     )
 
-    expect(lookup.rank?.currentRank).toBe('Gold 1')
-    expect(check?.usedRiotId).toBe('main#NA1')
+    expect(lookup.rank?.currentRank).toBe('Diamond 1')
+    expect(check?.usedRiotId).toBe('alt#NA1')
     expect(check?.higherAlt).toBe('alt#NA1')
+  })
+
+  it('keeps a main with 100 games over a lower alt', async () => {
+    const { lookup, check } = await pickSignupAccount(
+      main,
+      [alt],
+      lookups({ 'main#NA1': found(...DIAMOND, 100), 'alt#NA1': found(...GOLD, 300) })
+    )
+
+    expect(lookup.rank?.currentRank).toBe('Diamond 1')
+    expect(check?.usedRiotId).toBe('main#NA1')
+    expect(check?.higherAlt).toBeNull()
   })
 
   it('uses the best alt when the main is short of games, however few the alt has', async () => {

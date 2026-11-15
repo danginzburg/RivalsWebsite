@@ -1,10 +1,11 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { uploadLogo } from '$lib/server/logo-upload'
 import { lookupPlayer } from '$lib/server/players/directory'
 import { createNotification } from '$lib/server/notifications'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { logAdminAction } from '$lib/server/audit/admin-actions'
-import { normalizeOptional, sanitizeFilename, isImageFile } from '$lib/server/upload'
+import { normalizeOptional, isImageFile } from '$lib/server/upload'
 import { syncSeasonAccolades } from '$lib/server/accolades/season-sync'
 
 export const GET: RequestHandler = async ({ locals }) => {
@@ -79,20 +80,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     if (name.length < 1 || name.length > 64) throw error(400, 'Name must be 1-64 characters')
 
     if (logo instanceof File && logo.size > 0) {
-      if (!isImageFile(logo)) throw error(400, 'Logo must be an image file')
-
-      const cleanName = sanitizeFilename(logo.name || 'logo')
-      const objectPath = `accolades/${crypto.randomUUID()}-${cleanName || 'logo'}`
-      const bytes = new Uint8Array(await logo.arrayBuffer())
-      const { error: uploadError } = await supabaseAdmin.storage
-        .from('team-logos')
-        .upload(objectPath, bytes, {
-          contentType: logo.type || 'application/octet-stream',
-          upsert: false,
-        })
-
-      if (uploadError) throw error(500, 'Failed to upload accolade logo')
-      uploadedLogoPath = objectPath
+      uploadedLogoPath = await uploadLogo('accolades', logo)
     }
 
     const { data: created, error: createError } = await supabaseAdmin
@@ -330,17 +318,7 @@ export const PUT: RequestHandler = async ({ locals, request }) => {
     await supabaseAdmin.storage.from('team-logos').remove([accolade.logo_path])
   }
 
-  const cleanName = sanitizeFilename(logo.name || 'logo')
-  const objectPath = `accolades/${crypto.randomUUID()}-${cleanName || 'logo'}`
-  const bytes = new Uint8Array(await logo.arrayBuffer())
-  const { error: uploadError } = await supabaseAdmin.storage
-    .from('team-logos')
-    .upload(objectPath, bytes, {
-      contentType: logo.type || 'application/octet-stream',
-      upsert: false,
-    })
-
-  if (uploadError) throw error(500, 'Failed to upload logo')
+  const objectPath = await uploadLogo('accolades', logo)
 
   const { error: updateError } = await supabaseAdmin
     .from('accolades')

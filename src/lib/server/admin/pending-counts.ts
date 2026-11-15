@@ -57,6 +57,7 @@ function countAll() {
     countPending('review_flags'),
     countPending('bug_reports'),
     countPending('match_result_reports'),
+    countPending('match_reports'),
   ])
 }
 
@@ -84,8 +85,15 @@ export type AdminQueueItem = {
  * them, and nothing has to be fanned out or cleaned up per admin.
  */
 export async function getAdminQueue(): Promise<AdminQueueItem[]> {
-  const [signups, riotAccounts, commentReports, reviewFlags, bugReports, resultReports] =
-    await countAll()
+  const [
+    signups,
+    riotAccounts,
+    commentReports,
+    reviewFlags,
+    bugReports,
+    resultReports,
+    captainReports,
+  ] = await countAll()
 
   const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
   const items: AdminQueueItem[] = [
@@ -106,6 +114,12 @@ export async function getAdminQueue(): Promise<AdminQueueItem[]> {
       label: plural(resultReports, 'match result report', 'match result reports'),
       count: resultReports,
       link: '/admin?tab=matches',
+    },
+    {
+      key: 'captain_reports',
+      label: plural(captainReports, 'captain result submission', 'captain result submissions'),
+      count: captainReports,
+      link: '/admin/matches-import',
     },
     {
       key: 'comment_reports',

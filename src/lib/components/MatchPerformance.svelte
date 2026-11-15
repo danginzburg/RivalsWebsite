@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { Swords, Crosshair } from 'lucide-svelte'
   import { displayPlayerName as displayName } from '$lib/stats/ui'
 
   /** One player's row for the selected scope (a single map, or the series). */
@@ -31,11 +30,11 @@
     teamAId: string | null
     teamAName: string
     teamBName: string
-    /** Label for what is being shown — "Series total" or a map name. */
-    scopeLabel: string
+    teamALogo?: string | null
+    teamBLogo?: string | null
   }
 
-  let { rows, teamAId, teamAName, teamBName, scopeLabel }: Props = $props()
+  let { rows, teamAId, teamAName, teamBName, teamALogo = null, teamBLogo = null }: Props = $props()
 
   /**
    * Sort players the same way the scoreboard table above does — kills desc,
@@ -99,16 +98,17 @@
     )
   }
 
-  /** The column player's record against the whole opposing team. */
+  /**
+   * The whole row team's record against one column player. Read from the row
+   * side like every other cell, so a colour means the same thing everywhere.
+   */
   function columnTotals(col: PerfRow) {
     return teamARows.reduce(
       (acc, row) => {
         const d = duel(row, col)
-        // Flipped: from the column player's point of view, their kills are the
-        // "against" half of the row player's duel.
         return {
-          forKills: acc.forKills + d.againstKills,
-          againstKills: acc.againstKills + d.forKills,
+          forKills: acc.forKills + d.forKills,
+          againstKills: acc.againstKills + d.againstKills,
         }
       },
       { forKills: 0, againstKills: 0 }
@@ -190,6 +190,40 @@
     if (attempted === 0) return null
     return { won: breakdown.won?.[String(size)] ?? 0, attempted }
   }
+
+  /** Largest one-on-one gap in the grid, so cell shading scales to this match. */
+  const maxCellDiff = $derived(
+    Math.max(
+      0,
+      ...teamARows.flatMap((row) => teamBRows.map((col) => Math.abs(duel(row, col).diff)))
+    )
+  )
+
+  /** Same for the totals edge, which runs much larger than single cells. */
+  const maxTotalDiff = $derived(
+    Math.max(
+      0,
+      Math.abs(grandTotal.forKills - grandTotal.againstKills),
+      ...teamARows.map((row) => {
+        const t = duelTotals(row)
+        return Math.abs(t.forKills - t.againstKills)
+      }),
+      ...teamBRows.map((col) => {
+        const t = columnTotals(col)
+        return Math.abs(t.forKills - t.againstKills)
+      })
+    )
+  )
+
+  /**
+   * Shaded in the colour of whoever came out ahead — blue for the row team,
+   * red for the column team — stronger the bigger the gap.
+   */
+  function heat(diff: number, max: number): string {
+    if (diff === 0 || max === 0) return 'transparent'
+    const alpha = (0.04 + 0.11 * Math.min(Math.abs(diff) / max, 1)).toFixed(2)
+    return diff > 0 ? `rgba(96, 165, 250, ${alpha})` : `rgba(248, 113, 113, ${alpha})`
+  }
 </script>
 
 {#snippet perfRow(row: PerfRow, isTotal: boolean)}
@@ -233,15 +267,36 @@
   </tr>
 {/snippet}
 
+{#snippet h2hCell(
+  forKills: number,
+  againstKills: number,
+  max: number,
+  title: string,
+  total: boolean
+)}
+  {@const diff = forKills - againstKills}
+  <td class="h2h-cell" class:h2h-total={total} style:background={heat(diff, max)} {title}>
+    <span class="cell-score">{forKills}–{againstKills}</span>
+    <span class="cell-diff" class:diff-up={diff > 0} class:diff-down={diff < 0}>
+      {diff > 0 ? `+${diff}` : diff < 0 ? diff : '±0'}
+    </span>
+  </td>
+{/snippet}
+
 {#if hasData}
-  <div class="perf">
-    <!-- Multikills and clutches, one table per team -->
-    <div class="perf-grid">
-      {#each [{ name: teamAName, list: teamARows }, { name: teamBName, list: teamBRows }] as group (group.name)}
-        <!-- No team heading: these sit directly under the scoreboard's own
-             per-team tables and in the same left/right order, so repeating the
-             name is noise. -->
-        <section class="perf-card">
+  <!-- Two sections of the match page's sheet: openings/multikills/clutches,
+       then head to head. Both follow the page's map/total scope. -->
+  <section class="sheet-section">
+    <div class="sheet-head">
+      <h2 class="sheet-title">Openings, Multikills &amp; Clutches</h2>
+    </div>
+    <div class="sheet-body sheet-pair">
+      {#each [{ name: teamAName, logo: teamALogo, side: 'a', list: teamARows }, { name: teamBName, logo: teamBLogo, side: 'b', list: teamBRows }] as group (group.side)}
+        <div class="perf-team">
+          <div class="team-bar team-bar-{group.side}">
+            {#if group.logo}<img src={group.logo} alt="" />{/if}
+            <span class="team-bar-name">{group.name}</span>
+          </div>
           <div class="table-scroll">
             <table class="perf-table">
               <thead>
@@ -281,31 +336,29 @@
               {/if}
             </table>
           </div>
-        </section>
+        </div>
       {/each}
     </div>
+  </section>
 
-    <!-- Head to head -->
-    {#if hasDuels}
-      <section class="perf-card">
-        <h3 class="perf-title">
-          <Swords size={13} /> Head to head
-          <span class="perf-scope">{scopeLabel}</span>
-        </h3>
-        <p class="perf-legend">
-          <Crosshair size={11} />
-          Each cell reads <strong class="legend-row">row player's kills</strong> —
-          <strong class="legend-col">column player's kills</strong>, with the difference from the
-          row player's point of view.
-        </p>
-
+  {#if hasDuels}
+    <section class="sheet-section">
+      <div class="sheet-head">
+        <h2 class="sheet-title">Head to Head</h2>
+        <span class="sheet-note h2h-legend">
+          <span class="legend-key"><i class="key key-a"></i>{teamAName} ahead</span>
+          <span class="legend-key"><i class="key key-b"></i>{teamBName} ahead</span>
+        </span>
+      </div>
+      <div class="sheet-body">
         <div class="table-scroll">
           <table class="h2h-table">
             <thead>
               <tr>
                 <th class="h2h-corner">
-                  <span class="corner-row">{teamAName} ↓</span>
-                  <span class="corner-col">{teamBName} →</span>
+                  <span class="corner-a">{teamAName} ↓</span>
+                  <span class="corner-sep">·</span>
+                  <span class="corner-b">{teamBName} →</span>
                 </th>
                 {#each teamBRows as col (col.player_name)}
                   <th class="h2h-head">{displayName(col.player_name)}</th>
@@ -315,156 +368,61 @@
             </thead>
             <tbody>
               {#each teamARows as row (row.player_name)}
+                {@const t = duelTotals(row)}
                 <tr>
-                  <th class="h2h-side">{displayName(row.player_name)}</th>
+                  <th class="h2h-side" scope="row">{displayName(row.player_name)}</th>
                   {#each teamBRows as col (col.player_name)}
                     {@const d = duel(row, col)}
-                    <td
-                      class="h2h-cell"
-                      class:cell-up={d.diff > 0}
-                      class:cell-down={d.diff < 0}
-                      title="{displayName(
-                        row.player_name
-                      )} {d.forKills} — {d.againstKills} {displayName(col.player_name)}"
-                    >
-                      <span class="cell-score">
-                        <span class="score-for">{d.forKills}</span><span class="score-sep">–</span
-                        ><span class="score-against">{d.againstKills}</span>
-                      </span>
-                      <span class="cell-diff">
-                        {d.diff > 0 ? `+${d.diff}` : d.diff < 0 ? d.diff : '±0'}
-                      </span>
-                    </td>
+                    {@render h2hCell(
+                      d.forKills,
+                      d.againstKills,
+                      maxCellDiff,
+                      `${displayName(row.player_name)} ${d.forKills} — ${d.againstKills} ${displayName(col.player_name)}`,
+                      false
+                    )}
                   {/each}
-
-                  <td
-                    class="h2h-cell h2h-total"
-                    class:cell-up={duelTotals(row).forKills > duelTotals(row).againstKills}
-                    class:cell-down={duelTotals(row).forKills < duelTotals(row).againstKills}
-                  >
-                    <span class="cell-score">
-                      <span class="score-for">{duelTotals(row).forKills}</span><span
-                        class="score-sep">–</span
-                      ><span class="score-against">{duelTotals(row).againstKills}</span>
-                    </span>
-                    <span class="cell-diff">
-                      {duelTotals(row).forKills - duelTotals(row).againstKills > 0
-                        ? `+${duelTotals(row).forKills - duelTotals(row).againstKills}`
-                        : duelTotals(row).forKills - duelTotals(row).againstKills}
-                    </span>
-                  </td>
+                  {@render h2hCell(
+                    t.forKills,
+                    t.againstKills,
+                    maxTotalDiff,
+                    `${displayName(row.player_name)} ${t.forKills} — ${t.againstKills} ${teamBName}`,
+                    true
+                  )}
                 </tr>
               {/each}
             </tbody>
             <tfoot>
-              <tr>
-                <th class="h2h-side h2h-foot-label">Total</th>
+              <tr class="h2h-foot">
+                <th class="h2h-side" scope="row">Total</th>
                 {#each teamBRows as col (col.player_name)}
-                  {@const t = columnTotals(col)}
-                  <td
-                    class="h2h-cell h2h-foot"
-                    class:cell-up={t.forKills > t.againstKills}
-                    class:cell-down={t.forKills < t.againstKills}
-                    title="{displayName(
-                      col.player_name
-                    )} {t.forKills} — {t.againstKills} {teamAName}"
-                  >
-                    <span class="cell-score">
-                      <!-- Read from the column player's side, matching the header. -->
-                      <span class="score-against">{t.forKills}</span><span class="score-sep">–</span
-                      ><span class="score-for">{t.againstKills}</span>
-                    </span>
-                    <span class="cell-diff">
-                      {t.forKills - t.againstKills > 0
-                        ? `+${t.forKills - t.againstKills}`
-                        : t.forKills - t.againstKills}
-                    </span>
-                  </td>
+                  {@const c = columnTotals(col)}
+                  {@render h2hCell(
+                    c.forKills,
+                    c.againstKills,
+                    maxTotalDiff,
+                    `${teamAName} ${c.forKills} — ${c.againstKills} ${displayName(col.player_name)}`,
+                    false
+                  )}
                 {/each}
-                <td
-                  class="h2h-cell h2h-foot h2h-total"
-                  class:cell-up={grandTotal.forKills > grandTotal.againstKills}
-                  class:cell-down={grandTotal.forKills < grandTotal.againstKills}
-                  title="All kills traded between the two teams"
-                >
-                  <span class="cell-score">
-                    <span class="score-for">{grandTotal.forKills}</span><span class="score-sep"
-                      >–</span
-                    ><span class="score-against">{grandTotal.againstKills}</span>
-                  </span>
-                  <span class="cell-diff">
-                    {grandTotal.forKills - grandTotal.againstKills > 0
-                      ? `+${grandTotal.forKills - grandTotal.againstKills}`
-                      : grandTotal.forKills - grandTotal.againstKills}
-                  </span>
-                </td>
+                {@render h2hCell(
+                  grandTotal.forKills,
+                  grandTotal.againstKills,
+                  maxTotalDiff,
+                  'All kills traded between the two teams',
+                  true
+                )}
               </tr>
             </tfoot>
           </table>
         </div>
-      </section>
-    {/if}
-  </div>
+      </div>
+    </section>
+  {/if}
 {/if}
 
 <style>
-  .perf {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-    margin-top: 1rem;
-  }
-
-  .perf-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 1rem;
-  }
-
-  .perf-card {
-    border-radius: 0.75rem;
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    background: rgba(0, 0, 0, 0.2);
-    padding: 0.875rem;
+  .perf-team {
     min-width: 0;
-  }
-
-  .perf-title {
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
-    font-size: 0.6875rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
-    color: rgba(255, 255, 255, 0.62);
-    margin-bottom: 0.625rem;
-  }
-
-  .perf-scope {
-    margin-left: auto;
-    text-transform: none;
-    letter-spacing: 0;
-    font-weight: 600;
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .perf-legend {
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
-    flex-wrap: wrap;
-    font-size: 0.6875rem;
-    color: rgba(255, 255, 255, 0.5);
-    margin-bottom: 0.75rem;
-  }
-
-  .legend-row {
-    color: #93c5fd;
-  }
-
-  .legend-col {
-    color: #fca5a5;
   }
 
   .table-scroll {
@@ -560,109 +518,154 @@
   }
 
   /* Head-to-head grid */
-  .h2h-corner {
-    text-align: left !important;
-    line-height: 1.3;
+  /* A supporting view: centred, short rows, no width it doesn't need. */
+  .h2h-table {
+    width: 80%;
+    margin: 0 auto;
+    font-size: 0.75rem;
+    line-height: 1.2;
   }
 
-  .corner-row {
+  @media (max-width: 1000px) {
+    .h2h-table {
+      width: 100%;
+    }
+  }
+
+  .h2h-legend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem 0.875rem;
+  }
+
+  .legend-key {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3125rem;
+  }
+
+  .key {
+    width: 0.625rem;
+    height: 0.625rem;
+    border-radius: 0.125rem;
+  }
+
+  .key-a {
+    background: rgba(96, 165, 250, 0.55);
+  }
+
+  .key-b {
+    background: rgba(248, 113, 113, 0.55);
+  }
+
+  .h2h-table th {
+    padding: 0.3125rem 0.5rem;
+    font-size: 0.5625rem;
+    letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.6);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  /* Stacked on two lines so the corner doesn't widen the name column. */
+  .h2h-corner {
+    text-align: left !important;
+    line-height: 1.35;
+  }
+
+  .corner-a {
     display: block;
     color: #93c5fd;
   }
 
-  .corner-col {
+  .corner-b {
     display: block;
     color: #fca5a5;
+  }
+
+  .corner-sep {
+    display: none;
   }
 
   .h2h-head {
     text-align: center !important;
-    min-width: 4.5rem;
+    min-width: 3.75rem;
   }
 
-  .h2h-side {
-    text-align: left !important;
-    font-size: 0.75rem !important;
-    font-weight: 600 !important;
-    text-transform: none !important;
-    letter-spacing: 0 !important;
-    color: var(--text) !important;
+  /* Column player names read the same as the row player names down the side. */
+  .h2h-table .h2h-head:not(.h2h-total) {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0;
+    color: rgba(255, 255, 255, 0.82);
+  }
+
+  /* Shrink the name column to its longest name; spare width goes to the grid. */
+  .h2h-table .h2h-side {
+    width: 1%;
     white-space: nowrap;
-    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    text-align: left;
+    padding-right: 0.75rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0;
+    /* Same soft white as player names in the clutches table above. */
+    color: rgba(255, 255, 255, 0.82);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   }
 
   .h2h-cell {
+    padding: 0.25rem 0.5rem;
     text-align: center;
-    padding: 0.3125rem 0.375rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.05);
-    border-left: 1px solid rgba(255, 255, 255, 0.04);
+    line-height: 1.2;
     font-variant-numeric: tabular-nums;
-    line-height: 1.25;
+    white-space: nowrap;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   }
 
+  /* Score and difference share one line, which halves each row's height. */
+  /* Same soft white and weight as the tables above, so this stays supporting. */
   .cell-score {
-    display: block;
-    font-size: 0.75rem;
-  }
-
-  .score-for {
-    color: #93c5fd;
-  }
-
-  .score-against {
-    color: #fca5a5;
-  }
-
-  .score-sep {
-    color: rgba(255, 255, 255, 0.3);
-    margin: 0 0.0625rem;
+    font-weight: 500;
+    color: var(--text);
   }
 
   .cell-diff {
-    display: block;
-    font-size: 0.5625rem;
-    color: rgba(255, 255, 255, 0.4);
+    margin-left: 0.3125rem;
+    font-size: 0.625rem;
+    color: rgba(255, 255, 255, 0.55);
   }
 
-  /* Tinted by who is ahead, so the grid reads at a glance. */
-  .cell-up {
-    background: rgba(74, 222, 128, 0.09);
+  .diff-up {
+    color: #93c5fd;
   }
 
-  .cell-down {
-    background: rgba(248, 113, 113, 0.09);
-  }
-
-  .cell-up .cell-diff {
-    color: #86efac;
-  }
-
-  .cell-down .cell-diff {
+  .diff-down {
     color: #fca5a5;
   }
 
-  .h2h-total {
+  /* Totals edge: a heavier rule on the right column and the bottom row. */
+  .h2h-table .h2h-total {
     border-left: 1px solid rgba(255, 255, 255, 0.12);
   }
 
-  /* Column totals: same divider weight as the row-total column, so the grid
-     reads as a block with a summary edge on two sides. */
-  .h2h-foot {
-    border-top: 1px solid rgba(255, 255, 255, 0.12);
+  .h2h-foot .h2h-cell,
+  .h2h-table .h2h-foot .h2h-side {
+    border-top: 1px solid rgba(255, 255, 255, 0.14);
+    border-bottom: 0;
   }
 
-  .h2h-foot-label {
-    border-top: 1px solid rgba(255, 255, 255, 0.12);
-    color: rgba(255, 255, 255, 0.62) !important;
-    font-size: 0.5625rem !important;
-    font-weight: 700 !important;
-    text-transform: uppercase !important;
-    letter-spacing: 0.06em !important;
+  .h2h-table .h2h-foot .h2h-side {
+    font-size: 0.5625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.62);
   }
 
-  @media (max-width: 860px) {
-    .perf-grid {
-      grid-template-columns: minmax(0, 1fr);
-    }
+  .h2h-foot .cell-score {
+    font-weight: 600;
   }
 </style>

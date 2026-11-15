@@ -11,6 +11,7 @@ import { loadCommentThread } from '$lib/server/comments'
 import { getViewerProfileId } from '$lib/server/auth/viewer'
 import { getSeasonLogoUrl } from '$lib/server/seasons/logo'
 import { loadLegacyBracket } from '$lib/server/seasons/legacyBracket'
+import { loadBracketSeries, type BracketSeries } from '$lib/server/seasons/bracket'
 import { isUnreachableError } from '$lib/server/supabase/unreachable'
 import { getValorantMapLookup, resolveMapPool, type MapPoolEntry } from '$lib/server/valorant/maps'
 import { resolveSeasonProfile } from '$lib/seasons/profile'
@@ -137,10 +138,11 @@ export const load = async ({
    * already-played bracket showing TBD. `buildPickemSlots` layers the resolved
    * winners on top, so an explicit admin resolution still wins over a link.
    */
-  const linkedResults =
+  const pickemResults =
     isBracketEvent && pickemCtx.event
-      ? (await getPickemResults(pickemCtx.event, pickemCtx.matches)).linkedResults
-      : {}
+      ? await getPickemResults(pickemCtx.event, pickemCtx.matches)
+      : null
+  const linkedResults = pickemResults?.linkedResults ?? {}
 
   let bracketSlots =
     isBracketEvent && pickemCtx.event
@@ -227,6 +229,48 @@ export const load = async ({
         : null,
     }
   })
+
+  /**
+   * The real series behind each bracket slot, so cards show the score and open
+   * the match. A pick'em bracket knows its matches (linked or detected) and
+   * reads scores through the shared loader. A legacy bracket stores only teams
+   * and winners, so its series are inferred from this season's matches: they
+   * arrive newest first, so the first completed series between the slot's two
+   * teams won by the slot's winner is the playoff one rather than an earlier
+   * regular-season meeting. Each match backs at most one slot.
+   */
+  let bracketMatchIds: Record<string, string> = {}
+  let bracketSeries: Record<string, BracketSeries> = {}
+  if (pickemResults && Object.keys(pickemResults.sourceMatchIds).length > 0) {
+    bracketMatchIds = pickemResults.sourceMatchIds
+    bracketSeries = await loadBracketSeries(bracketSlots, bracketMatchIds)
+  } else {
+    const used = new Set<string>()
+    for (const slot of bracketSlots) {
+      const { teamAId: a, teamBId: b, winnerId } = slot
+      if (!a || !b || !winnerId) continue
+      const match = matches.find(
+        (m) =>
+          !used.has(m.id) &&
+          m.status === 'completed' &&
+          m.winner_team_id === winnerId &&
+          ((m.team_a?.id === a && m.team_b?.id === b) || (m.team_a?.id === b && m.team_b?.id === a))
+      )
+      if (!match) continue
+      used.add(match.id)
+      const row = (matchRows ?? []).find((r) => r.id === match.id)
+      const meta = (row?.metadata as Record<string, unknown> | null) ?? {}
+      const aIsA = match.team_a?.id === a
+      bracketMatchIds[slot.id] = match.id
+      bracketSeries[slot.id] = {
+        a: aIsA ? match.team_a_score : match.team_b_score,
+        b: aIsA ? match.team_b_score : match.team_a_score,
+        // Archived seasons' ended_at is the import time, not the play date.
+        at: match.scheduled_at ?? row?.ended_at ?? null,
+        forfeit: Boolean(meta.forfeit),
+      }
+    }
+  }
 
   // Final standings: use the pinned batch when set, otherwise the newest
   // leaderboard import *belonging to this season* so in-progress seasons still
@@ -397,6 +441,9 @@ export const load = async ({
       teamCount: bracketTeamCount,
       // Seed number keyed by team id, for display in the bracket.
       seeds: bracketSeeds,
+      // The real match and series score behind each slot, keyed by slot id.
+      matchIds: bracketMatchIds,
+      series: bracketSeries,
     },
     comments,
     profile,

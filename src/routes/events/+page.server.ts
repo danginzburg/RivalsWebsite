@@ -92,6 +92,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
           .from('pickem_events')
           .select('season_id, format, config, pickem_matches (team_a_id, team_b_id)')
           .in('season_id', seasonIds)
+          .eq('format', 'bracket')
           .neq('status', 'draft')
       : {
           data: [] as Array<{
@@ -122,6 +123,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     })
   }
 
+  const today = new Date().toISOString().slice(0, 10)
   const normalized = (seasons ?? []).map((season) => {
     const winner = firstRel(season.winner as TeamRel | TeamRel[] | null)
     const runnerUp = firstRel(season.runner_up as TeamRel | TeamRel[] | null)
@@ -135,14 +137,23 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     const legacySeedCount =
       pickem && pickem.seedCount > 0 ? 0 : legacyBracketSeedCount(season.metadata)
     const playoffTeamCount = pickem?.seedCount ? pickem.teamCount : legacySeedCount
+    // Not running yet: no champion, and either no dates, a future start, or no matches.
+    const upcoming =
+      !season.is_active &&
+      !winner &&
+      (!season.starts_on || season.starts_on > today || counts.total === 0)
 
     return {
       id: season.id,
       code: season.code,
-      name: season.name,
+      // Some names were saved with doubled spaces ("Season  2").
+      name: String(season.name ?? '')
+        .replace(/\s+/g, ' ')
+        .trim(),
       starts_on: season.starts_on,
       ends_on: season.ends_on,
       is_active: season.is_active,
+      upcoming,
       external: season.kind === 'external',
       summary: season.summary ?? null,
       logo_url: getSeasonLogoUrl(season),

@@ -146,13 +146,43 @@ function unique(values: Array<string | null>): string[] {
 }
 
 /**
+ * Who a player record belongs to, so one player can be kept to one place on a
+ * list. Team records have no key: each row is a different pairing.
+ */
+function holderKey(c: Candidate): string | null {
+  if (c.row.holder_kind !== 'player') return null
+  if (c.row.profile_id) return `profile:${c.row.profile_id}`
+  if (c.row.puuid) return `puuid:${c.row.puuid}`
+  if (c.row.player_name) return `name:${c.row.player_name.trim().toLowerCase()}`
+  return null
+}
+
+/** Each player's best performance only, keeping the ranked order. */
+function bestPerHolder(ranked: Candidate[]): Candidate[] {
+  const seen = new Set<string>()
+  return ranked.filter((c) => {
+    const key = holderKey(c)
+    if (key === null) return true
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+/**
  * The current top performances, best first. Equal values rank in the order
  * they were played — the first to reach a value is ahead of those who matched
  * it. When more performances share the last listed value than fit, the last
- * row counts the ones cut off.
+ * row counts the ones cut off. With `onePerPlayer`, a player's lesser
+ * performances drop out so they hold one place at most.
  */
-function topPerformances(candidates: Candidate[], category: string): StatRecordRow[] {
-  const ranked = [...candidates].sort((a, b) => b.value - a.value || chronological(a, b))
+function topPerformances(
+  candidates: Candidate[],
+  category: string,
+  onePerPlayer: boolean
+): StatRecordRow[] {
+  const sorted = [...candidates].sort((a, b) => b.value - a.value || chronological(a, b))
+  const ranked = onePerPlayer ? bestPerHolder(sorted) : sorted
   const top = ranked.slice(0, RECORD_TOP_N).map((c, i) => toRow(c, category, i + 1))
   const last = top.at(-1)
   if (last) {
@@ -185,11 +215,15 @@ function mapFields(ctx: RecordMapContext) {
  * Every category's top performances, ready to replace a track's
  * `stat_records` with. `excluded` holds `${category}|${entryKey}` for
  * performances an admin hid, which then take no part — the next one moves up.
+ * `onePerPlayer` keeps each player to their best performance per list: right
+ * for a single-season side league, where repeats crowd everyone else out, but
+ * not for Rivals, where great games in different seasons should all show.
  */
 export function computeStatRecords(
   performances: PlayerPerformance[],
   maps: MapResult[],
-  excluded: ReadonlySet<string> = new Set()
+  excluded: ReadonlySet<string> = new Set(),
+  { onePerPlayer = false }: { onePerPlayer?: boolean } = {}
 ): StatRecordRow[] {
   const rows: StatRecordRow[] = []
 
@@ -298,7 +332,7 @@ export function computeStatRecords(
           `${category.key}|${recordEntryKey(c.ctx.matchMapId, c.row.player_match_map_stat_id)}`
         )
     )
-    rows.push(...topPerformances(counted, category.key))
+    rows.push(...topPerformances(counted, category.key, onePerPlayer))
   }
 
   return rows

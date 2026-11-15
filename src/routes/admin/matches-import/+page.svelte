@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
+  import AdminCaptainReports from '$lib/components/admin/AdminCaptainReports.svelte'
   import { readRememberedAdminSeason, rememberAdminSeason } from '$lib/admin/remembered-season'
   import {
     Upload,
@@ -186,12 +187,13 @@
 
   /**
    * A forfeited map has no Riot match id — one side conceded it, so it is entered
-   * by hand and folded into the series alongside the real maps. `winnerSide` is
-   * relative to the resolved teamA/teamB (shown once a preview identifies them).
+   * by hand and folded into the series alongside the real maps. The winner is
+   * picked by team (not "team A/B", which the server only settles once the
+   * rosters resolve) and mapped onto a side server-side.
    */
   let riotForfeitEnabled = $state(false)
   let riotForfeitOrder = $state(1)
-  let riotForfeitWinnerSide = $state<'a' | 'b'>('a')
+  let riotForfeitWinnerTeamId = $state('')
   let riotForfeitWinnerRounds = $state(13)
   let riotForfeitLoserRounds = $state(0)
   let riotForfeitLabel = $state('')
@@ -211,10 +213,41 @@
 
   let riotPreview = $state<RiotPreview | null>(null)
 
-  const riotForfeitWinnerOptions = $derived([
-    { value: 'a', label: `Team A${riotPreview ? ` — ${riotPreview.teamA.name}` : ''}` },
-    { value: 'b', label: `Team B${riotPreview ? ` — ${riotPreview.teamB.name}` : ''}` },
-  ])
+  /**
+   * The two teams the forfeit winner can be, from the best source on hand: the
+   * picked match, the hand-picked teams, then a preview. With none of those yet,
+   * every team in the import season is offered and the server checks the pick
+   * is one of the two that played.
+   */
+  const riotForfeitWinnerOptions = $derived.by(() => {
+    const pair: Array<{ id: string; name: string }> = []
+    if (targetMatch?.teamA && targetMatch?.teamB) {
+      pair.push(targetMatch.teamA, targetMatch.teamB)
+    } else if (riotNeedsManualTeams && riotManualTeamAId && riotManualTeamBId) {
+      for (const id of [riotManualTeamAId, riotManualTeamBId]) {
+        const team = importSeasonTeams.find((t) => t.id === id)
+        if (team) pair.push(team)
+      }
+    } else if (riotPreview) {
+      pair.push(riotPreview.teamA, riotPreview.teamB)
+    }
+    const teams = pair.length === 2 ? pair : importSeasonTeams
+    return [
+      { value: '', label: 'Select winning team…' },
+      ...teams.map((team) => ({ value: String(team.id), label: team.name })),
+    ]
+  })
+
+  // Drop a pick that is no longer one of the offered teams (e.g. a different
+  // match was selected).
+  $effect(() => {
+    if (
+      riotForfeitWinnerTeamId &&
+      !riotForfeitWinnerOptions.some((o) => o.value === riotForfeitWinnerTeamId)
+    ) {
+      riotForfeitWinnerTeamId = ''
+    }
+  })
 
   /**
    * When the rosters can't identify the teams the server asks for them by hand:
@@ -251,11 +284,18 @@
         ? { teamAId: riotManualTeamAId, teamBId: riotManualTeamBId }
         : {}
 
+    if (riotForfeitEnabled && !riotForfeitWinnerTeamId) {
+      parseError = 'Pick which team won the forfeited map.'
+      isSubmitting = false
+      riotDryRun = false
+      return
+    }
+
     const forfeitMap = riotForfeitEnabled
       ? {
           forfeitMap: {
             order: riotForfeitOrder,
-            winnerSide: riotForfeitWinnerSide,
+            winnerTeamId: riotForfeitWinnerTeamId,
             winnerRounds: riotForfeitWinnerRounds,
             loserRounds: riotForfeitLoserRounds,
             ...(riotForfeitLabel.trim() ? { label: riotForfeitLabel.trim() } : {}),
@@ -710,6 +750,8 @@
         </div>
       </header>
 
+      <AdminCaptainReports reports={data.captainReports ?? []} />
+
       <section class="admin-card admin-card-pad">
         <div class="mb-4 flex flex-wrap gap-4 text-sm" style="color: var(--text);">
           <label class="inline-flex cursor-pointer items-center gap-2">
@@ -847,8 +889,8 @@
                     <div class="w-56">
                       <CustomSelect
                         options={riotForfeitWinnerOptions}
-                        value={riotForfeitWinnerSide}
-                        onSelect={(v) => (riotForfeitWinnerSide = v === 'b' ? 'b' : 'a')}
+                        value={riotForfeitWinnerTeamId}
+                        onSelect={(v) => (riotForfeitWinnerTeamId = String(v))}
                         disabled={isSubmitting}
                       />
                     </div>

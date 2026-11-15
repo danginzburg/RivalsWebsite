@@ -7,29 +7,27 @@ import {
   getPickemSubmissionForProfile,
   getPickemTeamsByIds,
   listPickemPublicSubmissions,
+  type PickemContext,
 } from '$lib/server/pickems'
 import { getSeasonStandingsRanks } from '$lib/server/leaderboard/ranks'
 import {
   bracketSeedsWithOpponents,
+  combinePickemSeasonTotals,
   isPickemComplete,
   isPickemLocked,
   rankPickemLeaderboardEntries,
+  type PickemFormat,
 } from '$lib/pickems'
 import type { PageServerLoad } from './$types'
 
-export const load: PageServerLoad = async ({ locals, params }) => {
-  const context = await getPickemContextBySeasonCode(params.seasonCode)
-  const { event, matches } = context
-  if (!event) throw error(404, 'Pickem not available')
-  // A draft is hidden from the public; admins can open it as a read-only preview.
-  const preview = event.status === 'draft'
-  if (preview) {
-    await requireAdmin(locals.user).catch(() => {
-      throw error(404, 'Pickem not available')
-    })
-  }
+type Profile = Awaited<ReturnType<typeof requireProfile>> | null
 
-  const profile = locals.user ? await requireProfile(locals.user).catch(() => null) : null
+/** Everything one pick'em (the bracket or the weekly matchups) needs to render. */
+async function loadDisplay(context: PickemContext, profile: Profile) {
+  const { event, matches } = context
+  if (!event) return null
+  const preview = event.status === 'draft'
+
   const mySubmission = profile ? await getPickemSubmissionForProfile(event.id, profile.id) : null
   // Results come from the real matches behind each slot — linked by an admin or
   // detected from the two teams that met. (The real bracket itself is drawn on
@@ -84,7 +82,6 @@ export const load: PageServerLoad = async ({ locals, params }) => {
       : (Object.fromEntries(event.seeds.map((s) => [s.teamId, s.seed])) as Record<string, number>)
 
   return {
-    season: context.season,
     event,
     matches: resolvedMatches,
     teams: [...context.teams, ...extraTeams],
@@ -101,5 +98,58 @@ export const load: PageServerLoad = async ({ locals, params }) => {
     },
     locked,
     preview,
+  }
+}
+
+export const load: PageServerLoad = async ({ locals, params }) => {
+  // A season can run a playoff bracket and weekly matchups side by side.
+  const [bracketCtx, matchupsCtx] = await Promise.all([
+    getPickemContextBySeasonCode(params.seasonCode, 'bracket'),
+    getPickemContextBySeasonCode(params.seasonCode, 'matchups'),
+  ])
+
+  // A draft is hidden from the public; admins can open it as a read-only preview.
+  const isAdmin = await requireAdmin(locals.user)
+    .then(() => true)
+    .catch(() => false)
+  const visible = (ctx: PickemContext) =>
+    ctx.event && (ctx.event.status !== 'draft' || isAdmin) ? ctx : null
+  const contexts = { bracket: visible(bracketCtx), matchups: visible(matchupsCtx) }
+  if (!contexts.bracket && !contexts.matchups) throw error(404, 'Pickem not available')
+
+  const profile: Profile = locals.user ? await requireProfile(locals.user).catch(() => null) : null
+  const [playoffs, weekly] = await Promise.all([
+    contexts.bracket ? loadDisplay(contexts.bracket, profile) : null,
+    contexts.matchups ? loadDisplay(contexts.matchups, profile) : null,
+  ])
+
+  // One season total across both pick'ems, counting only published ones.
+  const published = [playoffs, weekly].filter((d) => d && !d.preview)
+  const seasonBoard = combinePickemSeasonTotals(published.map((d) => d!.submissions))
+  /*
+   * The medal only means something once every result of every published
+   * pick'em is in — before that the top is just whoever is ahead so far. A tie
+   * at the top has no single champion, so nothing is awarded.
+   */
+  const seasonComplete =
+    published.length > 0 && published.every((d) => d!.complete || d!.event.status === 'scored')
+  const leaders = seasonBoard.filter((entry) => entry.rank === 1)
+  const seasonChampionId =
+    seasonComplete && leaders.length === 1 && leaders[0]!.score > 0 ? leaders[0]!.user.id : null
+
+  // Open the one still taking picks, else the bracket.
+  const defaultView: PickemFormat =
+    weekly && (!playoffs || (weekly.viewer.canEdit && !playoffs.viewer.canEdit))
+      ? 'matchups'
+      : 'bracket'
+
+  return {
+    season: bracketCtx.season,
+    playoffs,
+    weekly,
+    seasonBoard,
+    seasonChampionId,
+    me: profile ? { id: profile.id } : null,
+    defaultView,
   }
 }

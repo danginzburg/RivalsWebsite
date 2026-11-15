@@ -23,11 +23,14 @@
     canEdit = false,
     displayName = null,
     discordHandle = null,
+    variant = 'card',
   }: {
     accounts?: RiotAccount[]
     canEdit?: boolean
     displayName?: string | null
     discordHandle?: string | null
+    /** 'flush' is a collapsible row of a page sheet instead of a boxed panel. */
+    variant?: 'card' | 'flush'
   } = $props()
 
   const primary = $derived(accounts.find((a) => a.is_primary) ?? null)
@@ -37,11 +40,16 @@
 
   const EXPANDED_STORAGE_KEY = 'profile-player-info-expanded'
 
-  let expanded = $state(true)
+  // As a sheet row it starts collapsed (the summary shows the primary Riot ID);
+  // a stored choice wins either way.
+  // svelte-ignore state_referenced_locally
+  let expanded = $state(variant !== 'flush')
 
   onMount(() => {
     try {
-      if (localStorage.getItem(EXPANDED_STORAGE_KEY) === 'false') expanded = false
+      const stored = localStorage.getItem(EXPANDED_STORAGE_KEY)
+      if (stored === 'false') expanded = false
+      else if (stored === 'true') expanded = true
     } catch {
       // storage unavailable — stay expanded
     }
@@ -122,7 +130,7 @@
   >
 {/snippet}
 
-<section class="panel" class:open={expanded}>
+<section class="panel" class:open={expanded} class:panel-flush={variant === 'flush'}>
   <div class="panel-head">
     <button
       type="button"
@@ -131,6 +139,16 @@
       onclick={() => setExpanded(!expanded)}
     >
       <span class="panel-title">Player info</span>
+      {#if variant === 'flush' && !expanded && primary}
+        <span class="panel-summary">
+          {primary.riot_name}{#if primary.riot_tag}<span class="tag">#{primary.riot_tag}</span>{/if}
+          {#if alts.length > 0}
+            <span class="panel-summary-dim"
+              >· +{alts.length} account{alts.length === 1 ? '' : 's'}</span
+            >
+          {/if}
+        </span>
+      {/if}
       <ChevronDown size={14} class="chevron" />
     </button>
     {#if canEdit && !addingAlt}
@@ -291,6 +309,59 @@
     background: rgba(0, 0, 0, 0.2);
     padding: 0.875rem 1rem;
     margin-bottom: 1rem;
+  }
+  /* A row of the page sheet: no box, a hairline above, sheet gutters. */
+  .panel-flush {
+    margin: 0;
+    padding: 0 1.5rem;
+    border: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 0;
+    background: transparent;
+  }
+  .panel-flush .panel-head {
+    min-height: 2.875rem;
+    gap: 0.75rem;
+  }
+  .panel-flush.open .panel-head {
+    margin-bottom: 0;
+  }
+  .panel-flush.open {
+    padding-bottom: 0.625rem;
+  }
+  .panel-flush .panel-toggle {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 2.75rem;
+    gap: 0.75rem;
+    text-align: left;
+  }
+  .panel-flush .panel-title {
+    font-size: 0.65625rem;
+    letter-spacing: 0.1em;
+    color: rgba(255, 255, 255, 0.55);
+  }
+  .panel-summary {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.82);
+  }
+  .panel-summary-dim {
+    font-weight: 400;
+    color: rgba(255, 255, 255, 0.5);
+  }
+  .panel-flush .panel-toggle :global(.chevron) {
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  @media (max-width: 640px) {
+    .panel-flush {
+      padding: 0 0.875rem;
+    }
   }
   .panel-head {
     display: flex;

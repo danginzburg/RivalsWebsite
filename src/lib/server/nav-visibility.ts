@@ -38,12 +38,15 @@ export async function loadNavVisibility(): Promise<NavVisibility> {
   const [signupSeason, published] = await Promise.all([loadSignupSeason(), loadPublishedContent()])
   const signupsOpen = Boolean(signupSeason)
 
-  const pickemStatus = (
+  // A season can run a bracket and weekly matchups; either one being live shows the tab.
+  const pickemEvents = (
     Array.isArray(activeSeason?.pickem_events)
-      ? activeSeason?.pickem_events[0]
+      ? activeSeason.pickem_events
       : activeSeason?.pickem_events
-  )?.status as string | undefined
-  const hasActivePickem = Boolean(pickemStatus && pickemStatus !== 'draft')
+        ? [activeSeason.pickem_events]
+        : []
+  ) as Array<{ status: string | null }>
+  const hasActivePickem = pickemEvents.some((e) => e.status && e.status !== 'draft')
 
   return {
     activeSeasonKind,

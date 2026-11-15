@@ -79,17 +79,49 @@
     const remembered = readRememberedAdminSeason(seasons.map((s) => s.id))
     if (remembered) selectedSeasonId = remembered
   })
-  // Edits are held per season so switching rows does not lose work.
+  // Edits are held per season + pick'em so switching does not lose work.
   let forms = $state<Record<string, PickemForm>>({})
+
+  /*
+   * A season can run a playoff bracket and weekly matchups side by side —
+   * one event per format. The admin edits one at a time.
+   */
+  let chosenFormat = $state<PickemFormat | null>(null)
+  const storedFor = (seasonId: string, format: PickemFormat) =>
+    pickems.find((p) => p.seasonId === seasonId && normalizeFormat(p.format) === format)
+  const editFormat = $derived<PickemFormat>(
+    chosenFormat ??
+      (storedFor(selectedSeasonId, 'bracket') || !storedFor(selectedSeasonId, 'matchups')
+        ? 'bracket'
+        : 'matchups')
+  )
+  const formKey = $derived(`${selectedSeasonId}:${editFormat}`)
+
+  function normalizeFormat(value: string | null | undefined): PickemFormat {
+    return value === 'matchups' ? 'matchups' : 'bracket'
+  }
 
   const seasonOptions = $derived(
     seasons.map((s) => ({ value: s.id, label: `${s.name}${s.is_active ? ' (Active)' : ''}` }))
   )
 
-  const formatOptions = [
-    { value: 'bracket', label: 'Playoff bracket' },
-    { value: 'matchups', label: 'Weekly matchups' },
-  ]
+  const statusLabel: Record<string, string> = {
+    draft: 'draft',
+    open: 'open',
+    locked: 'locked',
+    scored: 'final',
+  }
+  /** Which pick'em to edit, with the state each one is in. */
+  const formatOptions = $derived(
+    (['bracket', 'matchups'] as const).map((format) => {
+      const stored = storedFor(selectedSeasonId, format)
+      const name = format === 'bracket' ? 'Playoff bracket' : 'Weekly matchups'
+      return {
+        value: format,
+        label: `${name} (${stored ? (statusLabel[stored.status] ?? stored.status) : 'not set up'})`,
+      }
+    })
+  )
   // Open entries lock on their own at "Locks at", and the pick'em goes final on
   // its own once every match has a result — Locked/Final are only overrides.
   const statusOptions = [
@@ -128,12 +160,12 @@
   }
 
   /** Build the initial editable form for a season from its stored event. */
-  function initialForm(seasonId: string): PickemForm {
-    const stored = pickems.find((p) => p.seasonId === seasonId)
+  function initialForm(seasonId: string, format: PickemFormat): PickemForm {
+    const stored = storedFor(seasonId, format)
     if (!stored) {
       return {
-        format: 'bracket',
-        title: seasons.find((s) => s.id === seasonId)?.name ?? '',
+        format,
+        title: format === 'bracket' ? 'Playoffs' : 'Weekly picks',
         status: 'draft',
         lockAt: '',
         seeds: seedsFromStandings(seasonId),
@@ -161,7 +193,7 @@
       if (teamId) opponents[Number(seed)] = teamId
     }
     return {
-      format: (stored.format as PickemFormat) === 'matchups' ? 'matchups' : 'bracket',
+      format,
       title: stored.title ?? '',
       status: stored.status ?? 'draft',
       lockAt: stored.lockAt ? stored.lockAt.slice(0, 16) : '',
@@ -173,17 +205,17 @@
 
   const form = $derived.by(() => {
     if (!selectedSeasonId) return null
-    return forms[selectedSeasonId] ?? initialForm(selectedSeasonId)
+    return forms[formKey] ?? initialForm(selectedSeasonId, editFormat)
   })
 
   function patchForm(patch: Partial<PickemForm>) {
     if (!selectedSeasonId || !form) return
-    forms = { ...forms, [selectedSeasonId]: { ...form, ...patch } }
+    forms = { ...forms, [formKey]: { ...form, ...patch } }
   }
 
   function resetForm() {
     if (!selectedSeasonId) return
-    forms = { ...forms, [selectedSeasonId]: initialForm(selectedSeasonId) }
+    forms = { ...forms, [formKey]: initialForm(selectedSeasonId, editFormat) }
   }
 
   // ---- Team / match option helpers, scoped to the selected season ----
@@ -226,7 +258,7 @@
 
   /** The real match each saved slot reads from, as a label (or null). */
   function detectedMatchLabel(slotKey: string): string | null {
-    const stored = pickems.find((p) => p.seasonId === selectedSeasonId)
+    const stored = storedFor(selectedSeasonId, 'bracket')
     const matchId = stored?.detectedMatchIds?.[slotKey]
     const match = matchId ? seasonMatches.find((m) => m.id === matchId) : null
     return match ? matchLabelFor(match) : null
@@ -367,7 +399,7 @@
 
   /** Saved drafts can be previewed on the public page (admins only). */
   const previewSeasonCode = $derived.by(() => {
-    const stored = pickems.find((p) => p.seasonId === selectedSeasonId)
+    const stored = storedFor(selectedSeasonId, editFormat)
     if (!stored || (stored.status ?? 'draft') !== 'draft') return null
     return seasons.find((s) => s.id === selectedSeasonId)?.code ?? null
   })
@@ -405,6 +437,7 @@
           placeholder="Select a season"
           onSelect={(value) => {
             selectedSeasonId = value
+            chosenFormat = null
             rememberAdminSeason(value)
           }}
         />
@@ -419,13 +452,13 @@
       <!-- Common controls -->
       <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
         <label class="text-xs" style="color: rgba(255,255,255,0.82);">
-          Format
+          Pick'em
           <div class="mt-1">
             <CustomSelect
               options={formatOptions}
-              value={form.format}
+              value={editFormat}
               compact={true}
-              onSelect={(value) => patchForm({ format: value as PickemFormat })}
+              onSelect={(value) => (chosenFormat = normalizeFormat(value))}
             />
           </div>
         </label>
@@ -460,8 +493,10 @@
         </label>
       </div>
       <p class="admin-hint mt-2">
-        Entries close by themselves at the lock time. Results and scores come straight from the real
-        matches as they finish, so you don't need to link games or press anything to score.
+        A season can run a playoff bracket and weekly matchups at the same time; both show on the
+        pick'em page and their points add up to one season total. Entries close by themselves at the
+        lock time. Results and scores come straight from the real matches as they finish, so you
+        don't need to link games or press anything to score.
       </p>
 
       {#if form.format === 'bracket'}
@@ -674,7 +709,9 @@
         {#if previewSeasonCode}
           <a
             class="admin-btn admin-btn-neutral text-sm"
-            href={resolve('/pickems/[seasonCode]', { seasonCode: previewSeasonCode })}
+            href="{resolve('/pickems/[seasonCode]', {
+              seasonCode: previewSeasonCode,
+            })}?view={editFormat === 'bracket' ? 'playoffs' : 'weekly'}"
             target="_blank"
             rel="noopener"
             title="Opens the last saved draft as players will see it"

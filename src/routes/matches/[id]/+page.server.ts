@@ -6,7 +6,13 @@ import { resolveMatchStageKey } from '$lib/stats/sections'
 import { loadCommentThread } from '$lib/server/comments'
 import { getViewerProfileId } from '$lib/server/auth/viewer'
 import { getSeasonStandingsRanks } from '$lib/server/leaderboard/ranks'
-import { getValorantMapLookup, parseVetoLine, type VetoStep } from '$lib/server/valorant/maps'
+import { getMatchReportState } from '$lib/server/matches/reports'
+import {
+  getValorantMapLookup,
+  mapThumbFor,
+  parseVetoLine,
+  type VetoStep,
+} from '$lib/server/valorant/maps'
 import {
   loadRosterSets,
   loadMatchSubOverrides,
@@ -367,19 +373,31 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
     viewerProfileId,
   })
   const seeds = await getSeasonStandingsRanks((match as { season_id?: string | null }).season_id)
+  // The captain result-submission panel; null for anyone who can't submit.
+  const report = await getMatchReportState(viewerProfileId, match).catch((err) => {
+    console.error('Failed to load match report state:', err)
+    return null
+  })
 
   // Resolve each free-text veto line to a Valorant map + its art, so the page
   // can show the maps rather than a list of strings. Only fetched when a veto
   // exists; unrecognized lines keep their text and simply render without art.
   const rawVetoes = Array.isArray(matchMeta?.map_vetoes) ? (matchMeta.map_vetoes as string[]) : []
+  // The same lookup gives each played map its art for the scoreboard's map strip.
   let mapVetoes: VetoStep[] = []
-  if (rawVetoes.length > 0) {
+  let mapsWithArt = normalizedMapsWithForfeitNames.map((m) => ({
+    ...m,
+    map_image: null as string | null,
+  }))
+  if (rawVetoes.length > 0 || mapsWithArt.some((m) => m.map_name)) {
     const mapLookup = await getValorantMapLookup()
     mapVetoes = rawVetoes.map((line) => parseVetoLine(line, mapLookup))
+    mapsWithArt = mapsWithArt.map((m) => ({ ...m, map_image: mapThumbFor(mapLookup, m.map_name) }))
   }
 
   return {
     viewer: { isAdmin, profileId: viewerProfileId },
+    report,
     comments,
     seeds,
     match: {
@@ -402,7 +420,7 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
       // Admin-only flag: an unfiled match is skipped by stage-filtered stat batches.
       missing_stage: isAdmin && resolveMatchStageKey(match.stage, matchMeta?.designation) === null,
       map_vetoes: mapVetoes,
-      maps: normalizedMapsWithForfeitNames,
+      maps: mapsWithArt,
       forfeit_display: forfeitDisplay,
       total_stats: totalStats,
       has_real_stats: hasRealStats,

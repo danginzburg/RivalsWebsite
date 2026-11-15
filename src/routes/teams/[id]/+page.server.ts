@@ -1,5 +1,6 @@
 import { error } from '@sveltejs/kit'
-import { pickStandingsBatch } from '$lib/server/leaderboard/batch'
+import { isComputedBatch, pickStandingsBatch } from '$lib/server/leaderboard/batch'
+import { loadTeamRankHistory } from '$lib/server/leaderboard/history'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
 import { getSeasonSeeds } from '$lib/server/seasons/seeds'
@@ -145,7 +146,16 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
   // team's own season.)
   const statsSeasonId = activeSeason?.id ?? null
 
-  const [{ data: profileRows }, { data: leaderboardEntry }, { data: statsSeason }] =
+  // Week-by-week rank, replayed from matches. Only for calculated standings of
+  // the team's own season: a CSV table has no matches behind it to replay.
+  const rankHistorySeasonId =
+    leaderboardBatch &&
+    isComputedBatch(leaderboardBatch) &&
+    leaderboardBatch.season_id === teamSeasonIdRaw
+      ? teamSeasonIdRaw
+      : null
+
+  const [{ data: profileRows }, { data: leaderboardEntry }, { data: statsSeason }, rankHistory] =
     await Promise.all([
       profileIds.length > 0
         ? supabaseAdmin.from('profiles').select('id, display_name, email').in('id', profileIds)
@@ -165,6 +175,9 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
             .eq('id', statsSeasonId)
             .maybeSingle()
         : Promise.resolve({ data: null }),
+      rankHistorySeasonId
+        ? loadTeamRankHistory(rankHistorySeasonId, teamId).catch(() => [])
+        : Promise.resolve([]),
     ])
 
   const profileById = new Map<string, ProfileRow>()
@@ -323,6 +336,7 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
           },
         }
       : null,
+    rankHistory,
     viewer: { isAdmin },
   }
 }
