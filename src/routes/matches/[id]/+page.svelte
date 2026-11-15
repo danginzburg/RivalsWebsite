@@ -7,16 +7,9 @@
   import MatchPerformance from '$lib/components/MatchPerformance.svelte'
   import MatchReassignPanel from '$lib/components/MatchReassignPanel.svelte'
   import MatchSubPanel from '$lib/components/MatchSubPanel.svelte'
+  import MatchReportPanel from '$lib/components/MatchReportPanel.svelte'
   import TeamSeed from '$lib/components/TeamSeed.svelte'
-  import {
-    BarChart3,
-    CalendarDays,
-    RadioTower,
-    Video,
-    AlertTriangle,
-    X,
-    Check,
-  } from 'lucide-svelte'
+  import { ChevronRight, RadioTower, Video, AlertTriangle } from 'lucide-svelte'
   import { resolve } from '$app/paths'
   import { displayPlayerName } from '$lib/stats/ui'
   import { agentIconUrl } from '$lib/icons'
@@ -97,10 +90,22 @@
     return id ? (seeds[id] ?? null) : null
   }
 
-  function formatLocal(value: string | null | undefined) {
+  /** Scoreboard date line, e.g. "Sun, Aug 9, 2026, 8:00 PM CDT". */
+  function formatWhen(value: string | null | undefined) {
     if (!value) return 'Date TBD'
-    const date = new Date(value)
-    return date.toLocaleString(undefined, { timeZoneName: 'short' })
+    return new Date(value).toLocaleString(undefined, {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZoneName: 'short',
+    })
+  }
+
+  function formatTime(value: string) {
+    return new Date(value).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
   }
 
   function formatStatus(status: string | null | undefined) {
@@ -195,6 +200,7 @@
       key: map.id,
       label: map.map_label,
       subLabel: map.map_name ?? null,
+      image: map.map_image ?? null,
       team_a_rounds: map.team_a_rounds,
       team_b_rounds: map.team_b_rounds,
       rows: map.stats ?? [],
@@ -213,6 +219,7 @@
       key: 'total',
       label: 'Series Total',
       subLabel: null,
+      image: null,
       team_a_rounds: null,
       team_b_rounds: null,
       rows: match.total_stats ?? [],
@@ -232,6 +239,90 @@
   const activeStats = $derived(
     statsTabs.find((tab) => tab.key === activeStatsTab) ?? statsTabs.at(-1) ?? null
   )
+
+  type StripSegment = {
+    key: string
+    label: string
+    name: string
+    score: string
+    art: string | null
+    winnerLogo: string | null
+    winnerName: string
+    voided: boolean
+    unplayed: boolean
+    clickable: boolean
+  }
+
+  /**
+   * The scoreboard's map strip. Played maps come first (they double as the
+   * stats scope picker once stats exist), then any vetoed picks the series
+   * never reached, then Series Total.
+   */
+  const mapStrip = $derived.by((): StripSegment[] => {
+    const played = statsTabs.filter((tab) => !tab.isTotal)
+    const out: StripSegment[] = played.map((tab) => {
+      const a = Number(tab.team_a_rounds ?? 0)
+      const b = Number(tab.team_b_rounds ?? 0)
+      const winner = tab.isVoided || a === b ? null : a > b ? match.team_a : match.team_b
+      const forfeited = tab.isVoided || Boolean(tab.forfeit?.forfeiting_team_id)
+      return {
+        key: String(tab.key),
+        label: tab.label,
+        // A forfeited map usually has no map name; say what happened instead.
+        name: tab.subLabel ?? (forfeited ? 'Map Forfeit' : 'Unknown map'),
+        score: `${a} – ${b}`,
+        art: tab.image,
+        winnerLogo: winner ? teamLogo(winner) : null,
+        winnerName: winner ? teamName(winner) : '',
+        // The FF pill and strike-through only make sense next to a real map name.
+        voided: tab.isVoided && Boolean(tab.subLabel),
+        unplayed: false,
+        clickable: hasRealStats,
+      }
+    })
+
+    // Plain array: a mutable Set inside a derived trips svelte/prefer-svelte-reactivity.
+    const seenNames: string[] = played
+      .map((tab) => (tab.subLabel ?? '').toLowerCase())
+      .filter(Boolean)
+    for (const step of match.map_vetoes ?? []) {
+      if (step.action !== 'pick' && step.action !== 'decider') continue
+      if (!step.mapName || seenNames.includes(step.mapName.toLowerCase())) continue
+      seenNames.push(step.mapName.toLowerCase())
+      out.push({
+        key: `unplayed-${step.mapName}`,
+        label: `Map ${out.length + 1}`,
+        name: step.mapName,
+        score: isComplete ? 'Not played' : 'Upcoming',
+        art: step.image,
+        winnerLogo: null,
+        winnerName: '',
+        voided: false,
+        unplayed: true,
+        clickable: false,
+      })
+    }
+
+    if (hasRealStats && played.length > 0) {
+      const counted = played.filter((tab) => !tab.isVoided)
+      const roundsA = counted.reduce((s, tab) => s + Number(tab.team_a_rounds ?? 0), 0)
+      const roundsB = counted.reduce((s, tab) => s + Number(tab.team_b_rounds ?? 0), 0)
+      out.push({
+        key: 'total',
+        label: 'Series',
+        name: 'Total',
+        score: `${roundsA} – ${roundsB} rounds`,
+        art: null,
+        winnerLogo: null,
+        winnerName: '',
+        voided: false,
+        unplayed: false,
+        clickable: true,
+      })
+    }
+    return out
+  })
+
   const teamAStats = $derived(
     sortByKillsDesc((activeStats?.rows ?? []).filter((row) => row.team_id === match.team_a_id))
   )
@@ -265,9 +356,42 @@
   <!-- eslint-enable svelte/no-navigation-without-resolve -->
 {/snippet}
 
-{#snippet statTable(label: string, rows: typeof teamAStats)}
+{#snippet segContent(seg: StripSegment)}
+  {#if seg.art}
+    <img class="seg-art" src={seg.art} alt="" loading="lazy" />
+  {/if}
+  <span class="seg-label">{seg.label}</span>
+  <span class="seg-name">
+    {seg.name}
+    {#if seg.winnerLogo}
+      <img
+        class="seg-win"
+        src={seg.winnerLogo}
+        alt="Won by {seg.winnerName}"
+        title="Won by {seg.winnerName}"
+      />
+    {/if}
+    {#if seg.voided}<span class="seg-ff">FF</span>{/if}
+  </span>
+  <span class="seg-score">{seg.score}</span>
+{/snippet}
+
+{#snippet statTable(team: unknown, side: 'a' | 'b', rows: typeof teamAStats)}
+  {@const label = teamName(team)}
+  {@const id = teamId(team)}
   <div class="stat-block">
-    <div class="stat-block-head">{label}</div>
+    <div class="team-bar" class:team-bar-a={side === 'a'} class:team-bar-b={side === 'b'}>
+      {#if teamLogo(team)}<img src={teamLogo(team)} alt="" />{/if}
+      <span class="team-bar-name">{label}</span>
+      {#if isComplete && winnerId && activeStats?.isTotal}
+        <span class="team-result" class:team-result-win={id === winnerId}>
+          {id === winnerId ? 'Won' : 'Lost'}
+          {side === 'a'
+            ? `${match.team_a_score}–${match.team_b_score}`
+            : `${match.team_b_score}–${match.team_a_score}`}
+        </span>
+      {/if}
+    </div>
     <div class="table-scroll">
       <table class="stat-table">
         <thead>
@@ -327,140 +451,148 @@
 
 <PageContainer>
   <div class="match-page">
-    <!-- Scoreboard -->
-    <section class="scoreboard">
-      <div class="sb-top">
-        {#if match.designation}
-          <span class="sb-designation">{match.designation}</span>
-        {/if}
-        {#if !isComplete}
-          <span class="sb-status" class:sb-status-live={match.status === 'live'}>
-            {formatStatus(match.status)}
-          </span>
-        {/if}
-        {#if match.missing_stage}
-          <span
-            class="sb-no-stage"
-            title="Not assigned to a stage, so stage-filtered stat batches leave it out"
-          >
-            No stage
-          </span>
-        {/if}
-        {#if isAdmin}
-          <AdminEditLink
-            href="/admin?tab=matches&match={match.id}"
-            label="Edit Match"
-            class="sb-admin"
-          />
-        {/if}
-      </div>
-
-      <div class="sb-row">
-        {@render teamSide(match.team_a, 'a')}
-
-        <div class="sb-center">
-          {#if isComplete}
-            <div class="sb-score">
-              <span class="sb-num" class:sb-num-win={match.team_a_id === winnerId}>
-                {match.team_a_score}
-              </span>
-              <span class="sb-dash">–</span>
-              <span class="sb-num" class:sb-num-win={match.team_b_id === winnerId}>
-                {match.team_b_score}
-              </span>
-            </div>
-          {:else}
-            <div class="sb-vs">vs</div>
+    <article class="sheet">
+      <!-- Header: scoreboard, map strip, veto and any forfeit ruling -->
+      <header class="sb">
+        <div class="sb-top">
+          {#if match.designation}
+            <span class="sb-designation">{match.designation}</span>
           {/if}
-          <div class="sb-format">BO{match.best_of}</div>
-        </div>
+          {#if !isComplete}
+            <span class="sb-status" class:sb-status-live={match.status === 'live'}>
+              {formatStatus(match.status)}
+            </span>
+          {/if}
+          {#if match.missing_stage}
+            <span
+              class="sb-no-stage"
+              title="Not assigned to a stage, so stage-filtered stat batches leave it out"
+            >
+              No stage
+            </span>
+          {/if}
 
-        {@render teamSide(match.team_b, 'b')}
-      </div>
-
-      <div class="sb-when">{formatLocal(match.scheduled_at)}</div>
-    </section>
-
-    <!-- Forfeit ruling -->
-    {#if match.forfeit_display}
-      <div class="notice">
-        <AlertTriangle size={17} />
-        <div>
-          {#if match.forfeit_display.kind === 'admin_award'}
-            <p class="notice-title">Series result (forfeit)</p>
-            <p class="notice-body">
-              Official winner: <b>{match.forfeit_display.winnerTeamName ?? '—'}</b>. Map scores ({match.team_a_score}-{match.team_b_score})
-              reflect play on the server.
-              {#if match.forfeit_display.forfeitingTeamName}
-                Forfeiting side: {match.forfeit_display.forfeitingTeamName}.
-              {/if}
-            </p>
-            {#if match.forfeit_display.reason}
-              <p class="notice-sub">{match.forfeit_display.reason}</p>
+          <div class="sb-actions">
+            {#each match.streams ?? [] as stream (stream.stream_url)}
+              <!-- eslint-disable svelte/no-navigation-without-resolve -->
+              <!-- stream_url is an external URL; resolve() only accepts internal paths -->
+              <a
+                href={stream.stream_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="watch-btn"
+                title={stream.stream_url}
+              >
+                <RadioTower size={15} class="watch-icon" />
+                <span class="watch-name">{stream.metadata?.display_name || stream.platform}</span>
+                <span class="watch-meta">
+                  {hostName(stream.stream_url)}{stream.status ? ` · ${stream.status}` : ''}
+                </span>
+              </a>
+              <!-- eslint-enable svelte/no-navigation-without-resolve -->
+            {/each}
+            {#if match.vod_url}
+              <!-- eslint-disable svelte/no-navigation-without-resolve -->
+              <!-- vod_url is an external URL; resolve() only accepts internal paths -->
+              <a
+                href={match.vod_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="watch-btn"
+                title={match.vod_url}
+              >
+                <Video size={15} class="watch-icon" />
+                <span class="watch-name">VOD</span>
+                <span class="watch-meta">{hostName(match.vod_url)}</span>
+              </a>
+              <!-- eslint-enable svelte/no-navigation-without-resolve -->
             {/if}
-          {:else if match.forfeit_display.kind === 'no_show'}
-            <p class="notice-title">No-show forfeit</p>
-            <p class="notice-body">
-              Winner: <b>{match.forfeit_display.winnerTeamName ?? '—'}</b>.
-              {#if match.forfeit_display.forfeitingTeamName}
-                Opponent did not field a team in time: {match.forfeit_display.forfeitingTeamName}.
-              {/if}
-            </p>
-          {/if}
+            {#if isAdmin}
+              <AdminEditLink
+                href="/admin?tab=matches&match={match.id}"
+                label="Edit Match"
+                class="sb-admin"
+              />
+            {/if}
+          </div>
         </div>
-      </div>
-    {/if}
 
-    <!--
-      Details flows top to bottom: any unique meta (the scheduled date already
-      lives in the scoreboard, so only "Started" is repeated here), then the
-      map veto, then Watch. The old two-pane split existed only to fill the gap
-      beside a short detail list; the Watch grid fills that width on its own now.
-    -->
-    <section class="card">
-      <header class="card-head">
-        <CalendarDays size={15} />
-        <h2 class="card-title">Details</h2>
-        {#if match.started_at}
-          <span class="head-meta">Started {formatLocal(match.started_at)}</span>
+        <div class="sb-row">
+          {@render teamSide(match.team_a, 'a')}
+
+          <div class="sb-center">
+            {#if isComplete}
+              <div class="sb-score">
+                <span class="sb-num" class:sb-num-win={match.team_a_id === winnerId}>
+                  {match.team_a_score}
+                </span>
+                <span class="sb-dash">–</span>
+                <span class="sb-num" class:sb-num-win={match.team_b_id === winnerId}>
+                  {match.team_b_score}
+                </span>
+              </div>
+            {:else}
+              <div class="sb-vs">vs</div>
+            {/if}
+            <div class="sb-format">BO{match.best_of}{isComplete ? ' · Final' : ''}</div>
+          </div>
+
+          {@render teamSide(match.team_b, 'b')}
+        </div>
+
+        <p class="sb-when">
+          {formatWhen(match.scheduled_at)}
+          {#if match.started_at}
+            <span class="sb-when-sep">·</span> Started {formatTime(match.started_at)}
+          {/if}
+        </p>
+
+        <!-- Map strip: each map's result, and the stats scope picker once stats exist -->
+        {#if mapStrip.length > 0}
+          <nav class="map-strip" aria-label="Maps">
+            {#each mapStrip as seg (seg.key)}
+              {#if seg.clickable}
+                <button
+                  type="button"
+                  class="seg"
+                  class:seg-on={activeStatsTab === seg.key}
+                  class:seg-void={seg.voided}
+                  aria-pressed={activeStatsTab === seg.key}
+                  onclick={() => (activeStatsTab = seg.key)}
+                >
+                  {@render segContent(seg)}
+                </button>
+              {:else}
+                <div class="seg" class:seg-off={seg.unplayed} class:seg-void={seg.voided}>
+                  {@render segContent(seg)}
+                </div>
+              {/if}
+            {/each}
+          </nav>
         {/if}
-      </header>
 
-      <div class="card-body detail-body">
         {#if (match.map_vetoes?.length ?? 0) > 0}
           <div class="veto">
-            <div class="section-label">Map Veto</div>
+            <span class="veto-title">Veto</span>
             <ol class="veto-list">
               {#each match.map_vetoes as step, index (index)}
-                {@const action = step.action ?? null}
                 <li
                   class="veto-step"
-                  class:veto-step-img={step.image}
-                  class:veto-ban={action === 'ban'}
-                  class:veto-pick={action === 'pick'}
-                  class:veto-decider={action === 'decider'}
+                  class:veto-ban={step.action === 'ban'}
+                  class:veto-pick={step.action === 'pick'}
+                  class:veto-decider={step.action === 'decider'}
+                  title={step.text}
                 >
                   {#if step.image}
-                    <img class="veto-img" src={step.image} alt={step.mapName} loading="lazy" />
-                  {/if}
-                  <span class="veto-num">{index + 1}</span>
-                  {#if action === 'ban'}
-                    <span class="veto-mark veto-mark-ban" aria-hidden="true"
-                      ><X size={30} strokeWidth={3.5} /></span
-                    >
-                  {:else if action === 'pick'}
-                    <span class="veto-mark veto-mark-pick" aria-hidden="true"
-                      ><Check size={26} strokeWidth={3.5} /></span
-                    >
-                  {/if}
-                  {#if action}
-                    <span class="veto-badge veto-badge-{action}">
-                      {action === 'decider' ? 'Decider' : action}
-                    </span>
+                    <img class="veto-img" src={step.image} alt="" loading="lazy" />
                   {/if}
                   <span class="veto-caption">
                     <span class="veto-map">{step.mapName ?? step.text}</span>
-                    {#if step.label}<span class="veto-action">{step.label}</span>{/if}
+                    {#if step.label}
+                      <span class="veto-action">{step.label}</span>
+                    {:else if step.action}
+                      <span class="veto-action">{step.action}</span>
+                    {/if}
                   </span>
                 </li>
               {/each}
@@ -468,94 +600,55 @@
           </div>
         {/if}
 
-        <div class="watch">
-          <div class="section-label">
-            <RadioTower size={13} />
-            Watch
-          </div>
-
-          {#if (match.streams ?? []).length === 0 && !match.vod_url}
-            <p class="watch-empty">No streams or VODs listed.</p>
-          {:else}
-            <div class="watch-list">
-              {#each match.streams ?? [] as stream (stream.stream_url)}
-                <!-- eslint-disable svelte/no-navigation-without-resolve -->
-                <!-- stream_url is an external URL; resolve() only accepts internal paths -->
-                <a
-                  href={stream.stream_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="watch-item"
-                  title={stream.stream_url}
-                >
-                  <RadioTower size={16} class="watch-icon" />
-                  <span class="watch-body">
-                    <span class="watch-name">
-                      {stream.metadata?.display_name || stream.platform}
-                      {#if stream.is_primary}<span class="watch-pill">Primary</span>{/if}
-                    </span>
-                    <span class="watch-url">{hostName(stream.stream_url)}</span>
-                  </span>
-                  <span class="watch-status">{stream.status}</span>
-                </a>
-                <!-- eslint-enable svelte/no-navigation-without-resolve -->
-              {/each}
-
-              {#if match.vod_url}
-                <!-- eslint-disable svelte/no-navigation-without-resolve -->
-                <!-- vod_url is an external URL; resolve() only accepts internal paths -->
-                <a
-                  href={match.vod_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="watch-item"
-                  title={match.vod_url}
-                >
-                  <Video size={16} class="watch-icon" />
-                  <span class="watch-body">
-                    <span class="watch-name">YouTube VOD</span>
-                    <span class="watch-url">{hostName(match.vod_url)}</span>
-                  </span>
-                </a>
-                <!-- eslint-enable svelte/no-navigation-without-resolve -->
+        {#if match.forfeit_display}
+          <div class="notice">
+            <AlertTriangle size={16} />
+            <div>
+              {#if match.forfeit_display.kind === 'admin_award'}
+                <p class="notice-title">Series result (forfeit)</p>
+                <p class="notice-body">
+                  Official winner: <b>{match.forfeit_display.winnerTeamName ?? '—'}</b>. Map scores
+                  ({match.team_a_score}-{match.team_b_score}) reflect play on the server.
+                  {#if match.forfeit_display.forfeitingTeamName}
+                    Forfeiting side: {match.forfeit_display.forfeitingTeamName}.
+                  {/if}
+                </p>
+                {#if match.forfeit_display.reason}
+                  <p class="notice-sub">{match.forfeit_display.reason}</p>
+                {/if}
+              {:else if match.forfeit_display.kind === 'no_show'}
+                <p class="notice-title">No-show forfeit</p>
+                <p class="notice-body">
+                  Winner: <b>{match.forfeit_display.winnerTeamName ?? '—'}</b>.
+                  {#if match.forfeit_display.forfeitingTeamName}
+                    Opponent did not field a team in time: {match.forfeit_display
+                      .forfeitingTeamName}.
+                  {/if}
+                </p>
               {/if}
             </div>
-          {/if}
-        </div>
-      </div>
-    </section>
+          </div>
+        {/if}
+      </header>
 
-    <!-- Stats: only shown once a real import exists. Before that there is
-         nothing to show but a guessed lineup, which isn't worth a card. -->
-    {#if hasRealStats}
-      <section class="card">
-        <header class="card-head">
-          <BarChart3 size={15} />
-          <h2 class="card-title">Match Stats</h2>
-        </header>
+      <!-- Captains of either team paste the veto and tracker links here once
+           the match has been played. -->
+      {#if data.report && match.team_a && match.team_b}
+        <MatchReportPanel
+          matchId={match.id}
+          teamA={{ id: String(match.team_a.id), name: teamName(match.team_a) }}
+          teamB={{ id: String(match.team_b.id), name: teamName(match.team_b) }}
+          hasStats={hasRealStats}
+          report={data.report}
+        />
+      {/if}
 
-        <div class="card-body">
-          <div class="stats-toolbar">
-            {#if statsTabs.length > 1}
-              <div class="map-tabs">
-                {#each statsTabs as tab (tab.key)}
-                  <button
-                    type="button"
-                    class="map-tab"
-                    class:map-tab-active={activeStatsTab === tab.key}
-                    class:map-tab-void={tab.isVoided}
-                    onclick={() => (activeStatsTab = String(tab.key))}
-                  >
-                    <span class="map-tab-label">{tab.label}</span>
-                    {#if tab.subLabel}<span class="map-tab-sub">{tab.subLabel}</span>{/if}
-                    {#if !tab.isTotal}
-                      <span class="map-tab-score">{tab.team_a_rounds}–{tab.team_b_rounds}</span>
-                    {/if}
-                    {#if tab.isVoided}<span class="map-tab-ff">FF</span>{/if}
-                  </button>
-                {/each}
-              </div>
-            {/if}
+      <!-- Stats: only shown once a real import exists. Before that there is
+           nothing to show but a guessed lineup, which isn't worth a section. -->
+      {#if hasRealStats && activeStats}
+        <section class="sheet-section">
+          <div class="sheet-head">
+            <h2 class="sheet-title">Match Stats</h2>
             <div class="stats-flag">
               <ReviewFlagButton
                 entityType="match"
@@ -566,73 +659,71 @@
             </div>
           </div>
 
-          {#if activeStats}
-            {#if !activeStats.isTotal}
-              {#if activeStats.forfeit?.forfeiting_team_id}
-                <div class="notice notice-sm">
-                  <AlertTriangle size={15} />
-                  <div>
-                    <p class="notice-title">Forfeit note (this map)</p>
-                    {#if activeStats.forfeit.forfeiting_team_name}
-                      <p class="notice-body">
-                        {activeStats.forfeit.forfeiting_team_name} forfeited this map in the context of
-                        the series ruling.
-                      </p>
-                    {/if}
-                    {#if activeStats.forfeit.label}
-                      <p class="notice-sub">{activeStats.forfeit.label}</p>
-                    {/if}
-                  </div>
+          <div class="sheet-body">
+            {#if !activeStats.isTotal && activeStats.forfeit?.forfeiting_team_id}
+              <div class="notice notice-inline">
+                <AlertTriangle size={15} />
+                <div>
+                  <p class="notice-title">Forfeit note (this map)</p>
+                  {#if activeStats.forfeit.forfeiting_team_name}
+                    <p class="notice-body">
+                      {activeStats.forfeit.forfeiting_team_name} forfeited this map in the context of
+                      the series ruling.
+                    </p>
+                  {/if}
+                  {#if activeStats.forfeit.label}
+                    <p class="notice-sub">{activeStats.forfeit.label}</p>
+                  {/if}
                 </div>
-              {/if}
-
-              <div class="map-score" class:map-score-void={activeStats.isVoided}>
-                {#if activeStats.isVoided}
-                  <span class="void-pill">Voided / FF</span>
-                {/if}
-                <span>{teamName(match.team_a)}</span>
-                <b>{activeStats.team_a_rounds}–{activeStats.team_b_rounds}</b>
-                <span>{teamName(match.team_b)}</span>
               </div>
             {/if}
 
-            <div class="stat-grid">
-              {@render statTable(teamName(match.team_a), teamAStats)}
-              {@render statTable(teamName(match.team_b), teamBStats)}
+            <div class="sheet-pair">
+              {@render statTable(match.team_a, 'a', teamAStats)}
+              {@render statTable(match.team_b, 'b', teamBStats)}
             </div>
+          </div>
+        </section>
 
-            <!-- Follows the same map/total tab as the scoreboard above, so the
-                 two never disagree about which map is being looked at. -->
-            <MatchPerformance
-              rows={(activeStats?.rows ?? []) as never}
-              teamAId={match.team_a_id}
-              teamAName={teamName(match.team_a)}
-              teamBName={teamName(match.team_b)}
-              scopeLabel={activeStats?.isTotal
-                ? 'Series total'
-                : `${activeStats?.label ?? ''}${activeStats?.subLabel ? ` · ${activeStats.subLabel}` : ''}`}
+        <!-- Follows the same map/total scope as the stats above, so the two
+             never disagree about which map is being looked at. -->
+        <MatchPerformance
+          rows={(activeStats?.rows ?? []) as never}
+          teamAId={match.team_a_id}
+          teamAName={teamName(match.team_a)}
+          teamBName={teamName(match.team_b)}
+          teamALogo={teamLogo(match.team_a)}
+          teamBLogo={teamLogo(match.team_b)}
+        />
+      {/if}
+
+      <CommentThread
+        entityType="match"
+        entityId={match.id}
+        comments={data.comments ?? []}
+        viewerId={data.viewer?.profileId ?? null}
+        isAdmin={data.viewer?.isAdmin ?? false}
+        variant="flush"
+      />
+
+      {#if isAdmin && hasRealStats && reassignRoster.length > 0}
+        <details class="sheet-section admin-tools">
+          <summary class="admin-tools-summary">
+            <ChevronRight size={14} class="admin-tools-chevron" />
+            <span class="admin-tools-title">Admin tools</span>
+            <span class="admin-tools-note">Reassign stat rows · Sub overrides</span>
+          </summary>
+          <div class="sheet-body">
+            <MatchReassignPanel matchId={match.id} players={reassignRoster} />
+            <MatchSubPanel
+              matchId={match.id}
+              players={reassignRoster}
+              overrideByKey={subOverrideByKey}
             />
-
-            {#if isAdmin && reassignRoster.length > 0}
-              <MatchReassignPanel matchId={match.id} players={reassignRoster} />
-              <MatchSubPanel
-                matchId={match.id}
-                players={reassignRoster}
-                overrideByKey={subOverrideByKey}
-              />
-            {/if}
-          {/if}
-        </div>
-      </section>
-    {/if}
-
-    <CommentThread
-      entityType="match"
-      entityId={match.id}
-      comments={data.comments ?? []}
-      viewerId={data.viewer?.profileId ?? null}
-      isAdmin={data.viewer?.isAdmin ?? false}
-    />
+          </div>
+        </details>
+      {/if}
+    </article>
   </div>
 </PageContainer>
 
@@ -642,36 +733,31 @@
     max-width: 90rem;
     margin: 0 auto;
     padding: 1.5rem 1rem 3rem;
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
   }
 
-  /* Scoreboard */
-  .scoreboard {
-    position: relative;
-    padding: 1.25rem 1.5rem 1rem;
-    border-radius: 0.75rem;
-    border: 1px solid rgba(255, 255, 255, 0.09);
-    background: linear-gradient(135deg, rgba(120, 67, 145, 0.14), rgba(0, 0, 0, 0.25));
+  /* ---------- Header / scoreboard ---------- */
+  .sb {
+    background: linear-gradient(135deg, rgba(120, 67, 145, 0.3), rgba(0, 0, 0, 0.1));
   }
 
   .sb-top {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 0.625rem;
-    margin-bottom: 1rem;
+    padding: 1rem 1.5rem 0;
   }
 
   .sb-designation {
     font-size: 0.6875rem;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.12em;
+    letter-spacing: 0.14em;
     color: #fcd34d;
   }
 
-  .sb-status {
+  .sb-status,
+  .sb-no-stage {
     font-size: 0.625rem;
     font-weight: 700;
     text-transform: uppercase;
@@ -682,24 +768,70 @@
     color: rgba(255, 255, 255, 0.7);
   }
 
-  .sb-no-stage {
-    font-size: 0.625rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    padding: 0.1875rem 0.5rem;
-    border-radius: 999px;
-    background: rgba(248, 113, 113, 0.16);
-    color: #f87171;
-  }
-
   .sb-status-live {
     background: rgba(74, 222, 128, 0.16);
     color: #4ade80;
   }
 
-  :global(.sb-admin) {
+  .sb-no-stage {
+    background: rgba(248, 113, 113, 0.16);
+    color: #f87171;
+  }
+
+  .sb-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
     margin-left: auto;
+  }
+
+  .watch-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.25rem;
+    max-width: 100%;
+    padding: 0 0.75rem;
+    border-radius: 0.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(0, 0, 0, 0.22);
+    color: var(--text);
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-decoration: none;
+    transition:
+      background 0.15s,
+      border-color 0.15s;
+  }
+
+  .watch-btn:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.24);
+  }
+
+  :global(.watch-icon) {
+    flex-shrink: 0;
+    color: var(--accent-text);
+  }
+
+  .watch-name {
+    white-space: nowrap;
+  }
+
+  .watch-meta {
+    font-size: 0.625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: rgba(255, 255, 255, 0.6);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  :global(.sb-admin) {
     border-radius: 0.375rem;
     padding: 0.3125rem 0.6875rem;
     font-size: 0.6875rem;
@@ -710,13 +842,14 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
     align-items: center;
-    gap: 1rem;
+    gap: 1.25rem;
+    padding: 1.125rem 1.5rem 0.5rem;
   }
 
   .sb-team {
     display: flex;
     align-items: center;
-    gap: 0.875rem;
+    gap: 1rem;
     min-width: 0;
     text-decoration: none;
     color: var(--text);
@@ -730,7 +863,7 @@
 
   /* The losing side recedes so the result reads at a glance. */
   .sb-loser {
-    opacity: 0.55;
+    opacity: 0.6;
   }
 
   .sb-team:hover {
@@ -742,9 +875,9 @@
   }
 
   .sb-logo {
-    width: 4rem;
-    height: 4rem;
-    border-radius: 0.5rem;
+    width: 4.75rem;
+    height: 4.75rem;
+    border-radius: 0.625rem;
     object-fit: contain;
     flex-shrink: 0;
   }
@@ -761,7 +894,7 @@
   .sb-name-block {
     display: flex;
     align-items: center;
-    gap: 0.4375rem;
+    gap: 0.5rem;
     min-width: 0;
   }
 
@@ -771,9 +904,10 @@
   }
 
   .sb-name {
-    font-size: 1.25rem;
+    font-size: 1.5rem;
     font-weight: 700;
     line-height: 1.2;
+    letter-spacing: -0.01em;
     overflow: hidden;
     text-overflow: ellipsis;
     transition: color 0.15s;
@@ -790,15 +924,15 @@
   .sb-score {
     display: flex;
     align-items: baseline;
-    gap: 0.625rem;
+    gap: 0.875rem;
+    line-height: 1;
   }
 
   .sb-num {
-    font-size: 2.5rem;
-    font-weight: 800;
-    line-height: 1;
+    font-size: 3.25rem;
+    font-weight: 700;
     font-variant-numeric: tabular-nums;
-    color: rgba(255, 255, 255, 0.4);
+    color: rgba(255, 255, 255, 0.45);
   }
 
   .sb-num-win {
@@ -806,47 +940,257 @@
   }
 
   .sb-dash {
-    font-size: 1.25rem;
-    color: rgba(255, 255, 255, 0.3);
+    font-size: 1.75rem;
+    color: rgba(255, 255, 255, 0.35);
   }
 
   .sb-vs {
-    font-size: 1.125rem;
+    font-size: 1.25rem;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: rgba(255, 255, 255, 0.45);
+    color: rgba(255, 255, 255, 0.5);
   }
 
   .sb-format {
     font-size: 0.6875rem;
     font-weight: 700;
-    letter-spacing: 0.06em;
-    color: rgba(255, 255, 255, 0.5);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: rgba(255, 255, 255, 0.6);
   }
 
   .sb-when {
-    margin-top: 0.875rem;
+    padding: 0 1.5rem 1.125rem;
     text-align: center;
     font-size: 0.75rem;
-    color: rgba(255, 255, 255, 0.5);
+    color: rgba(255, 255, 255, 0.62);
   }
 
-  /* Notices */
+  .sb-when-sep {
+    margin: 0 0.25rem;
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  /* ---------- Map strip ---------- */
+  .map-strip {
+    display: flex;
+    flex-wrap: wrap;
+    border-top: 1px solid rgba(255, 255, 255, 0.09);
+  }
+
+  .seg {
+    position: relative;
+    flex: 1 1 7rem;
+    min-width: 0;
+    min-height: 4.75rem;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.1875rem;
+    padding: 0.75rem 1rem;
+    border: 0;
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+  }
+
+  .seg:last-child {
+    border-right: 0;
+  }
+
+  button.seg {
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  button.seg:hover {
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .seg-on,
+  button.seg-on:hover {
+    background: rgba(255, 255, 255, 0.07);
+    box-shadow: inset 0 -3px 0 var(--accent-text);
+  }
+
+  .seg-off {
+    opacity: 0.45;
+  }
+
+  .seg-art {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0.28;
+    pointer-events: none;
+  }
+
+  /* Darkens the art toward the text side so labels stay readable. */
+  .seg::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      90deg,
+      rgba(30, 14, 52, 0.92) 0%,
+      rgba(30, 14, 52, 0.55) 70%,
+      rgba(30, 14, 52, 0.35) 100%
+    );
+    pointer-events: none;
+  }
+
+  .seg > span {
+    position: relative;
+    z-index: 1;
+  }
+
+  .seg-label {
+    font-size: 0.625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: rgba(255, 255, 255, 0.62);
+  }
+
+  .seg-name {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+    font-size: 0.9375rem;
+    font-weight: 700;
+  }
+
+  .seg-void .seg-name {
+    text-decoration: line-through;
+  }
+
+  .seg-win {
+    width: 1rem;
+    height: 1rem;
+    object-fit: contain;
+    flex-shrink: 0;
+  }
+
+  .seg-ff {
+    font-size: 0.625rem;
+    font-weight: 800;
+    padding: 0.0625rem 0.3125rem;
+    border-radius: 0.25rem;
+    background: rgba(248, 113, 113, 0.18);
+    color: #fca5a5;
+  }
+
+  .seg-score {
+    font-size: 0.8125rem;
+    font-variant-numeric: tabular-nums;
+    color: rgba(255, 255, 255, 0.82);
+  }
+
+  /* ---------- Veto ---------- */
+  .veto {
+    display: flex;
+    align-items: center;
+    gap: 0.875rem;
+    padding: 0.75rem 1.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
+    background: rgba(0, 0, 0, 0.14);
+    overflow-x: auto;
+  }
+
+  .veto-title {
+    flex-shrink: 0;
+    font-size: 0.65625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: rgba(255, 255, 255, 0.6);
+  }
+
+  .veto-list {
+    display: flex;
+    gap: 0.5rem;
+    list-style: none;
+  }
+
+  .veto-step {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem 0.625rem 0.25rem 0.25rem;
+    border-radius: 0.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(0, 0, 0, 0.18);
+    font-size: 0.75rem;
+    white-space: nowrap;
+    /* Keep each chip its natural width; the row scrolls instead of squashing. */
+    flex-shrink: 0;
+  }
+
+  .veto-img {
+    width: 2.75rem;
+    height: 1.5rem;
+    border-radius: 0.3125rem;
+    object-fit: cover;
+  }
+
+  .veto-caption {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.2;
+  }
+
+  .veto-map {
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  .veto-action {
+    font-size: 0.625rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: rgba(255, 255, 255, 0.62);
+  }
+
+  .veto-ban {
+    opacity: 0.6;
+  }
+
+  .veto-ban .veto-map {
+    text-decoration: line-through;
+  }
+
+  .veto-pick {
+    border-color: rgba(192, 132, 252, 0.45);
+  }
+
+  .veto-decider {
+    border-color: rgba(252, 211, 77, 0.5);
+  }
+
+  /* ---------- Notices ---------- */
+  /* In the header it runs edge to edge as the scoreboard's bottom band. */
   .notice {
     display: flex;
     align-items: flex-start;
     gap: 0.75rem;
-    padding: 0.875rem 1rem;
-    border-radius: 0.625rem;
-    border: 1px solid rgba(251, 191, 36, 0.3);
+    padding: 0.875rem 1.5rem;
+    border-top: 1px solid rgba(251, 191, 36, 0.3);
     background: rgba(251, 191, 36, 0.07);
     color: #fcd34d;
   }
 
-  .notice-sm {
-    margin-bottom: 0.875rem;
+  .notice-inline {
+    margin-bottom: 0.75rem;
     padding: 0.625rem 0.875rem;
+    border: 1px solid rgba(251, 191, 36, 0.3);
+    border-radius: 0.5rem;
   }
 
   .notice-title {
@@ -873,454 +1217,27 @@
     color: rgba(255, 255, 255, 0.6);
   }
 
-  /* Cards */
-  .card {
-    border-radius: 0.75rem;
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    background: rgba(0, 0, 0, 0.2);
-    overflow: hidden;
-  }
-
-  .card-head {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.75rem 1rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-    color: var(--accent-text);
-  }
-
-  .card-title {
-    font-size: 0.75rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--title);
-  }
-
-  .card-body {
-    padding: 1rem;
-  }
-
-  /* Details */
-  /* A single top-to-bottom flow; each section gets even breathing room. */
-  .detail-body {
-    display: flex;
-    flex-direction: column;
-    gap: 1.25rem;
-  }
-
-  /* Scheduled lives in the scoreboard; only the actual start time repeats here,
-     tucked into the header's empty right side rather than a one-row list. */
-  .head-meta {
-    margin-left: auto;
-    font-size: 0.75rem;
-    color: rgba(255, 255, 255, 0.55);
-  }
-
-  .section-label {
-    display: flex;
-    align-items: center;
-    gap: 0.4375rem;
-    margin-bottom: 0.625rem;
-    font-size: 0.6875rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: rgba(255, 255, 255, 0.5);
-  }
-
-  .section-label :global(svg) {
-    color: var(--accent-text);
-  }
-
-  /* Each step is a card of the map's art; the step number sits in a corner
-     and the name/action ride a dark scrim at the bottom. */
-  .veto-list {
-    list-style: none;
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(min(100%, 9rem), 1fr));
-    gap: 0.5rem;
-  }
-
-  .veto-step {
-    position: relative;
-    display: flex;
-    align-items: flex-end;
-    min-height: 4.25rem;
-    padding: 0.5rem;
-    border-radius: 0.5rem;
-    overflow: hidden;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.03);
-  }
-
-  .veto-step-img {
-    aspect-ratio: 16 / 10;
-    min-height: 0;
-  }
-
-  .veto-img {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-
-  /* Legibility scrim, image steps only — the fallback card is dark already. */
-  .veto-step-img::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(
-      to top,
-      rgba(0, 0, 0, 0.85),
-      rgba(0, 0, 0, 0.2) 55%,
-      rgba(0, 0, 0, 0)
-    );
-  }
-
-  .veto-num {
-    position: absolute;
-    top: 0.375rem;
-    left: 0.375rem;
-    z-index: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.25rem;
-    height: 1.25rem;
-    border-radius: 0.3125rem;
-    background: rgba(0, 0, 0, 0.55);
-    font-size: 0.6875rem;
-    font-weight: 700;
-    font-variant-numeric: tabular-nums;
-    color: rgba(255, 255, 255, 0.9);
-  }
-
-  .veto-caption {
-    position: relative;
-    z-index: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 0.0625rem;
-    min-width: 0;
-  }
-
-  .veto-map {
-    font-size: 0.8125rem;
-    font-weight: 700;
-    color: #fff;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .veto-action {
-    font-size: 0.625rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: rgba(255, 255, 255, 0.72);
-  }
-
-  /* Pick/ban tint. The colored border + scrim make the state obvious even on a
-     busy map thumbnail; the ::after scrim below shifts to match. */
-  .veto-ban {
-    border-color: rgba(248, 113, 113, 0.55);
-  }
-
-  .veto-pick {
-    border-color: rgba(74, 222, 128, 0.55);
-  }
-
-  .veto-decider {
-    border-color: rgba(252, 211, 77, 0.55);
-  }
-
-  .veto-ban.veto-step-img::after {
-    background: linear-gradient(
-      to top,
-      rgba(80, 8, 8, 0.9),
-      rgba(120, 12, 12, 0.35) 55%,
-      rgba(40, 0, 0, 0.15)
-    );
-  }
-
-  .veto-pick.veto-step-img::after {
-    background: linear-gradient(
-      to top,
-      rgba(6, 60, 20, 0.9),
-      rgba(10, 90, 30, 0.32) 55%,
-      rgba(0, 30, 8, 0.12)
-    );
-  }
-
-  /* The big X / check over the map art — the at-a-glance signal. */
-  .veto-mark {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    z-index: 1;
-    transform: translate(-50%, -50%);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 999px;
-    padding: 0.25rem;
-    filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.8));
-  }
-
-  .veto-mark-ban {
-    color: #f87171;
-  }
-
-  .veto-mark-pick {
-    color: #4ade80;
-  }
-
-  /* Corner badge spelling out the action for anyone who can't rely on color. */
-  .veto-badge {
-    position: absolute;
-    top: 0.375rem;
-    right: 0.375rem;
-    z-index: 1;
-    padding: 0.125rem 0.4375rem;
-    border-radius: 0.3125rem;
-    font-size: 0.625rem;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: #fff;
-  }
-
-  .veto-badge-ban {
-    background: rgba(220, 38, 38, 0.95);
-  }
-
-  .veto-badge-pick {
-    background: rgba(22, 163, 74, 0.95);
-  }
-
-  .veto-badge-decider {
-    background: rgba(202, 138, 4, 0.95);
-  }
-
-  /* Watch */
-  .watch-empty {
-    font-size: 0.8125rem;
-    color: rgba(255, 255, 255, 0.5);
-  }
-
-  /* A grid, so multiple streams fill the card's width side by side instead of
-     stacking into a tall single column. */
-  .watch-list {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr));
-    gap: 0.5rem;
-  }
-
-  .watch-item {
-    display: flex;
-    align-items: center;
-    gap: 0.6875rem;
-    padding: 0.625rem 0.75rem;
-    border-radius: 0.5rem;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.02);
-    text-decoration: none;
-    color: var(--text);
-    transition:
-      background 0.15s,
-      border-color 0.15s;
-  }
-
-  .watch-item:hover {
-    background: rgba(255, 255, 255, 0.05);
-    border-color: rgba(255, 255, 255, 0.14);
-  }
-
-  :global(.watch-icon) {
-    flex-shrink: 0;
-    color: var(--accent-text);
-  }
-
-  .watch-body {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    flex: 1;
-  }
-
-  .watch-name {
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
-    font-size: 0.8125rem;
-    font-weight: 600;
-  }
-
-  .watch-pill {
-    font-size: 0.5625rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    padding: 0.0625rem 0.3125rem;
-    border-radius: 0.25rem;
-    background: rgba(59, 130, 246, 0.2);
-    color: #93c5fd;
-  }
-
-  .watch-url {
-    font-size: 0.6875rem;
-    color: rgba(255, 255, 255, 0.45);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .watch-status {
-    flex-shrink: 0;
-    font-size: 0.625rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: rgba(255, 255, 255, 0.5);
-  }
-
-  /* Map tabs */
-  .stats-toolbar {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 0.5rem 0.75rem;
-    margin-bottom: 1rem;
-  }
-
+  /* ---------- Stats ---------- */
   .stats-flag {
     margin-left: auto;
   }
 
-  .map-tabs {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.375rem;
-  }
-
-  .map-tab {
-    display: flex;
-    align-items: baseline;
-    gap: 0.375rem;
-    padding: 0.4375rem 0.75rem;
-    border-radius: 0.4375rem;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    background: rgba(255, 255, 255, 0.04);
-    color: rgba(255, 255, 255, 0.72);
-    font-size: 0.8125rem;
-    cursor: pointer;
-    transition:
-      background 0.15s,
-      border-color 0.15s,
-      color 0.15s;
-  }
-
-  .map-tab:hover {
-    background: rgba(255, 255, 255, 0.07);
-    color: var(--text);
-  }
-
-  .map-tab-active {
-    background: var(--accent);
-    border-color: rgba(120, 67, 145, 0.6);
-    color: var(--text);
-  }
-
-  .map-tab-label {
-    font-weight: 600;
-  }
-
-  .map-tab-sub {
-    font-size: 0.6875rem;
-    opacity: 0.7;
-  }
-
-  .map-tab-score {
-    margin-left: 0.125rem;
-    font-weight: 700;
-    color: var(--text);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .map-tab-void .map-tab-label,
-  .map-tab-void .map-tab-sub {
-    text-decoration: line-through;
-  }
-
-  .map-tab-ff {
-    font-size: 0.625rem;
-    font-weight: 800;
-    color: #fca5a5;
-  }
-
-  .map-score {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    margin-bottom: 1rem;
-    font-size: 0.875rem;
-    color: rgba(255, 255, 255, 0.65);
-  }
-
-  .map-score b {
-    font-weight: 700;
-    color: var(--text);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .map-score-void {
-    opacity: 0.65;
-  }
-
-  .void-pill {
-    font-size: 0.625rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    padding: 0.125rem 0.375rem;
-    border-radius: 0.25rem;
-    background: rgba(248, 113, 113, 0.18);
-    color: #fca5a5;
-  }
-
-  /* Stat tables */
-  .stat-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 1rem;
-  }
-
   .stat-block {
     min-width: 0;
-    border-radius: 0.5rem;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    overflow: hidden;
   }
 
-  .stat-block-head {
-    padding: 0.5rem 0.75rem;
-    font-size: 0.8125rem;
+  .team-result {
+    margin-left: auto;
+    flex-shrink: 0;
+    font-size: 0.6875rem;
     font-weight: 700;
-    color: var(--text);
-    background: rgba(255, 255, 255, 0.04);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #fca5a5;
   }
 
-  .table-scroll {
-    overflow-x: auto;
+  .team-result-win {
+    color: #4ade80;
   }
 
   .stat-table {
@@ -1336,24 +1253,26 @@
   }
 
   .stat-table th {
-    padding: 0.4375rem 0.625rem;
+    padding: 0.5rem 0.625rem;
     text-align: right;
-    font-size: 0.625rem;
+    font-size: 0.65625rem;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: rgba(255, 255, 255, 0.5);
+    letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.6);
     white-space: nowrap;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   }
 
   .stat-table td {
-    padding: 0.4375rem 0.625rem;
-    color: rgba(255, 255, 255, 0.82);
+    padding: 0.5rem 0.625rem;
+    color: rgba(255, 255, 255, 0.86);
     white-space: nowrap;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   }
 
-  .stat-table tbody tr {
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
+  .stat-table tbody tr:last-child td {
+    border-bottom: 0;
   }
 
   .stat-table tbody tr:hover {
@@ -1411,8 +1330,9 @@
     flex: none;
     width: 1.375rem;
     height: 1.375rem;
-    border-radius: 0.25rem;
+    border-radius: 0.3125rem;
     object-fit: contain;
+    background: rgba(255, 255, 255, 0.06);
   }
 
   .agent-text {
@@ -1421,36 +1341,74 @@
     color: rgba(255, 255, 255, 0.6);
   }
 
-  /* Responsive */
-  @media (max-width: 1280px) {
-    .stat-grid {
-      grid-template-columns: minmax(0, 1fr);
-    }
+  /* ---------- Admin tools ---------- */
+  .admin-tools {
+    background: rgba(0, 0, 0, 0.2);
   }
 
+  .admin-tools-summary {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    min-height: 3rem;
+    padding: 0 1.5rem;
+    cursor: pointer;
+    list-style: none;
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.75);
+  }
+
+  .admin-tools-summary::-webkit-details-marker {
+    display: none;
+  }
+
+  :global(.admin-tools-chevron) {
+    flex-shrink: 0;
+    transition: transform 0.15s;
+  }
+
+  .admin-tools[open] :global(.admin-tools-chevron) {
+    transform: rotate(90deg);
+  }
+
+  .admin-tools-title {
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .admin-tools-note {
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  /* ---------- Responsive ---------- */
   @media (max-width: 640px) {
     .match-page {
       padding: 1rem 0.75rem 2rem;
     }
 
-    .scoreboard {
-      padding: 1rem 0.875rem 0.875rem;
+    .sb-top {
+      padding: 0.875rem 0.875rem 0;
+    }
+
+    .sb-actions {
+      margin-left: 0;
+      justify-content: flex-start;
+      width: 100%;
     }
 
     .sb-row {
       gap: 0.625rem;
+      padding: 1rem 0.875rem 0.5rem;
       /* A name that wraps to two lines must not shove its logo out of line. */
       align-items: start;
     }
 
-    .sb-team {
+    .sb-team,
+    .sb-team-b {
       flex-direction: column;
       gap: 0.4375rem;
       text-align: center;
-    }
-
-    .sb-team-b {
-      flex-direction: column;
     }
 
     /*
@@ -1484,11 +1442,32 @@
     }
 
     .sb-num {
-      font-size: 1.875rem;
+      font-size: 2rem;
     }
 
-    :global(.sb-admin) {
-      margin-left: auto;
+    .sb-when {
+      padding: 0 0.875rem 0.875rem;
+    }
+
+    /* Two maps per row on a phone instead of one squeezed strip. */
+    .seg {
+      flex-basis: 50%;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 0.625rem 0.875rem;
+    }
+
+    .veto,
+    .notice {
+      padding-left: 0.875rem;
+      padding-right: 0.875rem;
+    }
+
+    .admin-tools-summary {
+      padding: 0 0.875rem;
+    }
+
+    .admin-tools-note {
+      display: none;
     }
   }
 </style>

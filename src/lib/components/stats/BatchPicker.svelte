@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CustomSelect from '$lib/components/CustomSelect.svelte'
   import { phaseLabel, resolveBatchSection, sectionOrder } from '$lib/stats/sections'
 
   type PickerBatch = {
@@ -24,20 +25,22 @@
   } = $props()
 
   /**
-   * Two-step picker: an event (Season 4, Season 3, All Time…) then one of its
-   * phases. One flat dropdown of every import was twenty-odd entries, most of
-   * them the same five phase names repeated per season.
+   * Two joined selects: an event (Season 4, Season 3, All Time…) then one of
+   * its phases. One flat dropdown of every import was twenty-odd entries, most
+   * of them the same five phase names repeated per season.
    *
    * A stable sort on section order keeps the server's order within each event.
    */
 
   /** Rivals seasons and outside events side by side but labelled apart. */
-  const eventGroups = $derived(
-    [
-      { label: 'Rivals', external: false, items: events.filter((e) => !e.external) },
-      { label: 'External', external: true, items: events.filter((e) => e.external) },
-    ].filter((g) => g.items.length > 0)
-  )
+  const eventOptions = $derived([
+    ...events
+      .filter((e) => !e.external)
+      .map((e) => ({ value: e.name, label: e.name, group: 'Rivals' })),
+    ...events
+      .filter((e) => e.external)
+      .map((e) => ({ value: e.name, label: e.name, group: 'External' })),
+  ])
 
   function phasesOf(event: string) {
     return batches
@@ -48,7 +51,7 @@
           sectionOrder(resolveBatchSection(a.b)) - sectionOrder(resolveBatchSection(z.b)) ||
           a.index - z.index
       )
-      .map(({ b }) => ({ id: b.id, label: phaseLabel(b) }))
+      .map(({ b }) => ({ value: b.id, label: phaseLabel(b) }))
   }
 
   const activeEvent = $derived(
@@ -57,197 +60,153 @@
   const activePhases = $derived(activeEvent ? phasesOf(activeEvent) : [])
 
   function goToBatch(id: string) {
-    if (id !== batchId) onPick(id)
+    if (id && id !== batchId) onPick(id)
   }
 
   /** Opening an event lands on its full-season total when there is one. */
   function goToEvent(event: string) {
     const full = batches.find((b) => b.event === event && resolveBatchSection(b) === 'full')
-    const target = full?.id ?? phasesOf(event)[0]?.id
+    const target = full?.id ?? phasesOf(event)[0]?.value
     if (target) goToBatch(target)
   }
 </script>
 
 {#if events.length > 0}
-  <nav class="stats-nav" aria-label="Stats table">
-    <div class="event-bar">
-      {#each eventGroups as group (group.label)}
-        <div
-          class="event-group"
-          class:event-group-external={group.external}
-          role="tablist"
-          aria-label="{group.label} events"
-        >
-          <span class="event-group-label">{group.label}</span>
-          {#each group.items as event (event.name)}
-            <button
-              type="button"
-              role="tab"
-              class="nav-pill"
-              class:nav-pill-external={event.external}
-              class:nav-pill-on={event.name === activeEvent}
-              aria-selected={event.name === activeEvent}
-              onclick={() => goToEvent(event.name)}
-            >
-              {event.name}
-            </button>
-          {/each}
-        </div>
-      {/each}
+  <div class="batch-picker" class:batch-picker-single={activePhases.length <= 1}>
+    <div class="picker-slot picker-event" aria-label="Event" role="group">
+      <CustomSelect
+        options={eventOptions}
+        value={activeEvent ?? ''}
+        placeholder="Event"
+        onSelect={goToEvent}
+      />
     </div>
     {#if activePhases.length > 1}
-      <div class="nav-row phase-row" role="tablist" aria-label="Phase">
-        {#each activePhases as phase (phase.id)}
-          <button
-            type="button"
-            role="tab"
-            class="phase-tab"
-            class:phase-tab-on={phase.id === batchId}
-            aria-selected={phase.id === batchId}
-            onclick={() => goToBatch(phase.id)}
-          >
-            {phase.label}
-          </button>
-        {/each}
+      <div class="picker-slot picker-phase" aria-label="Phase" role="group">
+        <CustomSelect
+          options={activePhases}
+          value={batchId ?? ''}
+          placeholder="Phase"
+          onSelect={goToBatch}
+        />
       </div>
     {/if}
-  </nav>
+  </div>
 {/if}
 
 <style>
-  /* Event pills, then phase tabs underneath. */
-  .stats-nav {
-    /* layout.css shadows every <nav> for the site header; not this one. */
-    box-shadow: none;
-    align-self: flex-start;
-    max-width: 100%;
+  .batch-picker {
     display: flex;
-    flex-direction: column;
+    min-width: 0;
+  }
+
+  .picker-event {
+    width: 9.5rem;
+  }
+
+  .picker-phase {
+    width: 11rem;
+  }
+
+  /* CustomSelect, tuned to the sheet: same height and fill as the other
+     toolbar controls, the two triggers joined into one control. */
+  .picker-slot :global(.select-trigger) {
+    height: 2.25rem;
+    padding: 0 0.625rem 0 0.75rem;
     gap: 0.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 0.5rem;
+    background: rgba(255, 255, 255, 0.04);
+    color: rgba(255, 255, 255, 0.88);
+    font: inherit;
+    font-size: 0.8125rem;
   }
 
-  .nav-row,
-  .event-bar {
-    display: flex;
-    gap: 0.375rem;
-    overflow-x: auto;
-    scrollbar-width: none;
+  .picker-slot :global(.select-trigger:hover) {
+    border-color: rgba(255, 255, 255, 0.24);
   }
 
-  .nav-row::-webkit-scrollbar,
-  .event-bar::-webkit-scrollbar {
-    display: none;
+  .picker-slot :global(.select-trigger:focus-visible),
+  .picker-slot :global(.select-trigger[aria-expanded='true']) {
+    border-color: rgba(192, 132, 252, 0.45);
+    box-shadow: none;
+    position: relative;
+    z-index: 1;
   }
 
-  /* Only as wide as its pills; rivals seasons, then outside events after a
-     divider. Still scrolls sideways when it outgrows the page. */
-  .event-bar {
-    align-self: flex-start;
-    max-width: 100%;
-    gap: 0.75rem;
+  .picker-slot :global(.chevron),
+  .picker-slot :global(.chevron svg) {
+    width: 0.75rem;
+    height: 0.75rem;
+  }
+
+  .batch-picker:not(.batch-picker-single) .picker-event :global(.select-trigger) {
+    border-radius: 0.5rem 0 0 0.5rem;
+  }
+
+  .picker-phase :global(.select-trigger) {
+    margin-left: -1px;
+    border-radius: 0 0.5rem 0.5rem 0;
+  }
+
+  /* The open list matches the Columns menu panel. */
+  .picker-slot :global(.select-dropdown) {
+    min-width: 11rem;
+    max-height: min(22rem, calc(100dvh - 8rem)) !important;
     padding: 0.3125rem;
-    border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    background: var(--surface);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 0.625rem;
+    background: #2a1647;
+    box-shadow: 0 1.125rem 3rem rgba(8, 2, 20, 0.55);
   }
 
-  .event-group {
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
-    flex-shrink: 0;
+  .picker-slot :global(.select-dropdown li) {
+    padding: 0.4375rem 0.625rem;
+    font-size: 0.8125rem;
+    color: rgba(255, 255, 255, 0.82);
+    border-radius: 0.375rem;
   }
 
-  .event-group-external {
-    padding-left: 0.75rem;
-    border-left: 1px solid rgba(255, 255, 255, 0.1);
+  .picker-slot :global(.select-dropdown li:hover),
+  .picker-slot :global(.select-dropdown li:focus) {
+    background: rgba(255, 255, 255, 0.06);
+    color: #fff;
   }
 
-  .event-group-label {
-    padding: 0 0.375rem 0 0.5rem;
-    font-size: 0.625rem;
+  .picker-slot :global(.select-dropdown li.selected) {
+    background: rgba(192, 132, 252, 0.14);
+    color: #fff;
+  }
+
+  .picker-slot :global(.select-dropdown li.group-header),
+  .picker-slot :global(.select-dropdown li.group-header:hover) {
+    padding: 0.5rem 0.625rem 0.25rem;
+    font-size: 0.6875rem;
     font-weight: 700;
     letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.4);
+    background: transparent;
+    color: rgba(255, 255, 255, 0.45);
   }
 
-  .event-group-external .event-group-label {
-    color: rgba(251, 191, 36, 0.75);
-  }
+  @media (max-width: 640px) {
+    .batch-picker {
+      width: 100%;
+    }
 
-  .nav-pill {
-    flex-shrink: 0;
-    padding: 0.375rem 0.875rem;
-    border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    background: rgba(0, 0, 0, 0.25);
-    color: rgba(255, 255, 255, 0.62);
-    font-size: 0.8125rem;
-    font-weight: 600;
-    white-space: nowrap;
-    cursor: pointer;
-    transition:
-      background 0.15s,
-      border-color 0.15s,
-      color 0.15s;
-  }
+    .picker-slot {
+      flex: 1 1 0;
+      min-width: 0;
+      width: auto;
+    }
 
-  .nav-pill:hover {
-    color: var(--text);
-    border-color: rgba(255, 255, 255, 0.45);
-  }
+    .picker-slot :global(.select-trigger) {
+      height: 2.75rem;
+      font-size: 0.875rem;
+    }
 
-  .nav-pill-on,
-  .nav-pill-on:hover {
-    background: var(--accent);
-    border-color: var(--hover);
-    color: var(--text);
-  }
-
-  /* Outside events take amber instead of the site purple. */
-  .nav-pill-external {
-    border-color: rgba(251, 191, 36, 0.22);
-  }
-
-  .nav-pill-external.nav-pill-on,
-  .nav-pill-external.nav-pill-on:hover {
-    background: rgba(251, 191, 36, 0.18);
-    border-color: rgba(251, 191, 36, 0.6);
-    color: #fde68a;
-  }
-
-  .phase-row {
-    align-self: flex-start;
-    max-width: 100%;
-    gap: 0;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  }
-
-  .phase-tab {
-    flex-shrink: 0;
-    padding: 0.375rem 0.75rem;
-    margin-bottom: -1px;
-    border: none;
-    border-bottom: 2px solid transparent;
-    background: none;
-    color: rgba(255, 255, 255, 0.55);
-    font-size: 0.75rem;
-    font-weight: 600;
-    white-space: nowrap;
-    cursor: pointer;
-    transition:
-      color 0.15s,
-      border-color 0.15s;
-  }
-
-  .phase-tab:hover {
-    color: var(--text);
-  }
-
-  .phase-tab-on,
-  .phase-tab-on:hover {
-    color: var(--text);
-    border-bottom-color: var(--hover);
+    .picker-slot :global(.select-dropdown li) {
+      padding: 0.625rem;
+      font-size: 0.875rem;
+    }
   }
 </style>

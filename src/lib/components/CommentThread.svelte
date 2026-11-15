@@ -23,9 +23,19 @@
     isAdmin?: boolean
     /** Optional control rendered at the right edge of the header row (e.g. a flag button). */
     headerAction?: Snippet
+    /** 'flush' sits as a section of a page sheet instead of a separate card. */
+    variant?: 'card' | 'flush'
   }
 
-  let { entityType, entityId, comments, viewerId, isAdmin = false, headerAction }: Props = $props()
+  let {
+    entityType,
+    entityId,
+    comments,
+    viewerId,
+    isAdmin = false,
+    headerAction,
+    variant = 'card',
+  }: Props = $props()
 
   const MAX_LENGTH = 2000
 
@@ -188,7 +198,7 @@
   }
 </script>
 
-<section class="comments">
+<section class="comments" class:comments-flush={variant === 'flush'}>
   <header class="comments-header">
     <h2 class="comments-title">
       <MessageSquare size={16} />
@@ -421,6 +431,31 @@
     border-radius: 0.75rem;
     border: 1px solid rgba(255, 255, 255, 0.07);
     background: rgba(0, 0, 0, 0.2);
+  }
+
+  /* As a section of a page sheet: no card of its own, just a hairline above. */
+  .comments-flush {
+    margin-top: 0;
+    padding: 1rem 1.5rem 1.25rem;
+    border: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .comments-flush .comments-header {
+    padding-bottom: 0;
+    border-bottom: 0;
+  }
+
+  .comments-flush .comments-title {
+    color: var(--title);
+    letter-spacing: 0.1em;
+  }
+
+  /* Sheet section headings carry no icon. */
+  .comments-flush .comments-title :global(svg) {
+    display: none;
   }
 
   .comments-header {
@@ -770,6 +805,10 @@
 
   @media (max-width: 640px) {
     .comments {
+      padding: 0.875rem;
+    }
+
+    .comments-flush {
       padding: 0.875rem;
     }
 

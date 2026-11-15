@@ -33,6 +33,12 @@ let inFlight: Promise<MapLookup> | null = null
 /** Collapse a name to a comparison key: lowercase, letters and digits only. */
 const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '')
 
+/** List-view thumbnail for a stored map name, or null when it isn't recognized. */
+export function mapThumbFor(lookup: MapLookup, name: string | null | undefined): string | null {
+  if (!name) return null
+  return lookup.get(normalize(name))?.listViewIcon ?? null
+}
+
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 async function fetchLookup(): Promise<MapLookup> {
@@ -103,20 +109,20 @@ export async function getValorantMapList(): Promise<ValorantMapArt[]> {
 export type MapPoolEntry = {
   /** Canonical map name when recognized, otherwise the stored string as-is. */
   name: string
-  /** Landscape splash art URL, or null when the name isn't a known map. */
+  /** Wide list-view thumbnail URL, or null when the name isn't a known map. */
   image: string | null
 }
 
 /**
  * Resolve a season's stored map-pool names to art, keeping the admin's order.
- * Uses the landscape splash art — the pool is a showcase of a handful of maps,
- * not a dense thumbnail list, so the larger key art reads better. An
- * unrecognized name still renders, it just carries no image.
+ * Uses the light list-view thumbnail: the event page shows the pool as a
+ * compact strip, where the full splash art would be a heavy download for a
+ * 30px-tall image. An unrecognized name still renders, it just carries no image.
  */
 export function resolveMapPool(names: string[], lookup: MapLookup): MapPoolEntry[] {
   return names.map((name) => {
     const art = lookup.get(normalize(name))
-    return { name: art?.displayName ?? name, image: art?.splash ?? null }
+    return { name: art?.displayName ?? name, image: art?.listViewIcon ?? null }
   })
 }
 

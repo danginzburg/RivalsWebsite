@@ -87,7 +87,9 @@ export const load: PageServerLoad = async ({ fetch, url, locals, cookies }) => {
   // which would otherwise reset them.
   const initialRankSort = url.searchParams.get('rankSort') === '1'
   const initialDisregardTier = url.searchParams.get('ignoreTier') === '1'
-  const initialView = url.searchParams.get('view') === 'graphs' ? 'graphs' : 'table'
+  // `view=graphs` is the old link for the chart, from before it moved under the table.
+  const initialChart =
+    url.searchParams.get('chart') === '1' || url.searchParams.get('view') === 'graphs'
 
   const fetchStats = async (batchId: string | null) => {
     const res = await fetch(
@@ -260,6 +262,6 @@ export const load: PageServerLoad = async ({ fetch, url, locals, cookies }) => {
     initialDir,
     initialRankSort,
     initialDisregardTier,
-    initialView,
+    initialChart,
   }
 }

@@ -4,7 +4,7 @@ import { TEAM_BALANCE_RANKS } from '$lib/team-balance'
  * Player score formula.
  *
  *   score = 0.35·C + 0.65·P + bonus
- *   bonus = MIN(5, 10·MAX(0, rating − 1))
+ *   bonus = clamp(10·(rating − 1), −5, 5)
  *
  * Where:
  *   C      = current rank points
@@ -16,7 +16,8 @@ import { TEAM_BALANCE_RANKS } from '$lib/team-balance'
  * Radiant further apart.
  *
  * A player without both ranks is unverified and gets no score rather than a
- * partial one. A player without a rating simply gets no bonus.
+ * partial one. A below-average rating (under 1.0) is a penalty, capped the
+ * same as the bonus. A player without a rating simply gets no bonus.
  */
 
 export const SCORE_WEIGHTS = {
@@ -36,7 +37,8 @@ export function rankPoints(rankName: string | null | undefined): number | null {
 
 export function ratingBonus(rating: number | null | undefined): number {
   if (rating == null || !Number.isFinite(rating)) return 0
-  return Math.min(SCORE_WEIGHTS.bonusCap, SCORE_WEIGHTS.bonusPerRating * Math.max(0, rating - 1))
+  const raw = SCORE_WEIGHTS.bonusPerRating * (rating - 1)
+  return Math.max(-SCORE_WEIGHTS.bonusCap, Math.min(SCORE_WEIGHTS.bonusCap, raw))
 }
 
 export type ScoreBreakdown = {

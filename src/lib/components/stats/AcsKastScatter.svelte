@@ -327,7 +327,6 @@
 
 <div class="scatter">
   <div class="scatter-bar">
-    <span class="scatter-title">ACS vs KAST</span>
     <span class="scatter-hint scatter-hint-mouse"
       >Scroll to zoom · drag to pan · double-click or reset to zoom out</span
     >
@@ -495,9 +494,6 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
-    border-radius: 0.75rem;
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    background: var(--surface);
   }
 
   .scatter-bar {
@@ -505,15 +501,7 @@
     align-items: center;
     gap: 0.75rem;
     flex-wrap: wrap;
-    padding: 0.625rem 0.875rem 0;
-  }
-
-  .scatter-title {
-    font-size: 0.75rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
-    color: rgba(255, 255, 255, 0.8);
+    padding: 0 0 0.5rem;
   }
 
   .scatter-hint {
@@ -564,9 +552,9 @@
 
   .bar-btn-on,
   .bar-btn-on:hover {
-    background: var(--accent);
-    border-color: var(--hover);
-    color: var(--text);
+    background: rgba(192, 132, 252, 0.1);
+    border-color: rgba(192, 132, 252, 0.45);
+    color: #fff;
   }
 
   .fit-caption {

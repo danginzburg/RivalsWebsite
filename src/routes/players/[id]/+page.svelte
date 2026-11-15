@@ -2,7 +2,7 @@
   import type { PageProps } from './$types'
   import { formatLeftDay } from '$lib/players/roster-dates'
   import PageContainer from '$lib/components/PageContainer.svelte'
-  import BatchPicker from '$lib/components/stats/BatchPicker.svelte'
+  import { phaseLabel, resolveBatchSection, sectionOrder } from '$lib/stats/sections'
   import CommentThread from '$lib/components/CommentThread.svelte'
   import ReviewFlagButton from '$lib/components/ReviewFlagButton.svelte'
   import RiotAccountsPanel from '$lib/components/RiotAccountsPanel.svelte'
@@ -73,6 +73,7 @@
     win_pct: number | null
   }
   const agentStats = $derived((data.agentStats ?? []) as BreakdownRow[])
+  const mapArt = $derived((data.mapArt ?? {}) as Record<string, string>)
   const mapStatsMain = $derived((data.mapStatsMain ?? []) as BreakdownRow[])
   const agentStatsMain = $derived((data.agentStatsMain ?? []) as BreakdownRow[])
   const mapStatsSub = $derived((data.mapStatsSub ?? []) as BreakdownRow[])
@@ -219,10 +220,52 @@
     return (value as { name?: string }).name ?? 'Team'
   }
 
-  const selectedBatchLabel = $derived.by(() => {
-    if (!selected) return null
-    return selected.batch?.display_name ?? selected.import_batch_id ?? null
+  // The batch picker as one grouped select: an optgroup per event (Rivals
+  // seasons first, outside events after), each phase an option. Within an event
+  // the phases follow section order, the server's order breaking ties.
+  const batchGroups = $derived(
+    [...batchEvents]
+      .sort((a, b) => Number(a.external) - Number(b.external))
+      .map((ev) => ({
+        event: ev.name,
+        label: ev.external ? `${ev.name} (external)` : ev.name,
+        phases: statBatches
+          .map((b, index) => ({ b, index }))
+          .filter(({ b }) => b.event === ev.name)
+          .sort(
+            (a, z) =>
+              sectionOrder(resolveBatchSection(a.b)) - sectionOrder(resolveBatchSection(z.b)) ||
+              a.index - z.index
+          )
+          .map(({ b }) => ({ id: b.id, label: phaseLabel(b) })),
+      }))
+      .filter((g) => g.phases.length > 0)
+  )
+
+  // Map / Agent switch for the single Breakdown section.
+  let breakdownView = $state<'map' | 'agent'>('map')
+  const hasBreakdown = $derived(mapStats.length > 0 || agentStats.length > 0)
+  const shownBreakdownView = $derived(
+    breakdownView === 'map' && mapStats.length === 0
+      ? 'agent'
+      : breakdownView === 'agent' && agentStats.length === 0
+        ? 'map'
+        : breakdownView
+  )
+
+  // One line under the filter bar saying what each control reaches, in place of
+  // the separate notes the stat cards used to carry.
+  const scopeNote = $derived.by(() => {
+    const below = mapStatsScope
+      ? `Breakdown and matches: ${mapStatsScope} only.`
+      : 'Breakdown and matches use every recorded map.'
+    if (rosterCompare) {
+      return `Main vs Sub compares recorded matches${mapStatsScope ? ` in ${mapStatsScope}` : ''}; the roster filter applies to matches.`
+    }
+    return selected ? `Batch sets the totals above. ${below}` : below
   })
+
+  const showFilterBar = $derived(batchGroups.length > 0 || canFilterRoster || canCompareRoster)
 </script>
 
 <svelte:head><title>{player.riot_id}</title></svelte:head>
@@ -251,7 +294,6 @@
 <!-- Map / Agent breakdown with each stat split into Main and Sub columns. Rows
      follow the combined table's order so toggling keeps rows where they were. -->
 {#snippet compareTable(
-  heading: string,
   label: string,
   rows: BreakdownRow[],
   mainRows: BreakdownRow[],
@@ -260,13 +302,7 @@
 )}
   {@const mainByKey = new Map(mainRows.map((r) => [r.key, r]))}
   {@const subByKey = new Map(subRows.map((r) => [r.key, r]))}
-  <section class="card">
-    <header class="card-head">
-      <h2 class="card-title">{heading}</h2>
-      <span class="card-note-inline">
-        Main vs Sub{mapStatsScope ? ` · scoped to ${mapStatsScope}` : ' · all recorded maps'}.
-      </span>
-    </header>
+  <div class="table-box">
     <div class="table-scroll">
       <table class="data-table">
         <thead>
@@ -298,12 +334,7 @@
             {@const s = subByKey.get(entry.key)}
             <tr>
               <td class="col-left">
-                <span class="entry-key">
-                  {#if withIcon && agentIconUrl(entry.key)}
-                    <img src={agentIconUrl(entry.key) ?? ''} alt="" class="agent-icon" />
-                  {/if}
-                  {entry.key}
-                </span>
+                {@render entryKey(entry.key, withIcon)}
               </td>
               <td class="num"
                 >{@render pairCell(m?.maps_played ?? 0, s?.maps_played ?? 0, 0, '', false)}</td
@@ -319,21 +350,22 @@
         </tbody>
       </table>
     </div>
-  </section>
+  </div>
 {/snippet}
 
-{#snippet breakdownTable(heading: string, label: string, rows: BreakdownRow[], withIcon: boolean)}
-  <section class="card">
-    <header class="card-head">
-      <h2 class="card-title">{heading}</h2>
-      <span class="card-note-inline">
-        {#if mapStatsScope}
-          Scoped to {mapStatsScope}.
-        {:else}
-          All recorded maps — the batch selector above does not apply.
-        {/if}
-      </span>
-    </header>
+<!-- Row label for a breakdown table: map thumbnail or agent icon, then the name. -->
+{#snippet entryKey(key: string, isAgent: boolean)}
+  {@const icon = isAgent ? agentIconUrl(key) : (mapArt[key.toLowerCase()] ?? null)}
+  <span class="entry-key">
+    {#if icon}
+      <img src={icon} alt="" class={isAgent ? 'agent-icon' : 'map-thumb'} />
+    {/if}
+    {key}
+  </span>
+{/snippet}
+
+{#snippet breakdownTable(label: string, rows: BreakdownRow[], withIcon: boolean)}
+  <div class="table-box">
     {#if rows.length === 0}
       <p class="card-empty">
         No {label.toLowerCase()} data for {rosterFilter === 'sub' ? 'substitute' : 'main-roster'} appearances
@@ -358,12 +390,7 @@
             {#each rows as entry (entry.key)}
               <tr>
                 <td class="col-left">
-                  <span class="entry-key">
-                    {#if withIcon && agentIconUrl(entry.key)}
-                      <img src={agentIconUrl(entry.key) ?? ''} alt="" class="agent-icon" />
-                    {/if}
-                    {entry.key}
-                  </span>
+                  {@render entryKey(entry.key, withIcon)}
                 </td>
                 <td class="num">{entry.maps_played}</td>
                 <td class="num">
@@ -390,14 +417,15 @@
         </table>
       </div>
     {/if}
-  </section>
+  </div>
 {/snippet}
 
 <PageContainer>
   <div class="player-page">
-    <div class="min-w-0">
-      <div class="hero">
-        <div class="flex items-start gap-4">
+    <article class="sheet">
+      <!-- Identity: the top of the sheet -->
+      <header class="hero">
+        <div class="hero-top">
           {#if activeTeam?.logo_url}
             <img src={activeTeam.logo_url} alt="{activeTeam.name} logo" class="hero-logo" />
           {:else}
@@ -405,8 +433,8 @@
               <User size={34} />
             </div>
           {/if}
-          <div class="min-w-0">
-            <div class="flex flex-wrap items-end gap-2">
+          <div class="hero-id">
+            <div class="hero-name-row">
               <h1 class="hero-name">{player.riot_id}</h1>
               {#if playerRank}
                 {@const rUrl = rankIconUrl(playerRank)}
@@ -415,9 +443,12 @@
                     src={rUrl}
                     alt="All-time peak: {playerRank}"
                     title="All-time peak: {playerRank}"
-                    class="h-8 w-8 object-contain sm:h-10 sm:w-10"
+                    class="hero-rank"
                   />
                 {/if}
+              {/if}
+              {#if accolades.length > 0}
+                <span class="hero-divider" aria-hidden="true"></span>
               {/if}
               {#each accolades as accolade, i (accolade.id + '-' + i)}
                 {@const iconSrc = accolade.icon_key
@@ -431,228 +462,152 @@
                     src={iconSrc ?? accolade.logo_url}
                     alt={accolade.name}
                     title={tooltip}
-                    class="accolade-icon h-5 w-5 rounded object-contain sm:h-7 sm:w-7 md:h-9 md:w-9"
+                    class="accolade-icon"
                   />
                 {:else}
-                  <span
-                    class="accolade-icon inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-bold sm:text-xs"
-                    style="border-color: rgba(255,255,255,0.15); background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.8);"
-                    title={tooltip}
-                  >
-                    {accolade.name}
-                  </span>
+                  <span class="accolade-chip" title={tooltip}>{accolade.name}</span>
                 {/if}
               {/each}
             </div>
-            <div class="identity-row">
-              {#if activeTeam}
-                <a
-                  href={resolve(`/teams/${activeTeam.id}`)}
-                  class="identity-team inline-flex items-center gap-2 rounded-md px-1 py-1 transition-colors hover:bg-white/5"
-                  style="color: var(--text);"
-                >
-                  <span class="font-medium" style="color: rgba(255,255,255,0.88);"
-                    >{activeTeam.name}</span
-                  >
-                  {#if activeTeam.tag}
-                    <span class="text-sm" style="color: rgba(255,255,255,0.62);"
-                      >[{String(activeTeam.tag).toUpperCase()}]</span
-                    >
-                  {/if}
-                  {#if activeTeam.role}
-                    <span
-                      class="identity-role text-sm capitalize"
-                      style="color: rgba(255,255,255,0.52);">{activeTeam.role}</span
-                    >
-                  {/if}
-                </a>
-              {:else}
-                <span class="text-sm" style="color: rgba(255,255,255,0.72);">No active team</span>
-              {/if}
-            </div>
+            {#if activeTeam}
+              <a href={resolve(`/teams/${activeTeam.id}`)} class="identity-team">
+                <span class="identity-team-name">{activeTeam.name}</span>
+                {#if activeTeam.tag}
+                  <span class="identity-dim">[{String(activeTeam.tag).toUpperCase()}]</span>
+                {/if}
+                {#if activeTeam.role && activeTeam.role !== 'player'}
+                  <span class="identity-role">{activeTeam.role}</span>
+                {/if}
+              </a>
+            {:else}
+              <span class="identity-none">No active team</span>
+            {/if}
+          </div>
+          <div class="hero-actions">
+            <ReviewFlagButton
+              entityType="player"
+              entityId={player.profile_id}
+              viewerId={data.viewer?.profileId ?? null}
+              noun="profile"
+            />
           </div>
         </div>
-      </div>
 
-      <section class="card">
-        <div class="card-body">
-          <RiotAccountsPanel
-            accounts={data.riotAccounts ?? []}
-            canEdit={viewer.canEditRiotIdBase}
-            displayName={player.display_name}
-            discordHandle={player.discord_handle}
-          />
+        <!-- Player info: a collapsible row of the sheet -->
+        <RiotAccountsPanel
+          accounts={data.riotAccounts ?? []}
+          canEdit={viewer.canEditRiotIdBase}
+          displayName={player.display_name}
+          discordHandle={player.discord_handle}
+          variant="flush"
+        />
 
-          {#if viewer.canEditRiotIdBase && !player.riot_id_base}
-            <div
-              class="mb-4 rounded-md border p-3"
-              style="border-color: rgba(59,130,246,0.25); background: rgba(59,130,246,0.10);"
-            >
-              <div class="mb-1 text-sm font-semibold" style="color: rgba(255,255,255,0.92);">
-                Link Your Stats
-              </div>
-              <div class="text-xs" style="color: rgba(255,255,255,0.72);">
-                Enter your Riot name (base only, no #tag). Admin stat imports match on this.
-              </div>
-
-              <form class="mt-3 flex flex-col gap-2 md:flex-row" method="POST" use:enhance>
-                <input
-                  name="riot_id_base"
-                  bind:value={riotIdBaseValue}
-                  class="w-full flex-1 rounded-md border px-3 py-2 text-sm"
-                  style="border-color: rgba(255,255,255,0.45); background: rgba(0,0,0,0.25); color: var(--text);"
-                  placeholder="Example: Ginzburg"
-                  autocomplete="off"
-                />
-                <button
-                  type="submit"
-                  formaction="?/setRiotIdBase"
-                  class="rounded-md px-3 py-2 text-sm font-semibold"
-                  style="background: rgba(74,222,128,0.2); color: #4ade80;"
-                >
-                  Save
-                </button>
-              </form>
-
+        <!-- Owner-only callout rows -->
+        {#if viewer.canEditRiotIdBase && !player.riot_id_base}
+          <form class="callout" method="POST" use:enhance>
+            <div class="callout-text">
+              <label for="riot-id-base" class="callout-title">Link your stats</label>
+              <span class="callout-hint"
+                >Your Riot name without the #tag. Stat imports match on this. Only you see this.</span
+              >
               {#if form?.success === false}
-                <div
-                  class="mt-2 rounded-md border p-2 text-sm"
-                  style="border-color: rgba(248,113,113,0.35); background: rgba(248,113,113,0.08); color: #fecaca;"
-                >
-                  {form.message ?? 'Failed to save'}
-                </div>
+                <span class="callout-error">{form.message ?? 'Failed to save'}</span>
               {/if}
             </div>
-          {/if}
-
-          {#if viewer.canEditRiotIdBase && player.has_unmatched_stats_candidate}
-            <div
-              class="mb-4 rounded-md border p-3"
-              style="border-color: rgba(168,85,247,0.25); background: rgba(168,85,247,0.10);"
-            >
-              <div class="mb-1 text-sm font-semibold" style="color: rgba(255,255,255,0.92);">
-                Alternate Stats Name
-              </div>
-              <div class="text-xs" style="color: rgba(255,255,255,0.72);">
-                Use this when imported stats still list an old Riot or display name. This will also
-                try to relink past imported stats.
-              </div>
-
-              <form class="mt-3 flex flex-col gap-2 md:flex-row" method="POST" use:enhance>
-                <input
-                  name="stats_player_name"
-                  bind:value={statsPlayerNameValue}
-                  class="w-full flex-1 rounded-md border px-3 py-2 text-sm"
-                  style="border-color: rgba(255,255,255,0.45); background: rgba(0,0,0,0.25); color: var(--text);"
-                  placeholder="Example: OldName"
-                  autocomplete="off"
-                />
-                <button
-                  type="submit"
-                  formaction="?/setStatsPlayerName"
-                  class="rounded-md px-3 py-2 text-sm font-semibold"
-                  style="background: rgba(168,85,247,0.2); color: #d8b4fe;"
-                >
-                  Save Alt Name
-                </button>
-              </form>
-            </div>
-          {/if}
-
-          <div class="stats-bar">
-            <span class="section-label">Stats</span>
-            {#if selectedBatchLabel}
-              <span class="stats-batch">{selectedBatchLabel}</span>
-            {/if}
-            <div class="stats-controls">
-              {#if canCompareRoster}
-                <button
-                  type="button"
-                  class="toggle-btn"
-                  class:toggle-btn-on={compareRoster}
-                  aria-pressed={compareRoster}
-                  onclick={() => (compareRoster = !compareRoster)}
-                >
-                  Main vs Sub
-                </button>
-              {/if}
-            </div>
-          </div>
-
-          {#if batchEvents.length > 0}
-            <div class="batch-picker">
-              <BatchPicker
-                batches={statBatches}
-                events={batchEvents}
-                batchId={selectedBatchId}
-                onPick={navToBatch}
+            <div class="callout-controls">
+              <input
+                id="riot-id-base"
+                name="riot_id_base"
+                bind:value={riotIdBaseValue}
+                class="callout-input"
+                placeholder="Example: Ginzburg"
+                autocomplete="off"
               />
+              <button type="submit" formaction="?/setRiotIdBase" class="callout-btn">Save</button>
             </div>
-          {/if}
+          </form>
+        {/if}
 
-          {#if rosterCompare}
-            <!-- Same tiles as the overall row, each holding a Main / Sub pair
-                 like the comparison tables below. -->
-            <div class="kpi-row kpi-row-compare">
-              {#each rosterCompare as row (row.label)}
-                {@const better = betterSide(row)}
-                {@const suffix = row.label.endsWith('%') ? '%' : ''}
-                <div class="kpi">
-                  <span class="kpi-label">{row.label}</span>
-                  <span class="kpi-pair">
-                    <span class="kpi-pair-side">
-                      <span class="kpi-value" class:compare-better={better === 'main'}
-                        >{row.main == null ? '—' : `${fmt(row.main, row.digits)}${suffix}`}</span
-                      >
-                      <span class="kpi-pair-tag">Main</span>
-                    </span>
-                    <span class="kpi-pair-side">
-                      <span class="kpi-value kpi-value-sub" class:compare-better={better === 'sub'}
-                        >{row.sub == null ? '—' : `${fmt(row.sub, row.digits)}${suffix}`}</span
-                      >
-                      <span class="kpi-pair-tag">Sub</span>
-                    </span>
+        {#if viewer.canEditRiotIdBase && player.has_unmatched_stats_candidate}
+          <form class="callout" method="POST" use:enhance>
+            <div class="callout-text">
+              <label for="stats-player-name" class="callout-title">Alternate stats name</label>
+              <span class="callout-hint"
+                >For imported stats that still list an old Riot or display name. Also relinks past
+                imports. Only you see this.</span
+              >
+            </div>
+            <div class="callout-controls">
+              <input
+                id="stats-player-name"
+                name="stats_player_name"
+                bind:value={statsPlayerNameValue}
+                class="callout-input"
+                placeholder="Example: OldName"
+                autocomplete="off"
+              />
+              <button type="submit" formaction="?/setStatsPlayerName" class="callout-btn"
+                >Save</button
+              >
+            </div>
+          </form>
+        {/if}
+
+        <!-- KPI strip docked to the hero's bottom edge -->
+        {#if rosterCompare}
+          <div class="kpi-strip">
+            {#each rosterCompare as row (row.label)}
+              {@const better = betterSide(row)}
+              {@const suffix = row.label.endsWith('%') ? '%' : ''}
+              <div class="kpi">
+                <span class="kpi-label">{row.label}</span>
+                <span class="kpi-pair">
+                  <span class="kpi-pair-side">
+                    <span class="kpi-value" class:compare-better={better === 'main'}
+                      >{row.main == null ? '—' : `${fmt(row.main, row.digits)}${suffix}`}</span
+                    >
+                    <span class="kpi-pair-tag">Main</span>
                   </span>
-                </div>
-              {/each}
+                  <span class="kpi-pair-side">
+                    <span class="kpi-value kpi-value-sub" class:compare-better={better === 'sub'}
+                      >{row.sub == null ? '—' : `${fmt(row.sub, row.digits)}${suffix}`}</span
+                    >
+                    <span class="kpi-pair-tag">Sub</span>
+                  </span>
+                </span>
+              </div>
+            {/each}
+          </div>
+        {:else if !selected}
+          <p class="kpi-empty">No imported stats found for this player.</p>
+        {:else}
+          {@const pool = parseAgents(selected.agents)}
+          <div class="kpi-strip">
+            <div class="kpi">
+              <span class="kpi-label">Games</span>
+              <span class="kpi-value">{selected.games ?? '—'}</span>
             </div>
-            <p class="compare-note">
-              From recorded matches{mapStatsScope ? ` in ${mapStatsScope}` : ''}, not the
-              leaderboard batch.
-            </p>
-          {:else if !selected}
-            <p class="muted">No imported stats found for this player.</p>
-          {:else}
-            <div class="kpi-row">
-              <div class="kpi">
-                <span class="kpi-label">Games</span>
-                <span class="kpi-value">{selected.games ?? '—'}</span>
-              </div>
-              <div class="kpi">
-                <span class="kpi-label">ACS</span>
-                <span class="kpi-value">{fmt(selected.acs, 0)}</span>
-              </div>
-              <div class="kpi">
-                <span class="kpi-label">K/D</span>
-                <span class="kpi-value">{fmt(selected.kd, 2)}</span>
-              </div>
-              <div class="kpi">
-                <span class="kpi-label">ADR</span>
-                <span class="kpi-value">{fmt(selected.adr, 0)}</span>
-              </div>
-              <div class="kpi">
-                <span class="kpi-label">HS%</span>
-                <span class="kpi-value">{fmt(selected.hs_pct, 0)}</span>
-              </div>
+            <div class="kpi">
+              <span class="kpi-label">ACS</span>
+              <span class="kpi-value">{fmt(selected.acs, 0)}</span>
             </div>
-          {/if}
-
-          {#if !rosterCompare && selected}
-            {#if parseAgents(selected.agents).length > 0}
-              <div class="agent-pool">
-                <span class="section-label">Agents</span>
-                <div class="agents-icons">
-                  {#each parseAgents(selected.agents) as agent (agent)}
+            <div class="kpi">
+              <span class="kpi-label">K/D</span>
+              <span class="kpi-value">{fmt(selected.kd, 2)}</span>
+            </div>
+            <div class="kpi">
+              <span class="kpi-label">ADR</span>
+              <span class="kpi-value">{fmt(selected.adr, 0)}</span>
+            </div>
+            <div class="kpi">
+              <span class="kpi-label">HS%</span>
+              <span class="kpi-value">{fmt(selected.hs_pct, 0)}%</span>
+            </div>
+            {#if pool.length > 0}
+              <div class="kpi kpi-agents">
+                <span class="kpi-label">Agents</span>
+                <span class="agents-icons">
+                  {#each pool as agent (agent)}
                     {@const url = agentIconUrl(agent)}
                     {#if url}
                       <img src={url} alt={agent} title={agent} class="agent-tile" />
@@ -662,18 +617,92 @@
                       </span>
                     {/if}
                   {/each}
-                </div>
+                </span>
               </div>
             {/if}
-          {/if}
-        </div>
-      </section>
+          </div>
+        {/if}
+      </header>
 
-      <section class="card">
-        <header class="card-head">
-          <h2 class="card-title">Team History</h2>
+      <!-- One filter bar for every scope control -->
+      {#if showFilterBar}
+        <div class="filter-bar">
+          {#if batchGroups.length > 0}
+            <label class="filter-item">
+              <span class="filter-label">Stats</span>
+              <select
+                class="batch-select"
+                value={selectedBatchId ?? ''}
+                onchange={(e) => navToBatch(e.currentTarget.value)}
+              >
+                {#if !selectedBatchId}
+                  <option value="" disabled>Pick a batch</option>
+                {/if}
+                {#each batchGroups as group (group.event)}
+                  <optgroup label={group.label}>
+                    {#each group.phases as phase (phase.id)}
+                      <option value={phase.id}>{phase.label}</option>
+                    {/each}
+                  </optgroup>
+                {/each}
+              </select>
+            </label>
+          {/if}
+
+          {#if canFilterRoster}
+            <div class="filter-item">
+              <span class="filter-label">Roster</span>
+              <div class="seg" role="group" aria-label="Filter by roster role">
+                <button
+                  type="button"
+                  class="seg-btn"
+                  class:seg-on={rosterFilter === 'all'}
+                  onclick={() => (rosterFilter = 'all')}
+                >
+                  All
+                </button>
+                <button
+                  type="button"
+                  class="seg-btn"
+                  class:seg-on={rosterFilter === 'main'}
+                  onclick={() => (rosterFilter = 'main')}
+                >
+                  Main <span class="seg-count">{rosterSplit.mainGames}</span>
+                </button>
+                <button
+                  type="button"
+                  class="seg-btn"
+                  class:seg-on={rosterFilter === 'sub'}
+                  onclick={() => (rosterFilter = 'sub')}
+                >
+                  Sub <span class="seg-count">{rosterSplit.subGames}</span>
+                </button>
+              </div>
+            </div>
+          {/if}
+
+          {#if canCompareRoster}
+            <button
+              type="button"
+              class="toggle-btn"
+              class:toggle-btn-on={compareRoster}
+              aria-pressed={compareRoster}
+              onclick={() => (compareRoster = !compareRoster)}
+            >
+              Main vs Sub
+            </button>
+          {/if}
+
+          <span class="filter-note">{scopeNote}</span>
+        </div>
+      {/if}
+
+      <!-- Team History -->
+      <section class="sheet-section">
+        <div class="sheet-head">
+          <h2 class="sheet-title">Team History</h2>
           {#if activeSeasonId && teamHistory.length > 0}
-            <div class="seg card-seg" role="group" aria-label="Team history scope">
+            <div class="seg head-end" role="group" aria-label="Team history scope">
               <button
                 type="button"
                 class="seg-btn"
@@ -691,10 +720,8 @@
                 All Time <span class="seg-count">{teamHistory.length}</span>
               </button>
             </div>
-          {:else if teamHistory.length > 0}
-            <span class="card-count">{teamHistory.length}</span>
           {/if}
-        </header>
+        </div>
 
         {#if teamHistory.length === 0}
           <p class="card-empty">Not rostered on a team yet.</p>
@@ -724,23 +751,23 @@
                 {#if entry.placement || entry.is_mvp}
                   <span class="team-row-awards">
                     {#if entry.placement === 'champion'}
-                      <span class="team-row-award award-champion" title="Season champions">
+                      <span class="team-row-award" title="Season champions">
                         <img src={builtInAccoladeIcons.trophy} alt="" />
                         <span class="team-row-award-label">Champions</span>
                       </span>
                     {:else if entry.placement === 'runner_up'}
-                      <span class="team-row-award award-runner-up" title="Season runner-up">
+                      <span class="team-row-award" title="Season runner-up">
                         <img src={builtInAccoladeIcons.silver_medal} alt="" />
                         <span class="team-row-award-label">Runner-up</span>
                       </span>
                     {:else if entry.placement === 'third'}
-                      <span class="team-row-award award-third" title="Season 3rd place">
+                      <span class="team-row-award" title="Season 3rd place">
                         <img src={builtInAccoladeIcons.bronze_medal} alt="" />
                         <span class="team-row-award-label">3rd</span>
                       </span>
                     {/if}
                     {#if entry.is_mvp}
-                      <span class="team-row-award award-mvp" title="Season MVP">
+                      <span class="team-row-award" title="Season MVP">
                         <img src={builtInAccoladeIcons.mvp_trophy} alt="" />
                         <span class="team-row-award-label">MVP</span>
                       </span>
@@ -760,83 +787,65 @@
         {/if}
       </section>
 
-      {#if canFilterRoster}
-        <div class="roster-filter">
-          <span class="section-label">Roster</span>
-          <div class="seg" role="group" aria-label="Filter stats by roster role">
-            <button
-              type="button"
-              class="seg-btn"
-              class:seg-on={rosterFilter === 'all'}
-              onclick={() => (rosterFilter = 'all')}
-            >
-              All
-            </button>
-            <button
-              type="button"
-              class="seg-btn"
-              class:seg-on={rosterFilter === 'main'}
-              onclick={() => (rosterFilter = 'main')}
-            >
-              Main <span class="seg-count">{rosterSplit.mainGames}</span>
-            </button>
-            <button
-              type="button"
-              class="seg-btn"
-              class:seg-on={rosterFilter === 'sub'}
-              onclick={() => (rosterFilter = 'sub')}
-            >
-              Sub <span class="seg-count">{rosterSplit.subGames}</span>
-            </button>
-          </div>
-          <span class="roster-note">
-            {#if rosterCompare}
-              Filters Match History. Turn off Main vs Sub to filter Map &amp; Agent stats.
-            {:else}
-              Filters Map, Agent &amp; Match History. Use Main vs Sub above to compare side by side.
+      <!-- Breakdown: Map Stats and Agent Stats behind one switch -->
+      {#if hasBreakdown}
+        <section class="sheet-section">
+          <div class="sheet-head">
+            <h2 class="sheet-title">Breakdown</h2>
+            {#if mapStats.length > 0 && agentStats.length > 0}
+              <div class="seg head-end" role="group" aria-label="Break down by">
+                <button
+                  type="button"
+                  class="seg-btn"
+                  class:seg-on={shownBreakdownView === 'map'}
+                  aria-pressed={shownBreakdownView === 'map'}
+                  onclick={() => (breakdownView = 'map')}
+                >
+                  Map
+                </button>
+                <button
+                  type="button"
+                  class="seg-btn"
+                  class:seg-on={shownBreakdownView === 'agent'}
+                  aria-pressed={shownBreakdownView === 'agent'}
+                  onclick={() => (breakdownView = 'agent')}
+                >
+                  Agent
+                </button>
+              </div>
             {/if}
-          </span>
-        </div>
-      {/if}
-
-      {#if mapStats.length > 0}
-        {#if rosterCompare}
-          {@render compareTable('Map Stats', 'Map', mapStats, mapStatsMain, mapStatsSub, false)}
-        {:else}
-          {@render breakdownTable('Map Stats', 'Map', shownMapStats, false)}
-        {/if}
-      {/if}
-
-      {#if agentStats.length > 0}
-        {#if rosterCompare}
-          {@render compareTable(
-            'Agent Stats',
-            'Agent',
-            agentStats,
-            agentStatsMain,
-            agentStatsSub,
-            true
-          )}
-        {:else}
-          {@render breakdownTable('Agent Stats', 'Agent', shownAgentStats, true)}
-        {/if}
-      {/if}
-
-      <section class="card">
-        <header class="card-head">
-          <h2 class="card-title">Match History</h2>
-          {#if mapStatsScope}
-            <span class="card-note-inline">Scoped to {mapStatsScope}.</span>
+          </div>
+          {#if shownBreakdownView === 'map'}
+            {#if rosterCompare}
+              {@render compareTable('Map', mapStats, mapStatsMain, mapStatsSub, false)}
+            {:else}
+              {@render breakdownTable('Map', shownMapStats, false)}
+            {/if}
+          {:else if rosterCompare}
+            {@render compareTable('Agent', agentStats, agentStatsMain, agentStatsSub, true)}
+          {:else}
+            {@render breakdownTable('Agent', shownAgentStats, true)}
           {/if}
+        </section>
+      {/if}
+
+      <!-- Match History -->
+      <section class="sheet-section">
+        <div class="sheet-head">
+          <h2 class="sheet-title">Match History</h2>
           {#if shownMatchHistory.length > 0}
-            <span class="card-record" title="Wins – losses">
+            <span class="head-end head-record" title="Wins – losses">
               <b class="record-win">{matchRecord.wins}W</b>
               <span class="score-sep">–</span>
               <b class="record-loss">{matchRecord.losses}L</b>
+              <span class="head-record-count"
+                >· {shownMatchHistory.length} match{shownMatchHistory.length === 1
+                  ? ''
+                  : 'es'}</span
+              >
             </span>
-            <span class="card-count">{shownMatchHistory.length}</span>
           {/if}
-        </header>
+        </div>
 
         {#if matchHistory.length === 0}
           <p class="card-empty">
@@ -849,13 +858,22 @@
             No {rosterFilter === 'sub' ? 'substitute' : 'main-roster'} appearances recorded.
           </p>
         {:else}
+          <div class="match-grid match-head" aria-hidden="true">
+            <span></span><span></span><span>Opponent</span>
+            <span class="row-hide-sm">Agents</span>
+            <span class="num">ACS</span>
+            <span class="num">K/D/A</span>
+            <span class="num row-hide-sm">KAST</span>
+            <span class="num row-hide-sm">HS</span>
+            <span class="num">Score</span>
+          </div>
           <div class="match-rows">
             {#each visibleMatchHistory as entry (entry.match.id)}
               {@const match = entry.match}
               {@const opp = entry.opponent}
               {@const score = entry.score}
               {@const won = score.us > score.them}
-              <a href={resolve(`/matches/${match.id}`)} class="match-row">
+              <a href={resolve(`/matches/${match.id}`)} class="match-grid match-row">
                 <span class="row-badge" class:row-win={won} class:row-loss={!won}>
                   {won ? 'W' : 'L'}
                 </span>
@@ -873,7 +891,7 @@
                   {/if}
                 </span>
 
-                <span class="row-agents">
+                <span class="row-agents row-hide-sm">
                   {#each parseAgents(entry.agents) as agent (agent)}
                     {@const url = agentIconUrl(agent)}
                     {#if url}
@@ -886,14 +904,12 @@
                   {/each}
                 </span>
 
-                <span class="row-stat" title="Average combat score">
-                  <b>{fmt(entry.acs, 0)}</b> ACS
-                </span>
-                <span class="row-stat row-kda">
+                <span class="num num-strong" title="Average combat score">{fmt(entry.acs, 0)}</span>
+                <span class="num">
                   {entry.kills ?? 0}/{entry.deaths ?? 0}/{entry.assists ?? 0}
                 </span>
-                <span class="row-stat row-hide-sm"><b>{fmt(entry.kast_pct, 0)}%</b> KAST</span>
-                <span class="row-stat row-hide-sm"><b>{fmt(entry.hs_pct, 0)}%</b> HS</span>
+                <span class="num row-hide-sm">{fmt(entry.kast_pct, 0)}%</span>
+                <span class="num row-hide-sm">{fmt(entry.hs_pct, 0)}%</span>
 
                 <span class="row-score">
                   <b class:score-win={won}>{score.us}</b>
@@ -922,17 +938,9 @@
         comments={data.comments ?? []}
         viewerId={data.viewer?.profileId ?? null}
         isAdmin={data.viewer?.isAdmin ?? false}
-      >
-        {#snippet headerAction()}
-          <ReviewFlagButton
-            entityType="player"
-            entityId={player.profile_id}
-            viewerId={data.viewer?.profileId ?? null}
-            noun="profile"
-          />
-        {/snippet}
-      </CommentThread>
-    </div>
+        variant="flush"
+      />
+    </article>
   </div>
 </PageContainer>
 
@@ -949,23 +957,18 @@
     padding: 1.5rem 1rem 3rem;
   }
 
-  .player-page > div {
+  /* Identity: the top of the sheet, no card or wash of its own. */
+  .hero-top {
     display: flex;
-    flex-direction: column;
-    gap: 1rem;
-  }
-
-  /* Identity */
-  .hero {
-    padding: 1.5rem;
-    border-radius: 0.75rem;
-    border: 1px solid rgba(255, 255, 255, 0.09);
-    background: linear-gradient(135deg, rgba(120, 67, 145, 0.14), rgba(0, 0, 0, 0.25));
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1rem 1.125rem;
+    padding: 1.5rem 1.5rem 1.25rem;
   }
 
   .hero-logo {
-    width: 5rem;
-    height: 5rem;
+    width: 4.75rem;
+    height: 4.75rem;
     border-radius: 0.625rem;
     object-fit: contain;
     flex-shrink: 0;
@@ -980,265 +983,229 @@
     color: rgba(255, 255, 255, 0.5);
   }
 
+  .hero-id {
+    flex: 1 1 16rem;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .hero-name-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.625rem;
+  }
+
   .hero-name {
     font-size: 1.875rem;
     font-weight: 700;
     line-height: 1.1;
     letter-spacing: -0.015em;
     color: var(--title);
+    overflow-wrap: anywhere;
   }
 
-  /* Cards */
-  .card {
-    border-radius: 0.75rem;
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    background: rgba(0, 0, 0, 0.2);
-    overflow: hidden;
+  .hero-rank {
+    width: 2.25rem;
+    height: 2.25rem;
+    object-fit: contain;
   }
 
-  .card-head {
-    display: flex;
-    align-items: baseline;
-    gap: 0.625rem;
-    padding: 0.75rem 1rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  .hero-divider {
+    width: 1px;
+    height: 1.375rem;
+    background: rgba(255, 255, 255, 0.14);
   }
 
-  .card-title {
-    font-size: 0.75rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--title);
-    flex-shrink: 0;
+  .accolade-icon {
+    width: 1.625rem;
+    height: 1.625rem;
+    border-radius: 0.25rem;
+    object-fit: contain;
   }
 
-  .card-note-inline {
-    font-size: 0.6875rem;
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .card-seg {
-    margin-left: auto;
-    align-self: center;
-  }
-
-  .card-count {
-    margin-left: auto;
-    font-size: 0.6875rem;
-    font-weight: 700;
-    padding: 0.125rem 0.4375rem;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.07);
-    color: rgba(255, 255, 255, 0.6);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .card-record {
-    margin-left: auto;
-    font-size: 0.6875rem;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .card-record + .card-count {
-    margin-left: 0;
-  }
-
-  .record-win {
-    color: #4ade80;
-  }
-
-  .record-loss {
-    color: #f87171;
-  }
-
-  .card-body {
-    padding: 1rem;
-  }
-
-  .card-empty {
-    padding: 2rem 1rem;
-    text-align: center;
-    font-size: 0.8125rem;
-    color: rgba(255, 255, 255, 0.5);
-  }
-
-  .muted {
-    font-size: 0.8125rem;
-    color: rgba(255, 255, 255, 0.55);
-  }
-
-  .section-label {
-    font-size: 0.6875rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: rgba(255, 255, 255, 0.55);
-  }
-
-  /* Stats controls */
-  .stats-bar {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.625rem;
-    margin-bottom: 0.875rem;
-  }
-
-  .stats-batch {
-    font-size: 0.75rem;
-    color: rgba(255, 255, 255, 0.6);
-  }
-
-  .stats-controls {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-left: auto;
-  }
-
-  .batch-picker {
-    display: flex;
-    max-width: 100%;
-    margin-bottom: 0.875rem;
-  }
-
-  .toggle-btn {
-    padding: 0.4375rem 0.75rem;
-    border-radius: 0.4375rem;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(0, 0, 0, 0.25);
-    color: rgba(255, 255, 255, 0.7);
-    font-size: 0.75rem;
-    font-weight: 600;
-    cursor: pointer;
-    white-space: nowrap;
-    transition:
-      background 0.15s,
-      border-color 0.15s,
-      color 0.15s;
-  }
-
-  .toggle-btn:hover {
-    color: var(--text);
-    background: rgba(255, 255, 255, 0.06);
-  }
-
-  .toggle-btn-on {
-    border-color: rgba(120, 67, 145, 0.6);
-    background: var(--accent);
-    color: var(--text);
-  }
-
-  /* Roster (All / Main / Sub) filter bar */
-  .roster-filter {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.625rem;
-  }
-
-  /* Main vs Sub comparison (replaces the KPI tiles when toggled) */
-  .compare-better {
-    color: #4ade80;
-  }
-
-  /* Main / Sub pairs inside the comparison tables */
-  .pair {
-    display: inline-grid;
-    grid-template-columns: repeat(2, minmax(2.25rem, auto));
-    gap: 0.375rem;
-    justify-content: end;
-  }
-
-  .pair-val {
-    text-align: right;
-  }
-
-  .pair-sub {
-    color: rgba(255, 255, 255, 0.6);
-  }
-
-  .pair-val.compare-better {
-    color: #4ade80;
-  }
-
-  .pair-head th {
-    padding-top: 0;
-    font-size: 0.5625rem;
-    color: rgba(255, 255, 255, 0.4);
-  }
-
-  .compare-note {
-    margin-top: 0.375rem;
-    font-size: 0.6875rem;
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .seg {
-    display: inline-flex;
-    border-radius: 0.5rem;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(0, 0, 0, 0.25);
-    overflow: hidden;
-  }
-
-  .seg-btn {
+  .accolade-chip {
     display: inline-flex;
     align-items: center;
-    gap: 0.375rem;
-    padding: 0.375rem 0.75rem;
-    border: none;
-    background: transparent;
-    color: rgba(255, 255, 255, 0.65);
-    font-size: 0.75rem;
-    font-weight: 600;
-    cursor: pointer;
-    white-space: nowrap;
-    transition:
-      background 0.15s,
-      color 0.15s;
-  }
-
-  .seg-btn + .seg-btn {
-    border-left: 1px solid rgba(255, 255, 255, 0.1);
-  }
-
-  .seg-btn:hover {
-    color: var(--text);
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.375rem;
+    border: 1px solid rgba(255, 255, 255, 0.15);
     background: rgba(255, 255, 255, 0.06);
-  }
-
-  .seg-on {
-    background: var(--accent);
-    color: var(--text);
-  }
-
-  .seg-count {
-    font-size: 0.625rem;
-    font-weight: 700;
-    padding: 0 0.3125rem;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.12);
     color: rgba(255, 255, 255, 0.8);
-    font-variant-numeric: tabular-nums;
+    font-size: 0.6875rem;
+    font-weight: 700;
   }
 
-  .roster-note {
-    font-size: 0.6875rem;
+  /*
+   * Team name, tag and role sit on one line until they cannot. Without this the
+   * link refuses to shrink below its content and spills past the hero on a
+   * phone — "Virtuous.Proletariat [VP] captain" is wider than the column.
+   */
+  .identity-team {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    align-self: flex-start;
+    gap: 0.5rem;
+    min-width: 0;
+    font-size: 0.875rem;
+    color: rgba(255, 255, 255, 0.88);
+    text-decoration: none;
+  }
+
+  .identity-team:hover .identity-team-name {
+    color: var(--accent-text);
+  }
+
+  .identity-team-name {
+    font-weight: 600;
+    transition: color 0.15s;
+  }
+
+  .identity-dim {
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  .identity-role {
+    text-transform: capitalize;
     color: rgba(255, 255, 255, 0.45);
   }
 
-  /* KPI tiles */
-  .kpi-row {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 0.625rem;
+  .identity-none {
+    font-size: 0.875rem;
+    color: rgba(255, 255, 255, 0.6);
   }
 
-  /* Six tiles (adds Win%); the breakpoints below still reflow it to 3 / 2. */
-  .kpi-row-compare {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+  .hero-actions {
+    align-self: flex-start;
+  }
+
+  /* Owner-only forms: a tinted row of the sheet, not a box inside it. */
+  .callout {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.625rem 0.875rem;
+    padding: 0.75rem 1.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
+    background: rgba(192, 132, 252, 0.07);
+  }
+
+  .callout-text {
+    flex: 1 1 17rem;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+  }
+
+  .callout-title {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .callout-hint {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.62);
+  }
+
+  .callout-error {
+    font-size: 0.75rem;
+    color: #fca5a5;
+  }
+
+  .callout-controls {
+    flex: 1 1 20rem;
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .callout-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 2.25rem;
+    padding: 0 0.75rem;
+    border-radius: 0.4375rem;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    background: rgba(0, 0, 0, 0.25);
+    color: var(--text);
+    font-size: 0.8125rem;
+  }
+
+  .callout-btn {
+    min-height: 2.25rem;
+    padding: 0 0.875rem;
+    border-radius: 0.4375rem;
+    border: 1px solid rgba(192, 132, 252, 0.5);
+    background: rgba(192, 132, 252, 0.18);
+    color: var(--text);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .callout-btn:hover {
+    background: rgba(192, 132, 252, 0.28);
+  }
+
+  /* KPI strip: cells split by hairlines along the hero's bottom edge. */
+  .kpi-strip {
+    display: flex;
+    flex-wrap: wrap;
+    border-top: 1px solid rgba(255, 255, 255, 0.09);
+    background: rgba(0, 0, 0, 0.16);
+  }
+
+  .kpi {
+    flex: 1 1 6.5rem;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3125rem;
+    padding: 0.875rem 1.25rem;
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .kpi:last-child,
+  .kpi:has(+ .kpi-agents) {
+    border-right: 0;
+  }
+
+  /*
+   * The agent pool gets a line of its own under the KPI cells: sharing their
+   * row, a long pool squeezed the numbers and threw their columns off.
+   */
+  .kpi-agents {
+    flex: 1 1 100%;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.75rem;
+    border-right: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .kpi-label,
+  .filter-label {
+    font-size: 0.65625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  .kpi-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .kpi-value-sub {
+    color: rgba(255, 255, 255, 0.6);
   }
 
   .kpi-pair {
@@ -1248,7 +1215,7 @@
     gap: 0.5rem;
   }
 
-  /* Two values share a tile, so they run a step smaller than a lone KPI. */
+  /* Two values share a cell, so they run a step smaller than a lone KPI. */
   .kpi-pair .kpi-value {
     font-size: 1.125rem;
   }
@@ -1271,56 +1238,36 @@
     color: rgba(255, 255, 255, 0.4);
   }
 
-  .kpi {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    padding: 0.75rem 0.875rem;
-    border-radius: 0.5rem;
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    background: rgba(255, 255, 255, 0.02);
+  .kpi-empty {
+    margin: 0;
+    padding: 1rem 1.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.09);
+    background: rgba(0, 0, 0, 0.16);
+    font-size: 0.8125rem;
+    color: rgba(255, 255, 255, 0.55);
   }
 
-  .kpi-label {
-    font-size: 0.625rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: rgba(255, 255, 255, 0.5);
-  }
-
-  .kpi-value {
-    font-size: 1.375rem;
-    font-weight: 700;
-    line-height: 1;
+  /*
+   * Green means a win everywhere on the site, so the better side of a Main vs
+   * Sub pair is marked by weight and full white instead.
+   */
+  .compare-better {
     color: var(--text);
-    font-variant-numeric: tabular-nums;
+    font-weight: 800;
   }
 
-  .kpi-value-sub {
-    color: rgba(255, 255, 255, 0.6);
-  }
-
-  .kpi-value.compare-better {
-    color: #4ade80;
-  }
-
-  .agent-pool {
+  .agents-icons {
     display: flex;
-    align-items: center;
     flex-wrap: wrap;
-    gap: 0.75rem;
-    margin-top: 1rem;
-    padding-top: 0.875rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.07);
+    gap: 0.25rem;
   }
 
   .agent-tile {
-    width: 1.75rem;
-    height: 1.75rem;
+    width: 1.625rem;
+    height: 1.625rem;
     border-radius: 0.3125rem;
     object-fit: contain;
-    background: rgba(0, 0, 0, 0.2);
+    background: rgba(255, 255, 255, 0.06);
   }
 
   .agent-tile-text {
@@ -1333,36 +1280,195 @@
     color: rgba(255, 255, 255, 0.75);
   }
 
+  /* One filter bar for batch, roster role and the Main vs Sub toggle. */
+  .filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.625rem 1rem;
+    padding: 0.75rem 1.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.09);
+  }
+
+  .filter-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .batch-select {
+    min-width: 0;
+    max-width: 100%;
+    min-height: 2.125rem;
+    padding: 0 1.75rem 0 0.625rem;
+    border-radius: 0.4375rem;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background-color: rgba(0, 0, 0, 0.25);
+    color: var(--text);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .batch-select optgroup,
+  .batch-select option {
+    background: #261543;
+    color: var(--text);
+  }
+
+  .filter-note {
+    flex: 1 1 16rem;
+    font-size: 0.71875rem;
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .toggle-btn {
+    min-height: 2.125rem;
+    padding: 0 0.75rem;
+    border-radius: 0.4375rem;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(0, 0, 0, 0.25);
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition:
+      background 0.15s,
+      border-color 0.15s,
+      color 0.15s;
+  }
+
+  .toggle-btn:hover {
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .toggle-btn-on,
+  .toggle-btn-on:hover {
+    border-color: rgba(192, 132, 252, 0.5);
+    background: rgba(192, 132, 252, 0.2);
+    color: var(--text);
+  }
+
+  /* Segmented controls (roster filter, team history scope, map / agent). */
+  .seg {
+    display: inline-flex;
+    gap: 2px;
+    padding: 2px;
+    border-radius: 0.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(0, 0, 0, 0.18);
+  }
+
+  .seg-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    min-height: 1.875rem;
+    padding: 0 0.6875rem;
+    border: none;
+    border-radius: 0.375rem;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.68);
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition:
+      background 0.15s,
+      color 0.15s;
+  }
+
+  .seg-btn:hover {
+    color: var(--text);
+  }
+
+  .seg-on,
+  .seg-on:hover {
+    background: rgba(192, 132, 252, 0.2);
+    color: var(--text);
+  }
+
+  .seg-count {
+    font-size: 0.65625rem;
+    color: rgba(255, 255, 255, 0.5);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Section header extras, pushed to the right edge. */
+  .head-end {
+    margin-left: auto;
+  }
+
+  .sheet-head {
+    padding-bottom: 0.5rem;
+  }
+
+  .head-record {
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    color: rgba(255, 255, 255, 0.6);
+  }
+
+  .head-record-count {
+    margin-left: 0.25rem;
+  }
+
+  .record-win {
+    color: #4ade80;
+  }
+
+  .record-loss {
+    color: #f87171;
+  }
+
+  .card-empty {
+    padding: 1.5rem 1rem 2rem;
+    text-align: center;
+    font-size: 0.8125rem;
+    color: rgba(255, 255, 255, 0.5);
+  }
+
   /* Breakdown tables */
+  .table-box {
+    padding: 0 0.875rem 0.875rem;
+  }
+
   .table-scroll {
     overflow-x: auto;
   }
 
   .data-table {
     width: 100%;
+    min-width: 34rem;
     border-collapse: collapse;
     font-size: 0.8125rem;
   }
 
   .data-table th {
-    padding: 0.5rem 0.75rem;
+    padding: 0.4375rem 0.625rem;
     text-align: right;
-    font-size: 0.625rem;
+    font-size: 0.65625rem;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: rgba(255, 255, 255, 0.5);
+    letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.55);
     white-space: nowrap;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   }
 
   .data-table td {
-    padding: 0.5rem 0.75rem;
-    color: rgba(255, 255, 255, 0.8);
+    padding: 0.4375rem 0.625rem;
+    color: rgba(255, 255, 255, 0.82);
     white-space: nowrap;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   }
 
-  .data-table tbody tr {
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
+  .data-table tbody tr:last-child td {
+    border-bottom: 0;
   }
 
   .data-table tbody tr:hover {
@@ -1379,135 +1485,58 @@
   }
 
   .num-strong {
-    font-weight: 700;
+    font-weight: 600;
     color: var(--text);
   }
 
   .entry-key {
     display: inline-flex;
     align-items: center;
-    gap: 0.4375rem;
+    gap: 0.625rem;
     font-weight: 600;
-    color: var(--text);
+    color: rgba(255, 255, 255, 0.82);
+  }
+
+  .map-thumb {
+    width: 2.75rem;
+    height: 1.375rem;
+    border-radius: 0.25rem;
+    object-fit: cover;
   }
 
   .record {
-    font-size: 0.6875rem;
+    margin-left: 0.375rem;
+    font-size: 0.71875rem;
     color: rgba(255, 255, 255, 0.45);
   }
 
-  /* Match history rows — same shape as the team page. */
-  .match-rows {
-    display: flex;
-    flex-direction: column;
+  /* Main / Sub pairs inside the comparison tables */
+  .pair {
+    display: inline-grid;
+    grid-template-columns: repeat(2, minmax(2.25rem, auto));
+    gap: 0.375rem;
+    justify-content: end;
   }
 
-  .match-rows-more {
-    display: block;
-    width: 100%;
-    padding: 0.625rem 1rem;
-    border: 0;
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
-    background: rgba(255, 255, 255, 0.02);
-    color: rgba(255, 255, 255, 0.7);
-    font-size: 0.75rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition:
-      background 0.15s,
-      color 0.15s;
+  .pair-val {
+    text-align: right;
   }
 
-  .match-rows-more:hover {
-    color: var(--accent-text);
-    background: rgba(255, 255, 255, 0.04);
+  .pair-sub {
+    color: rgba(255, 255, 255, 0.55);
   }
 
-  .match-row {
-    display: flex;
-    align-items: center;
-    gap: 0.6875rem;
-    padding: 0.625rem 1rem;
-    text-decoration: none;
-    color: var(--text);
-    transition: background 0.15s;
-  }
-
-  .match-row + .match-row {
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
-  }
-
-  .match-row:hover {
-    background: rgba(255, 255, 255, 0.04);
-  }
-
-  .match-row:hover .row-name {
-    color: var(--accent-text);
-  }
-
-  .row-badge {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.375rem;
-    height: 1.375rem;
-    border-radius: 0.3125rem;
-    font-size: 0.6875rem;
-    font-weight: 800;
-    flex-shrink: 0;
-  }
-
-  .row-win {
-    background: rgba(74, 222, 128, 0.16);
-    color: #4ade80;
-  }
-
-  .row-loss {
-    background: rgba(248, 113, 113, 0.14);
-    color: #f87171;
-  }
-
-  .row-logo {
-    width: 1.75rem;
-    height: 1.75rem;
-    border-radius: 0.3125rem;
-    object-fit: contain;
-    flex-shrink: 0;
-  }
-
-  .row-logo-empty {
-    background: rgba(255, 255, 255, 0.06);
-  }
-
-  .row-name {
-    flex: 1;
-    min-width: 6rem;
-    font-size: 0.875rem;
-    font-weight: 600;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    transition: color 0.15s;
-  }
-
-  .sub-badge {
-    display: inline-block;
-    margin-left: 0.25rem;
-    padding: 0 0.3125rem;
-    border-radius: 0.25rem;
-    background: rgba(251, 191, 36, 0.16);
-    color: #fbbf24;
-    border: 1px solid rgba(251, 191, 36, 0.35);
+  .pair-head th {
+    padding-top: 0;
     font-size: 0.5625rem;
-    font-weight: 800;
-    letter-spacing: 0.06em;
-    vertical-align: middle;
+    color: rgba(255, 255, 255, 0.4);
   }
 
-  /* Team history — same row rhythm as the match list above it. */
+  /* Team history rows */
   .team-rows {
     display: flex;
     flex-direction: column;
+    padding-bottom: 0.5rem;
   }
 
   .team-row {
@@ -1519,19 +1548,17 @@
      * edge.
      */
     flex-wrap: wrap;
-    gap: 0.6875rem;
-    padding: 0.625rem 1rem;
+    gap: 0.375rem 0.75rem;
+    min-height: 2.75rem;
+    padding: 0.375rem 1.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
     text-decoration: none;
-    color: var(--text);
+    color: rgba(255, 255, 255, 0.82);
     transition: background 0.15s;
   }
 
-  .team-row + .team-row {
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
-  }
-
   .team-row:hover {
-    background: rgba(255, 255, 255, 0.04);
+    background: rgba(255, 255, 255, 0.03);
   }
 
   .team-row:hover .team-row-name {
@@ -1557,69 +1584,35 @@
   .team-row-tag {
     margin-left: 0.375rem;
     font-size: 0.75rem;
-    font-weight: 700;
-    color: rgba(255, 255, 255, 0.45);
+    font-weight: 400;
+    color: rgba(255, 255, 255, 0.5);
   }
 
   .team-row-role {
     flex-shrink: 0;
-    padding: 0.0625rem 0.375rem;
-    border-radius: 0.25rem;
-    background: rgba(255, 255, 255, 0.08);
-    font-size: 0.625rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.6875rem;
+    text-transform: capitalize;
+    color: rgba(255, 255, 255, 0.55);
   }
 
   .team-row-awards {
     display: inline-flex;
     flex-shrink: 0;
-    gap: 0.375rem;
+    gap: 0.75rem;
   }
 
   .team-row-award {
     display: inline-flex;
     align-items: center;
-    gap: 0.25rem;
-    padding: 0.0625rem 0.4375rem 0.0625rem 0.25rem;
-    border: 1px solid;
-    border-radius: 999px;
-    font-size: 0.625rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+    gap: 0.3125rem;
+    font-size: 0.71875rem;
+    color: rgba(255, 255, 255, 0.72);
   }
 
   .team-row-award img {
-    width: 1rem;
-    height: 1rem;
+    width: 0.9375rem;
+    height: 0.9375rem;
     object-fit: contain;
-  }
-
-  .award-champion {
-    border-color: rgba(250, 204, 21, 0.4);
-    background: rgba(250, 204, 21, 0.1);
-    color: #fde68a;
-  }
-
-  .award-runner-up {
-    border-color: rgba(203, 213, 225, 0.35);
-    background: rgba(203, 213, 225, 0.08);
-    color: #e2e8f0;
-  }
-
-  .award-third {
-    border-color: rgba(217, 119, 6, 0.45);
-    background: rgba(217, 119, 6, 0.1);
-    color: #fdba74;
-  }
-
-  .award-mvp {
-    border-color: rgba(168, 85, 247, 0.4);
-    background: rgba(168, 85, 247, 0.1);
-    color: #e9d5ff;
   }
 
   .team-row-season {
@@ -1634,18 +1627,135 @@
     color: rgba(255, 255, 255, 0.4);
   }
 
+  /* Match history: a header row and link rows on one shared grid. */
+  .match-grid {
+    display: grid;
+    grid-template-columns:
+      1.5rem 1.5rem minmax(8rem, 1fr) 4.25rem 3.25rem 5.25rem 3.25rem 3rem
+      3.5rem;
+    align-items: center;
+    column-gap: 0.75rem;
+    padding: 0 1.5rem;
+  }
+
+  .match-head {
+    padding-bottom: 0.375rem;
+    font-size: 0.65625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  .match-rows {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .match-row {
+    min-height: 2.75rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    font-size: 0.8125rem;
+    text-decoration: none;
+    color: rgba(255, 255, 255, 0.82);
+    transition: background 0.15s;
+  }
+
+  .match-row:hover {
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .match-row:hover .row-name {
+    color: var(--accent-text);
+  }
+
+  .match-rows-more {
+    display: block;
+    width: 100%;
+    min-height: 2.75rem;
+    border: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    background: transparent;
+    color: var(--accent-text);
+    font-size: 0.78125rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  .match-rows-more:hover {
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .row-badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.375rem;
+    height: 1.375rem;
+    border-radius: 0.3125rem;
+    font-size: 0.6875rem;
+    font-weight: 700;
+  }
+
+  .row-win {
+    background: rgba(74, 222, 128, 0.14);
+    color: #4ade80;
+  }
+
+  .row-loss {
+    background: rgba(248, 113, 113, 0.14);
+    color: #f87171;
+  }
+
+  .row-logo {
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 0.3125rem;
+    object-fit: contain;
+    flex-shrink: 0;
+  }
+
+  .row-logo-empty {
+    display: inline-block;
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .row-name {
+    min-width: 0;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transition: color 0.15s;
+  }
+
+  .sub-badge {
+    display: inline-block;
+    margin-left: 0.25rem;
+    padding: 0 0.3125rem;
+    border-radius: 0.25rem;
+    background: rgba(251, 191, 36, 0.16);
+    color: #fbbf24;
+    font-size: 0.5625rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    vertical-align: middle;
+  }
+
   .row-agents {
     display: flex;
     gap: 0.1875rem;
-    flex-shrink: 0;
+    min-width: 0;
+    overflow: hidden;
   }
 
   .agent-icon {
     width: 1.375rem;
     height: 1.375rem;
-    border-radius: 0.25rem;
+    border-radius: 0.3125rem;
     object-fit: contain;
-    background: rgba(0, 0, 0, 0.2);
+    background: rgba(255, 255, 255, 0.06);
   }
 
   .agent-icon-text {
@@ -1658,82 +1768,38 @@
     color: rgba(255, 255, 255, 0.75);
   }
 
-  .row-stat {
-    flex-shrink: 0;
-    font-size: 0.6875rem;
-    color: rgba(255, 255, 255, 0.45);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .row-stat b {
-    font-weight: 700;
-    color: rgba(255, 255, 255, 0.82);
-  }
-
-  .row-kda {
-    font-size: 0.75rem;
-    color: rgba(255, 255, 255, 0.7);
-  }
-
   .row-score {
     display: flex;
     align-items: center;
-    gap: 0.3125rem;
-    flex-shrink: 0;
-    font-size: 0.9375rem;
+    justify-content: flex-end;
+    gap: 0.25rem;
     font-variant-numeric: tabular-nums;
     color: rgba(255, 255, 255, 0.45);
   }
 
-  .score-win {
+  .row-score b {
+    font-weight: 400;
+  }
+
+  .row-score b.score-win {
+    font-weight: 700;
     color: var(--text);
   }
 
   .score-sep {
-    opacity: 0.4;
-    font-size: 0.75rem;
+    opacity: 0.6;
   }
 
-  .agents-icons {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-
-  /* Team identity and contact chips on one line, wrapping when narrow. */
-  .identity-row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.375rem;
-    margin-top: 0.5rem;
-  }
-
-  /*
-   * Team name, tag and role sit on one line until they cannot. Without this the
-   * chip refuses to shrink below its content and spills past the hero on a
-   * phone — "Virtuous.Proletariat [VP] player" is wider than the column.
-   */
-  .identity-team {
-    min-width: 0;
-    flex-wrap: wrap;
-  }
-
-  /* Short and centred so it separates without crowding the text above. */
   /* Responsive */
-  @media (max-width: 900px) {
-    .kpi-row {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-
-    .stats-controls {
-      margin-left: 0;
-      width: 100%;
-    }
-
-    /* KAST and HS% are the first to go when the row runs out of room. */
+  @media (max-width: 720px) {
+    /* Agents, KAST and HS% are the first to go when the row runs out of room. */
     .row-hide-sm {
       display: none;
+    }
+
+    .match-grid {
+      grid-template-columns: 1.375rem 1.5rem minmax(0, 1fr) 2.75rem 4.75rem 2.75rem;
+      column-gap: 0.5rem;
     }
   }
 
@@ -1742,8 +1808,8 @@
       padding: 1rem 0.75rem 2rem;
     }
 
-    .hero {
-      padding: 1rem;
+    .hero-top {
+      padding: 1rem 0.875rem;
     }
 
     .hero-logo {
@@ -1755,38 +1821,51 @@
       font-size: 1.375rem;
     }
 
-    .kpi-row {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+    .hero-rank {
+      width: 1.75rem;
+      height: 1.75rem;
+    }
+
+    .accolade-icon {
+      width: 1.25rem;
+      height: 1.25rem;
+    }
+
+    .callout,
+    .filter-bar,
+    .kpi-empty {
+      padding-left: 0.875rem;
+      padding-right: 0.875rem;
+    }
+
+    .kpi {
+      flex-basis: 30%;
+      padding: 0.75rem 0.875rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     }
 
     .kpi-value {
       font-size: 1.125rem;
     }
 
-    .row-agents,
-    .row-stat {
-      display: none;
+    .kpi-agents {
+      align-items: flex-start;
+      border-bottom: 0;
     }
 
-    .row-kda {
-      display: inline;
+    .team-row,
+    .match-grid {
+      padding-left: 0.875rem;
+      padding-right: 0.875rem;
     }
 
-    /*
-     * The role reads as filler next to the team name. Dropping it is what
-     * lets the header and each history row stay on one line.
-     */
-    .identity-role,
-    .team-row-role {
-      display: none;
+    .table-box {
+      padding: 0 0.25rem 0.5rem;
     }
 
     /* The icon carries the award on its own; the label is for wider rows. */
-    .team-row-award {
-      padding: 0.125rem;
-    }
-
-    .team-row-award-label {
+    .team-row-award-label,
+    .team-row-role {
       display: none;
     }
   }

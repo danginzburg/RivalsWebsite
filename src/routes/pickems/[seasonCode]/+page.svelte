@@ -1,980 +1,137 @@
 <script lang="ts">
   import { untrack } from 'svelte'
 
-  import { resolve } from '$app/paths'
+  import { page } from '$app/state'
   import PageContainer from '$lib/components/PageContainer.svelte'
-  import pickemMedal from '$lib/assets/accolades/pickem_medal.svg'
-  import {
-    buildPickemSlots,
-    normalizePickemPayload,
-    validatePickemPayload,
-    type PickemPayload,
-    type PickemTeam,
-    type PickemSlot,
-  } from '$lib/pickems'
+  import type { PickemFormat } from '$lib/pickems'
+  import PickemDisplay from './PickemDisplay.svelte'
   import type { PageProps } from './$types'
 
   let { data }: PageProps = $props()
 
-  const isBracket = $derived(data.event.format === 'bracket')
-  const entryNoun = $derived(isBracket ? 'bracket' : 'entry')
-  const entryNounPlural = $derived(isBracket ? 'brackets' : 'entries')
+  const hasBoth = $derived(Boolean(data.playoffs && data.weekly))
 
-  let picks = $state<Record<string, string>>(
-    untrack(() => ({ ...(data.mySubmission?.payload.picks ?? {}) }))
-  )
-  let selectedSubmissionId = $state<string>(untrack(() => data.mySubmission?.id ?? ''))
-  let isSaving = $state(false)
-  let saveMessage = $state<string | null>(null)
-  let errorMessage = $state<string | null>(null)
-
-  const teamById = $derived(new Map((data.teams as PickemTeam[]).map((team) => [team.id, team])))
-  const selectedSubmission = $derived(
-    data.submissions.find((submission) => submission.id === selectedSubmissionId) ?? null
-  )
-  const displayPayload = $derived<PickemPayload>(
-    selectedSubmission && selectedSubmission.id !== data.mySubmission?.id
-      ? normalizePickemPayload(selectedSubmission.payload)
-      : { picks }
-  )
-  // A submission view propagates from that person's own picks; matchups
-  // already carry their teams (assigned or filled from the linked game
-  // server-side). The real bracket is drawn on the leaderboard page.
-  const slots = $derived(buildPickemSlots(data.event, data.matches, displayPayload))
-
-  /** Matchup slots grouped by week, preserving row order. */
-  const matchupGroups = $derived.by(() => {
-    const groups: Array<{ label: string; slots: PickemSlot[] }> = []
-    const byLabel = new Map<string, { label: string; slots: PickemSlot[] }>()
-    for (const slot of slots) {
-      let group = byLabel.get(slot.groupKey)
-      if (!group) {
-        group = { label: slot.groupKey || 'Matches', slots: [] }
-        byLabel.set(slot.groupKey, group)
-        groups.push(group)
-      }
-      group.slots.push(slot)
-    }
-    return groups
-  })
-  const isViewingOwn = $derived(
-    !selectedSubmission || selectedSubmission.id === data.mySubmission?.id
+  // `?view=playoffs|weekly` picks the display; otherwise the one taking picks.
+  function viewFromUrl(): PickemFormat | null {
+    const view = page.url.searchParams.get('view')
+    if (view === 'weekly') return 'matchups'
+    if (view === 'playoffs') return 'bracket'
+    return null
+  }
+  let view = $state<PickemFormat>(untrack(() => viewFromUrl() ?? data.defaultView))
+  const activeView = $derived<PickemFormat>(
+    view === 'matchups'
+      ? data.weekly
+        ? 'matchups'
+        : 'bracket'
+      : data.playoffs
+        ? 'bracket'
+        : 'matchups'
   )
 
-  /*
-   * The medal only means something once every match has a result — before
-   * that the top of the leaderboard is just whoever is ahead so far. A tie at
-   * the top has no single champion, so nothing is awarded: one rule, so the
-   * banner and the row medal can never disagree.
-   */
-  const isScored = $derived(data.complete || data.event.status === 'scored')
-  // Opening and locking are timed, so show what the timing says, not just the stored status.
-  const statusLabel = $derived(isScored ? 'final' : data.locked ? 'locked' : data.event.status)
-  const champion = $derived.by(() => {
-    if (!isScored) return null
-    const leaders = data.leaderboard.filter((entry) => entry.rank === 1)
-    return leaders.length === 1 ? leaders[0] : null
-  })
-
-  const resolvedIds = $derived(new Set(data.resolvedSlotKeys ?? []))
-  const actualWinners = $derived((data.actualWinners ?? {}) as Record<string, string>)
-  const decidedIds = $derived.by(() => {
-    const ids = new Set(resolvedIds)
-    for (const matchId of Object.keys(actualWinners)) {
-      ids.add(matchId)
-    }
-    return ids
-  })
-  const slotById = $derived(new Map(slots.map((s) => [s.id, s])))
-
-  function getSlots(ids: string[]): PickemSlot[] {
-    return ids.map((id) => slotById.get(id)!).filter(Boolean)
+  function show(next: PickemFormat) {
+    view = next
+    // Keep the choice in the URL (shareable, survives reload) without a navigation.
+    const url = new URL(window.location.href)
+    url.searchParams.set('view', next === 'matchups' ? 'weekly' : 'playoffs')
+    window.history.replaceState(window.history.state, '', url)
   }
 
-  const ubQF = $derived(getSlots(['ub_qf_1', 'ub_qf_2', 'ub_qf_3', 'ub_qf_4']))
-  const ubSF = $derived(getSlots(['ub_sf_1', 'ub_sf_2']))
-  const ubFinal = $derived(getSlots(['ub_final']))
-  const lbR1 = $derived(getSlots(['lb_r1_1', 'lb_r1_2']))
-  const lbR2 = $derived(getSlots(['lb_r2_1', 'lb_r2_2']))
-  const lbR3 = $derived(getSlots(['lb_r3']))
-  const lbFinal = $derived(getSlots(['lb_final']))
-  const grandFinal = $derived(getSlots(['grand_final']))
-
-  function teamLabel(teamId: string | null) {
-    if (!teamId) return 'TBD'
-    const team = teamById.get(teamId)
-    if (!team) return 'Unknown team'
-    return team.tag ?? team.name
-  }
-
-  function teamLogo(teamId: string | null) {
-    return teamId ? (teamById.get(teamId)?.logo_url ?? null) : null
-  }
-
-  /** Playoff seed for a team, from the bracket config. */
-  const seedByTeamId = $derived(new Map(Object.entries(data.seeds ?? {})))
-
-  function teamSeed(teamId: string | null): number | null {
-    return teamId ? (seedByTeamId.get(teamId) ?? null) : null
-  }
-
-  function pickResult(matchId: string): 'correct' | 'wrong' | 'no-pick' | null {
-    if (resolvedIds.has(matchId)) return null
-    const winner = actualWinners[matchId]
-    if (!winner) return null
-    const pick = displayPayload.picks[matchId]
-    if (!pick) return 'no-pick'
-    return pick === winner ? 'correct' : 'wrong'
-  }
-
-  function chooseWinner(matchId: string, teamId: string | null) {
-    if (!data.viewer.canEdit || !isViewingOwn || !teamId || decidedIds.has(matchId)) return
-    picks = { ...picks, [matchId]: teamId }
-    saveMessage = null
-    errorMessage = null
-  }
-
-  function clearBracket() {
-    picks = {}
-    saveMessage = null
-    errorMessage = null
-  }
-
-  async function saveBracket() {
-    if (!data.viewer.canEdit || isSaving) return
-    isSaving = true
-    saveMessage = null
-    errorMessage = null
-    try {
-      const payload = validatePickemPayload(data.event, data.matches, { picks })
-      const response = await fetch(`/api/pickems/${data.season.id}/submit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-      const result = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        throw new Error(
-          typeof result.message === 'string' ? result.message : 'Failed to save bracket'
-        )
-      }
-      saveMessage = 'Bracket saved.'
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      errorMessage = msg || 'Failed to save bracket'
-    } finally {
-      isSaving = false
-    }
+  function headingFor(title: string | undefined) {
+    return hasBoth ? "Pick'em" : title || "Pick'em"
   }
 </script>
 
 <PageContainer class="pickem-page">
-  <!-- `page-content` fills the width: the centring page container would
-       otherwise shrink this wrapper to its contents. -->
-  <div class="page-content flex min-h-[calc(100vh-4rem)] justify-center px-2 py-4">
-    <div class="my-auto w-full">
-      {#if data.preview}
-        <div
-          class="mb-4 rounded-md border px-3 py-2 text-sm"
-          style="border-color: rgba(250,204,21,0.4); background: rgba(250,204,21,0.08); color: rgba(255,255,255,0.85);"
-        >
-          Draft preview: only admins can see this page until the pick'em is opened.
-        </div>
-      {/if}
-      <!-- Header -->
-      <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p class="text-xs font-bold tracking-wide uppercase" style="color: var(--accent-text);">
-            {data.season.name}
-          </p>
-          <h1 class="responsive-title mt-1">{data.event.title || "Pick'em"}</h1>
-          <p
-            class="mt-1 flex flex-wrap items-center gap-3 text-sm"
-            style="color: rgba(255,255,255,0.66);"
-          >
-            <span
-              class="inline-block rounded-full px-2 py-0.5 text-xs font-bold uppercase"
-              style="background: var(--accent); color: var(--text);"
-            >
-              {statusLabel}
-            </span>
-            {#if data.event.lockAt && !data.locked && !isScored}
-              <span>Locks {new Date(data.event.lockAt).toLocaleString()}</span>
-            {/if}
-          </p>
-        </div>
-        <div class="flex items-center gap-3">
-          {#if !data.viewer.isLoggedIn}
-            <a
-              class="inline-flex items-center rounded-md px-4 py-2 text-sm font-bold"
-              style="background: var(--accent); color: var(--text);"
-              href={resolve('/auth/login')}
-            >
-              Log in to submit
-            </a>
-          {:else if data.viewer.canEdit}
-            <button
-              type="button"
-              class="rounded-md px-4 py-2 text-sm font-bold transition-colors"
-              style="background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.7);"
-              onclick={clearBracket}
-            >
-              Clear
-            </button>
-            <button
-              type="button"
-              class="rounded-md px-4 py-2 text-sm font-bold transition-colors"
-              style="background: var(--hover); color: var(--text);"
-              onclick={saveBracket}
-              disabled={isSaving}
-            >
-              {isSaving ? 'Saving...' : isBracket ? 'Save bracket' : 'Save picks'}
-            </button>
-          {:else if data.preview}
-            <span class="text-sm" style="color: rgba(255,255,255,0.6);">Preview only</span>
-          {:else}
-            <span class="text-sm" style="color: rgba(255,255,255,0.6);">Submissions locked</span>
-          {/if}
-        </div>
-      </div>
-
-      {#if saveMessage}
-        <div
-          class="mb-3 rounded-md px-3 py-2 text-sm font-semibold"
-          style="background: rgba(74,222,128,0.15); color: #86efac;"
-        >
-          {saveMessage}
-        </div>
-      {/if}
-      {#if errorMessage}
-        <div
-          class="mb-3 rounded-md px-3 py-2 text-sm font-semibold"
-          style="background: rgba(244,63,94,0.15); color: #fda4af;"
-        >
-          {errorMessage}
-        </div>
-      {/if}
-
-      <!-- Main area: bracket/matchups + leaderboard -->
-      <div class="page-grid">
-        {#if isBracket}
-          <div class="bracket-wrapper">
-            <!-- Upper bracket + Grand Final -->
-            <div class="bracket-flow ub-flow">
-              <div class="bracket-round conn-merge">
-                {#each ubQF as slot (slot.id)}
-                  <div class="match-item">
-                    {@render matchCard(slot)}
-                  </div>
-                {/each}
-              </div>
-              <div class="bracket-round conn-merge">
-                {#each ubSF as slot (slot.id)}
-                  <div class="match-item">
-                    {@render matchCard(slot)}
-                  </div>
-                {/each}
-              </div>
-              <div class="bracket-round conn-straight">
-                {#each ubFinal as slot (slot.id)}
-                  <div class="match-item">
-                    {@render matchCard(slot)}
-                  </div>
-                {/each}
-              </div>
-              <div class="bracket-round">
-                {#each grandFinal as slot (slot.id)}
-                  <div class="match-item">
-                    {@render matchCard(slot)}
-                  </div>
-                {/each}
-              </div>
-            </div>
-
-            <!-- Lower bracket -->
-            <div class="bracket-flow lb-flow">
-              <div class="bracket-round conn-straight">
-                {#each lbR1 as slot (slot.id)}
-                  <div class="match-item">
-                    {@render matchCard(slot)}
-                  </div>
-                {/each}
-              </div>
-              <div class="bracket-round conn-merge">
-                {#each lbR2 as slot (slot.id)}
-                  <div class="match-item">
-                    {@render matchCard(slot)}
-                  </div>
-                {/each}
-              </div>
-              <div class="bracket-round conn-straight">
-                {#each lbR3 as slot (slot.id)}
-                  <div class="match-item">
-                    {@render matchCard(slot)}
-                  </div>
-                {/each}
-              </div>
-              <div class="bracket-round">
-                {#each lbFinal as slot (slot.id)}
-                  <div class="match-item">
-                    {@render matchCard(slot)}
-                  </div>
-                {/each}
-              </div>
-            </div>
-          </div>
-        {:else}
-          <!-- Weekly matchups: a flat, grouped-by-week set of winner pickers -->
-          <div class="matchups-wrapper">
-            {#each matchupGroups as group (group.label)}
-              <section class="matchup-week">
-                <div class="week-label">{group.label}</div>
-                <div class="week-matches">
-                  {#each group.slots as slot (slot.id)}
-                    <div class="match-item">
-                      {@render matchCard(slot)}
-                    </div>
-                  {/each}
-                </div>
-              </section>
-            {/each}
-          </div>
-        {/if}
-
-        <!-- Leaderboard sidebar -->
-        <aside class="leaderboard">
-          <div class="lb-heading">Leaderboard</div>
-          <p class="text-xs" style="color: rgba(255,255,255,0.5);">
-            {data.submissions.length}
-            {data.submissions.length === 1 ? entryNoun : entryNounPlural}
-          </p>
-          {#if champion}
-            <div class="lb-winner">
-              <img src={pickemMedal} alt="" class="lb-winner-medal" />
-              <div class="min-w-0">
-                <div class="lb-winner-label">Pick'em Champion</div>
-                <div class="lb-winner-name">{champion.user.name}</div>
-              </div>
-            </div>
-          {/if}
-          {#if data.leaderboard.length === 0}
-            <div class="mt-2 text-sm" style="color: rgba(255,255,255,0.64);">
-              No submissions yet.
-            </div>
-          {:else}
-            <div class="lb-list">
-              {#each data.leaderboard as entry (entry.id)}
-                <button
-                  type="button"
-                  class="lb-row"
-                  class:lb-active={selectedSubmissionId === entry.id}
-                  onclick={() => (selectedSubmissionId = entry.id)}
-                >
-                  {#if champion?.id === entry.id}
-                    <img src={pickemMedal} alt="Pick'em Champion" class="lb-medal" />
-                  {:else}
-                    <span class="lb-rank">#{entry.rank}</span>
-                  {/if}
-                  <span class="lb-name">{entry.user.name}</span>
-                  <span class="lb-score">{entry.score}</span>
-                </button>
-              {/each}
-            </div>
-          {/if}
-          <!-- Someone still drafting has no row to click back to. -->
-          {#if !isViewingOwn && (data.mySubmission || data.viewer.canEdit)}
-            <button
-              type="button"
-              class="lb-back"
-              onclick={() => (selectedSubmissionId = data.mySubmission?.id ?? '')}
-            >
-              {isBracket ? 'Back to my bracket' : 'Back to my picks'}
-            </button>
-          {/if}
-        </aside>
-      </div>
+  <!-- Both stay mounted so unsaved picks survive switching displays. -->
+  {#if data.playoffs}
+    <div hidden={activeView !== 'bracket'}>
+      <PickemDisplay
+        display={data.playoffs}
+        season={data.season}
+        heading={headingFor(data.playoffs.event.title)}
+        seasonBoard={data.seasonBoard}
+        seasonChampionId={data.seasonChampionId}
+        me={data.me}
+        tabs={hasBoth ? displayTabs : undefined}
+      />
     </div>
-  </div>
+  {/if}
+  {#if data.weekly}
+    <div hidden={activeView !== 'matchups'}>
+      <PickemDisplay
+        display={data.weekly}
+        season={data.season}
+        heading={headingFor(data.weekly.event.title)}
+        seasonBoard={data.seasonBoard}
+        seasonChampionId={data.seasonChampionId}
+        me={data.me}
+        tabs={hasBoth ? displayTabs : undefined}
+      />
+    </div>
+  {/if}
 </PageContainer>
 
-{#snippet matchCard(slot: PickemSlot)}
-  {@const isResolved = resolvedIds.has(slot.id)}
-  {@const isDecided = isResolved || Boolean(actualWinners[slot.id])}
-  {@const result = pickResult(slot.id)}
-  <article
-    class="match-card"
-    class:gf={slot.id === 'grand_final'}
-    class:resolved={isDecided && result === null}
-    class:pick-correct={result === 'correct'}
-    class:pick-wrong={result === 'wrong'}
-  >
-    <div class="match-header">
-      <span class="match-label">{slot.label}</span>
-      {#if result === 'correct'}
-        <span class="pick-indicator correct">Correct</span>
-      {:else if result === 'wrong'}
-        <span class="pick-indicator wrong">Wrong</span>
-      {:else if isResolved}
-        <span class="resolved-tag">Decided</span>
-      {:else}
-        <span class="pts">{slot.points}pt{slot.points !== 1 ? 's' : ''}</span>
-      {/if}
-    </div>
-    {#each [slot.teamAId, slot.teamBId] as teamId, index (`${slot.id}-${index}`)}
-      {@const isPick = slot.winnerId === teamId}
-      {@const isWinner = isDecided && teamId === (actualWinners[slot.id] ?? null)}
-      {@const seed = teamSeed(teamId)}
-      <button
-        type="button"
-        class="team-btn"
-        class:tbd={!teamId}
-        class:pick-pending={isPick && result === null}
-        class:pick-hit={isPick && result === 'correct'}
-        class:pick-miss={isPick && result === 'wrong'}
-        class:won={isWinner}
-        disabled={isResolved || !data.viewer.canEdit || !isViewingOwn || !teamId}
-        onclick={() => chooseWinner(slot.id, teamId)}
-      >
-        {#if seed != null}
-          <span class="team-seed" title="Seed {seed}">{seed}</span>
-        {/if}
-        {#if teamLogo(teamId)}
-          <img src={teamLogo(teamId) ?? ''} alt="" class="team-logo" />
-        {/if}
-        <span class="team-name">{teamLabel(teamId)}</span>
-        <!-- Outcome markers: the pick carries right/wrong. The winner is only
-             stated when no pick implies it (a wrong pick already does), so a
-             correct-looking colour never lands on a team the viewer did not
-             pick. -->
-        {#if isPick && result === 'correct'}
-          <span class="team-mark mark-hit" title="Your pick — correct">✓</span>
-        {:else if isPick && result === 'wrong'}
-          <span class="team-mark mark-miss" title="Your pick — wrong">✕</span>
-        {:else if isPick}
-          <span class="team-mark mark-pick" title="Your pick">●</span>
-        {/if}
-        {#if isWinner && !isPick && result !== 'wrong'}
-          <span class="team-mark mark-won" title="Won this match">W</span>
-        {/if}
-      </button>
-    {/each}
-  </article>
+{#snippet displayTabs()}
+  <div class="pk-tabs" role="tablist" aria-label="Pick'em displays">
+    <button
+      type="button"
+      role="tab"
+      class="pk-tab"
+      class:pk-tab-on={activeView === 'bracket'}
+      aria-selected={activeView === 'bracket'}
+      onclick={() => show('bracket')}
+    >
+      Playoffs
+    </button>
+    <button
+      type="button"
+      role="tab"
+      class="pk-tab"
+      class:pk-tab-on={activeView === 'matchups'}
+      aria-selected={activeView === 'matchups'}
+      onclick={() => show('matchups')}
+    >
+      Weekly
+    </button>
+  </div>
 {/snippet}
 
 <style>
-  h1,
-  h2,
-  p {
-    margin: 0;
-  }
-
-  /* Page grid: bracket + leaderboard sidebar */
-  .page-grid {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 1.25rem;
-  }
-
-  @media (min-width: 1200px) {
-    .page-grid {
-      grid-template-columns: 1fr 250px;
-    }
-  }
-
-  /* Weekly matchups layout */
-  .matchups-wrapper {
+  .pk-tabs {
     display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
-    min-width: 0;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0.25rem;
+    padding: 0 1rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
   }
 
-  .matchup-week {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-  }
-
-  .week-label {
-    font-size: 0.75rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--accent-text);
-  }
-
-  .week-matches {
-    display: grid;
-    /* At least two columns from tablet up so a week's slate fills the page
-       instead of stacking in a single narrow strip. */
-    grid-template-columns: 1fr;
-    gap: 0.75rem;
-  }
-
-  @media (min-width: 560px) {
-    .week-matches {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-  }
-
-  @media (min-width: 1024px) {
-    .week-matches {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-  }
-
-  /* Bracket layout */
-  .bracket-wrapper {
-    display: flex;
-    flex-direction: column;
-    gap: 2rem;
-    --conn: rgba(255, 255, 255, 0.18);
-    --conn-w: 1.25rem;
-  }
-
-  .bracket-flow {
-    display: flex;
-    gap: calc(var(--conn-w) * 2);
-  }
-
-  .bracket-round {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    position: relative;
-    overflow: visible;
-    min-width: 0;
-  }
-
-  .match-item {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    position: relative;
-    padding: 0.25rem 0;
-  }
-
-  /* Merge connector: odd match (top of pair) → "┐" */
-  .conn-merge > .match-item:nth-of-type(odd)::after {
-    content: '';
-    position: absolute;
-    right: calc(var(--conn-w) * -1);
-    width: var(--conn-w);
-    top: 50%;
-    bottom: 0;
-    border-top: 2px solid var(--conn);
-    border-right: 2px solid var(--conn);
-    pointer-events: none;
-  }
-
-  /* Merge connector: even match (bottom of pair) → "┘" */
-  .conn-merge > .match-item:nth-of-type(even)::after {
-    content: '';
-    position: absolute;
-    right: calc(var(--conn-w) * -1);
-    width: var(--conn-w);
-    top: 0;
-    bottom: 50%;
-    border-bottom: 2px solid var(--conn);
-    border-right: 2px solid var(--conn);
-    pointer-events: none;
-  }
-
-  /* Straight connector: horizontal line right */
-  .conn-straight > .match-item::after {
-    content: '';
-    position: absolute;
-    right: calc(var(--conn-w) * -1);
-    width: var(--conn-w);
-    top: 50%;
-    border-top: 2px solid var(--conn);
-    pointer-events: none;
-  }
-
-  /* Input connector: horizontal line from left */
-  .bracket-round:not(:first-child) > .match-item::before {
-    content: '';
-    position: absolute;
-    left: calc(var(--conn-w) * -1);
-    width: var(--conn-w);
-    top: 50%;
-    border-top: 2px solid var(--conn);
-    pointer-events: none;
-  }
-
-  /* Match cards */
-  .match-card {
-    min-width: 8rem;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 0.375rem;
-    background: rgba(0, 0, 0, 0.2);
-    padding: 0.4rem 0.5rem;
-  }
-
-  .match-card.gf {
-    border-color: var(--accent);
-    background: rgba(94, 52, 114, 0.1);
-  }
-
-  .match-card.resolved {
-    opacity: 0.55;
-  }
-
-  .match-card.pick-correct {
-    opacity: 1;
-    border-color: rgba(74, 222, 128, 0.4);
-    background: rgba(74, 222, 128, 0.06);
-  }
-
-  .match-card.pick-wrong {
-    opacity: 1;
-    border-color: rgba(244, 63, 94, 0.4);
-    background: rgba(244, 63, 94, 0.06);
-  }
-
-  .resolved-tag {
-    font-size: 0.5625rem;
-    font-weight: 800;
-    text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.6);
-    flex-shrink: 0;
-  }
-
-  .pick-indicator {
-    font-size: 0.5625rem;
-    font-weight: 800;
-    text-transform: uppercase;
-    flex-shrink: 0;
-  }
-
-  .pick-indicator.correct {
-    color: #86efac;
-  }
-
-  .pick-indicator.wrong {
-    color: #fda4af;
-  }
-
-  /*
-   * On a *pick* bracket, colour means one thing only: how YOUR pick did.
-   * Green = your pick was right, red = your pick was wrong, purple = pending.
-   * The team that actually won is marked neutrally there, because green on a
-   * team you did not pick reads as "correct" and contradicts the Wrong label.
-   */
-  .team-btn.won {
-    border-color: rgba(255, 255, 255, 0.5);
-    background: rgba(255, 255, 255, 0.07);
-  }
-
-  .team-btn.pick-hit {
-    border-color: rgba(74, 222, 128, 0.55);
-    background: rgba(74, 222, 128, 0.16);
-    box-shadow: 0 0 0 1px rgba(74, 222, 128, 0.35);
-  }
-
-  .team-btn.pick-miss {
-    border-color: rgba(244, 63, 94, 0.5);
-    background: rgba(244, 63, 94, 0.14);
-    box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.3);
-  }
-
-  /* Marker chips sit at the end of the row. */
-  .team-mark {
-    margin-left: auto;
-    flex-shrink: 0;
-    font-size: 0.5625rem;
-    font-weight: 800;
-    line-height: 1;
-  }
-
-  .mark-hit {
-    color: #4ade80;
-  }
-
-  .mark-miss {
-    color: #fb7185;
-  }
-
-  .mark-pick {
-    color: #c084fc;
-    font-size: 0.5rem;
-  }
-
-  .mark-won {
+  .pk-tab {
     display: inline-flex;
     align-items: center;
-    justify-content: center;
-    min-width: 0.875rem;
-    padding: 0.0625rem 0.1875rem;
-    border-radius: 0.1875rem;
-    background: rgba(255, 255, 255, 0.14);
-    color: rgba(255, 255, 255, 0.75);
-  }
-
-  /* Seed number, shown before the logo. */
-  .team-seed {
-    flex-shrink: 0;
-    min-width: 0.875rem;
-    font-size: 0.5625rem;
-    font-weight: 700;
-    text-align: center;
-    color: rgba(255, 255, 255, 0.58);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .match-header {
-    display: flex;
-    align-items: center;
-    gap: 0.3rem;
-    font-size: 0.625rem;
-    font-weight: 700;
-    color: rgba(255, 255, 255, 0.6);
-    margin-bottom: 0.2rem;
-  }
-
-  .match-label {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .pts {
-    color: var(--accent-text);
-    font-weight: 800;
-    flex-shrink: 0;
-  }
-
-  .team-btn {
-    display: flex;
-    width: 100%;
-    align-items: center;
-    gap: 0.35rem;
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 0.25rem;
-    background: rgba(255, 255, 255, 0.03);
-    padding: 0.35rem 0.5rem;
-    color: var(--text);
-    text-align: left;
-    cursor: pointer;
-    transition:
-      border-color 0.15s,
-      background-color 0.15s;
-  }
-
-  .team-btn + .team-btn {
-    margin-top: 0.2rem;
-  }
-
-  .team-btn:not(:disabled):hover {
-    border-color: var(--hover);
-    background: rgba(120, 67, 145, 0.18);
-  }
-
-  .team-btn.pick-pending {
-    border-color: var(--hover);
-    background: rgba(120, 67, 145, 0.3);
-    box-shadow: 0 0 0 1px var(--hover);
-  }
-
-  .match-card.gf .team-btn:not(:disabled):hover {
-    border-color: #c084fc;
-    background: rgba(168, 85, 247, 0.25);
-  }
-
-  .match-card.gf .team-btn.pick-pending {
-    border-color: #c084fc;
-    background: rgba(168, 85, 247, 0.35);
-    box-shadow: 0 0 0 1px #c084fc;
-  }
-
-  .team-btn.tbd {
-    opacity: 0.35;
-    cursor: default;
-  }
-
-  .team-btn:disabled:not(.tbd) {
-    cursor: default;
-  }
-
-  .team-logo {
-    width: 1.25rem;
-    height: 1.25rem;
-    flex: 0 0 auto;
-    border-radius: 3px;
-    object-fit: contain;
-  }
-
-  .team-name {
-    font-size: 0.75rem;
-    font-weight: 700;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  /* Leaderboard sidebar */
-  .leaderboard {
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 0.375rem;
-    background: rgba(0, 0, 0, 0.15);
-    padding: 0.75rem;
-  }
-
-  @media (min-width: 1200px) {
-    .leaderboard {
-      position: sticky;
-      top: 5rem;
-    }
-  }
-
-  .lb-heading {
-    font-size: 0.8125rem;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--text);
-    padding-bottom: 0.3rem;
-    border-bottom: 1px solid var(--accent);
-    margin-bottom: 0.3rem;
-  }
-
-  /* Champion callout — only rendered once the bracket is fully scored. */
-  .lb-winner {
-    display: flex;
-    align-items: center;
-    gap: 0.625rem;
-    margin-top: 0.625rem;
-    padding: 0.5rem 0.625rem;
-    border-radius: 0.5rem;
-    border: 1px solid rgba(250, 204, 21, 0.3);
-    background: linear-gradient(135deg, rgba(120, 67, 145, 0.35), rgba(250, 204, 21, 0.1));
-  }
-
-  .lb-winner-medal {
-    width: 1.75rem;
-    height: 1.75rem;
-    flex-shrink: 0;
-  }
-
-  .lb-winner-label {
-    font-size: 0.5625rem;
-    font-weight: 800;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: #fde68a;
-  }
-
-  .lb-winner-name {
-    font-size: 0.875rem;
-    font-weight: 700;
-    color: var(--text);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .lb-medal {
-    width: 1.25rem;
-    height: 1.25rem;
-    justify-self: center;
-  }
-
-  .lb-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    margin-top: 0.5rem;
-    max-height: 60vh;
-    overflow-y: auto;
-  }
-
-  .lb-row {
-    display: grid;
-    grid-template-columns: 2rem 1fr auto;
-    align-items: center;
-    gap: 0.4rem;
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    border-radius: 0.25rem;
-    background: rgba(0, 0, 0, 0.1);
-    padding: 0.4rem 0.5rem;
-    color: var(--text);
-    text-align: left;
-    cursor: pointer;
-    transition: border-color 0.15s;
-  }
-
-  .lb-row:hover {
-    border-color: var(--hover);
-  }
-
-  .lb-row.lb-active {
-    border-color: var(--hover);
-    background: rgba(120, 67, 145, 0.15);
-  }
-
-  .lb-back {
-    width: 100%;
-    margin-top: 0.5rem;
-    border-radius: 0.25rem;
-    background: rgba(255, 255, 255, 0.08);
-    padding: 0.4rem 0.5rem;
-    color: rgba(255, 255, 255, 0.8);
-    font-size: 0.75rem;
-    font-weight: 700;
-    cursor: pointer;
-    transition: background-color 0.15s;
-  }
-
-  .lb-back:hover {
-    background: var(--hover);
-  }
-
-  .lb-rank {
-    font-size: 0.75rem;
-    font-weight: 800;
-    color: rgba(255, 255, 255, 0.64);
-  }
-
-  .lb-name {
+    min-height: 2.75rem;
+    padding: 0 0.75rem;
+    border-bottom: 2px solid transparent;
     font-size: 0.8125rem;
     font-weight: 700;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    color: rgba(255, 255, 255, 0.55);
+    cursor: pointer;
+    transition: color 0.15s;
   }
 
-  .lb-score {
-    font-size: 0.75rem;
-    font-weight: 800;
-    color: var(--accent-text);
+  .pk-tab:hover {
+    color: rgba(255, 255, 255, 0.85);
   }
 
-  /* Override PageContainer padding for wider bracket */
-  :global(.page-container.pickem-page) {
-    padding-left: 0.5rem;
-    padding-right: 0.5rem;
+  .pk-tab.pk-tab-on {
+    color: var(--text);
+    border-bottom-color: var(--accent-text);
   }
 
-  @media (min-width: 768px) {
-    :global(.page-container.pickem-page) {
-      padding-left: 1rem;
-      padding-right: 1rem;
-    }
-  }
-
-  /* Responsive */
-  @media (max-width: 900px) {
-    .bracket-wrapper {
-      overflow-x: auto;
-    }
-
-    .bracket-flow {
-      min-width: 600px;
+  @media (max-width: 760px) {
+    .pk-tabs {
+      padding: 0 0.375rem;
     }
   }
 </style>

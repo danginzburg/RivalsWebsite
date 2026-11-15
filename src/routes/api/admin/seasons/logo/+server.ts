@@ -3,10 +3,8 @@ import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { logAdminAction } from '$lib/server/audit/admin-actions'
-import { isImageFile, sanitizeFilename } from '$lib/server/upload'
+import { uploadLogo } from '$lib/server/logo-upload'
 import { getSeasonLogoUrl } from '$lib/server/seasons/logo'
-
-const MAX_LOGO_BYTES = 2 * 1024 * 1024
 
 /** Upload or replace a season's logo. Multipart, so it cannot share the JSON route. */
 export const POST: RequestHandler = async ({ locals, request }) => {
@@ -20,8 +18,6 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
   const logo = form.get('logo')
   if (!(logo instanceof File) || logo.size <= 0) throw error(400, 'A logo file is required')
-  if (!isImageFile(logo)) throw error(400, 'Logo must be an image file')
-  if (logo.size > MAX_LOGO_BYTES) throw error(400, 'Logo must be 2MB or smaller')
 
   const { data: season } = await supabaseAdmin
     .from('seasons')
@@ -31,18 +27,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
   if (!season) throw error(404, 'Season not found')
 
-  const cleanName = sanitizeFilename(logo.name || 'logo')
-  const objectPath = `seasons/${crypto.randomUUID()}-${cleanName || 'logo'}`
-  const bytes = new Uint8Array(await logo.arrayBuffer())
-
-  const { error: uploadError } = await supabaseAdmin.storage
-    .from('team-logos')
-    .upload(objectPath, bytes, {
-      contentType: logo.type || 'application/octet-stream',
-      upsert: false,
-    })
-
-  if (uploadError) throw error(500, 'Failed to upload season logo')
+  const objectPath = await uploadLogo('seasons', logo)
 
   const { data: updated, error: updateError } = await supabaseAdmin
     .from('seasons')

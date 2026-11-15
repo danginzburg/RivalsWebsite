@@ -292,6 +292,47 @@ export function rankPickemLeaderboardEntries<
 }
 
 /**
+ * A season's pick'em total: each person's score summed across the season's
+ * events (playoff bracket + weekly matchups), ranked like one leaderboard.
+ * People are matched by profile id, falling back to their name.
+ */
+export function combinePickemSeasonTotals(
+  boards: Array<
+    Array<{ score: number; submittedAt: string; user: { id: string | null; name: string } }>
+  >
+): Array<{
+  id: string
+  score: number
+  submittedAt: string
+  user: { id: string | null; name: string }
+  rank: number
+}> {
+  const byPerson = new Map<
+    string,
+    { id: string; score: number; submittedAt: string; user: { id: string | null; name: string } }
+  >()
+  for (const board of boards) {
+    for (const entry of board) {
+      const key = entry.user.id ?? `name:${entry.user.name}`
+      const existing = byPerson.get(key)
+      if (!existing) {
+        byPerson.set(key, {
+          id: key,
+          score: entry.score,
+          submittedAt: entry.submittedAt,
+          user: entry.user,
+        })
+      } else {
+        existing.score += entry.score
+        // Ties break on whoever entered first, across either pick'em.
+        if (entry.submittedAt < existing.submittedAt) existing.submittedAt = entry.submittedAt
+      }
+    }
+  }
+  return rankPickemLeaderboardEntries([...byPerson.values()])
+}
+
+/**
  * A real match as result detection sees it. `winnerId` only counts once
  * `completed` is true.
  */

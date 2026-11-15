@@ -2,14 +2,14 @@
   import { tick, untrack } from 'svelte'
   import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
-  import PageHeading from '$lib/components/PageHeading.svelte'
-  import { BarChart3, ChartScatter, ChevronUp, Search, Table2 } from 'lucide-svelte'
+  import { Search } from 'lucide-svelte'
   import { SvelteURLSearchParams } from 'svelte/reactivity'
   import { resolve } from '$app/paths'
   import { agentIconUrl, rankIconUrlByKey } from '$lib/icons'
   import { statsRowKey, displayPlayerName } from '$lib/stats/ui'
   import { resolveBatchSection } from '$lib/stats/sections'
   import BatchPicker from '$lib/components/stats/BatchPicker.svelte'
+  import ColumnsMenu from '$lib/components/stats/ColumnsMenu.svelte'
   import { parseRank, rankLabel, rankValue, rankBaseValue, rankImageKey } from '$lib/ranks/ranks'
   import AcsKastScatter, { type ScatterPoint } from '$lib/components/stats/AcsKastScatter.svelte'
 
@@ -105,14 +105,15 @@
   const seed = untrack(() => ({
     rankSort: Boolean(data.initialRankSort),
     disregardTier: Boolean(data.initialDisregardTier),
-    view: (data.initialView === 'graphs' ? 'graphs' : 'table') as 'table' | 'graphs',
+    chartOpen: Boolean(data.initialChart),
   }))
 
   let sortKey = $state<string>('acs')
   let sortDir = $state<'asc' | 'desc'>('desc')
   let rankSort = $state(seed.rankSort)
   let disregardTier = $state(seed.disregardTier)
-  let view = $state(seed.view)
+  /** The ACS vs KAST chart under the table; closed unless asked for. */
+  let chartOpen = $state(seed.chartOpen)
 
   let selectedBatchId = $state<string | null>(null)
   let search = $state('')
@@ -164,8 +165,9 @@
     if (disregardTier) params.set('ignoreTier', '1')
     else params.delete('ignoreTier')
 
-    if (view === 'graphs') params.set('view', 'graphs')
-    else params.delete('view')
+    params.delete('view')
+    if (chartOpen) params.set('chart', '1')
+    else params.delete('chart')
 
     const next = u.pathname + (params.toString() ? `?${params.toString()}` : '')
     const current = window.location.pathname + window.location.search
@@ -190,7 +192,7 @@
     void minGames
     void rankSort
     void disregardTier
-    void view
+    void chartOpen
     scheduleUrlSync(200)
   })
 
@@ -206,7 +208,7 @@
     if (sortDir) params.set('dir', sortDir)
     if (rankSort) params.set('rankSort', '1')
     if (disregardTier) params.set('ignoreTier', '1')
-    if (view === 'graphs') params.set('view', 'graphs')
+    if (chartOpen) params.set('chart', '1')
 
     const qs = params.toString()
     return qs ? `/stats?${qs}` : '/stats'
@@ -300,7 +302,7 @@
   })
 
   // `slr` is harmless on rivals batches — it has no column there to show.
-  const defaultVisible = new Set([
+  const defaultVisible = [
     'slr',
     'agents',
     'games',
@@ -311,28 +313,11 @@
     'adr',
     'kast_pct',
     'hs_pct',
-  ])
-  let visibleColumns = $state<string[]>(Array.from(defaultVisible))
+  ]
+  let visibleColumns = $state<string[]>([...defaultVisible])
 
-  $effect(() => {
-    if (visibleColumns.length === 0) visibleColumns = Array.from(defaultVisible)
-  })
-
-  function toggleColumn(key: string) {
-    if (visibleColumns.includes(key)) {
-      visibleColumns = visibleColumns.filter((k) => k !== key)
-    } else {
-      visibleColumns = [...visibleColumns, key]
-    }
-  }
-
-  function setAllColumns() {
-    visibleColumns = allColumns.map((c) => c.key)
-  }
-
-  function resetColumns() {
-    visibleColumns = Array.from(defaultVisible)
-  }
+  /** Agent icons shown per row before the rest fold into "+N". */
+  const MAX_AGENT_ICONS = 4
 
   /** A claimed player's profile name wins over the Riot name the stats were imported under. */
   function rowName(r: Record<string, unknown>): string {
@@ -417,29 +402,16 @@
     return copy
   })
 
-  /** Find me on the graph: the viewer's dot stays marked until pressed again. */
+  /** Find me also marks the viewer's dot on the chart, until the chart closes. */
   let graphFound = $state(false)
+
+  $effect(() => {
+    if (!chartOpen) graphFound = false
+  })
 
   async function findMe() {
     if (!viewer?.profileId) return
     findMeError = null
-
-    if (showGraphs) {
-      if (graphFound) {
-        graphFound = false
-        return
-      }
-      search = ''
-      minGames = 0
-      syncUrlNow()
-      await tick()
-      if (!scatterPoints.some((p) => p.isViewer)) {
-        findMeError = 'Could not find you in this batch.'
-        return
-      }
-      graphFound = true
-      return
-    }
 
     // Ensure row isn't filtered out.
     search = ''
@@ -454,8 +426,10 @@
       return
     }
 
+    graphFound = showGraphs && scatterPoints.some((p) => p.isViewer)
     highlightMe = true
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    // The table scrolls in its own box; keep the page itself where it is.
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
     window.setTimeout(() => (highlightMe = false), 2000)
   }
 
@@ -469,47 +443,42 @@
     } else {
       parts.push('No imports yet')
     }
-    parts.push(`${sortedRows.length} players`)
+    parts.push(
+      sortedRows.length === rows.length
+        ? `${rows.length} players`
+        : `${sortedRows.length} of ${rows.length} players`
+    )
     return parts.join(' · ')
   })
 
-  /**
-   * On phones the heading, filters and column picker take roughly 450px of an
-   * 812px screen, leaving the table about four rows tall. Collapse that block
-   * once the viewer starts scrolling the table so it stretches to the full
-   * screen height. Only the collapsed bar brings it back — unfolding on a
-   * return to the top would shrink the table just as the first rows come into
-   * view, so they could never be read at full height.
-   *
-   * Only the mobile stylesheet acts on this flag — on desktop there is room for
-   * both, so the class is inert.
-   */
-  let headerCollapsed = $state(false)
+  const sortedLabel = $derived(
+    sortKey === 'player_name'
+      ? 'Player'
+      : (allColumns.find((c) => c.key === sortKey)?.label ?? sortKey)
+  )
 
-  function handleTableScroll(event: Event & { currentTarget: HTMLDivElement }) {
-    if (!headerCollapsed && event.currentTarget.scrollTop > 24) headerCollapsed = true
-  }
+  const footCount = $derived(
+    `${sortedRows.length} of ${rows.length} players` +
+      (minGames > 0 ? ` · ${Math.trunc(minGames)}+ games` : '')
+  )
 
-  let tableWrap = $state<HTMLDivElement | null>(null)
-
-  /** Back to the top of the table and unfold the filters. */
-  function expandHeader() {
-    headerCollapsed = false
-    tableWrap?.scrollTo({ top: 0, behavior: 'smooth' })
-  }
+  const sortNote = $derived(
+    (rankSort ? `By rank${disregardTier ? ' (ignoring tier)' : ''}, then sorted` : 'Sorted') +
+      ` by ${sortedLabel}, ${sortDir === 'desc' ? 'high to low' : 'low to high'}`
+  )
 
   const events = $derived((data.events ?? []) as Array<{ name: string; external: boolean }>)
 
   /**
-   * Graphs only exist for a season's Full Season tab. `view` stays as picked
-   * so moving between seasons keeps you on the graphs, but any other phase
-   * falls back to the table.
+   * The chart only exists for a season's Full Season tab. `chartOpen` stays as
+   * picked so moving between seasons keeps it open; other phases hide the
+   * section entirely.
    */
   const isFullSeason = $derived.by(() => {
     const current = batches.find((b) => b.id === batchId)
     return current ? resolveBatchSection(current) === 'full' : false
   })
-  const showGraphs = $derived(isFullSeason && view === 'graphs')
+  const showGraphs = $derived(isFullSeason && chartOpen)
 
   const scatterPoints = $derived.by((): ScatterPoint[] => {
     if (!showGraphs) return []
@@ -545,30 +514,34 @@
   }
 </script>
 
-<PageContainer class="stats-page">
-  <div class="stats-viewport">
-    <div class="stats-shell page-content" class:shell-collapsed={headerCollapsed && !showGraphs}>
-      <div class="stats-head">
-        <PageHeading title="Player Stats" subtitle={batchSubtitle} icon={BarChart3} />
-      </div>
+<svelte:head><title>Player Stats</title></svelte:head>
 
-      <!-- Which table: event first, then its phases. -->
-      {#if events.length > 0}
-        <div class="stats-nav">
-          <BatchPicker {batches} {events} {batchId} onPick={goToBatch} />
-        </div>
-      {/if}
+<PageContainer>
+  <div class="stats-page">
+    <header class="stats-head">
+      <h1 class="stats-title">Player Stats</h1>
+      <p class="stats-sub">{batchSubtitle}</p>
+    </header>
 
-      <!-- Filters -->
+    <div class="sheet">
+      <!-- One control bar: which table, then filters, then what to show. -->
       <div class="toolbar">
+        <BatchPicker {batches} {events} {batchId} onPick={goToBatch} />
+
         <div class="search-wrap">
           <span class="search-icon"><Search size={14} /></span>
-          <input class="search-input" placeholder="Search players..." bind:value={search} />
+          <input
+            class="search-input"
+            placeholder="Search players"
+            aria-label="Search players"
+            bind:value={search}
+          />
         </div>
 
         <div class="min-games">
-          <span class="min-games-label">Min games</span>
+          <label class="min-games-label" for="stats-min-games">Min games</label>
           <input
+            id="stats-min-games"
             type="range"
             min="0"
             max={maxGames}
@@ -583,62 +556,18 @@
           <span class="min-games-value">{Math.max(0, Math.trunc(minGames))}</span>
         </div>
 
-        {#if isFullSeason}
-          <div class="view-toggle" role="tablist" aria-label="View">
-            <button
-              type="button"
-              role="tab"
-              class="view-btn"
-              class:view-btn-on={!showGraphs}
-              aria-selected={!showGraphs}
-              onclick={() => (view = 'table')}
-            >
-              <Table2 size={14} /> Table
-            </button>
-            <button
-              type="button"
-              role="tab"
-              class="view-btn"
-              class:view-btn-on={showGraphs}
-              aria-selected={showGraphs}
-              onclick={() => (view = 'graphs')}
-            >
-              <ChartScatter size={14} /> Graphs
-            </button>
-          </div>
-        {/if}
-
-        <div class="chip-group">
+        <div class="toolbar-end">
           {#if viewer?.profileId}
-            <button
-              type="button"
-              class="chip chip-find"
-              class:chip-find-on={showGraphs && graphFound}
-              aria-pressed={showGraphs ? graphFound : undefined}
-              onclick={findMe}>Find me</button
-            >
+            <button type="button" class="tool-btn" onclick={findMe}>Find me</button>
           {/if}
-          <!-- Rank sort only reorders the table. -->
-          {#if hasAnyRanks && !showGraphs}
-            <button
-              type="button"
-              class="chip"
-              class:chip-on={rankSort}
-              onclick={() => (rankSort = !rankSort)}
-            >
-              Rank sort
-            </button>
-            {#if rankSort}
-              <button
-                type="button"
-                class="chip"
-                class:chip-on={disregardTier}
-                onclick={() => (disregardTier = !disregardTier)}
-              >
-                Ignore tier
-              </button>
-            {/if}
-          {/if}
+          <ColumnsMenu
+            columns={allColumns}
+            bind:visible={visibleColumns}
+            defaults={defaultVisible}
+            showRankSort={hasAnyRanks}
+            bind:rankSort
+            bind:disregardTier
+          />
         </div>
       </div>
 
@@ -646,77 +575,10 @@
         <div class="alert">{findMeError}</div>
       {/if}
 
-      <!-- Column picker: one collapsible panel at every size. -->
-      <details class="columns" open hidden={showGraphs}>
-        <summary class="columns-summary">
-          <span class="columns-chevron">▶</span>
-          <span class="columns-title">Visible columns</span>
-          <span class="columns-count"
-            >{allColumns.filter((c) => visibleColumns.includes(c.key))
-              .length}/{allColumns.length}</span
-          >
-          <span class="columns-actions">
-            <button
-              type="button"
-              class="mini-btn"
-              onclick={(e) => {
-                e.preventDefault()
-                setAllColumns()
-              }}
-            >
-              Show all
-            </button>
-            <button
-              type="button"
-              class="mini-btn"
-              onclick={(e) => {
-                e.preventDefault()
-                resetColumns()
-              }}
-            >
-              Reset
-            </button>
-          </span>
-        </summary>
-
-        <div class="columns-list">
-          {#each allColumns as col (col.key)}
-            <button
-              type="button"
-              class="chip chip-sm"
-              class:chip-on={visibleColumns.includes(col.key)}
-              onclick={() => toggleColumn(col.key)}
-            >
-              {col.label}
-            </button>
-          {/each}
-        </div>
-      </details>
-
-      <!-- Mobile only: once the filters fold away, keep which table this is in view. -->
-      {#if headerCollapsed && !showGraphs}
-        <button type="button" class="collapsed-bar" onclick={expandHeader}>
-          <span class="collapsed-bar-label">{batchSubtitle}</span>
-          <span class="collapsed-bar-action">Filters <ChevronUp size={14} /></span>
-        </button>
-      {/if}
-
-      {#if showGraphs}
-        {#if scatterPoints.length === 0}
-          <div class="empty-state">
-            <BarChart3 size={36} style="color: rgba(255,255,255,0.48);" />
-            <p class="empty-text">No players with ACS and KAST match the current filters.</p>
-          </div>
-        {:else}
-          <AcsKastScatter points={scatterPoints} highlightKey={foundPointKey} />
-        {/if}
-      {:else if sortedRows.length === 0}
-        <div class="empty-state">
-          <BarChart3 size={36} style="color: rgba(255,255,255,0.48);" />
-          <p class="empty-text">No players match the current filters.</p>
-        </div>
+      {#if sortedRows.length === 0}
+        <p class="empty-text">No players match the current filters.</p>
       {:else}
-        <div class="stats-table-wrap" bind:this={tableWrap} onscroll={handleTableScroll}>
+        <div class="stats-table-wrap">
           <table class="stats-table">
             <thead>
               <tr>
@@ -724,11 +586,10 @@
                 {#if hasAnyRanks}
                   <th class="col-rank">Rank</th>
                 {/if}
-                <th class="col-player">
+                <th class="col-player" class:sorted={sortKey === 'player_name'}>
                   <button
                     type="button"
                     class="sort-btn"
-                    class:sort-active={sortKey === 'player_name'}
                     onclick={() => toggleSort('player_name')}
                     title="Sort by player"
                   >
@@ -740,11 +601,19 @@
                 </th>
                 {#each allColumns as col (col.key)}
                   {#if visibleColumns.includes(col.key)}
-                    <th class="col-stat">
+                    <th
+                      class="col-stat"
+                      class:col-agents={col.key === 'agents'}
+                      class:sorted={sortKey === col.key}
+                      aria-sort={sortKey === col.key
+                        ? sortDir === 'asc'
+                          ? 'ascending'
+                          : 'descending'
+                        : undefined}
+                    >
                       <button
                         type="button"
                         class="sort-btn"
-                        class:sort-active={sortKey === col.key}
                         onclick={() => toggleSort(col.key)}
                         title={`Sort by ${col.label}`}
                       >
@@ -781,7 +650,7 @@
                       {/if}
                     </td>
                   {/if}
-                  <td class="col-player">
+                  <td class="col-player" class:sorted={sortKey === 'player_name'}>
                     {#if row.profile_id}
                       <a class="player-link" href={resolve(`/players/${row.profile_id}`)}>
                         {rowName(row)}
@@ -801,23 +670,31 @@
                   </td>
                   {#each allColumns as col (col.key)}
                     {#if visibleColumns.includes(col.key)}
-                      <td class="col-stat" class:tabular={col.key !== 'agents'}>
+                      <td
+                        class="col-stat"
+                        class:col-agents={col.key === 'agents'}
+                        class:tabular={col.key !== 'agents'}
+                        class:sorted={sortKey === col.key}
+                      >
                         {#if col.key === 'agents'}
                           {@const agents = parseAgents(row.agents)}
                           {#if agents.length === 0}
                             <span class="dash">—</span>
                           {:else}
-                            <div class="agents-icons">
-                              {#each agents as agent (agent)}
+                            <div class="agents-icons" title={agents.join(', ')}>
+                              {#each agents.slice(0, MAX_AGENT_ICONS) as agent (agent)}
                                 {@const url = agentIconUrl(agent)}
                                 {#if url}
-                                  <img src={url} alt={agent} title={agent} class="agent-icon" />
+                                  <img src={url} alt={agent} class="agent-icon" />
                                 {:else}
-                                  <span class="agent-fallback" title={agent}>
+                                  <span class="agent-fallback">
                                     {agent.slice(0, 3).toUpperCase()}
                                   </span>
                                 {/if}
                               {/each}
+                              {#if agents.length > MAX_AGENT_ICONS}
+                                <span class="agent-more">+{agents.length - MAX_AGENT_ICONS}</span>
+                              {/if}
                             </div>
                           {/if}
                         {:else}
@@ -831,79 +708,116 @@
             </tbody>
           </table>
         </div>
+        <div class="table-foot">
+          <span>{footCount}</span>
+          <span>{sortNote}</span>
+        </div>
+      {/if}
+
+      {#if isFullSeason}
+        <section class="sheet-section" aria-labelledby="chart-title">
+          <div class="sheet-head chart-head">
+            <h2 class="sheet-title" id="chart-title">ACS vs KAST</h2>
+            <span class="sheet-note">Same filters as the table</span>
+            <button
+              type="button"
+              class="tool-btn chart-toggle"
+              aria-expanded={chartOpen}
+              aria-controls="stats-chart"
+              onclick={() => (chartOpen = !chartOpen)}
+            >
+              {chartOpen ? 'Hide chart' : 'Show chart'}
+            </button>
+          </div>
+          {#if showGraphs}
+            <div class="sheet-body chart-body" id="stats-chart">
+              {#if scatterPoints.length === 0}
+                <p class="empty-text">No players with ACS and KAST match the current filters.</p>
+              {:else}
+                <AcsKastScatter points={scatterPoints} highlightKey={foundPointKey} />
+              {/if}
+            </div>
+          {/if}
+        </section>
       {/if}
     </div>
   </div>
 </PageContainer>
 
 <style>
-  /*
-   * The table owns the remaining viewport height and scrolls internally, so
-   * the sticky header stays visible while paging through players.
-   * `--surface` is the flattened equivalent of the panel tint over the page
-   * background — the sticky header needs an opaque colour that matches the
-   * rows exactly, which an rgba overlay cannot provide.
-   */
-  :global(.page-container.stats-page) {
-    padding: 0;
-    justify-content: flex-start;
-    align-items: stretch;
-    min-height: calc(100svh - 4rem);
-    height: auto;
-    overflow: visible;
-  }
-
-  .stats-viewport {
-    --surface: #2e1a4d;
+  .stats-page {
     width: 100%;
-    height: calc(100svh - 4rem);
-    overflow: hidden;
-    display: flex;
-    justify-content: center;
-    padding: 1.5rem 1rem;
-  }
-
-  .stats-shell {
+    max-width: 80rem;
+    margin: 0 auto;
+    padding: 1.5rem 1rem 3rem;
     display: flex;
     flex-direction: column;
-    height: 100%;
-    min-height: 0;
+    gap: 1rem;
   }
 
-  /*
-   * Header — PageHeading provides the title block. Its own `mb-5` would stack
-   * on top of this wrapper's margin, so the wrapper owns the gap outright.
-   */
   .stats-head {
-    margin-bottom: 0.875rem;
-    flex-shrink: 0;
-  }
-
-  .stats-head :global(.page-header) {
-    margin-bottom: 0;
-  }
-
-  /* Table picker (BatchPicker): event pills, then phase tabs underneath. */
-  .stats-nav {
     display: flex;
-    max-width: 100%;
-    margin-bottom: 0.75rem;
-    flex-shrink: 0;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .stats-title {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  .stats-sub {
+    margin: 0;
+    font-size: 0.8125rem;
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  /* The sheet scrolls the table in its own box, so it must not clip the
+     Columns menu that drops out of the toolbar. */
+  .sheet {
+    overflow: visible;
   }
 
   /* Toolbar */
   .toolbar {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 0.625rem;
-    flex-wrap: wrap;
-    margin-bottom: 0.625rem;
+    padding: 0.875rem 1rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .toolbar-end {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-left: auto;
+  }
+
+  .tool-btn {
+    height: 2.25rem;
+    padding: 0 0.75rem;
+    border-radius: 0.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.04);
+    color: rgba(255, 255, 255, 0.88);
+    font: inherit;
+    font-size: 0.8125rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .tool-btn:hover {
+    border-color: rgba(255, 255, 255, 0.24);
+    color: #fff;
   }
 
   .search-wrap {
     position: relative;
-    flex: 1;
-    min-width: 11rem;
+    flex: 1 1 13rem;
     max-width: 18rem;
   }
 
@@ -912,270 +826,79 @@
     top: 50%;
     left: 0.625rem;
     transform: translateY(-50%);
-    color: rgba(255, 255, 255, 0.52);
+    color: rgba(255, 255, 255, 0.45);
     pointer-events: none;
     display: flex;
   }
 
   .search-input {
     width: 100%;
-    padding: 0.4375rem 0.75rem 0.4375rem 2rem;
+    height: 2.25rem;
+    padding: 0 0.75rem 0 2rem;
     border-radius: 0.5rem;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.04);
     color: var(--text);
     font-size: 0.8125rem;
   }
 
   .search-input::placeholder {
-    color: rgba(255, 255, 255, 0.54);
+    color: rgba(255, 255, 255, 0.45);
   }
 
   .search-input:focus {
     outline: none;
-    border-color: var(--hover);
+    border-color: rgba(192, 132, 252, 0.6);
   }
 
   .min-games {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    padding: 0.3125rem 0.75rem;
-    border-radius: 0.5rem;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    background: rgba(0, 0, 0, 0.25);
-    min-width: 13rem;
-    flex: 1;
-    max-width: 16rem;
   }
 
   .min-games-label {
-    font-size: 0.625rem;
+    font-size: 0.6875rem;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: rgba(255, 255, 255, 0.64);
+    letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.5);
     white-space: nowrap;
   }
 
   .min-games-range {
-    flex: 1;
-    min-width: 0;
-    accent-color: var(--hover);
+    width: 7rem;
+    accent-color: #c084fc;
   }
 
   .min-games-value {
-    font-size: 0.75rem;
-    font-weight: 700;
-    color: var(--text);
+    font-size: 0.8125rem;
+    color: rgba(255, 255, 255, 0.82);
     font-variant-numeric: tabular-nums;
-    min-width: 1.5rem;
-    text-align: right;
-  }
-
-  /* Table / Graphs switch */
-  .view-toggle {
-    display: flex;
-    padding: 0.1875rem;
-    gap: 0.125rem;
-    border-radius: 0.5rem;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    background: rgba(0, 0, 0, 0.25);
-  }
-
-  .view-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.375rem;
-    padding: 0.25rem 0.625rem;
-    border-radius: 0.375rem;
-    border: none;
-    background: none;
-    color: rgba(255, 255, 255, 0.62);
-    font-size: 0.75rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition:
-      background 0.15s,
-      color 0.15s;
-  }
-
-  .view-btn:hover {
-    color: var(--text);
-  }
-
-  .view-btn-on,
-  .view-btn-on:hover {
-    background: var(--accent);
-    color: var(--text);
-  }
-
-  /* Chips */
-  .chip-group {
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
-    flex-wrap: wrap;
-  }
-
-  .chip {
-    padding: 0.4375rem 0.75rem;
-    border-radius: 0.4375rem;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    background: rgba(0, 0, 0, 0.25);
-    color: rgba(255, 255, 255, 0.62);
-    font-size: 0.75rem;
-    font-weight: 600;
-    cursor: pointer;
-    white-space: nowrap;
-    transition:
-      background 0.15s,
-      border-color 0.15s,
-      color 0.15s;
-  }
-
-  .chip:hover {
-    color: var(--text);
-    border-color: rgba(255, 255, 255, 0.45);
-  }
-
-  .chip-on {
-    background: var(--accent);
-    border-color: var(--hover);
-    color: var(--text);
-  }
-
-  .chip-on:hover {
-    background: var(--hover);
-  }
-
-  .chip-sm {
-    padding: 0.25rem 0.5625rem;
-    font-size: 0.6875rem;
-    font-weight: 500;
-  }
-
-  .chip-find {
-    border-color: rgba(74, 222, 128, 0.3);
-    background: rgba(74, 222, 128, 0.1);
-    color: #86efac;
-  }
-
-  .chip-find:hover {
-    background: rgba(74, 222, 128, 0.18);
-    color: #bbf7d0;
-  }
-
-  .chip-find-on,
-  .chip-find-on:hover {
-    background: rgba(74, 222, 128, 0.3);
-    border-color: rgba(74, 222, 128, 0.7);
-    color: #dcfce7;
+    min-width: 1.25rem;
   }
 
   .alert {
+    margin: 0.75rem 1rem 0;
     padding: 0.5rem 0.875rem;
     border-radius: 0.5rem;
     border: 1px solid rgba(251, 191, 36, 0.3);
     background: rgba(251, 191, 36, 0.08);
     color: #fde68a;
     font-size: 0.8125rem;
-    margin-bottom: 0.625rem;
-  }
-
-  /* Column picker */
-  .columns {
-    border-radius: 0.625rem;
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    background: rgba(0, 0, 0, 0.2);
-    margin-bottom: 0.625rem;
-    flex-shrink: 0;
-  }
-
-  .columns-summary {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.625rem 0.875rem;
-    cursor: pointer;
-    list-style: none;
-  }
-
-  .columns-summary::-webkit-details-marker {
-    display: none;
-  }
-
-  .columns-chevron {
-    font-size: 0.5625rem;
-    color: rgba(255, 255, 255, 0.6);
-    transition: transform 0.15s;
-  }
-
-  .columns[open] .columns-chevron {
-    transform: rotate(90deg);
-  }
-
-  .columns-title {
-    font-size: 0.6875rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
-    color: rgba(255, 255, 255, 0.64);
-  }
-
-  .columns-count {
-    font-size: 0.625rem;
-    font-weight: 700;
-    padding: 0.0625rem 0.375rem;
-    border-radius: 9999px;
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.55);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .columns-actions {
-    margin-left: auto;
-    display: flex;
-    gap: 0.375rem;
-  }
-
-  .mini-btn {
-    padding: 0.1875rem 0.5rem;
-    border-radius: 0.3125rem;
-    border: none;
-    background: rgba(255, 255, 255, 0.07);
-    color: rgba(255, 255, 255, 0.7);
-    font-size: 0.6875rem;
-    font-weight: 600;
-    cursor: pointer;
-  }
-
-  .mini-btn:hover {
-    background: rgba(255, 255, 255, 0.13);
-    color: var(--text);
-  }
-
-  .columns-list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.375rem;
-    padding: 0 0.875rem 0.875rem;
   }
 
   /* Table */
   .stats-table-wrap {
-    flex: 1 1 0;
+    --head: #2c184c;
+    max-height: min(72vh, 46rem);
     overflow: auto;
-    min-height: 0;
-    border-radius: 0.75rem;
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    background: var(--surface);
   }
 
   .stats-table {
     width: 100%;
-    min-width: 100%;
-    border-collapse: collapse;
+    border-collapse: separate;
+    border-spacing: 0;
     font-size: 0.8125rem;
     text-align: left;
   }
@@ -1183,41 +906,51 @@
   .stats-table th,
   .stats-table td {
     white-space: nowrap;
-    padding: 0.5rem 0.75rem;
+    padding: 0 0.625rem;
   }
 
   .stats-table thead th {
     position: sticky;
     top: 0;
     z-index: 5;
+    height: 2.125rem;
     /* Opaque so rows do not show through while scrolling. */
-    background: var(--surface);
+    background: var(--head);
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    font-size: 0.625rem;
+    font-size: 0.6875rem;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.07em;
-    color: rgba(255, 255, 255, 0.62);
-  }
-
-  .stats-table tbody tr {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-  }
-
-  .stats-table tbody tr:hover {
-    background: rgba(255, 255, 255, 0.03);
-  }
-
-  .stats-table tbody tr:last-child {
-    border-bottom: none;
+    letter-spacing: 0.06em;
+    color: rgba(255, 255, 255, 0.5);
   }
 
   .stats-table td {
-    color: rgba(255, 255, 255, 0.8);
+    height: 2.375rem;
+    color: rgba(255, 255, 255, 0.82);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   }
 
-  .row-highlight {
-    background: rgba(74, 222, 128, 0.1);
+  .stats-table tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  .stats-table tbody tr:hover td {
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  /* The sorted column: accent label, faint tint down the column. */
+  .stats-table td.sorted {
+    background: rgba(192, 132, 252, 0.06);
+  }
+
+  .stats-table thead th.sorted {
+    color: #c084fc;
+    background: #33194f;
+  }
+
+  .row-highlight td,
+  .stats-table tbody tr.row-highlight:hover td {
+    background: rgba(192, 132, 252, 0.14);
   }
 
   .sort-btn {
@@ -1238,33 +971,28 @@
     color: rgba(255, 255, 255, 0.85);
   }
 
-  .sort-active {
-    color: #86efac;
+  .sorted .sort-btn:hover {
+    color: #d8b4fe;
   }
 
   .sort-caret {
     font-size: 0.5rem;
-    min-width: 0.5rem;
   }
 
   .col-index {
-    width: 3rem;
-    color: rgba(255, 255, 255, 0.6);
+    width: 2.25rem;
+    color: rgba(255, 255, 255, 0.45);
   }
 
   .col-rank {
-    width: 3.5rem;
+    width: 2.5rem;
   }
 
   .col-player {
-    min-width: 10rem;
+    min-width: 9rem;
   }
 
   .col-stat {
-    text-align: right;
-  }
-
-  .stats-table thead th.col-stat {
     text-align: right;
   }
 
@@ -1273,176 +1001,179 @@
     width: 100%;
   }
 
+  .stats-table .col-agents,
+  .stats-table thead th.col-agents .sort-btn {
+    text-align: left;
+    justify-content: flex-start;
+  }
+
   .player-link {
-    color: var(--text);
+    color: rgba(255, 255, 255, 0.82);
     font-weight: 600;
     text-decoration: none;
   }
 
   .player-link:hover {
-    color: var(--accent-text);
+    color: #fff;
+    text-decoration: underline;
+    text-underline-offset: 2px;
   }
 
   .player-link-unclaimed {
-    color: rgba(255, 255, 255, 0.62);
-    font-weight: 500;
-    font-style: italic;
+    color: rgba(255, 255, 255, 0.6);
+    font-weight: 400;
   }
 
   .dash {
-    color: rgba(255, 255, 255, 0.48);
+    color: rgba(255, 255, 255, 0.4);
   }
 
   .rank-icon {
     width: 1.375rem;
     height: 1.375rem;
     object-fit: contain;
+    display: block;
   }
 
   /* Agents */
   .agents-icons {
-    display: inline-grid;
-    grid-template-rows: 1.375rem;
-    grid-auto-flow: column;
-    grid-auto-columns: 1.375rem;
+    display: inline-flex;
+    align-items: center;
     gap: 0.1875rem;
+    vertical-align: middle;
+  }
+
+  .agent-icon,
+  .agent-fallback {
+    width: 1.125rem;
+    height: 1.125rem;
+    border-radius: 0.25rem;
   }
 
   .agent-icon {
-    width: 1.375rem;
-    height: 1.375rem;
-    border-radius: 0.1875rem;
     object-fit: contain;
-    background: rgba(0, 0, 0, 0.2);
+    background: rgba(255, 255, 255, 0.06);
   }
 
   .agent-fallback {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 1.375rem;
-    height: 1.375rem;
-    border-radius: 0.1875rem;
     border: 1px solid rgba(255, 255, 255, 0.15);
-    font-size: 0.5rem;
+    font-size: 0.4375rem;
     font-weight: 700;
-    color: rgba(255, 255, 255, 0.75);
+    color: rgba(255, 255, 255, 0.7);
   }
 
-  /* Empty */
-  .empty-state {
+  .agent-more {
+    margin-left: 0.125rem;
+    font-size: 0.6875rem;
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .table-foot {
     display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.75rem;
-    text-align: center;
-    padding: 3rem 1.5rem;
-    border-radius: 0.75rem;
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    background: rgba(0, 0, 0, 0.18);
-  }
-
-  .collapsed-bar {
-    display: none;
-    flex-shrink: 0;
-    align-items: center;
+    flex-wrap: wrap;
     justify-content: space-between;
-    gap: 0.75rem;
-    margin-bottom: 0.5rem;
-    padding: 0.5rem 0.75rem;
-    border-radius: 0.75rem;
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    background: var(--surface);
-    font: inherit;
+    gap: 0.5rem;
+    padding: 0.625rem 1rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
     font-size: 0.75rem;
-    color: rgba(255, 255, 255, 0.85);
-    text-align: left;
-    cursor: pointer;
-  }
-
-  .collapsed-bar-label {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-weight: 600;
-  }
-
-  .collapsed-bar-action {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    flex-shrink: 0;
-    color: #86efac;
+    color: rgba(255, 255, 255, 0.5);
   }
 
   .empty-text {
+    margin: 0;
+    padding: 2.5rem 1.5rem;
+    text-align: center;
     font-size: 0.875rem;
     color: rgba(255, 255, 255, 0.5);
   }
 
-  @media (max-width: 768px) {
-    /* Two rows of agent icons keeps the column from sprawling sideways. */
-    .agents-icons {
-      grid-template-rows: 1.375rem 1.375rem;
-    }
+  .chart-head {
+    padding-bottom: 1rem;
+  }
+
+  .chart-toggle {
+    margin-left: auto;
+    height: 1.875rem;
+    font-size: 0.75rem;
+  }
+
+  /* The scatter fills its parent's height. */
+  .chart-body {
+    display: flex;
+    flex-direction: column;
+    height: 28rem;
+    padding-top: 0;
   }
 
   @media (max-width: 640px) {
-    .stats-viewport {
-      /* `dvh` rather than `svh`: when the browser chrome retracts the table
-         should take the space it frees up, not leave a strip of background. */
-      height: calc(100dvh - 4rem);
-      padding: 1rem 0.75rem;
+    .stats-page {
+      padding: 1rem 0 2rem;
     }
 
-    .stats-head {
-      gap: 0.625rem;
+    .stats-title {
+      font-size: 1.375rem;
     }
 
-    /*
-     * Scrolled state: the heading, filters and column picker fold away so the
-     * table owns the whole screen. They stay in the DOM — removing them would
-     * drop the search box's focus and the picker's open/closed state.
-     */
-    .shell-collapsed .stats-head,
-    .shell-collapsed .stats-nav,
-    .shell-collapsed .toolbar,
-    .shell-collapsed .columns {
-      max-height: 0;
-      margin-bottom: 0;
-      opacity: 0;
-      overflow: hidden;
-      pointer-events: none;
-      /* The column picker's border survives a zero max-height otherwise. */
-      border-width: 0;
+    .toolbar {
+      padding: 0.75rem;
+      gap: 0.5rem;
     }
 
-    .stats-head,
-    .stats-nav,
-    .toolbar,
-    .columns {
-      max-height: 60vh;
-      transition:
-        max-height 0.2s ease,
-        opacity 0.15s ease,
-        margin-bottom 0.2s ease;
-    }
-
-    .search-wrap,
-    .min-games {
+    .search-wrap {
+      flex-basis: 100%;
       max-width: none;
     }
 
-    .collapsed-bar {
-      display: flex;
+    .search-input,
+    .tool-btn {
+      height: 2.75rem;
+      font-size: 0.875rem;
     }
 
-    /* Column labels are the only key to the numbers on a phone — make them readable. */
-    .stats-table thead th {
-      font-size: 0.6875rem;
-      color: rgba(255, 255, 255, 0.85);
-      border-bottom-color: rgba(255, 255, 255, 0.2);
+    .min-games {
+      flex: 1 1 9rem;
+    }
+
+    .min-games-range {
+      flex: 1 1 0;
+      min-width: 0;
+      width: auto;
+    }
+
+    .stats-table-wrap {
+      max-height: 70dvh;
+    }
+
+    /* The player's name stays in view while the stats scroll sideways. */
+    .stats-table .col-player {
+      position: sticky;
+      left: 0;
+      z-index: 2;
+      background: var(--head);
+      border-right: 1px solid rgba(255, 255, 255, 0.08);
+      min-width: 7.5rem;
+      max-width: 9rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .stats-table thead th.col-player {
+      z-index: 6;
+    }
+
+    .stats-table td {
+      height: 2.5rem;
+    }
+
+    .chart-toggle {
+      height: 2.25rem;
+    }
+
+    .chart-body {
+      height: 22rem;
     }
   }
 </style>

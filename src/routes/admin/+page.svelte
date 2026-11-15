@@ -16,6 +16,7 @@
     profileLabel,
   } from '$lib/admin/ui'
   import { invalidateAll } from '$app/navigation'
+  import { shrinkLogo } from '$lib/images/shrink-logo'
   import AdminDashboardShell from '$lib/components/admin/AdminDashboardShell.svelte'
   import AdminMatchesTab from '$lib/components/admin/AdminMatchesTab.svelte'
   import AdminSeasonsTab from '$lib/components/admin/AdminSeasonsTab.svelte'
@@ -509,9 +510,14 @@
           ? ` (unrated now, end of ${result.rank.currentAct})`
           : ''
       const peakNote = result.rank.peakSeason ? ` (${result.rank.peakSeason})` : ''
+      const check = result.altCheck
       const altNote =
-        result.altCheck && result.altCheck.usedRiotId !== result.altCheck.main.riotId
-          ? ` Used alt ${result.altCheck.usedRiotId}: the main has under 100 games.`
+        check && check.usedRiotId !== check.main.riotId
+          ? ` Used alt ${check.usedRiotId}: ${
+              check.higherAlt === check.usedRiotId
+                ? 'it ranks higher than the main'
+                : 'the main has under 100 games'
+            }.`
           : ''
       successMessage = `Filled from Riot: ${result.rank.currentRank ?? '—'} current${currentNote}, ${result.rank.peakRank ?? '—'} peak since V26 A1${peakNote}.${altNote} Save to apply.`
     } catch (err) {
@@ -1111,7 +1117,7 @@
       const form = new FormData()
       form.set('name', createAccoladeName.trim())
       if (createAccoladeIconKey) form.set('icon_key', createAccoladeIconKey)
-      if (createAccoladeLogoFile) form.set('logo', createAccoladeLogoFile)
+      if (createAccoladeLogoFile) form.set('logo', await shrinkLogo(createAccoladeLogoFile))
       const result = await adminFormRequest<{ accolade?: Accolade }>('/api/admin/accolades', {
         method: 'POST',
         body: form,
@@ -1168,7 +1174,7 @@
     try {
       const form = new FormData()
       form.set('accoladeId', accoladeId)
-      form.set('logo', file)
+      form.set('logo', await shrinkLogo(file))
       const result = await adminFormRequest<{ logo_url?: string }>('/api/admin/accolades', {
         method: 'PUT',
         body: form,
@@ -1777,7 +1783,7 @@
       const form = new FormData()
       form.set('name', createTeamName)
       form.set('tag', createTeamTag)
-      if (createTeamLogoFile) form.set('logo', createTeamLogoFile)
+      if (createTeamLogoFile) form.set('logo', await shrinkLogo(createTeamLogoFile))
       // Matches the season currently being viewed, so a past season can be
       // populated with the teams that played in it.
       if (adminMatchSeasonId) form.set('seasonId', adminMatchSeasonId)
@@ -1815,7 +1821,7 @@
       form.set('name', state.name ?? '')
       form.set('tag', state.tag ?? '')
       form.set('status', state.status ?? 'active')
-      if (teamLogoFileById[teamId]) form.set('logo', teamLogoFileById[teamId]!)
+      if (teamLogoFileById[teamId]) form.set('logo', await shrinkLogo(teamLogoFileById[teamId]!))
 
       await adminFormRequest(`/api/admin/teams/${teamId}`, {
         method: 'PATCH',
@@ -2039,7 +2045,7 @@
     try {
       const form = new FormData()
       form.set('seasonId', seasonId)
-      form.set('logo', file)
+      form.set('logo', await shrinkLogo(file))
 
       await adminFormRequest('/api/admin/seasons/logo', {
         method: 'POST',

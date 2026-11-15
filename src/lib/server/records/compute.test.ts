@@ -106,6 +106,72 @@ describe('computeStatRecords', () => {
     expect(top.slice(0, -1).every((r) => r.tie_count === 0)).toBe(true)
   })
 
+  it('lets one player hold several places by default (Rivals spans seasons)', () => {
+    const rows = computeStatRecords(
+      [40, 35, 30].map((kills) => perf({ stats: { kills }, profileId: 'star' })),
+      []
+    )
+    expect(ranked(rows, 'kills').map((r) => r.profile_id)).toEqual(['star', 'star', 'star'])
+  })
+
+  it('keeps each player to their best performance with onePerPlayer', () => {
+    const rows = computeStatRecords(
+      [
+        perf({ stats: { kills: 40 }, profileId: 'star' }),
+        perf({ stats: { kills: 35 }, profileId: 'star' }),
+        perf({ stats: { kills: 30 }, profileId: 'other' }),
+        perf({ stats: { kills: 25 }, profileId: null, puuid: 'pu-1' }),
+        perf({ stats: { kills: 24 }, profileId: null, puuid: 'pu-1' }),
+        perf({ stats: { kills: 20 }, profileId: null, puuid: null, playerName: 'Anon' }),
+        perf({ stats: { kills: 19 }, profileId: null, puuid: null, playerName: 'anon ' }),
+        perf({ stats: { kills: 10 }, profileId: 'last' }),
+      ],
+      [],
+      new Set(),
+      { onePerPlayer: true }
+    )
+    expect(ranked(rows, 'kills').map((r) => r.value)).toEqual([40, 30, 25, 20, 10])
+  })
+
+  it('counts only other players as cut-off ties with onePerPlayer', () => {
+    const rows = computeStatRecords(
+      [
+        ...[9, 5, 4, 3].map((n) => perf({ stats: { mk_5k: n } })),
+        perf({ stats: { mk_5k: 1 }, profileId: 'a' }),
+        perf({ stats: { mk_5k: 1 }, profileId: 'a' }),
+        perf({ stats: { mk_5k: 1 }, profileId: 'b' }),
+      ],
+      [],
+      new Set(),
+      { onePerPlayer: true }
+    )
+    const top = ranked(rows, 'mk_5k')
+    expect(top.map((r) => r.profile_id).at(-1)).toBe('a')
+    // Player a's second 1 is not a tie; only player b is cut off.
+    expect(top.at(-1)?.tie_count).toBe(1)
+    expect(top.at(-1)?.context.tied_off_profile_ids).toEqual(['b'])
+  })
+
+  it('never dedupes team records, each row being a different pairing', () => {
+    const map = (i: number) => ({
+      matchId: `m-${i}`,
+      matchMapId: `mm-${i}`,
+      mapOrder: 1,
+      mapName: 'Ascent',
+      seasonId: 's5',
+      stage: 'regular',
+      scheduledAt: '2026-12-01T00:00:00Z',
+      teamAId: 'same-winner',
+      teamBId: `loser-${i}`,
+      teamARounds: 13,
+      teamBRounds: i,
+    })
+    const rows = computeStatRecords([], [map(0), map(1), map(2)], new Set(), {
+      onePerPlayer: true,
+    })
+    expect(ranked(rows, 'map_margin')).toHaveLength(3)
+  })
+
   it('counts no cut-off ties when everyone level made the list', () => {
     const rows = computeStatRecords([perf({ stats: { kills: 30 } })], [])
     expect(current(rows, 'kills')?.tie_count).toBe(0)

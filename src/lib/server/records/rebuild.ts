@@ -198,7 +198,10 @@ async function rebuildTrack(track: RecordTrack): Promise<number> {
     loadRecordInputs(track.seasonIds),
     loadExcludedEntries(track.key),
   ])
-  const rows = computeStatRecords(performances, maps, excluded)
+  // A side league is one season, so a player holds one place per list there.
+  const rows = computeStatRecords(performances, maps, excluded, {
+    onePerPlayer: track.isSideLeague,
+  })
 
   const { data, error } = await supabaseAdmin.rpc('replace_stat_records', {
     p_track: track.key,

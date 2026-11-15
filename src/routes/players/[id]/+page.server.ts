@@ -21,6 +21,7 @@ import {
 } from '$lib/server/stats/season-batches'
 import { aggregateFullSeasonRows } from '$lib/server/stats/aggregate-full-season'
 import { groupBatchesByEvent } from '$lib/server/stats/batch-events'
+import { getValorantMapLookup, mapThumbFor } from '$lib/server/valorant/maps'
 import { rematchPlayerMatchMapStatsForBase } from '$lib/server/imports/matching'
 import { rankValue } from '$lib/ranks/ranks'
 import { loadCommentThread } from '$lib/server/comments'
@@ -1217,6 +1218,16 @@ export const load = async ({
   const isSubMapRow = (r: PerMapStatRow) =>
     Boolean(r.match_id && subByMatchId.get(r.match_id) === true)
   const { mapStats, agentStats } = buildBreakdowns(scopedMapStats)
+  // List-view thumbnails for the Breakdown's map rows, keyed by lowercased map
+  // name. The lookup is cached server-wide, so only the first page pays for it.
+  const mapArt: Record<string, string> = {}
+  if (mapStats.length > 0) {
+    const mapLookup = await getValorantMapLookup()
+    for (const m of mapStats) {
+      const url = mapThumbFor(mapLookup, m.key)
+      if (url) mapArt[m.key.toLowerCase()] = url
+    }
+  }
   const subMapRows = scopedMapStats.filter(isSubMapRow)
   const mainMapRows = scopedMapStats.filter((r) => !isSubMapRow(r))
   const subBreakdowns = buildBreakdowns(subMapRows)
@@ -1315,6 +1326,7 @@ export const load = async ({
     },
     matchHistory,
     mapStats,
+    mapArt,
     agentStats,
     // Same Map/Agent breakdowns split by the player's role in each match, so the
     // profile can offer an All / Main / Sub filter. Match history rows carry

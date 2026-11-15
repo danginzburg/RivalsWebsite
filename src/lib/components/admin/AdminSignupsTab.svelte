@@ -91,6 +91,16 @@
     return riotId && altsFor(signup).some((alt) => alt.riotId === riotId) ? riotId : null
   }
 
+  /**
+   * The alt the ranks came from, unless it has since been rejected. A signup on
+   * an alt is held to that alt, so the main's games warnings no longer apply.
+   */
+  function usedAltFor(signup: PlayerSignup) {
+    const check = signup.alt_check
+    if (!check || check.usedRiotId === check.main.riotId) return null
+    return altsFor(signup).some((alt) => alt.riotId === check.usedRiotId) ? check.usedRiotId : null
+  }
+
   async function reviewAlt(id: string, status: 'approved' | 'rejected') {
     reviewingAltId = id
     altError = null
@@ -389,6 +399,7 @@
         {@const isExpanded = expandedId === signup.id}
         {@const alts = altsFor(signup)}
         {@const higherAlt = higherAltFor(signup)}
+        {@const usedAlt = usedAltFor(signup)}
         {@const pendingAlts = alts.filter((alt) => alt.status === 'pending').length}
         <article
           class="rounded-md border"
@@ -427,7 +438,17 @@
                 {pendingAlts} pending {pendingAlts === 1 ? 'alt' : 'alts'}
               </span>
             {/if}
-            {#if higherAlt}
+            {#if usedAlt}
+              <span
+                class="rounded px-2 py-0.5 text-[10px] font-bold uppercase"
+                style="background: rgba(134,239,172,0.14); color: #86efac;"
+                title="Ranks come from the alt {usedAlt}{usedAlt === higherAlt
+                  ? ', which ranks higher than the main'
+                  : ' (the main is short of V26 games)'}"
+              >
+                Using alt
+              </span>
+            {:else if higherAlt}
               <span
                 class="rounded px-2 py-0.5 text-[10px] font-bold uppercase"
                 style="background: rgba(251,191,36,0.16); color: #fcd34d;"
@@ -436,7 +457,9 @@
                 Alt higher
               </span>
             {/if}
-            {#if signup.v26_comp_games == null}
+            {#if usedAlt}
+              <!-- On an alt, the main's V26 games no longer matter. -->
+            {:else if signup.v26_comp_games == null}
               <span
                 class="rounded px-2 py-0.5 text-[10px] font-bold uppercase"
                 style="background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.6);"
@@ -492,7 +515,7 @@
                 {#if signup.v26_comp_games != null}
                   <span style="color: rgba(255,255,255,0.6);">
                     V26 comp games: <strong
-                      style="color: {meetsGamesMinimum(signup.v26_comp_games)
+                      style="color: {usedAlt || meetsGamesMinimum(signup.v26_comp_games)
                         ? 'rgba(255,255,255,0.85)'
                         : '#fca5a5'};">{signup.v26_comp_games}</strong
                     >

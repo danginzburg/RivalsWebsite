@@ -4,6 +4,7 @@ import {
   bracketSeedsWithOpponents,
   bracketThirdPlaceTeamIds,
   buildPickemSlots,
+  combinePickemSeasonTotals,
   rankPickemLeaderboardEntries,
   scorePickemPayload,
   standardDoubleElim8Template,
@@ -306,5 +307,46 @@ describe('pickem weekly matchups', () => {
         }
       )
     ).toEqual({ score: 1, maxScore: 3, correct: ['w1_m1'] })
+  })
+})
+
+describe('combinePickemSeasonTotals', () => {
+  const entry = (id: string | null, name: string, score: number, submittedAt: string) => ({
+    score,
+    submittedAt,
+    user: { id, name },
+  })
+
+  it('sums each person across the bracket and weekly pick’ems and ranks the totals', () => {
+    const bracket = [
+      entry('p1', 'Ann', 7, '2026-11-01T00:00:00Z'),
+      entry('p2', 'Bo', 10, '2026-11-01T01:00:00Z'),
+    ]
+    const weekly = [
+      entry('p1', 'Ann', 6, '2026-09-01T00:00:00Z'),
+      entry('p3', 'Cy', 4, '2026-09-02T00:00:00Z'),
+    ]
+    const totals = combinePickemSeasonTotals([bracket, weekly])
+    expect(totals.map((t) => [t.user.name, t.score, t.rank])).toEqual([
+      ['Ann', 13, 1],
+      ['Bo', 10, 2],
+      ['Cy', 4, 3],
+    ])
+    // Ties break on the earliest entry across either pick'em.
+    expect(totals[0]!.submittedAt).toBe('2026-09-01T00:00:00Z')
+  })
+
+  it('shares a rank on equal totals and matches people without a profile by name', () => {
+    const totals = combinePickemSeasonTotals([
+      [
+        entry(null, 'Guest', 3, '2026-09-01T00:00:00Z'),
+        entry('p1', 'Ann', 5, '2026-09-02T00:00:00Z'),
+      ],
+      [entry(null, 'Guest', 2, '2026-10-01T00:00:00Z')],
+    ])
+    expect(totals.map((t) => [t.user.name, t.score, t.rank])).toEqual([
+      ['Guest', 5, 1],
+      ['Ann', 5, 1],
+    ])
   })
 })

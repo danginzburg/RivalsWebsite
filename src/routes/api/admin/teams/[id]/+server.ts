@@ -1,21 +1,12 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { uploadLogo } from '$lib/server/logo-upload'
 
 function normalizeOptional(value: unknown): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
   return trimmed.length > 0 ? trimmed : null
-}
-
-function sanitizeFilename(name: string): string {
-  const ascii = name.replace(/[\u0080-\uFFFF]/g, '')
-  return ascii
-    .replace(/[^A-Za-z0-9._-]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-+/, '')
-    .replace(/-+$/, '')
-    .slice(0, 80)
 }
 
 export const PATCH: RequestHandler = async ({ locals, request, params }) => {
@@ -59,17 +50,7 @@ export const PATCH: RequestHandler = async ({ locals, request, params }) => {
 
   let logoPath = clearLogo ? null : existing.logo_path
   if (logo instanceof File && logo.size > 0) {
-    const cleanName = sanitizeFilename(logo.name || 'logo')
-    const objectPath = `admin/${crypto.randomUUID()}-${cleanName || 'logo'}`
-    const bytes = new Uint8Array(await logo.arrayBuffer())
-    const { error: uploadError } = await supabaseAdmin.storage
-      .from('team-logos')
-      .upload(objectPath, bytes, {
-        contentType: logo.type || 'application/octet-stream',
-        upsert: false,
-      })
-    if (uploadError) throw error(500, 'Failed to upload logo')
-    logoPath = objectPath
+    logoPath = await uploadLogo('admin', logo)
   }
 
   if (!logoPath) {

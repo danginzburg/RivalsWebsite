@@ -1,90 +1,23 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit'
 
 import { requireAdmin } from '$lib/server/auth/profile'
-import { supabaseAdmin } from '$lib/supabase/admin'
 import { enforceRateLimit } from '$lib/server/rate-limit'
-import { RiotLookupError } from '$lib/server/riot/henrik'
+import { loadTargetMatch } from '$lib/server/matches/import-lifecycle'
 import {
-  fetchMatch,
-  roundStartTime,
-  toImportMap,
-  MATCH_REGIONS,
-  type MatchRegion,
-} from '$lib/server/riot/match'
-import { parseMatchIdList } from '$lib/server/riot/match-id'
-import {
-  resolveSeriesTeams,
-  resolveSeriesTeamsManual,
-  sideForTeamAByContinuity,
-} from '$lib/server/riot/match-teams'
-import {
-  buildProfileMatcher,
-  getProfilesForImports,
-  getRiotAccountsForImports,
-} from '$lib/server/imports/matching'
-import { backfillRiotAccountPuuids } from '$lib/server/imports/puuid-backfill'
-import { upsertRiotIdentities } from '$lib/server/players/riot-identities'
-import { refreshSeasonRanks } from '$lib/server/players/riot-ranks'
-import { importCompletedSeries, loadTargetMatch } from '$lib/server/matches/import-lifecycle'
-import { resolveTargetSeasonId } from '$lib/server/seasons/resolve'
-import { loadRosterTimeline, matchRosterTime } from '$lib/server/matches/subs'
-
-/** A best-of-seven is the longest series the league runs. */
-const MAX_MAPS = 7
-
-function parseRegion(value: unknown): MatchRegion {
-  const raw = typeof value === 'string' ? value.trim().toLowerCase() : 'na'
-  if (!(MATCH_REGIONS as readonly string[]).includes(raw)) {
-    throw error(400, `region must be one of ${MATCH_REGIONS.join(', ')}`)
-  }
-  return raw as MatchRegion
-}
-
-type ForfeitMapSpec = {
-  /** 1-based position in the series; the map is inserted at this order. */
-  order: number
-  /** Which resolved series team won the forfeit — 'a' is teamA, 'b' is teamB. */
-  winnerSide: 'a' | 'b'
-  winnerRounds: number
-  loserRounds: number
-  label: string | null
-}
-
-/**
- * A forfeited map is optional and entirely hand-entered, so anything malformed
- * is treated as "no forfeit map" rather than a hard error. Only the winning side
- * is required; the scoreline defaults to a standard 13-0 concession.
- */
-function parseForfeitMap(value: unknown): ForfeitMapSpec | null {
-  if (!value || typeof value !== 'object') return null
-  const raw = value as Record<string, unknown>
-  const winnerSide = raw.winnerSide === 'a' ? 'a' : raw.winnerSide === 'b' ? 'b' : null
-  if (!winnerSide) return null
-
-  const order = Number.isInteger(Number(raw.order)) ? Math.max(1, Number(raw.order)) : 1
-  const winnerRounds =
-    Number.isInteger(Number(raw.winnerRounds)) && Number(raw.winnerRounds) >= 0
-      ? Number(raw.winnerRounds)
-      : 13
-  const loserRounds =
-    Number.isInteger(Number(raw.loserRounds)) && Number(raw.loserRounds) >= 0
-      ? Number(raw.loserRounds)
-      : 0
-  if (winnerRounds <= loserRounds) {
-    throw error(400, 'The forfeit winner must have more rounds than the loser.')
-  }
-  const label = typeof raw.label === 'string' && raw.label.trim() ? raw.label.trim() : null
-
-  return { order, winnerSide, winnerRounds, loserRounds, label }
-}
+  commitRiotSeries,
+  parseForfeitMap,
+  parseRegion,
+  parseSeriesInput,
+  prepareRiotSeries,
+} from '$lib/server/matches/riot-series'
 
 /**
  * Import a completed series straight from Riot match ids or tracker.gg links.
  *
- * The heavy lifting is deliberately not reimplemented here: once the matches
- * are fetched and shaped, `importCompletedSeries` does the team resolution,
- * profile matching, map insertion and stat rebuild exactly as the CSV import
- * does — so an API-imported match is indistinguishable from a hand-imported one.
+ * The fetching and team resolution live in `riot-series`, shared with the
+ * captain result submission; the write goes through `importCompletedSeries`
+ * exactly as the CSV import does — so an API-imported match is
+ * indistinguishable from a hand-imported one.
  *
  * `dryRun` returns the resolved teams, scores and roster matching without
  * writing anything, because getting the wrong two teams is the failure worth
@@ -108,38 +41,11 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   if (!dryRun && !stage) {
     throw error(400, 'Select a stage before importing.')
   }
-  const { ids, unparsed } = parseMatchIdList(typeof body.input === 'string' ? body.input : '')
-
-  // When the rosters can't identify the teams, the admin picks them by hand and
-  // resends with these two ids — the import then runs exactly as it would have,
-  // just with the teams given rather than inferred. A target match supplies them.
-  const manualTeamAId = targetMatch
-    ? targetMatch.team_a_id
-    : typeof body.teamAId === 'string'
-      ? body.teamAId.trim()
-      : ''
-  const manualTeamBId = targetMatch
-    ? targetMatch.team_b_id
-    : typeof body.teamBId === 'string'
-      ? body.teamBId.trim()
-      : ''
-  const hasManualTeams = manualTeamAId.length > 0 && manualTeamBId.length > 0
-  if (hasManualTeams && manualTeamAId === manualTeamBId) {
-    throw error(400, 'Pick two different teams.')
-  }
 
   // An optional forfeited map has no Riot match id — one team conceded it, so it
-  // is entered by hand: which side won, the scoreline, and where it sits in the
-  // series. It is spliced into the fetched maps and imported alongside them.
+  // is entered by hand and spliced into the fetched maps.
   const forfeitMap = parseForfeitMap(body.forfeitMap)
-
-  if (ids.length === 0) {
-    throw error(400, 'No Riot match ids or tracker.gg match links found in that input.')
-  }
-  const totalMaps = ids.length + (forfeitMap ? 1 : 0)
-  if (totalMaps > MAX_MAPS) {
-    throw error(400, `That is ${totalMaps} maps — a series is at most ${MAX_MAPS} maps.`)
-  }
+  const { ids, unparsed } = parseSeriesInput(body.input, forfeitMap)
 
   // Each map is one upstream request, so the budget is per-map not per-call.
   enforceRateLimit(`matches:import-riot:${admin.id}`, {
@@ -148,260 +54,41 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     message: 'Too many match imports. Wait a few minutes before running more.',
   })
 
-  let matches
-  try {
-    // Sequential rather than parallel: HenrikDev allows 30 requests a minute and
-    // a burst of seven buys nothing when the admin is waiting on all of them.
-    matches = []
-    for (const id of ids) matches.push(await fetchMatch(id, region))
-  } catch (err) {
-    if (err instanceof RiotLookupError) throw error(err.status, err.message)
-    throw err
-  }
+  // When the rosters can't identify the teams, the admin picks them by hand and
+  // resends with these two ids. A target match supplies them itself.
+  const prepared = await prepareRiotSeries({
+    ids,
+    unparsed,
+    region,
+    targetMatch,
+    manualTeamAId: typeof body.teamAId === 'string' ? body.teamAId : '',
+    manualTeamBId: typeof body.teamBId === 'string' ? body.teamBId : '',
+    seasonId: body.seasonId,
+    forfeitMap,
+  })
 
-  const incomplete = matches.filter((m) => !m.isCompleted)
-  if (incomplete.length > 0) {
-    throw error(400, 'That match is still in progress, so its stats are not final yet.')
-  }
-
-  // Resolve the league teams from the first map's players, then hold that
-  // mapping for the whole series — the sides swap between maps, so re-deriving
-  // per map would flip team A and team B halfway through.
-  const [profiles, riotAccounts] = await Promise.all([
-    getProfilesForImports(),
-    getRiotAccountsForImports(),
-  ])
-  const profileMatcher = buildProfileMatcher(profiles, riotAccounts)
-
-  // Only the import season's teams count (the active one unless the admin is
-  // backfilling a past season). A membership stays `is_active` after a season
-  // ends, so a returning player carries live memberships on several teams
-  // across seasons; without this scope the profile→team map takes whichever row
-  // happened to be read last and can resolve a player onto a team they were on a
-  // season ago, mis-identifying the match.
-  const seasonId = targetMatch?.season_id ?? (await resolveTargetSeasonId(body.seasonId))
-
-  const { data: seasonTeams } = await supabaseAdmin
-    .from('teams')
-    .select('id')
-    .eq('season_id', seasonId ?? '')
-  const seasonTeamIds = (seasonTeams ?? []).map((t) => String(t.id))
-
-  // Rosters as they stood when the game was played, not today: a player who
-  // has since moved teams must still resolve onto the team they played for.
-  // Without a start time this falls back to the current roster.
-  const rosters =
-    seasonTeamIds.length > 0
-      ? (await loadRosterTimeline(seasonId, seasonTeamIds)).at(
-          matchRosterTime({ scheduled_at: matches[0]?.startedAt ?? null })
-        )
-      : new Map()
-
-  const teamByProfileId = new Map<string, string>()
-  for (const [teamId, roster] of rosters) {
-    for (const profileId of roster.profileIds) teamByProfileId.set(profileId, teamId)
-  }
-
-  const resolveTeamId = (riotId: string, puuid?: string | null) => {
-    const profileId = profileMatcher.resolve(riotId, puuid)
-    return profileId ? (teamByProfileId.get(profileId) ?? null) : null
-  }
-
-  const first = matches[0]
-  const toSidePlayers = (match: (typeof matches)[number]) =>
-    match.players.map((p) => ({ riotId: p.riotId, team: p.team, puuid: p.puuid }))
-
-  // One resolver for the series and every map: hand-picked teams when the admin
-  // supplied them, otherwise the automatic roster vote.
-  const resolveSeries = (match: (typeof matches)[number]) =>
-    hasManualTeams
-      ? resolveSeriesTeamsManual(toSidePlayers(match), resolveTeamId, manualTeamAId, manualTeamBId)
-      : resolveSeriesTeams(toSidePlayers(match), resolveTeamId)
-
-  const resolved = resolveSeries(first)
-
-  if (!resolved.ok) {
-    const suffix =
-      resolved.failure.unmatched.length > 0
-        ? ` Unrecognised players: ${resolved.failure.unmatched.join(', ')}.`
-        : ''
-
-    // With teams already hand-picked there is nothing left to fall back to, so
-    // this is a hard failure. Otherwise, tell the client the teams could not be
-    // identified so it can offer the manual team picker rather than dead-ending.
-    if (hasManualTeams) throw error(422, `${resolved.failure.reason}${suffix}`)
-
+  if (!prepared.ok) {
+    // Tell the client the teams could not be identified so it can offer the
+    // manual team picker rather than dead-ending.
     return json(
       {
         success: false,
         needsManualTeams: true,
-        reason: `${resolved.failure.reason}${suffix}`,
-        unmatchedPlayers: resolved.failure.unmatched,
+        reason: prepared.reason,
+        unmatchedPlayers: prepared.unmatchedPlayers,
       },
       { status: 422 }
     )
   }
 
-  const { teamAId, teamBId, teamAValorantSide, teamAVotes, teamBVotes, unmatched } =
-    resolved.resolution
-
-  const { data: teamRows } = await supabaseAdmin
-    .from('teams')
-    .select('id, name')
-    .in('id', [teamAId, teamBId])
-
-  const nameById = new Map((teamRows ?? []).map((t) => [t.id, String(t.name)]))
-  const teamAName = nameById.get(teamAId)
-  const teamBName = nameById.get(teamBId)
-  if (!teamAName || !teamBName) throw error(422, 'Resolved a team that no longer exists.')
-
-  /**
-   * Sides swap between maps, so team A's colour on map 2 is not its colour on
-   * map 1. The reliable signal is the roster itself: the same players carry
-   * across the series, so we anchor team A's side on map 1 and follow those
-   * players to whichever side they are on for each later map. This holds even
-   * when nobody in the lobby is on a known league roster — the case where the
-   * per-map vote has nothing to decide and, left to itself, would pin team A to
-   * the Riot player-array order and flip a map (turning a 2-0 into a 1-1).
-   *
-   * Per-map vote resolution is kept only as a fallback for the rare map whose
-   * roster does not carry over at all, and the series anchor as the last resort.
-   */
-  const anchorTeamAPuuids = new Set(
-    first.players
-      .filter((p) => p.team === teamAValorantSide)
-      .map((p) => p.puuid)
-      .filter((puuid): puuid is string => Boolean(puuid))
-  )
-
-  // Tournament ranks: each player's highest rank between the season's start
-  // and end dates, refreshed for everyone in the series before the import so
-  // the stat batches it rebuilds pick them up. Skipped on a dry run to spare
-  // the rate limit; bounded so a busy limit cannot stall the import.
-  let seasonRanks = new Map<string, string>()
-  if (!dryRun && seasonId) {
-    seasonRanks = await refreshSeasonRanks(
-      seasonId,
-      matches.flatMap((m) => m.players.map((p) => p.puuid)),
-      { deadline: Date.now() + 20_000 }
-    ).catch((err) => {
-      console.warn('Failed to refresh season ranks for import:', err)
-      return new Map<string, string>()
-    })
-  }
-
-  const maps = matches.map((match, index) => {
-    const perMap = resolveSeries(match)
-    const perMapSide = perMap.ok
-      ? perMap.resolution.teamAId === teamAId
-        ? perMap.resolution.teamAValorantSide
-        : (match.teams.find((t) => t.id !== perMap.resolution.teamAValorantSide)?.id ?? null)
-      : null
-
-    const sideForTeamA =
-      sideForTeamAByContinuity(anchorTeamAPuuids, match.players) ?? perMapSide ?? teamAValorantSide
-
-    return toImportMap(match, {
-      teamAValorantSide: sideForTeamA,
-      teamAName,
-      teamBName,
-      mapOrder: index + 1,
-    })
-  })
-
-  // Splice the hand-entered forfeit map into the fetched series. It carries no
-  // players and no game id; its position in the array is its map order, and the
-  // winning side is stated relative to the resolved teamA/teamB.
-  type SeriesMap = (typeof maps)[number] & { isForfeit?: boolean; forfeitLabel?: string }
-  const seriesMaps: SeriesMap[] = [...maps]
-  const previewMaps = maps.map((map, index) => ({
-    matchId: matches[index].matchId as string | null,
-    mapName: map.mapName as string | null,
-    startedAt: map.scheduledAt,
-    score: `${map.teamARounds}-${map.teamBRounds}`,
-    playerCount: map.playerRows.length,
-    isForfeit: false,
-  }))
-
-  if (forfeitMap) {
-    const winnerIsA = forfeitMap.winnerSide === 'a'
-    const forfeitTeamARounds = winnerIsA ? forfeitMap.winnerRounds : forfeitMap.loserRounds
-    const forfeitTeamBRounds = winnerIsA ? forfeitMap.loserRounds : forfeitMap.winnerRounds
-    const insertAt = Math.min(Math.max(forfeitMap.order - 1, 0), seriesMaps.length)
-
-    seriesMaps.splice(insertAt, 0, {
-      sourceFilename: 'riot-forfeit-map.json',
-      mapName: null,
-      scheduledAt: roundStartTime(first.startedAt),
-      teamAName,
-      teamBName,
-      teamARounds: forfeitTeamARounds,
-      teamBRounds: forfeitTeamBRounds,
-      playerRows: [],
-      isForfeit: true,
-      ...(forfeitMap.label ? { forfeitLabel: forfeitMap.label } : {}),
-    })
-    previewMaps.splice(insertAt, 0, {
-      matchId: null,
-      mapName: 'Forfeit',
-      startedAt: roundStartTime(first.startedAt),
-      score: `${forfeitTeamARounds}-${forfeitTeamBRounds}`,
-      playerCount: 0,
-      isForfeit: true,
-    })
-  }
-
-  const preview = {
-    region,
-    teamA: { id: teamAId, name: teamAName, rosterVotes: teamAVotes },
-    teamB: { id: teamBId, name: teamBName, rosterVotes: teamBVotes },
-    unmatchedPlayers: unmatched,
-    unparsedInput: unparsed,
-    maps: previewMaps.map((map, index) => ({ ...map, matchId: map.matchId ?? `forfeit-${index}` })),
-  }
-
+  const { preview } = prepared.series
   if (dryRun) return json({ success: true, dryRun: true, preview })
 
-  const result = await importCompletedSeries({
-    payload: {
-      displayName: `Riot import ${first.matchId}`,
-      bestOf: body.bestOf,
-      stage,
-      seasonId: seasonId ?? body.seasonId,
-      maps: seriesMaps,
-      ...(targetMatch ? { targetMatchId: targetMatch.id } : {}),
-    },
-    adminProfileId: admin.id,
-  })
-
-  // Self-healing: every player in the series carries a PUUID from Riot. Where a
-  // known account matched only by name and has no PUUID stored yet, fill it in
-  // so future imports match that account by PUUID even after a rename.
-  const playerPuuidPairs = matches.flatMap((m) =>
-    m.players.map((p) => ({ riotId: p.riotId, puuid: p.puuid }))
-  )
-  await backfillRiotAccountPuuids(playerPuuidPairs, profileMatcher).catch((err) => {
-    console.warn('Failed to backfill Riot account PUUIDs after import:', err)
-  })
-
-  // Record every PUUID seen behind the scenes, whether or not it maps to a
-  // profile yet. This is what lets a player be tracked by identity through a
-  // rename even when nobody has linked them — the admin does that once, later,
-  // from the review queue. The tournament rank rides along, moving the
-  // account's rank forward (never back to an older series' rank).
-  // Best-effort: the match is already written.
-  const observations = matches.flatMap((m) =>
-    m.players.map((p) => ({
-      puuid: p.puuid,
-      name: p.name,
-      tag: p.tag,
-      rank: seasonRanks.get(p.puuid) ?? null,
-    }))
-  )
-  // The series is dated by its first map.
-  const playedAt = first.startedAt ? new Date(first.startedAt).toISOString() : null
-  await upsertRiotIdentities(observations, { playedAt }).catch((err) => {
-    console.warn('Failed to record Riot identities after import:', err)
+  const result = await commitRiotSeries(prepared.series, {
+    stage: stage as string,
+    bestOf: body.bestOf,
+    targetMatchId: targetMatch?.id ?? null,
+    importerProfileId: admin.id,
   })
 
   return json({ success: true, dryRun: false, preview, result })

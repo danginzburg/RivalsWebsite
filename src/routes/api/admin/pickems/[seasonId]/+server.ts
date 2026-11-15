@@ -2,6 +2,7 @@ import { error, json, type RequestHandler } from '@sveltejs/kit'
 
 import { requireAdmin } from '$lib/server/auth/profile'
 import { publicDataCache } from '$lib/server/cache'
+import { normalizePickemFormat } from '$lib/pickems'
 import { savePickemForSeason } from '$lib/server/pickems'
 import { invalidateSeasonSeeds } from '$lib/server/seasons/seeds'
 import { supabaseAdmin } from '$lib/supabase/admin'
@@ -12,10 +13,13 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
   await requireAdmin(locals.user)
   if (!params.seasonId) throw error(400, 'Season id is required')
   const body = await request.json().catch(() => ({}))
+  // A season can hold a bracket and a weekly pick'em; compare against the one being saved.
+  const format = normalizePickemFormat((body as Record<string, unknown>).format)
   const { data: before } = await supabaseAdmin
     .from('pickem_events')
     .select('status')
     .eq('season_id', params.seasonId)
+    .eq('format', format)
     .maybeSingle()
   const context = await savePickemForSeason(params.seasonId, body)
   // Seeds are read from this config across the site, so drop the cached copy.

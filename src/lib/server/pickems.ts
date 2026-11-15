@@ -138,14 +138,22 @@ function involvedTeamIds(event: PickemEvent, matches: PickemMatch[]): string[] {
   return Array.from(new Set(ids))
 }
 
-async function loadContext(season: SeasonRow): Promise<PickemContext> {
-  const { data: eventRow, error: eventError } = await supabaseAdmin
+/**
+ * A season holds at most one event per format. With no format asked for, the
+ * bracket wins — the bracket-only readers (seeds, the events page bracket,
+ * placements) call without one.
+ */
+async function loadContext(season: SeasonRow, format?: PickemFormat): Promise<PickemContext> {
+  const { data: eventRows, error: eventError } = await supabaseAdmin
     .from('pickem_events')
     .select(EVENT_COLUMNS)
     .eq('season_id', season.id)
-    .maybeSingle()
 
   if (eventError) throw error(500, 'Failed to load pick’em')
+  const rows = (eventRows ?? []) as EventRow[]
+  const eventRow = format
+    ? rows.find((row) => normalizePickemFormat(row.format) === format)
+    : (rows.find((row) => normalizePickemFormat(row.format) === 'bracket') ?? rows[0])
   if (!eventRow) return { season, event: null, matches: [], teams: [] }
 
   const event = toEvent(eventRow as EventRow)
@@ -185,12 +193,18 @@ async function getSeasonBy(column: 'code' | 'id', value: string): Promise<Season
   return season as SeasonRow
 }
 
-export async function getPickemContextBySeasonCode(seasonCode: string): Promise<PickemContext> {
-  return loadContext(await getSeasonBy('code', seasonCode))
+export async function getPickemContextBySeasonCode(
+  seasonCode: string,
+  format?: PickemFormat
+): Promise<PickemContext> {
+  return loadContext(await getSeasonBy('code', seasonCode), format)
 }
 
-export async function getPickemContextBySeasonId(seasonId: string): Promise<PickemContext> {
-  return loadContext(await getSeasonBy('id', seasonId))
+export async function getPickemContextBySeasonId(
+  seasonId: string,
+  format?: PickemFormat
+): Promise<PickemContext> {
+  return loadContext(await getSeasonBy('id', seasonId), format)
 }
 
 /**
@@ -198,9 +212,10 @@ export async function getPickemContextBySeasonId(seasonId: string): Promise<Pick
  * work-in-progress, so its bracket and seeds are treated as not there.
  */
 export async function getPublishedPickemContextBySeasonId(
-  seasonId: string
+  seasonId: string,
+  format?: PickemFormat
 ): Promise<PickemContext> {
-  const ctx = await getPickemContextBySeasonId(seasonId)
+  const ctx = await getPickemContextBySeasonId(seasonId, format)
   if (ctx.event?.status !== 'draft') return ctx
   return { season: ctx.season, event: null, matches: [], teams: [] }
 }
@@ -329,7 +344,7 @@ export async function savePickemForSeason(
         lock_at: lockAt,
         config: { seeds },
       },
-      { onConflict: 'season_id' }
+      { onConflict: 'season_id,format' }
     )
     .select(EVENT_COLUMNS)
     .single()
@@ -352,7 +367,7 @@ export async function savePickemForSeason(
     if (insertError) throw error(500, 'Failed to save pick’em matches')
   }
 
-  return loadContext(season)
+  return loadContext(season, format)
 }
 
 // ---------------------------------------------------------------------------
@@ -377,9 +392,12 @@ export async function getPickemSubmissionForProfile(eventId: string, profileId: 
 export async function upsertPickemSubmission(input: {
   seasonId: string
   profileId: string
+  /** Which of the season's pick'ems ('bracket' | 'matchups'); bracket first when omitted. */
+  format?: unknown
   payload: unknown
 }) {
-  const context = await getPickemContextBySeasonId(input.seasonId)
+  const format = input.format == null ? undefined : normalizePickemFormat(input.format)
+  const context = await getPickemContextBySeasonId(input.seasonId, format)
   const { event, matches } = context
   if (!event || event.status !== 'open') throw error(400, "Pick'em is not open")
   if (isPickemLocked(event)) throw error(400, "Pick'em is locked")
@@ -540,6 +558,7 @@ export async function getSeasonSeedMap(seasonId: string): Promise<Record<string,
     .from('pickem_events')
     .select('config')
     .eq('season_id', seasonId)
+    .eq('format', 'bracket')
     .maybeSingle()
   if (seedError || !data) return {}
   const config =

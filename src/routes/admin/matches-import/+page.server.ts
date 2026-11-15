@@ -1,6 +1,7 @@
 import { error, redirect } from '@sveltejs/kit'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { MATCH_REPORT_SELECT, type MatchReportRow } from '$lib/server/matches/reports'
 
 /** How far back a scheduled match still counts as "recent" for the picker. */
 const RECENT_WINDOW_MS = 21 * 24 * 60 * 60_000
@@ -99,6 +100,75 @@ async function loadTargetMatches(requestedId: string | null) {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
+/**
+ * Captain result submissions: everything still waiting on an admin, plus the
+ * latest handful that applied themselves or were reviewed, for an audit trail.
+ * A failed read leaves the list empty rather than blocking the importer.
+ */
+async function loadCaptainReports() {
+  const select = `${MATCH_REPORT_SELECT},
+    match:matches!match_reports_match_id_fkey (
+      id, scheduled_at, best_of,
+      team_a:teams!matches_team_a_id_fkey (id, name),
+      team_b:teams!matches_team_b_id_fkey (id, name)
+    ),
+    team:teams!match_reports_team_id_fkey (id, name),
+    submitter:profiles!match_reports_submitted_by_profile_id_fkey (id, display_name)`
+
+  const [pending, recent] = await Promise.all([
+    supabaseAdmin
+      .from('match_reports')
+      .select(select)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: true }),
+    supabaseAdmin
+      .from('match_reports')
+      .select(select)
+      .neq('status', 'pending')
+      .order('created_at', { ascending: false })
+      .limit(10),
+  ])
+  if (pending.error || recent.error) {
+    console.error('Failed to load captain reports:', pending.error ?? recent.error)
+    return []
+  }
+
+  type Ref = { id: string; name?: string; display_name?: string | null }
+  const pick = <T>(v: T | T[] | null | undefined): T | null =>
+    Array.isArray(v) ? (v[0] ?? null) : (v ?? null)
+
+  return [...(pending.data ?? []), ...(recent.data ?? [])].map((raw) => {
+    const row = raw as unknown as MatchReportRow & {
+      match: unknown
+      team: unknown
+      submitter: unknown
+    }
+    const match = pick(
+      row.match as { scheduled_at?: string | null; team_a?: unknown; team_b?: unknown } | null
+    )
+    return {
+      id: row.id,
+      matchId: row.match_id,
+      status: row.status,
+      trackerInput: row.tracker_input,
+      vetoLines: row.veto_lines ?? [],
+      forfeitMap: row.forfeit_map,
+      note: row.note,
+      reviewReasons: row.review_reasons ?? [],
+      preview: row.preview,
+      reviewNote: row.review_note,
+      reviewedAt: row.reviewed_at,
+      createdAt: row.created_at,
+      teamName: pick(row.team as Ref | null)?.name ?? null,
+      submitterName: pick(row.submitter as Ref | null)?.display_name ?? null,
+      matchLabel: match
+        ? `${pick(match.team_a as Ref | null)?.name ?? 'TBD'} vs ${pick(match.team_b as Ref | null)?.name ?? 'TBD'}`
+        : 'Unknown match',
+      matchScheduledAt: (match?.scheduled_at as string | null) ?? null,
+    }
+  })
+}
+
 export const load = async ({ locals, url }: { locals: App.Locals; url: URL }) => {
   if (!locals.user) {
     throw redirect(303, '/auth/login?returnTo=/admin/matches-import')
@@ -136,9 +206,13 @@ export const load = async ({ locals, url }: { locals: App.Locals; url: URL }) =>
   const activeSeasonId = (seasons ?? []).find((s) => s.is_active)?.id ?? null
 
   const requestedMatchId = url.searchParams.get('match')
-  const targetMatches = await loadTargetMatches(requestedMatchId)
+  const [targetMatches, captainReports] = await Promise.all([
+    loadTargetMatches(requestedMatchId),
+    loadCaptainReports(),
+  ])
 
   return {
+    captainReports,
     targetMatches,
     requestedMatchId: targetMatches.some((m) => m.id === requestedMatchId)
       ? requestedMatchId

@@ -4,7 +4,7 @@
   import ArchiveBracket from '$lib/components/ArchiveBracket.svelte'
   import CommentThread from '$lib/components/CommentThread.svelte'
   import TeamSeed from '$lib/components/TeamSeed.svelte'
-  import { Trophy, Crown, Medal, ArrowLeft } from 'lucide-svelte'
+  import { ArrowLeft } from 'lucide-svelte'
   import { resolve } from '$app/paths'
 
   let { data }: PageProps = $props()
@@ -24,17 +24,21 @@
   type TabId = 'overview' | 'bracket' | 'standings' | 'matches' | 'teams' | 'maps'
   let activeTab = $state<TabId>('overview')
 
+  const showBracket = $derived(sections.bracket && bracket.slots.length > 0)
+  const showStandings = $derived(sections.standings && leaderboard.length > 0)
+  const showMatches = $derived(sections.matches && matches.length > 0)
+  const showTeams = $derived(sections.teams && teams.length > 0)
+  const showMaps = $derived(sections.mapPool && mapPool.length > 0)
+
   const tabs = $derived.by(() => {
-    const items: Array<{ id: TabId; label: string }> = [{ id: 'overview', label: 'Overview' }]
-    if (sections.bracket && bracket.slots.length > 0)
-      items.push({ id: 'bracket', label: 'Bracket' })
-    if (sections.standings && leaderboard.length > 0)
-      items.push({ id: 'standings', label: 'Standings' })
-    if (sections.matches && matches.length > 0)
-      items.push({ id: 'matches', label: `Matches (${matches.length})` })
-    if (sections.teams && teams.length > 0)
-      items.push({ id: 'teams', label: `Teams (${teams.length})` })
-    if (sections.mapPool && mapPool.length > 0) items.push({ id: 'maps', label: 'Map Pool' })
+    const items: Array<{ id: TabId; label: string; count?: number }> = [
+      { id: 'overview', label: 'Overview' },
+    ]
+    if (showBracket) items.push({ id: 'bracket', label: 'Bracket' })
+    if (showStandings) items.push({ id: 'standings', label: 'Standings' })
+    if (showMatches) items.push({ id: 'matches', label: 'Matches', count: matches.length })
+    if (showTeams) items.push({ id: 'teams', label: 'Teams', count: teams.length })
+    if (showMaps) items.push({ id: 'maps', label: 'Map Pool' })
     return items
   })
 
@@ -60,7 +64,7 @@
   }
 
   // Teams that folded mid-event stay listed but are set apart, and sink to the
-  // end of the teams grid so the active field reads first.
+  // end of the teams list so the active field reads first.
   const disbandedIds = $derived(
     new Set(teams.filter((t: any) => t.disbanded).map((t: any) => t.id))
   )
@@ -70,260 +74,269 @@
   const isDisbanded = (id: string | null | undefined) => Boolean(id) && disbandedIds.has(id!)
 
   const completedCount = $derived(matches.filter((m: any) => m.status === 'completed').length)
+
+  const hasPodium = $derived(
+    Boolean(season.winner || season.runner_up || season.third_place || season.mvp)
+  )
 </script>
 
 <svelte:head><title>{season.name}</title></svelte:head>
 
 <PageContainer>
   <div class="page-content py-6">
-    <a href={resolve('/events')} class="back-link">
-      <ArrowLeft size={14} />
-      All events
-    </a>
+    <div class="sheet">
+      <!-- Header: identity, summary, counts, podium and the tab bar as one block. -->
+      <header class="event-head">
+        <a href={resolve('/events')} class="back-link">
+          <ArrowLeft size={14} />
+          All events
+        </a>
 
-    <!-- Header -->
-    <div class="season-header">
-      {#if season.logo_url}
-        <img src={season.logo_url} alt="{season.name} logo" class="season-logo" />
-      {/if}
-      <div class="season-header-main">
         <div class="title-row">
-          <h1 class="season-name">{season.name}</h1>
+          {#if season.logo_url}
+            <img src={season.logo_url} alt="{season.name} logo" class="season-logo" />
+          {/if}
+          <div class="title-main">
+            <h1 class="season-name">{season.name}</h1>
+            <p class="season-dates">{formatRange(season.starts_on, season.ends_on)}</p>
+          </div>
+          {#if externalLinks.length > 0}
+            <nav class="event-links" aria-label="Event links">
+              {#each externalLinks as link (link.url)}
+                <!-- Off-site links (rulebook / signup / FAQ) live elsewhere for
+                     non-rivals events, so open in a new tab. -->
+                <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+                <a href={link.url} class="event-link" target="_blank" rel="noopener noreferrer">
+                  {link.label}
+                </a>
+              {/each}
+            </nav>
+          {/if}
         </div>
-        <p class="season-dates">{formatRange(season.starts_on, season.ends_on)}</p>
-        {#if externalLinks.length > 0}
-          <div class="event-links">
-            {#each externalLinks as link (link.url)}
-              <!-- Off-site links (rulebook / signup / FAQ) live elsewhere for
-                   non-rivals events, so open in a new tab. -->
-              <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
-              <a href={link.url} class="event-link" target="_blank" rel="noopener noreferrer">
-                {link.label}
+
+        {#if season.summary}
+          <p class="summary">{season.summary}</p>
+        {/if}
+
+        {#if teams.length > 0 || matches.length > 0}
+          <div class="counts">
+            <span><b>{teams.length}</b> {teams.length === 1 ? 'team' : 'teams'}</span>
+            <span><b>{matches.length}</b> {matches.length === 1 ? 'match' : 'matches'}</span>
+            <span><b>{completedCount}</b> played</span>
+            {#if bracket.teamCount > 0}
+              <span>
+                <b>{bracket.teamCount}</b>
+                {bracket.teamCount === 1 ? 'playoff team' : 'playoff teams'}
+              </span>
+            {/if}
+          </div>
+        {/if}
+
+        {#if hasPodium}
+          <div class="podium">
+            {#if season.winner}
+              <a href={resolve(`/teams/${season.winner.id}`)} class="podium-cell">
+                <div class="podium-label podium-gold">Champion</div>
+                <div class="podium-value">
+                  {#if season.winner.logo_url}
+                    <img src={season.winner.logo_url} alt="" class="podium-logo" />
+                  {/if}
+                  <span class="podium-name">{season.winner.name}</span>
+                </div>
               </a>
+            {/if}
+            {#if season.runner_up}
+              <a href={resolve(`/teams/${season.runner_up.id}`)} class="podium-cell">
+                <div class="podium-label podium-silver">Runner-up</div>
+                <div class="podium-value">
+                  {#if season.runner_up.logo_url}
+                    <img src={season.runner_up.logo_url} alt="" class="podium-logo" />
+                  {/if}
+                  <span class="podium-name">{season.runner_up.name}</span>
+                </div>
+              </a>
+            {/if}
+            {#if season.third_place}
+              <a href={resolve(`/teams/${season.third_place.id}`)} class="podium-cell">
+                <div class="podium-label podium-bronze">3rd place</div>
+                <div class="podium-value">
+                  {#if season.third_place.logo_url}
+                    <img src={season.third_place.logo_url} alt="" class="podium-logo" />
+                  {/if}
+                  <span class="podium-name">{season.third_place.name}</span>
+                </div>
+              </a>
+            {/if}
+            {#if season.mvp?.id}
+              <a href={resolve(`/players/${season.mvp.id}`)} class="podium-cell">
+                <div class="podium-label podium-mvp">MVP</div>
+                <div class="podium-value"><span class="podium-name">{season.mvp.name}</span></div>
+              </a>
+            {:else if season.mvp}
+              <div class="podium-cell">
+                <div class="podium-label podium-mvp">MVP</div>
+                <div class="podium-value"><span class="podium-name">{season.mvp.name}</span></div>
+              </div>
+            {/if}
+          </div>
+        {/if}
+
+        {#if tabs.length > 1}
+          <div class="tab-bar" role="tablist" aria-label="Event sections">
+            {#each tabs as tab (tab.id)}
+              <button
+                type="button"
+                role="tab"
+                class="tab-item"
+                class:tab-active={activeTab === tab.id}
+                aria-selected={activeTab === tab.id}
+                onclick={() => (activeTab = tab.id)}
+              >
+                {tab.label}
+                {#if tab.count != null}<span class="tab-count">{tab.count}</span>{/if}
+              </button>
             {/each}
           </div>
         {/if}
-      </div>
-    </div>
+      </header>
 
-    <!-- Podium -->
-    {#if season.winner || season.runner_up || season.third_place || season.mvp}
-      <div class="podium">
-        {#if season.winner}
-          <a href={resolve(`/teams/${season.winner.id}`)} class="podium-card podium-champion">
-            <Trophy size={20} style="color: #fcd34d;" />
-            <div class="podium-body">
-              <div class="podium-label">Champion</div>
-              <div class="podium-value">
-                {#if season.winner.logo_url}
-                  <img src={season.winner.logo_url} alt="" class="podium-logo" />
-                {/if}
-                {season.winner.name}
-              </div>
-            </div>
-          </a>
+      {#if activeTab === 'overview'}
+        <!-- Overview is the whole season on one sheet; the other tabs are
+             focused views of the same sections. -->
+        {#if showMaps}
+          <section class="sheet-section">
+            <div class="sheet-head"><h2 class="sheet-title">Map Pool</h2></div>
+            <div class="sheet-body">{@render mapStrip()}</div>
+          </section>
         {/if}
-        {#if season.runner_up}
-          <a href={resolve(`/teams/${season.runner_up.id}`)} class="podium-card">
-            <Medal size={20} style="color: rgba(255,255,255,0.5);" />
-            <div class="podium-body">
-              <div class="podium-label">Runner-up</div>
-              <div class="podium-value">
-                {#if season.runner_up.logo_url}
-                  <img src={season.runner_up.logo_url} alt="" class="podium-logo" />
-                {/if}
-                {season.runner_up.name}
-              </div>
-            </div>
-          </a>
-        {/if}
-        {#if season.third_place}
-          <a href={resolve(`/teams/${season.third_place.id}`)} class="podium-card">
-            <Medal size={20} style="color: #d97706;" />
-            <div class="podium-body">
-              <div class="podium-label">3rd Place</div>
-              <div class="podium-value">
-                {#if season.third_place.logo_url}
-                  <img src={season.third_place.logo_url} alt="" class="podium-logo" />
-                {/if}
-                {season.third_place.name}
-              </div>
-            </div>
-          </a>
-        {/if}
-        {#if season.mvp?.id}
-          <a href={resolve(`/players/${season.mvp.id}`)} class="podium-card podium-mvp">
-            <Crown size={20} style="color: #c084fc;" />
-            <div class="podium-body">
-              <div class="podium-label">MVP</div>
-              <div class="podium-value">{season.mvp.name}</div>
-            </div>
-          </a>
-        {:else if season.mvp}
-          <div class="podium-card podium-mvp">
-            <Crown size={20} style="color: #c084fc;" />
-            <div class="podium-body">
-              <div class="podium-label">MVP</div>
-              <div class="podium-value">{season.mvp.name}</div>
-            </div>
+
+        {#if showStandings || showTeams}
+          <div class="ev-pair sheet-section" class:ev-pair-both={showStandings && showTeams}>
+            {#if showStandings}
+              <section class="ev-pair-cell">
+                <div class="sheet-head">
+                  <h2 class="sheet-title">Standings</h2>
+                  {#if data.leaderboardLabel}
+                    <span class="sheet-note head-note">{data.leaderboardLabel}</span>
+                  {/if}
+                </div>
+                <div class="sheet-body">{@render standingsTable()}</div>
+              </section>
+            {/if}
+            {#if showTeams}
+              <section class="ev-pair-cell">
+                <div class="sheet-head"><h2 class="sheet-title">Teams</h2></div>
+                <div class="sheet-body">{@render teamsList()}</div>
+              </section>
+            {/if}
           </div>
         {/if}
-      </div>
-    {/if}
 
-    <!-- Tabs -->
-    {#if tabs.length > 1}
-      <div class="tab-bar">
-        {#each tabs as tab (tab.id)}
-          <button
-            type="button"
-            class="tab-item"
-            class:tab-active={activeTab === tab.id}
-            onclick={() => (activeTab = tab.id)}
-          >
-            {tab.label}
-          </button>
-        {/each}
-      </div>
-    {/if}
+        {#if showBracket}
+          <section class="sheet-section">
+            <div class="sheet-head"><h2 class="sheet-title">Playoff Bracket</h2></div>
+            <div class="sheet-body">{@render bracketView()}</div>
+          </section>
+        {/if}
 
-    <!-- Panels -->
-    {#if activeTab === 'overview'}
-      <!-- Overview is the whole season on one page; the other tabs are
-           focused views of the same blocks. -->
-      <div class="overview">
-        <div class="panel">
-          {#if season.summary}
-            <p class="summary">{season.summary}</p>
-          {/if}
-          <div class="stat-grid">
-            <div class="stat-cell">
-              <div class="stat-num">{teams.length}</div>
-              <div class="stat-label">Teams</div>
+        {#if showMatches}
+          <section class="sheet-section">
+            <div class="sheet-head">
+              <h2 class="sheet-title">Matches</h2>
+              <span class="sheet-note head-note">Newest first</span>
             </div>
-            <div class="stat-cell">
-              <div class="stat-num">{matches.length}</div>
-              <div class="stat-label">Matches</div>
+            <div class="sheet-body">
+              <!-- Long seasons would run to thousands of pixels, so the list
+                   scrolls within a fixed frame instead. -->
+              <div class="match-frame match-scroll">{@render matchList()}</div>
             </div>
-            <div class="stat-cell">
-              <div class="stat-num">{completedCount}</div>
-              <div class="stat-label">Played</div>
-            </div>
-            <div class="stat-cell">
-              <div class="stat-num">{bracket.teamCount > 0 ? bracket.teamCount : '—'}</div>
-              <div class="stat-label">
-                {bracket.teamCount === 1 ? 'Playoff team' : 'Playoff teams'}
-              </div>
-            </div>
-          </div>
-          {#if !season.summary && teams.length === 0 && matches.length === 0}
+          </section>
+        {/if}
+
+        {#if !season.summary && teams.length === 0 && matches.length === 0}
+          <section class="sheet-section">
             <p class="empty-text">No data recorded for this season yet.</p>
-          {/if}
-        </div>
-
-        {#if sections.mapPool && mapPool.length > 0}
-          <section class="panel">
-            <h2 class="block-title">
-              Map Pool <span class="block-count">{mapPool.length}</span>
-            </h2>
-            {@render mapPoolGrid()}
           </section>
         {/if}
+      {:else if activeTab === 'bracket'}
+        <section class="sheet-section">
+          <div class="sheet-head"><h2 class="sheet-title">Playoff Bracket</h2></div>
+          <div class="sheet-body">{@render bracketView()}</div>
+        </section>
+      {:else if activeTab === 'standings'}
+        <section class="sheet-section">
+          <div class="sheet-head">
+            <h2 class="sheet-title">Standings</h2>
+            {#if data.leaderboardLabel}
+              <span class="sheet-note head-note">{data.leaderboardLabel}</span>
+            {/if}
+          </div>
+          <div class="sheet-body">{@render standingsTable()}</div>
+        </section>
+      {:else if activeTab === 'matches'}
+        <section class="sheet-section">
+          <div class="sheet-head">
+            <h2 class="sheet-title">Matches</h2>
+            <span class="sheet-note head-note">Newest first</span>
+          </div>
+          <div class="sheet-body">
+            <div class="match-frame">{@render matchList()}</div>
+          </div>
+        </section>
+      {:else if activeTab === 'teams'}
+        <section class="sheet-section">
+          <div class="sheet-head"><h2 class="sheet-title">Teams</h2></div>
+          <div class="sheet-body">{@render teamsList()}</div>
+        </section>
+      {:else if activeTab === 'maps'}
+        <section class="sheet-section">
+          <div class="sheet-head"><h2 class="sheet-title">Map Pool</h2></div>
+          <div class="sheet-body">{@render mapStrip()}</div>
+        </section>
+      {/if}
 
-        {#if sections.teams && teams.length > 0}
-          <section class="panel">
-            <h2 class="block-title">Teams <span class="block-count">{teams.length}</span></h2>
-            {@render teamsGrid()}
-          </section>
-        {/if}
-
-        {#if sections.standings && leaderboard.length > 0}
-          <section class="panel">
-            <h2 class="block-title">
-              Standings
-              {#if data.leaderboardLabel}
-                <span class="block-note">{data.leaderboardLabel}</span>
-              {/if}
-            </h2>
-            {@render standingsTable()}
-          </section>
-        {/if}
-
-        {#if sections.bracket && bracket.slots.length > 0}
-          <section class="panel">
-            <h2 class="block-title">Playoff Bracket</h2>
-            <ArchiveBracket slots={bracket.slots} teams={bracket.teams} seeds={bracket.seeds} />
-          </section>
-        {/if}
-
-        {#if sections.matches && matches.length > 0}
-          <section class="panel">
-            <h2 class="block-title">
-              Matches <span class="block-count">{matches.length}</span>
-            </h2>
-            <!-- Long seasons would run to thousands of pixels, so the list
-                 scrolls within a fixed frame instead. -->
-            <div class="match-scroll">
-              {@render matchList()}
-            </div>
-          </section>
-        {/if}
-      </div>
-    {:else if activeTab === 'bracket'}
-      <div class="panel">
-        <ArchiveBracket slots={bracket.slots} teams={bracket.teams} />
-      </div>
-    {:else if activeTab === 'standings'}
-      <div class="panel">
-        {#if data.leaderboardLabel}
-          <p class="panel-note">{data.leaderboardLabel}</p>
-        {/if}
-        {@render standingsTable()}
-      </div>
-    {:else if activeTab === 'matches'}
-      <div class="panel">
-        {@render matchList()}
-      </div>
-    {:else if activeTab === 'teams'}
-      <div class="panel">
-        {@render teamsGrid()}
-      </div>
-    {:else if activeTab === 'maps'}
-      <div class="panel">
-        {@render mapPoolGrid()}
-      </div>
-    {/if}
-
-    {#if sections.comments}
-      <CommentThread
-        entityType="season"
-        entityId={season.id}
-        comments={data.comments ?? []}
-        viewerId={data.viewer?.profileId ?? null}
-        isAdmin={data.viewer?.isAdmin ?? false}
-      />
-    {/if}
+      {#if sections.comments}
+        <CommentThread
+          entityType="season"
+          entityId={season.id}
+          comments={data.comments ?? []}
+          viewerId={data.viewer?.profileId ?? null}
+          isAdmin={data.viewer?.isAdmin ?? false}
+          variant="flush"
+        />
+      {/if}
+    </div>
   </div>
 </PageContainer>
 
-{#snippet teamsGrid()}
-  <div class="team-grid">
+{#snippet bracketView()}
+  <ArchiveBracket
+    slots={bracket.slots}
+    teams={bracket.teams}
+    seeds={bracket.seeds}
+    matchIds={bracket.matchIds}
+    series={bracket.series}
+  />
+{/snippet}
+
+{#snippet teamsList()}
+  <div class="team-list">
     {#each sortedTeams as team (team.id)}
       <a
         href={resolve(`/teams/${team.id}`)}
-        class="team-card"
-        class:team-card-disbanded={team.disbanded}
+        class="team-item"
+        class:team-item-disbanded={team.disbanded}
       >
         {#if team.logo_url}
-          <img src={team.logo_url} alt="" class="team-card-logo" />
+          <img src={team.logo_url} alt="" class="team-item-logo" />
         {:else}
-          <div class="team-card-logo team-card-logo-blank"></div>
+          <div class="team-item-logo team-item-logo-blank"></div>
         {/if}
-        <div class="team-card-body">
-          <div class="team-card-name">{team.name}</div>
-          <div class="team-card-meta">
+        <div class="team-item-body">
+          <div class="team-item-name">{team.name}</div>
+          <div class="team-item-meta">
             {#if team.tag}
-              <span class="team-card-tag">[{team.tag}]</span>
+              <span>[{team.tag}]</span>
             {/if}
             <TeamSeed seed={bracket.seeds?.[team.id] ?? null} />
             {#if team.disbanded}
@@ -336,14 +349,14 @@
   </div>
 {/snippet}
 
-{#snippet mapPoolGrid()}
-  <div class="map-grid">
+{#snippet mapStrip()}
+  <div class="map-strip">
     {#each mapPool as map (map.name)}
-      <div class="map-card">
+      <div class="map-item">
         {#if map.image}
-          <img src={map.image} alt="" class="map-art" loading="lazy" />
+          <img src={map.image} alt="" class="map-thumb" loading="lazy" />
         {:else}
-          <div class="map-art map-art-blank"></div>
+          <div class="map-thumb map-thumb-blank"></div>
         {/if}
         <span class="map-name">{map.name}</span>
       </div>
@@ -369,15 +382,18 @@
             <td class="col-rank tabular">{row.rank || i + 1}</td>
             <td>
               {#if row.team}
-                <a href={resolve(`/teams/${row.team.id}`)} class="team-cell">
-                  {#if row.team.logo_url}
-                    <img src={row.team.logo_url} alt="" class="cell-logo" />
+                <div class="team-cell-wrap">
+                  <a href={resolve(`/teams/${row.team.id}`)} class="team-cell">
+                    {#if row.team.logo_url}
+                      <img src={row.team.logo_url} alt="" class="cell-logo" />
+                    {/if}
+                    <span class="team-cell-name">{row.team.name}</span>
+                  </a>
+                  <TeamSeed seed={bracket.seeds?.[row.team.id] ?? null} label="Playoff seed" />
+                  {#if isDisbanded(row.team.id)}
+                    <span class="disbanded-chip">Disbanded</span>
                   {/if}
-                  {row.team.name}
-                </a>
-                {#if isDisbanded(row.team.id)}
-                  <span class="disbanded-chip">Disbanded</span>
-                {/if}
+                </div>
               {:else}
                 <span class="muted">Unknown team</span>
               {/if}
@@ -408,8 +424,8 @@
             class:match-team-disbanded={isDisbanded(match.team_a?.id)}
             title={isDisbanded(match.team_a?.id) ? 'Disbanded during this event' : undefined}
           >
-            {match.team_a?.name ?? 'TBD'}
-            <TeamSeed seed={bracket.seeds?.[match.team_a?.id ?? ''] ?? null} variant="bare" />
+            <span class="match-team-name">{match.team_a?.name ?? 'TBD'}</span>
+            <TeamSeed seed={bracket.seeds?.[match.team_a?.id ?? ''] ?? null} />
           </span>
           <span class="match-mid">
             {#if match.status === 'completed'}
@@ -426,8 +442,8 @@
             class:match-team-disbanded={isDisbanded(match.team_b?.id)}
             title={isDisbanded(match.team_b?.id) ? 'Disbanded during this event' : undefined}
           >
-            <TeamSeed seed={bracket.seeds?.[match.team_b?.id ?? ''] ?? null} variant="bare" />
-            {match.team_b?.name ?? 'TBD'}
+            <TeamSeed seed={bracket.seeds?.[match.team_b?.id ?? ''] ?? null} />
+            <span class="match-team-name">{match.team_b?.name ?? 'TBD'}</span>
           </span>
         </div>
         <span class="match-date">{formatDate(match.scheduled_at)}</span>
@@ -437,6 +453,13 @@
 {/snippet}
 
 <style>
+  /* Header block: a faint lighter fill sets it apart from the sections below,
+     with the tab bar docked on its bottom edge. */
+  .event-head {
+    padding: 1.125rem 1.5rem 0;
+    background: rgba(255, 255, 255, 0.025);
+  }
+
   .back-link {
     display: inline-flex;
     align-items: center;
@@ -444,7 +467,6 @@
     font-size: 0.75rem;
     color: rgba(255, 255, 255, 0.64);
     text-decoration: none;
-    margin-bottom: 0.875rem;
     transition: color 0.15s;
   }
 
@@ -452,33 +474,26 @@
     color: var(--accent-text);
   }
 
-  .season-header {
+  .title-row {
     display: flex;
+    flex-wrap: wrap;
     align-items: flex-start;
-    justify-content: space-between;
     gap: 1rem;
-    margin-bottom: 1.25rem;
+    margin-top: 0.875rem;
   }
 
   .season-logo {
-    width: 3.5rem;
-    height: 3.5rem;
+    width: 4rem;
+    height: 4rem;
     border-radius: 0.625rem;
     object-fit: contain;
     flex-shrink: 0;
     background: rgba(255, 255, 255, 0.04);
   }
 
-  .season-header-main {
-    flex: 1;
+  .title-main {
+    flex: 1 1 15rem;
     min-width: 0;
-  }
-
-  .title-row {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    flex-wrap: wrap;
   }
 
   .season-name {
@@ -498,13 +513,12 @@
     display: flex;
     flex-wrap: wrap;
     gap: 0.5rem;
-    margin-top: 0.625rem;
   }
 
   .event-link {
-    font-size: 0.8125rem;
+    font-size: 0.75rem;
     font-weight: 600;
-    padding: 0.3125rem 0.75rem;
+    padding: 0.375rem 0.75rem;
     border-radius: 8px;
     background: rgba(255, 255, 255, 0.06);
     border: 1px solid rgba(255, 255, 255, 0.12);
@@ -520,228 +534,185 @@
     border-color: rgba(255, 255, 255, 0.24);
   }
 
-  /* Podium */
+  .summary {
+    margin-top: 0.875rem;
+    max-width: 76ch;
+    font-size: 0.875rem;
+    line-height: 1.55;
+    color: rgba(255, 255, 255, 0.82);
+  }
+
+  /* Season counts as a quiet inline strip, not a panel of stat cells. */
+  .counts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem 1rem;
+    margin-top: 0.75rem;
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.6);
+  }
+
+  .counts b {
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.9);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Podium: one row of hairline-split cells inside the header. Colour lives
+     only on the label — gold champion, silver runner-up, bronze 3rd, purple MVP. */
   .podium {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-    gap: 0.625rem;
-    margin-bottom: 1.25rem;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    margin: 1.5rem -1.5rem 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
   }
 
-  .podium-card {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.875rem 1rem;
-    border-radius: 0.625rem;
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    background: rgba(0, 0, 0, 0.22);
-    text-decoration: none;
-    color: var(--text);
-    transition:
-      border-color 0.15s,
-      background 0.15s;
-  }
-
-  a.podium-card:hover {
-    background: rgba(255, 255, 255, 0.03);
-  }
-
-  .podium-champion {
-    border-color: rgba(252, 211, 77, 0.3);
-    background: rgba(252, 211, 77, 0.06);
-  }
-
-  .podium-mvp {
-    border-color: rgba(192, 132, 252, 0.28);
-    background: rgba(192, 132, 252, 0.06);
-  }
-
-  .podium-body {
+  .podium-cell {
+    display: block;
     min-width: 0;
+    padding: 0.875rem 1.5rem;
+    color: var(--text);
+    text-decoration: none;
+    transition: background 0.15s;
+  }
+
+  .podium-cell + .podium-cell {
+    border-left: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  a.podium-cell:hover {
+    background: rgba(255, 255, 255, 0.03);
   }
 
   .podium-label {
     font-size: 0.625rem;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: rgba(255, 255, 255, 0.62);
+    letter-spacing: 0.1em;
+  }
+
+  .podium-gold {
+    color: #fcd34d;
+  }
+
+  .podium-silver {
+    color: #cbd5e1;
+  }
+
+  .podium-bronze {
+    color: #f0a35e;
+  }
+
+  .podium-mvp {
+    color: #c084fc;
   }
 
   .podium-value {
     display: flex;
     align-items: center;
-    gap: 0.375rem;
-    font-size: 0.9375rem;
-    font-weight: 700;
-    margin-top: 0.125rem;
+    gap: 0.5rem;
+    margin-top: 0.3125rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.9);
+    min-width: 0;
+  }
+
+  .podium-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .podium-logo {
-    width: 1.125rem;
-    height: 1.125rem;
-    border-radius: 0.1875rem;
+    width: 1.25rem;
+    height: 1.25rem;
+    border-radius: 0.25rem;
     object-fit: contain;
+    flex-shrink: 0;
   }
 
-  /* Tabs */
+  /* Tabs: underline tabs on the header's bottom hairline. */
   .tab-bar {
     display: flex;
     gap: 0.25rem;
-    background: rgba(0, 0, 0, 0.25);
-    border-radius: 0.5rem;
-    padding: 0.25rem;
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    margin-bottom: 1rem;
+    /* Same breathing room as the podium when the header has no podium. */
+    margin: 1.5rem -1.5rem 0;
+    padding: 0 0.875rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .podium + .tab-bar {
+    margin-top: 0;
   }
 
   .tab-item {
-    padding: 0.4375rem 0.875rem;
-    border-radius: 0.375rem;
+    min-height: 2.75rem;
+    padding: 0.75rem 0.625rem 0.6875rem;
     font-size: 0.8125rem;
     font-weight: 500;
-    color: rgba(255, 255, 255, 0.55);
-    background: transparent;
-    border: none;
+    color: rgba(255, 255, 255, 0.6);
+    background: none;
+    border: 0;
+    border-bottom: 2px solid transparent;
     cursor: pointer;
     white-space: nowrap;
     transition:
       color 0.15s,
-      background 0.15s;
+      border-color 0.15s;
   }
 
   .tab-item:hover {
-    color: rgba(255, 255, 255, 0.85);
-    background: rgba(255, 255, 255, 0.04);
+    color: rgba(255, 255, 255, 0.88);
   }
 
   .tab-active {
     color: var(--text);
-    background: var(--accent);
+    border-bottom-color: var(--accent-text);
   }
 
-  .tab-active:hover {
-    background: var(--hover);
-  }
-
-  /* Panels */
-  .panel {
-    padding: 1.25rem;
-    border-radius: 0.75rem;
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    background: rgba(0, 0, 0, 0.2);
-  }
-
-  .panel-note {
-    font-size: 0.75rem;
-    color: rgba(255, 255, 255, 0.64);
-    margin-bottom: 0.75rem;
-  }
-
-  /* Overview stacks every block on one page. */
-  .overview {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-  }
-
-  .block-title {
-    display: flex;
-    align-items: baseline;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-    font-size: 0.6875rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: rgba(255, 255, 255, 0.64);
-    margin-bottom: 0.875rem;
-    padding-bottom: 0.5rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-  }
-
-  .block-count {
-    font-size: 0.625rem;
-    font-weight: 700;
-    padding: 0.0625rem 0.375rem;
-    border-radius: 9999px;
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.6);
+  .tab-count {
+    margin-left: 0.25rem;
+    color: rgba(255, 255, 255, 0.42);
     font-variant-numeric: tabular-nums;
-    letter-spacing: 0;
   }
 
-  .block-note {
+  .head-note {
     margin-left: auto;
-    font-size: 0.625rem;
-    font-weight: 500;
-    text-transform: none;
-    letter-spacing: 0;
-    color: rgba(255, 255, 255, 0.56);
   }
 
-  /* Keeps a long season's match list from dominating the page. */
-  .match-scroll {
-    max-height: 26rem;
-    overflow-y: auto;
-    padding-right: 0.25rem;
-    scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .match-scroll::-webkit-scrollbar {
-    width: 6px;
-  }
-
-  .match-scroll::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.15);
-    border-radius: 3px;
-  }
-
-  .match-scroll::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  .summary {
-    font-size: 0.9375rem;
-    line-height: 1.65;
-    color: rgba(255, 255, 255, 0.75);
-    max-width: 62ch;
-    margin-bottom: 1.25rem;
-  }
-
-  .stat-grid {
+  /* Standings and Teams side by side on wide screens, hairline between. */
+  .ev-pair {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
-    gap: 0.625rem;
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .stat-cell {
-    text-align: center;
-    padding: 0.875rem 0.5rem;
-    border-radius: 0.5rem;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+  .ev-pair-both {
+    grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
   }
 
-  .stat-num {
-    font-size: 1.375rem;
-    font-weight: 700;
-    color: var(--text);
-    font-variant-numeric: tabular-nums;
+  .ev-pair-both > .ev-pair-cell + .ev-pair-cell {
+    border-left: 1px solid rgba(255, 255, 255, 0.08);
   }
 
-  .stat-label {
-    font-size: 0.625rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
-    color: rgba(255, 255, 255, 0.62);
-    margin-top: 0.125rem;
+  .ev-pair-cell {
+    min-width: 0;
+  }
+
+  @media (max-width: 860px) {
+    .ev-pair-both {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .ev-pair-both > .ev-pair-cell + .ev-pair-cell {
+      border-left: 0;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
   }
 
   .empty-text {
@@ -751,11 +722,56 @@
     padding: 2rem 0;
   }
 
-  /* Table */
+  /* Map pool: a compact strip of list thumbnails, scrolling sideways when narrow. */
+  .map-strip {
+    display: flex;
+    gap: 0.625rem;
+    overflow-x: auto;
+    padding-bottom: 0.125rem;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .map-item {
+    flex: 1 0 7.375rem;
+    min-width: 7.375rem;
+  }
+
+  .map-thumb {
+    display: block;
+    width: 100%;
+    height: 1.875rem;
+    object-fit: cover;
+    border-radius: 0.375rem;
+    opacity: 0.9;
+  }
+
+  .map-thumb-blank {
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .map-name {
+    display: block;
+    margin-top: 0.375rem;
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.82);
+  }
+
+  /* Standings table */
+  .table-scroll {
+    overflow-x: auto;
+  }
+
+  /* Fixed layout hands the team column whatever the number columns leave, so
+     long names ellipsize instead of pushing the table wider than a phone. */
   .data-table {
     width: 100%;
+    table-layout: fixed;
     border-collapse: collapse;
     font-size: 0.8125rem;
+  }
+
+  .data-table td {
+    overflow: hidden;
   }
 
   .data-table th {
@@ -763,51 +779,69 @@
     font-size: 0.625rem;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.07em;
-    color: rgba(255, 255, 255, 0.62);
-    padding: 0.5rem 0.625rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.5);
+    padding: 0 0.5rem 0.4375rem;
     white-space: nowrap;
   }
 
   .data-table td {
-    padding: 0.5rem 0.625rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-    color: rgba(255, 255, 255, 0.8);
+    height: 2rem;
+    padding: 0 0.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.82);
   }
 
   .col-rank {
-    width: 3rem;
-    text-align: center;
+    width: 2.25rem;
+  }
+
+  td.col-rank {
+    color: rgba(255, 255, 255, 0.5);
   }
 
   .col-num {
     text-align: right;
-    width: 4rem;
+    width: 2.75rem;
   }
 
   th.col-num {
     text-align: right;
   }
 
+  .team-cell-wrap {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+
   .team-cell {
     display: inline-flex;
     align-items: center;
-    gap: 0.4375rem;
-    color: var(--text);
+    gap: 0.5rem;
+    min-width: 0;
+    color: rgba(255, 255, 255, 0.82);
+    font-weight: 600;
     text-decoration: none;
-    font-weight: 500;
   }
 
   .team-cell:hover {
     color: var(--accent-text);
   }
 
+  .team-cell-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .cell-logo {
-    width: 1.125rem;
-    height: 1.125rem;
-    border-radius: 0.1875rem;
+    width: 1.25rem;
+    height: 1.25rem;
+    border-radius: 0.25rem;
     object-fit: contain;
+    flex-shrink: 0;
   }
 
   .muted {
@@ -841,11 +875,103 @@
     text-decoration-color: rgba(248, 113, 113, 0.5);
   }
 
-  .row-disbanded .disbanded-chip {
-    margin-left: 0.4375rem;
+  /* Teams: compact two-column list, no card boxes. */
+  .team-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 13rem), 1fr));
+    gap: 0.125rem 1.125rem;
   }
 
-  /* Match list */
+  .team-item {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    min-width: 0;
+    padding: 0.375rem 0;
+    text-decoration: none;
+    color: var(--text);
+  }
+
+  .team-item:hover .team-item-name {
+    color: var(--accent-text);
+  }
+
+  .team-item-logo {
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 0.375rem;
+    object-fit: contain;
+    flex-shrink: 0;
+  }
+
+  .team-item-logo-blank {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .team-item-body {
+    min-width: 0;
+  }
+
+  .team-item-name {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.82);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transition: color 0.15s;
+  }
+
+  .team-item-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.375rem;
+    margin-top: 0.125rem;
+    font-size: 0.6875rem;
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .team-item-disbanded .team-item-logo {
+    filter: grayscale(1);
+    opacity: 0.5;
+  }
+
+  .team-item-disbanded .team-item-name {
+    color: rgba(255, 255, 255, 0.5);
+    text-decoration: line-through;
+    text-decoration-color: rgba(248, 113, 113, 0.5);
+  }
+
+  /* Match list: hairline-split rows inside one frame. */
+  .match-frame {
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 0.625rem;
+    overflow: hidden;
+  }
+
+  /* Keeps a long season's match list from dominating the page. */
+  .match-scroll {
+    max-height: 26.25rem;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .match-scroll::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .match-scroll::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 3px;
+  }
+
+  .match-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
   /**
    * The list owns the columns so every row shares them. The designation and
    * date columns size to their widest content, which keeps the score column
@@ -854,7 +980,6 @@
   .match-list {
     display: grid;
     grid-template-columns: max-content minmax(0, 1fr) max-content;
-    gap: 0.375rem;
   }
 
   .match-row {
@@ -863,20 +988,19 @@
     grid-template-columns: subgrid;
     align-items: center;
     gap: 0.75rem;
-    padding: 0.625rem 0.875rem;
-    border-radius: 0.5rem;
-    background: rgba(255, 255, 255, 0.025);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    min-height: 2.375rem;
+    padding: 0.375rem 0.875rem;
     text-decoration: none;
     color: var(--text);
-    transition:
-      border-color 0.15s,
-      background 0.15s;
+    transition: background 0.15s;
+  }
+
+  .match-row + .match-row {
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
   }
 
   .match-row:hover {
-    border-color: rgba(120, 67, 145, 0.4);
-    background: rgba(255, 255, 255, 0.045);
+    background: rgba(255, 255, 255, 0.03);
   }
 
   /* Grid cell — the chip inside only renders when there is a designation. */
@@ -886,14 +1010,12 @@
 
   .designation-chip {
     display: inline-block;
-    font-size: 0.5625rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: #fcd34d;
-    background: rgba(252, 211, 77, 0.1);
-    padding: 0.1875rem 0.375rem;
-    border-radius: 0.25rem;
+    font-size: 0.625rem;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.72);
+    background: rgba(255, 255, 255, 0.07);
+    padding: 0.125rem 0.4375rem;
+    border-radius: 0.3125rem;
     white-space: nowrap;
   }
 
@@ -908,20 +1030,23 @@
   }
 
   .match-team {
-    color: rgba(255, 255, 255, 0.7);
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    min-width: 0;
+    color: rgba(255, 255, 255, 0.6);
+    white-space: nowrap;
+  }
+
+  .match-team-name {
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: nowrap;
-    min-width: 0;
   }
 
   /* Names hug the score so the centre reads as the pivot. */
   .match-team-a {
-    text-align: right;
-  }
-
-  .match-team-b {
-    text-align: left;
+    justify-content: flex-end;
   }
 
   .match-mid {
@@ -929,8 +1054,8 @@
   }
 
   .match-winner {
-    color: #86efac;
-    font-weight: 700;
+    color: var(--text);
+    font-weight: 600;
   }
 
   .match-team-disbanded {
@@ -959,7 +1084,7 @@
   }
 
   .match-score {
-    font-weight: 700;
+    color: rgba(255, 255, 255, 0.82);
   }
 
   .match-vs {
@@ -968,141 +1093,49 @@
   }
 
   .match-date {
-    font-size: 0.6875rem;
-    color: rgba(255, 255, 255, 0.6);
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.5);
     white-space: nowrap;
     text-align: right;
   }
 
-  /* Map pool */
-  .map-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-    gap: 0.625rem;
-  }
+  @media (max-width: 720px) {
+    .podium {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-auto-flow: row;
+    }
 
-  .map-card {
-    position: relative;
-    border-radius: 0.5rem;
-    overflow: hidden;
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    background: rgba(255, 255, 255, 0.025);
-    aspect-ratio: 16 / 9;
-  }
+    .podium-cell:nth-child(odd) {
+      border-left: 0;
+    }
 
-  .map-art {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
-  }
-
-  .map-art-blank {
-    background: rgba(255, 255, 255, 0.05);
-  }
-
-  .map-name {
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    padding: 0.75rem 0.625rem 0.5rem;
-    font-size: 0.8125rem;
-    font-weight: 700;
-    color: #fff;
-    /* Gradient scrim keeps the name legible over the map art. */
-    background: linear-gradient(to top, rgba(0, 0, 0, 0.82), rgba(0, 0, 0, 0));
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
-  }
-
-  /* Team grid */
-  .team-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 0.625rem;
-  }
-
-  .team-card {
-    display: flex;
-    align-items: center;
-    gap: 0.625rem;
-    padding: 0.75rem;
-    border-radius: 0.5rem;
-    background: rgba(255, 255, 255, 0.025);
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    text-decoration: none;
-    color: var(--text);
-    transition:
-      border-color 0.15s,
-      background 0.15s;
-  }
-
-  .team-card:hover {
-    border-color: rgba(120, 67, 145, 0.4);
-    background: rgba(255, 255, 255, 0.045);
-  }
-
-  .team-card-disbanded {
-    border-style: dashed;
-    border-color: rgba(248, 113, 113, 0.22);
-    background: rgba(0, 0, 0, 0.15);
-  }
-
-  .team-card-disbanded .team-card-logo {
-    filter: grayscale(1);
-    opacity: 0.5;
-  }
-
-  .team-card-disbanded .team-card-name {
-    color: rgba(255, 255, 255, 0.5);
-    text-decoration: line-through;
-    text-decoration-color: rgba(248, 113, 113, 0.5);
-  }
-
-  .team-card-logo {
-    width: 2rem;
-    height: 2rem;
-    border-radius: 0.25rem;
-    object-fit: contain;
-    flex-shrink: 0;
-  }
-
-  .team-card-logo-blank {
-    background: rgba(255, 255, 255, 0.06);
-  }
-
-  .team-card-body {
-    min-width: 0;
-  }
-
-  .team-card-name {
-    font-size: 0.8125rem;
-    font-weight: 600;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .team-card-meta {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.375rem;
-    margin-top: 0.0625rem;
-  }
-
-  .team-card-tag {
-    font-size: 0.6875rem;
-    color: rgba(255, 255, 255, 0.62);
+    .podium-cell:nth-child(n + 3) {
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
   }
 
   @media (max-width: 640px) {
+    .event-head {
+      padding: 1rem 0.875rem 0;
+    }
+
+    .podium,
+    .tab-bar {
+      margin-left: -0.875rem;
+      margin-right: -0.875rem;
+    }
+
+    .podium-cell {
+      padding: 0.75rem 0.875rem;
+    }
+
     .season-name {
       font-size: 1.25rem;
     }
 
-    .panel {
-      padding: 0.875rem;
+    .season-logo {
+      width: 3rem;
+      height: 3rem;
     }
 
     /* Too narrow for a designation column — drop the label and stack the
@@ -1117,7 +1150,8 @@
       grid-template-areas:
         'body'
         'date';
-      gap: 0.25rem;
+      gap: 0.125rem;
+      padding: 0.5rem 0.625rem;
     }
 
     .match-designation {
@@ -1131,6 +1165,7 @@
     .match-date {
       grid-area: date;
       text-align: center;
+      font-size: 0.6875rem;
     }
   }
 </style>

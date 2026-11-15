@@ -24,8 +24,12 @@ describe('ratingBonus', () => {
     expect(ratingBonus(1.8)).toBe(5)
   })
 
-  it('is zero at or below average and without a rating', () => {
-    expect(ratingBonus(0.93)).toBe(0)
+  it('is a penalty below average, capped at -5', () => {
+    expect(ratingBonus(0.93)).toBeCloseTo(-0.7, 10)
+    expect(ratingBonus(0.2)).toBe(-5)
+  })
+
+  it('is zero at average and without a rating', () => {
     expect(ratingBonus(1)).toBe(0)
     expect(ratingBonus(null)).toBe(0)
     expect(ratingBonus(Number.NaN)).toBe(0)
@@ -50,8 +54,8 @@ describe('computePlayerScore', () => {
       peakRank: 'Platinum 2',
       rating: 0.8702977792150813,
     })
-    expect(result.bonus).toBe(0)
-    expect(roundRating(result.total!)).toBe(13.3)
+    expect(result.bonus).toBeCloseTo(-1.297022207849187, 10)
+    expect(roundRating(result.total!)).toBe(12)
   })
 
   it('leaves the total blank when either rank is missing', () => {

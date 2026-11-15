@@ -2,8 +2,9 @@
   import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import AdminEditLink from '$lib/components/AdminEditLink.svelte'
-  import { Users, CalendarDays, History } from 'lucide-svelte'
+  import { Users, ChevronRight } from 'lucide-svelte'
   import TeamSeed from '$lib/components/TeamSeed.svelte'
+  import RankHistoryChart from '$lib/components/RankHistoryChart.svelte'
   import { resolve } from '$app/paths'
   import { formatLeftDay } from '$lib/players/roster-dates'
   import { invalidateAll } from '$app/navigation'
@@ -19,6 +20,7 @@
   const leaderboard = $derived(data.leaderboard ?? null)
   const activeSeason = $derived(data.activeSeason ?? null)
   const seeds = $derived((data.seeds ?? {}) as Record<string, number>)
+  const rankHistory = $derived(data.rankHistory ?? [])
 
   let formerBusy = $state<string | null>(null)
   let formerError = $state<string | null>(null)
@@ -100,7 +102,7 @@
     return player.display_name ?? player.player_name ?? player.email ?? 'Player'
   }
 
-  /** Captains and IGLs lead the card list; everyone else keeps import order. */
+  /** Captains and IGLs lead the list; everyone else keeps import order. */
   const sortedRoster = $derived(
     [...roster].sort((a, b) => {
       const rank = (role: string | null | undefined) =>
@@ -111,13 +113,51 @@
 
   const record = $derived(leaderboard ? `${leaderboard.wins}-${leaderboard.losses}` : null)
 
-  /** Built as a list so absent facts don't leave a dangling separator. */
+  /**
+   * Built as a list so absent facts don't leave a dangling separator. Rank and
+   * record are in the standings strip right below, so they aren't repeated.
+   */
   const heroMeta = $derived.by(() => {
     const parts: string[] = []
     if (team.org) parts.push(String(team.org))
-    if (leaderboard) parts.push(`Rank #${leaderboard.rank}`, `${record} series`)
-    if (team.created_at) parts.push(`Formed ${new Date(team.created_at).toLocaleDateString()}`)
+    if (team.created_at) {
+      const formed = new Date(team.created_at).toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      })
+      parts.push(`Formed ${formed}`)
+    }
     return parts
+  })
+
+  /** "Up 2 places since last week" — the two newest weekly points. */
+  const rankTrend = $derived.by(() => {
+    if (rankHistory.length < 2) return null
+    // In the playoffs the headline is the place locked, not a weekly move.
+    const latest = rankHistory[rankHistory.length - 1]
+    if (latest.playoff) return latest.playoff.label
+    const moved =
+      rankHistory[rankHistory.length - 2].rank - rankHistory[rankHistory.length - 1].rank
+    if (moved === 0) return 'No change since last week'
+    const places = Math.abs(moved) === 1 ? 'place' : 'places'
+    return `${moved > 0 ? 'Up' : 'Down'} ${Math.abs(moved)} ${places} since last week`
+  })
+
+  const wonCount = $derived(
+    matchHistory.filter((m) => {
+      const score = scoreFor(m, team.id)
+      return score.us > score.them
+    }).length
+  )
+
+  const matchesNote = $derived.by(() => {
+    const parts: string[] = []
+    if (upcomingMatches.length > 0) parts.push(`${upcomingMatches.length} upcoming`)
+    if (matchHistory.length > 0) {
+      parts.push(`${wonCount}-${matchHistory.length - wonCount} in last ${matchHistory.length}`)
+    }
+    return parts.join(' · ')
   })
 </script>
 
@@ -125,264 +165,279 @@
 
 <PageContainer>
   <div class="team-page">
-    <!-- Identity -->
-    <section class="hero">
-      {#if team.logo_url}
-        <img src={team.logo_url} alt="{team.name} logo" class="hero-logo" />
-      {:else}
-        <div class="hero-logo hero-logo-empty">
-          <Users size={36} />
-        </div>
-      {/if}
-
-      <div class="hero-body">
-        <div class="hero-title-row">
-          <h1 class="hero-name">
-            {team.name}
-            {#if team.tag}<span class="hero-tag">[{team.tag}]</span>{/if}
-          </h1>
-          <TeamSeed seed={data.seed ?? null} />
-          {#if isAdmin}
-            <AdminEditLink
-              href="/admin?tab=teams&team={team.id}"
-              label="Edit Team"
-              class="hero-admin"
-            />
-          {/if}
-        </div>
-
-        {#if heroMeta.length > 0}
-          <div class="hero-meta">
-            {#each heroMeta as part, i (part)}
-              {#if i > 0}<span class="meta-dot">·</span>{/if}
-              <span>{part}</span>
-            {/each}
+    <article class="sheet">
+      <!-- Identity -->
+      <header class="hero">
+        {#if team.logo_url}
+          <img src={team.logo_url} alt="{team.name} logo" class="hero-logo" />
+        {:else}
+          <div class="hero-logo hero-logo-empty">
+            <Users size={36} />
           </div>
         {/if}
 
-        {#if team.about}
-          <p class="hero-about">{team.about}</p>
-        {/if}
-      </div>
-    </section>
+        <div class="hero-body">
+          <div class="hero-title-row">
+            <h1 class="hero-name">
+              {team.name}
+              {#if team.tag}<span class="hero-tag">[{team.tag}]</span>{/if}
+            </h1>
+            <TeamSeed seed={data.seed ?? null} />
+            {#if isAdmin}
+              <AdminEditLink
+                href="/admin?tab=teams&team={team.id}"
+                label="Edit Team"
+                class="hero-admin"
+              />
+            {/if}
+          </div>
 
-    <!-- Standings -->
-    {#if leaderboard}
-      <div class="stat-row">
-        <div class="stat">
-          <span class="stat-label">Rank</span>
-          <span class="stat-value">#{leaderboard.rank}</span>
-        </div>
-        <div class="stat">
-          <span class="stat-label">Points</span>
-          <span class="stat-value">{leaderboard.points}</span>
-        </div>
-        <div class="stat">
-          <span class="stat-label">Series</span>
-          <span class="stat-value">{record}</span>
-        </div>
-        <div class="stat">
-          <span class="stat-label">Round Diff</span>
-          <span
-            class="stat-value"
-            class:stat-pos={Number(leaderboard.round_diff) > 0}
-            class:stat-neg={Number(leaderboard.round_diff) < 0}
-          >
-            {Number(leaderboard.round_diff) > 0 ? '+' : ''}{leaderboard.round_diff}
-          </span>
-        </div>
-      </div>
+          {#if heroMeta.length > 0}
+            <div class="hero-meta">
+              {#each heroMeta as part, i (part)}
+                {#if i > 0}<span class="meta-dot">·</span>{/if}
+                <span>{part}</span>
+              {/each}
+            </div>
+          {/if}
 
-      <p class="stat-note">
-        {activeSeason?.name ?? 'No active season'}
-        {#if leaderboard.batch?.display_name}
-          <span class="meta-dot">·</span> {leaderboard.batch.display_name}
-        {/if}
-        {#if leaderboard.batch?.as_of_date}
-          <span class="meta-dot">·</span> as of {leaderboard.batch.as_of_date}
-        {/if}
-      </p>
-    {/if}
-
-    <!-- Roster -->
-    <section class="card">
-      <header class="card-head">
-        <Users size={15} />
-        <h2 class="card-title">Roster</h2>
-        {#if statsSourceLabel}
-          <span class="card-source" title={statsSources.join(' · ')}>{statsSourceLabel}</span>
-        {/if}
-        <span class="card-count">{roster.length}</span>
+          {#if team.about}
+            <p class="hero-about">{team.about}</p>
+          {/if}
+        </div>
       </header>
 
-      {#if roster.length === 0}
-        <p class="card-empty">No active players on this roster.</p>
-      {:else}
-        <div class="roster">
-          {#each sortedRoster as player, pi (player.profile_id ?? pi)}
-            <svelte:element
-              this={player.profile_id ? 'a' : 'div'}
-              href={player.profile_id ? `/players/${player.profile_id}` : undefined}
-              class="player"
-              class:player-link={Boolean(player.profile_id)}
-            >
-              <div class="player-head">
-                <span class="player-name">{playerName(player)}</span>
-                {#if player.role && player.role !== 'player'}
-                  <span class="player-role">{player.role}</span>
-                {/if}
-              </div>
+      <!-- Standings, docked to the hero -->
+      {#if leaderboard}
+        <div class="strip">
+          <dl class="strip-cells">
+            <div class="strip-cell">
+              <dt>Rank</dt>
+              <dd>#{leaderboard.rank}</dd>
+            </div>
+            <div class="strip-cell">
+              <dt>Points</dt>
+              <dd>{leaderboard.points}</dd>
+            </div>
+            <div class="strip-cell">
+              <dt>Series</dt>
+              <dd>{record}</dd>
+            </div>
+            <div class="strip-cell">
+              <dt>Round Diff</dt>
+              <dd
+                class:stat-pos={Number(leaderboard.round_diff) > 0}
+                class:stat-neg={Number(leaderboard.round_diff) < 0}
+              >
+                {Number(leaderboard.round_diff) > 0 ? '+' : ''}{leaderboard.round_diff}
+              </dd>
+            </div>
+          </dl>
+        </div>
+      {/if}
 
-              {#if player.stats}
-                <div class="player-stats">
-                  <span><b>{fmt(player.stats.acs, 0)}</b> ACS</span>
-                  <span><b>{fmt(player.stats.kd, 2)}</b> K/D</span>
-                  <span><b>{fmt(player.stats.adr, 0)}</b> ADR</span>
+      <div class="cols">
+        <div class="col">
+          <!-- Roster -->
+          <section aria-labelledby="roster-title">
+            <div class="sheet-head">
+              <h2 class="sheet-title" id="roster-title">Roster</h2>
+              {#if statsSourceLabel}
+                <span class="sheet-note" title={statsSources.join(' · ')}>{statsSourceLabel}</span>
+              {/if}
+            </div>
+
+            <div class="sheet-body">
+              {#if roster.length === 0}
+                <p class="empty">No active players on this roster.</p>
+              {:else}
+                <div class="roster-head" aria-hidden="true">
+                  <span>Player</span>
+                  <span class="num">ACS</span>
+                  <span class="num">K/D</span>
+                  <span class="num">ADR</span>
                 </div>
-              {:else}
-                <div class="player-stats player-stats-empty">No stats</div>
+                <ul class="roster">
+                  {#each sortedRoster as player, pi (player.profile_id ?? pi)}
+                    <li class="player">
+                      <span class="player-head">
+                        {#if player.profile_id}
+                          <a href={resolve(`/players/${player.profile_id}`)} class="player-name">
+                            {playerName(player)}
+                          </a>
+                        {:else}
+                          <span class="player-name">{playerName(player)}</span>
+                        {/if}
+                        {#if player.role && player.role !== 'player'}
+                          <span class="player-role">{player.role}</span>
+                        {/if}
+                      </span>
+                      <span class="num" title="ACS"
+                        >{player.stats ? fmt(player.stats.acs, 0) : '—'}</span
+                      >
+                      <span class="num" title="K/D"
+                        >{player.stats ? fmt(player.stats.kd, 2) : '—'}</span
+                      >
+                      <span class="num" title="ADR"
+                        >{player.stats ? fmt(player.stats.adr, 0) : '—'}</span
+                      >
+                    </li>
+                  {/each}
+                </ul>
               {/if}
-            </svelte:element>
-          {/each}
-        </div>
-      {/if}
 
-      {#if formerPlayers.length > 0}
-        <div class="former">
-          <h3 class="former-title">Former players</h3>
-          <ul class="former-list">
-            {#each formerPlayers as player, fi (player.profile_id ?? `former-${fi}`)}
-              <li class="former-row" class:former-hidden={player.hidden}>
-                {#if player.profile_id}
-                  <a href={resolve(`/players/${player.profile_id}`)} class="former-name">
-                    {playerName(player)}
+              {#if formerPlayers.length > 0}
+                <details class="former">
+                  <summary>
+                    <ChevronRight size={13} class="former-chev" />
+                    Former players · {formerPlayers.length}
+                  </summary>
+                  <ul class="former-list">
+                    {#each formerPlayers as player, fi (player.profile_id ?? `former-${fi}`)}
+                      <li class="former-row" class:former-hidden={player.hidden}>
+                        {#if player.profile_id}
+                          <a href={resolve(`/players/${player.profile_id}`)} class="former-name">
+                            {playerName(player)}
+                          </a>
+                        {:else}
+                          <span class="former-name">{playerName(player)}</span>
+                        {/if}
+                        <span class="former-trail">
+                          <span class="former-dates">
+                            {player.hidden ? 'Hidden · ' : ''}Left {formatLeftDay(player.left_at)}
+                          </span>
+                          {#if isAdmin}
+                            <button
+                              type="button"
+                              class="former-action"
+                              disabled={formerBusy !== null}
+                              title={player.hidden
+                                ? 'Show this player in the list again'
+                                : 'Hide from this list (duplicate or mis-entered name)'}
+                              onclick={() => setFormerHidden(player.membership_ids, !player.hidden)}
+                            >
+                              {formerBusy === player.membership_ids.join(',')
+                                ? '…'
+                                : player.hidden
+                                  ? 'Restore'
+                                  : 'Hide'}
+                            </button>
+                          {/if}
+                        </span>
+                      </li>
+                    {/each}
+                  </ul>
+                  {#if formerError}<p class="former-error">{formerError}</p>{/if}
+                </details>
+              {/if}
+
+              {#if !activeSeason}
+                <p class="empty-note">
+                  Player stats appear once an active season exists and its stats are imported.
+                </p>
+              {/if}
+            </div>
+          </section>
+
+          <!-- Rank by week -->
+          {#if rankHistory.length >= 2}
+            <section class="col-section" aria-labelledby="trend-title">
+              <div class="sheet-head">
+                <h2 class="sheet-title" id="trend-title">Rank by week</h2>
+                {#if rankTrend}<span class="sheet-note">{rankTrend}</span>{/if}
+              </div>
+              <div class="sheet-body">
+                <RankHistoryChart points={rankHistory} />
+              </div>
+            </section>
+          {/if}
+        </div>
+
+        <!-- Matches: fixtures first, then results -->
+        <section class="col" aria-labelledby="matches-title">
+          <div class="sheet-head">
+            <h2 class="sheet-title" id="matches-title">Matches</h2>
+            {#if matchesNote}<span class="sheet-note">{matchesNote}</span>{/if}
+          </div>
+
+          <div class="sheet-body">
+            <h3 class="group">Upcoming</h3>
+            {#if upcomingMatches.length === 0}
+              <p class="empty">No matches scheduled.</p>
+            {:else}
+              <div class="match-rows">
+                {#each upcomingMatches as match (match.id)}
+                  {@const opp = opponentFor(match, team.id)}
+                  <a href={resolve(`/matches/${match.id}`)} class="match-row">
+                    <span class="row-badge row-badge-vs">vs</span>
+                    <span class="row-seed">
+                      <TeamSeed seed={opp?.id ? (seeds[opp.id] ?? null) : null} />
+                    </span>
+                    {#if opp?.logo_url}
+                      <img src={opp.logo_url} alt="" class="row-logo" />
+                    {:else}
+                      <span class="row-logo row-logo-empty"></span>
+                    {/if}
+                    <span class="row-main">
+                      <span class="row-name">
+                        {opp?.name ?? 'TBD'}
+                        {#if opp?.tag}<span class="row-tag">[{opp.tag}]</span>{/if}
+                      </span>
+                      <span class="row-sub">{formatLocal(match.scheduled_at)}</span>
+                    </span>
+                    <span class="row-when">{formatLocal(match.scheduled_at)}</span>
                   </a>
-                {:else}
-                  <span class="former-name">{playerName(player)}</span>
-                {/if}
-                <span class="former-trail">
-                  <span class="former-dates">
-                    {player.hidden ? 'Hidden · ' : ''}Left {formatLeftDay(player.left_at)}
-                  </span>
-                  {#if isAdmin}
-                    <button
-                      type="button"
-                      class="former-action"
-                      disabled={formerBusy !== null}
-                      title={player.hidden
-                        ? 'Show this player in the list again'
-                        : 'Hide from this list (duplicate or mis-entered name)'}
-                      onclick={() => setFormerHidden(player.membership_ids, !player.hidden)}
+                {/each}
+              </div>
+            {/if}
+
+            <h3 class="group">Results</h3>
+            {#if matchHistory.length === 0}
+              <p class="empty">No completed matches yet.</p>
+            {:else}
+              <div class="match-rows">
+                {#each matchHistory as match (match.id)}
+                  {@const opp = opponentFor(match, team.id)}
+                  {@const score = scoreFor(match, team.id)}
+                  {@const won = score.us > score.them}
+                  <a href={resolve(`/matches/${match.id}`)} class="match-row">
+                    <span
+                      class="row-badge"
+                      class:row-win={won}
+                      class:row-loss={!won}
+                      aria-label={won ? 'Win' : 'Loss'}
                     >
-                      {formerBusy === player.membership_ids.join(',')
-                        ? '…'
-                        : player.hidden
-                          ? 'Restore'
-                          : 'Hide'}
-                    </button>
-                  {/if}
-                </span>
-              </li>
-            {/each}
-          </ul>
-          {#if formerError}<p class="former-error">{formerError}</p>{/if}
-        </div>
-      {/if}
-
-      {#if !activeSeason}
-        <p class="card-note">
-          Player stats appear once an active season exists and its stats are imported.
-        </p>
-      {/if}
-    </section>
-
-    <!-- Upcoming -->
-    <section class="card">
-      <header class="card-head">
-        <CalendarDays size={15} />
-        <h2 class="card-title">Upcoming</h2>
-        {#if upcomingMatches.length > 0}
-          <span class="card-count">{upcomingMatches.length}</span>
-        {/if}
-      </header>
-
-      {#if upcomingMatches.length === 0}
-        <p class="card-empty">No matches scheduled.</p>
-      {:else}
-        <div class="match-rows">
-          {#each upcomingMatches as match (match.id)}
-            {@const opp = opponentFor(match, team.id)}
-            <a href={resolve(`/matches/${match.id}`)} class="match-row">
-              <span class="row-badge row-badge-vs">vs</span>
-
-              <TeamSeed seed={opp?.id ? (seeds[opp.id] ?? null) : null} />
-
-              {#if opp?.logo_url}
-                <img src={opp.logo_url} alt="" class="row-logo" />
-              {:else}
-                <span class="row-logo row-logo-empty"></span>
-              {/if}
-
-              <span class="row-name">
-                {opp?.name ?? 'TBD'}
-                {#if opp?.tag}<span class="row-tag">[{opp.tag}]</span>{/if}
-              </span>
-
-              <span class="row-when">{formatLocal(match.scheduled_at)}</span>
-            </a>
-          {/each}
-        </div>
-      {/if}
-    </section>
-
-    <!-- History -->
-    <section class="card">
-      <header class="card-head">
-        <History size={15} />
-        <h2 class="card-title">Match History</h2>
-        {#if matchHistory.length > 0}
-          <span class="card-count">{matchHistory.length}</span>
-        {/if}
-      </header>
-
-      {#if matchHistory.length === 0}
-        <p class="card-empty">No completed matches yet.</p>
-      {:else}
-        <div class="match-rows">
-          {#each matchHistory as match (match.id)}
-            {@const opp = opponentFor(match, team.id)}
-            {@const score = scoreFor(match, team.id)}
-            {@const won = score.us > score.them}
-            <a href={resolve(`/matches/${match.id}`)} class="match-row">
-              <span class="row-badge" class:row-win={won} class:row-loss={!won}>
-                {won ? 'W' : 'L'}
-              </span>
-
-              <TeamSeed seed={opp?.id ? (seeds[opp.id] ?? null) : null} />
-
-              {#if opp?.logo_url}
-                <img src={opp.logo_url} alt="" class="row-logo" />
-              {:else}
-                <span class="row-logo row-logo-empty"></span>
-              {/if}
-
-              <span class="row-name">
-                {opp?.name ?? 'Unknown'}
-                {#if opp?.tag}<span class="row-tag">[{opp.tag}]</span>{/if}
-              </span>
-
-              <span class="row-score">
-                <b class:score-win={won}>{score.us}</b>
-                <span class="score-sep">–</span>
-                <b class:score-win={!won}>{score.them}</b>
-              </span>
-
-              <span class="row-when">{formatLocal(match.scheduled_at)}</span>
-            </a>
-          {/each}
-        </div>
-      {/if}
-    </section>
+                      {won ? 'W' : 'L'}
+                    </span>
+                    <span class="row-seed">
+                      <TeamSeed seed={opp?.id ? (seeds[opp.id] ?? null) : null} />
+                    </span>
+                    {#if opp?.logo_url}
+                      <img src={opp.logo_url} alt="" class="row-logo" />
+                    {:else}
+                      <span class="row-logo row-logo-empty"></span>
+                    {/if}
+                    <span class="row-main">
+                      <span class="row-name">
+                        {opp?.name ?? 'Unknown'}
+                        {#if opp?.tag}<span class="row-tag">[{opp.tag}]</span>{/if}
+                      </span>
+                      <span class="row-sub">{formatLocal(match.scheduled_at)}</span>
+                    </span>
+                    <span class="row-score">
+                      <b class="score-us">{score.us}</b>
+                      <span class="score-sep">–</span>
+                      <b>{score.them}</b>
+                    </span>
+                    <span class="row-when">{formatLocal(match.scheduled_at)}</span>
+                  </a>
+                {/each}
+              </div>
+            {/if}
+          </div>
+        </section>
+      </div>
+    </article>
   </div>
 </PageContainer>
 
@@ -392,20 +447,14 @@
     max-width: 72rem;
     margin: 0 auto;
     padding: 1.5rem 1rem 3rem;
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
   }
 
-  /* Identity */
+  /* Identity — the top of the sheet, no card of its own. */
   .hero {
     display: flex;
     align-items: flex-start;
     gap: 1.25rem;
     padding: 1.5rem;
-    border-radius: 0.75rem;
-    border: 1px solid rgba(255, 255, 255, 0.09);
-    background: linear-gradient(135deg, rgba(120, 67, 145, 0.14), rgba(0, 0, 0, 0.25));
   }
 
   .hero-logo {
@@ -481,24 +530,29 @@
     color: rgba(255, 255, 255, 0.75);
   }
 
-  /* Standings tiles */
-  .stat-row {
+  /* Standings strip — one divided band under the hero. */
+  .strip {
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .strip-cells {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 0.625rem;
+    margin: 0;
   }
 
-  .stat {
+  .strip-cell {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
-    padding: 0.875rem 1rem;
-    border-radius: 0.625rem;
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    background: rgba(0, 0, 0, 0.2);
+    gap: 0.3125rem;
+    padding: 0.875rem 1.5rem;
   }
 
-  .stat-label {
+  .strip-cell + .strip-cell {
+    border-left: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .strip-cell dt {
     font-size: 0.6875rem;
     font-weight: 700;
     text-transform: uppercase;
@@ -506,8 +560,9 @@
     color: rgba(255, 255, 255, 0.55);
   }
 
-  .stat-value {
-    font-size: 1.5rem;
+  .strip-cell dd {
+    margin: 0;
+    font-size: 1.375rem;
     font-weight: 700;
     line-height: 1;
     color: var(--text);
@@ -515,105 +570,159 @@
   }
 
   .stat-pos {
-    color: #4ade80;
+    color: #4ade80 !important;
   }
 
   .stat-neg {
-    color: #f87171;
+    color: #f87171 !important;
   }
 
-  .stat-note {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.375rem;
-    margin-top: -0.375rem;
-    font-size: 0.75rem;
-    color: rgba(255, 255, 255, 0.5);
+  /* Body — roster left, matches right, a hairline between. */
+  .cols {
+    display: grid;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
   }
 
-  /* Cards */
-  .card {
-    border-radius: 0.75rem;
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    background: rgba(0, 0, 0, 0.2);
-    overflow: hidden;
+  .col {
+    min-width: 0;
   }
 
-  .card-head {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.75rem 1rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-    color: var(--accent-text);
+  .col + .col {
+    border-left: 1px solid rgba(255, 255, 255, 0.08);
   }
 
-  .card-title {
-    font-size: 0.75rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--title);
+  .col-section {
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
   }
 
-  /* Names the import the roster numbers came from. */
-  .card-source {
-    margin-left: auto;
-    font-size: 0.6875rem;
-    color: rgba(255, 255, 255, 0.45);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .sheet-head {
+    align-items: baseline;
   }
 
-  .card-source + .card-count {
-    margin-left: 0;
-  }
-
-  .card-count {
-    margin-left: auto;
-    font-size: 0.6875rem;
-    font-weight: 700;
-    padding: 0.125rem 0.4375rem;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.07);
-    color: rgba(255, 255, 255, 0.6);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .card-empty {
-    padding: 2rem 1rem;
-    text-align: center;
+  .empty {
+    padding: 0.625rem 0;
     font-size: 0.8125rem;
     color: rgba(255, 255, 255, 0.5);
   }
 
-  .card-note {
-    padding: 0 1rem 1rem;
+  .empty-note {
+    margin-top: 0.75rem;
     font-size: 0.75rem;
     line-height: 1.5;
     color: rgba(255, 255, 255, 0.5);
   }
 
-  /* Players who left mid-event — quieter than the live roster above. */
-  .former {
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
-    padding: 0.75rem 1rem;
+  /* Roster — one row per player, numbers lined up under a column header. */
+  .roster-head,
+  .player {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 3.25rem 3.25rem 3.25rem;
+    gap: 0.5rem;
+    align-items: center;
   }
 
-  .former-title {
-    margin: 0 0 0.375rem;
+  .roster-head {
+    padding: 0.375rem 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .roster {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .player {
+    min-height: 2.5rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    font-size: 0.8125rem;
+    color: rgba(255, 255, 255, 0.82);
+  }
+
+  .player-head {
+    display: flex;
+    align-items: center;
+    gap: 0.4375rem;
+    min-width: 0;
+  }
+
+  .player-name {
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.82);
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transition: color 0.15s;
+  }
+
+  a.player-name:hover {
+    color: var(--accent-text);
+  }
+
+  .player-role {
+    flex-shrink: 0;
+    font-size: 0.5625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 0.125rem 0.3125rem;
+    border-radius: 0.25rem;
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.7);
+  }
+
+  /* Players who left mid-event — a closed footer under the live roster. */
+  .former {
+    margin-top: 0.875rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .former summary {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.25rem;
+    cursor: pointer;
+    list-style: none;
     font-size: 0.6875rem;
     font-weight: 700;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.45);
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  .former summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .former summary:hover {
+    color: rgba(255, 255, 255, 0.8);
+  }
+
+  .former :global(.former-chev) {
+    transition: transform 0.15s;
+  }
+
+  .former[open] :global(.former-chev) {
+    transform: rotate(90deg);
   }
 
   .former-list {
     list-style: none;
     margin: 0;
-    padding: 0;
+    padding: 0 0 0.25rem;
     display: flex;
     flex-direction: column;
     gap: 0.25rem;
@@ -663,8 +772,8 @@
   }
 
   .former-action:hover:not(:disabled) {
-    color: #93c5fd;
-    border-color: rgba(147, 197, 253, 0.4);
+    color: var(--text);
+    border-color: rgba(255, 255, 255, 0.3);
   }
 
   .former-action:disabled {
@@ -685,87 +794,20 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* Roster — one row per player, stats trailing on the right. */
-  .roster {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .player {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.875rem;
-    padding: 0.6875rem 1rem;
-    text-decoration: none;
-    color: var(--text);
-    min-width: 0;
-  }
-
-  .player + .player {
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
-  }
-
-  .player-link {
-    transition: background 0.15s;
-  }
-
-  .player-link:hover {
-    background: rgba(255, 255, 255, 0.04);
-  }
-
-  .player-link:hover .player-name {
-    color: var(--accent-text);
-  }
-
-  .player-head {
-    display: flex;
-    align-items: center;
-    gap: 0.4375rem;
-    min-width: 0;
-  }
-
-  .player-name {
-    font-size: 0.875rem;
-    font-weight: 600;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    transition: color 0.15s;
-  }
-
-  .player-role {
-    flex-shrink: 0;
-    font-size: 0.5625rem;
+  /* Matches — one row shape for fixtures and results. */
+  .group {
+    margin: 0.625rem 0 0.125rem;
+    font-size: 0.625rem;
     font-weight: 700;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
-    padding: 0.125rem 0.3125rem;
-    border-radius: 0.25rem;
-    background: rgba(120, 67, 145, 0.28);
-    color: #e9d5ff;
-  }
-
-  .player-stats {
-    display: flex;
-    flex-shrink: 0;
-    gap: 0.75rem;
-    font-size: 0.6875rem;
     color: rgba(255, 255, 255, 0.5);
-    font-variant-numeric: tabular-nums;
   }
 
-  .player-stats b {
-    font-weight: 700;
-    color: rgba(255, 255, 255, 0.82);
+  .group:first-child {
+    margin-top: 0.25rem;
   }
 
-  .player-stats-empty {
-    font-style: italic;
-    opacity: 0.75;
-  }
-
-  /* One row shape for both upcoming fixtures and completed results. */
   .match-rows {
     display: flex;
     flex-direction: column;
@@ -774,19 +816,17 @@
   .match-row {
     display: flex;
     align-items: center;
-    gap: 0.6875rem;
-    padding: 0.6875rem 1rem;
+    gap: 0.625rem;
+    min-height: 2.75rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
     text-decoration: none;
-    color: var(--text);
+    font-size: 0.8125rem;
+    color: rgba(255, 255, 255, 0.82);
     transition: background 0.15s;
   }
 
-  .match-row + .match-row {
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
-  }
-
   .match-row:hover {
-    background: rgba(255, 255, 255, 0.04);
+    background: rgba(255, 255, 255, 0.03);
   }
 
   .match-row:hover .row-name {
@@ -821,12 +861,20 @@
     text-transform: uppercase;
     letter-spacing: 0.04em;
     background: rgba(255, 255, 255, 0.07);
-    color: rgba(255, 255, 255, 0.5);
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  /* Holds its width when a team has no seed, so logos line up. */
+  .row-seed {
+    display: inline-flex;
+    justify-content: center;
+    width: 1.0625rem;
+    flex-shrink: 0;
   }
 
   .row-logo {
-    width: 1.75rem;
-    height: 1.75rem;
+    width: 1.625rem;
+    height: 1.625rem;
     border-radius: 0.3125rem;
     object-fit: contain;
     flex-shrink: 0;
@@ -836,10 +884,14 @@
     background: rgba(255, 255, 255, 0.06);
   }
 
-  .row-name {
+  .row-main {
     flex: 1;
     min-width: 0;
-    font-size: 0.875rem;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .row-name {
     font-weight: 600;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -848,8 +900,15 @@
   }
 
   .row-tag {
-    font-weight: 500;
+    font-weight: 400;
     color: rgba(255, 255, 255, 0.45);
+  }
+
+  /* The date moves under the name on phones instead of being dropped. */
+  .row-sub {
+    display: none;
+    font-size: 0.6875rem;
+    color: rgba(255, 255, 255, 0.5);
   }
 
   .row-score {
@@ -857,13 +916,17 @@
     align-items: center;
     gap: 0.3125rem;
     flex-shrink: 0;
-    font-size: 0.9375rem;
+    font-size: 0.875rem;
     font-variant-numeric: tabular-nums;
     color: rgba(255, 255, 255, 0.45);
   }
 
-  .score-win {
-    color: var(--text);
+  .row-score b {
+    font-weight: 600;
+  }
+
+  .score-us {
+    color: rgba(255, 255, 255, 0.92);
   }
 
   .score-sep {
@@ -873,15 +936,22 @@
 
   .row-when {
     flex-shrink: 0;
+    width: 7rem;
     text-align: right;
     font-size: 0.75rem;
     color: rgba(255, 255, 255, 0.5);
+    font-variant-numeric: tabular-nums;
   }
 
   /* Responsive */
-  @media (max-width: 900px) {
-    .stat-row {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+  @media (max-width: 860px) {
+    .cols {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .col + .col {
+      border-left: 0;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
     }
   }
 
@@ -908,13 +978,32 @@
       margin-left: 0;
     }
 
-    .stat-value {
-      font-size: 1.25rem;
+    .strip-cells {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    /* The date is the first thing to go when the row runs out of room. */
+    .strip-cell {
+      padding: 0.75rem 1rem;
+    }
+
+    .strip-cell:nth-child(3) {
+      border-left: 0;
+    }
+
+    .strip-cell:nth-child(n + 3) {
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .strip-cell dd {
+      font-size: 1.125rem;
+    }
+
     .row-when {
       display: none;
+    }
+
+    .row-sub {
+      display: block;
     }
   }
 </style>
