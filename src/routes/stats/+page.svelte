@@ -1007,6 +1007,19 @@
     justify-content: flex-start;
   }
 
+  /* With every column on, the table packs tight and the Games header would
+     start right against the agent icons. Pad and divide the boundary. */
+  .stats-table td.col-agents,
+  .stats-table thead th.col-agents {
+    padding-right: 1.25rem;
+    border-right: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .stats-table td.col-agents + td,
+  .stats-table thead th.col-agents + th {
+    padding-left: 1.5rem;
+  }
+
   .player-link {
     color: rgba(255, 255, 255, 0.82);
     font-weight: 600;
@@ -1043,6 +1056,15 @@
     vertical-align: middle;
   }
 
+  /* Fixed size, never shrunk: a percentage max-width (the global img reset)
+     lets the table size this column narrower than its icons. */
+  .agent-icon,
+  .agent-fallback,
+  .agent-more {
+    flex: none;
+    max-width: none;
+  }
+
   .agent-icon,
   .agent-fallback {
     width: 1.125rem;
@@ -1065,10 +1087,20 @@
     color: rgba(255, 255, 255, 0.7);
   }
 
+  /* A chip the size of an icon, so the count reads as part of the agent
+     group rather than as a number in the next column. */
   .agent-more {
-    margin-left: 0.125rem;
-    font-size: 0.6875rem;
-    color: rgba(255, 255, 255, 0.45);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.125rem;
+    height: 1.125rem;
+    padding: 0 0.25rem;
+    border-radius: 0.25rem;
+    background: rgba(255, 255, 255, 0.08);
+    font-size: 0.625rem;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.6);
   }
 
   .table-foot {
