@@ -268,6 +268,7 @@
             thirdPlaceTeamId: season.third_place_team_id ?? '',
             mvpProfileId: season.mvp_profile_id ?? '',
             mvpName: seasonMvpName(season.metadata),
+            championClipUrl: season.champion_clip_url ?? '',
             finalLeaderboardBatchId: season.final_leaderboard_batch_id ?? '',
             mapPool: Array.isArray(season.metadata?.map_pool)
               ? (season.metadata.map_pool as unknown[]).filter(
@@ -592,6 +593,21 @@
                           })}
                       />
                     </div>
+                  </label>
+
+                  <label class="mt-2 block text-xs" style="color: rgba(255,255,255,0.82);">
+                    Winning Moment Clip
+                    <input
+                      type="url"
+                      value={state.championClipUrl}
+                      class="admin-input mt-1"
+                      placeholder="YouTube, Twitch or Streamable link — shown on the Hall of Fame"
+                      oninput={(e) =>
+                        onSeasonEditChange(season.id, {
+                          ...state,
+                          championClipUrl: (e.currentTarget as HTMLInputElement).value,
+                        })}
+                    />
                   </label>
 
                   <div class="mt-2 flex flex-wrap items-center gap-2">

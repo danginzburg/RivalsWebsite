@@ -42,12 +42,16 @@ export const load = async ({ locals, url }: { locals: App.Locals; url: URL }) =>
   const recordTrack = trackOptions.find((t) => t.key === requested) ?? display
   const isAdmin = locals.user?.role === 'admin'
 
-  const [{ data: entries, error: entriesError }, { data: champions }, trackRecords, viewer] =
-    await Promise.all([
-      supabaseAdmin
-        .from('hall_of_fame_entries')
-        .select(
-          `
+  const [
+    { data: entries, error: entriesError },
+    { data: champions, error: championsError },
+    trackRecords,
+    viewer,
+  ] = await Promise.all([
+    supabaseAdmin
+      .from('hall_of_fame_entries')
+      .select(
+        `
         id,
         entry_type,
         title,
@@ -67,37 +71,41 @@ export const load = async ({ locals, url }: { locals: App.Locals; url: URL }) =>
           team_b:teams!matches_team_b_id_fkey (name, tag)
         )
       `
-        )
-        .eq('is_published', true)
-        .order('sort_order', { ascending: true })
-        .order('created_at', { ascending: false }),
+      )
+      .eq('is_published', true)
+      .order('sort_order', { ascending: true })
+      .order('created_at', { ascending: false }),
 
-      // Season champions come straight from the seasons table so they stay in sync
-      // with what the Events pages show — no duplicate data entry required.
-      supabaseAdmin
-        .from('seasons')
-        .select(
-          `
+    // Season champions come straight from the seasons table so they stay in sync
+    // with what the Events pages show — no duplicate data entry required.
+    supabaseAdmin
+      .from('seasons')
+      .select(
+        `
         id,
         code,
         name,
         ends_on,
         metadata,
+        champion_clip_url,
         winner:teams!seasons_winner_team_id_fkey (id, name, tag, logo_path),
         mvp:profiles!seasons_mvp_profile_id_fkey (id, display_name)
       `
-        )
-        .not('winner_team_id', 'is', null)
-        .order('starts_on', { ascending: false, nullsFirst: false }),
+      )
+      .not('winner_team_id', 'is', null)
+      .order('starts_on', { ascending: false, nullsFirst: false }),
 
-      // Generated stat records with admin edits applied; hidden ones left out.
-      loadTrackRecords(recordTrack.key),
-      loadRecordViewer(locals.user?.sub),
-    ])
+    // Generated stat records with admin edits applied; hidden ones left out.
+    loadTrackRecords(recordTrack.key),
+    loadRecordViewer(locals.user?.sub),
+  ])
 
   if (entriesError) {
     // The table may not exist yet if the migration has not been applied.
     console.error('Failed to load hall of fame entries:', entriesError)
+  }
+  if (championsError) {
+    console.error('Failed to load season champions:', championsError)
   }
   // The editor's bookkeeping stays server-side.
   const statRecords = trackRecords.map((record) => ({
@@ -164,6 +172,7 @@ export const load = async ({ locals, url }: { locals: App.Locals; url: URL }) =>
           }
         : null,
       mvp: resolveSeasonMvp(mvp, season.metadata),
+      clipUrl: season.champion_clip_url ?? null,
     }
   })
 

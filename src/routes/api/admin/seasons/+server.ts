@@ -23,6 +23,7 @@ const SEASON_COLUMNS = `
   runner_up_team_id,
   third_place_team_id,
   mvp_profile_id,
+  champion_clip_url,
   final_leaderboard_batch_id,
   created_at
 `
@@ -157,6 +158,16 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
 
   for (const [bodyKey, column] of RESULT_FIELDS) {
     if (body[bodyKey] !== undefined) updates[column] = normalizeOptional(body[bodyKey])
+  }
+
+  // The Hall of Fame winning-moment clip. Kept out of RESULT_FIELDS because it
+  // doesn't affect accolades, so changing it shouldn't trigger a resync.
+  if (body.championClipUrl !== undefined) {
+    const clipUrl = normalizeOptional(body.championClipUrl)
+    if (clipUrl && !/^https?:\/\//i.test(clipUrl)) {
+      throw error(400, 'Winning moment clip must be an http(s) link')
+    }
+    updates.champion_clip_url = clipUrl
   }
 
   // Map pool, the presentation profile and the stage schedule all live on
