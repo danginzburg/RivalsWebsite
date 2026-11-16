@@ -1,4 +1,11 @@
 import { supabaseAdmin } from '$lib/supabase/admin'
+import {
+  baseNameKey,
+  buildIdentityIndex,
+  loadApprovedRiotAccounts,
+  loadProfileNames,
+  normalizeNameKey,
+} from '$lib/server/players/identity'
 import { average, sum } from '$lib/server/math'
 
 type TeamRow = {
@@ -9,32 +16,11 @@ type TeamRow = {
   approval_status?: string | null
 }
 
-export type ProfileRow = {
-  id: string
-  display_name: string | null
-}
+export type { ProfileRow, RiotAccountRow } from '$lib/server/players/identity'
 
-/**
- * A Riot account owned by a profile (primary, alt or name alias). PUUID is the
- * stable key that survives a rename, so it takes priority over any name.
- */
-export type RiotAccountRow = {
-  profile_id: string
-  riot_name: string
-  riot_tag?: string | null
-  riot_puuid?: string | null
-}
-
-export function normalizeImportKey(value: unknown): string {
-  return String(value ?? '')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-}
-
-export function normalizeBaseName(value: unknown): string {
-  return normalizeImportKey(String(value ?? '').split('#')[0] ?? '')
-}
+/** Kept as aliases: the normalization lives with the identity resolver. */
+export const normalizeImportKey = normalizeNameKey
+export const normalizeBaseName = baseNameKey
 
 function metadataStringList(
   metadata: Record<string, unknown> | null | undefined,
@@ -47,54 +33,9 @@ function metadataStringList(
 
 /**
  * Resolve an imported player row to a profile, by PUUID first and then by name.
- *
- * PUUID wins because it survives Riot renames, so a player who changed their
- * name still matches. Names are the fallback for rows that carry no PUUID (CSV
- * imports, un-verified accounts). Riot account names are layered over display
- * names and take precedence on a clash, since they are a deliberate identity
- * rather than an incidental name.
+ * See `$lib/server/players/identity` for the rules.
  */
-export function buildProfileMatcher(profiles: ProfileRow[], accounts: RiotAccountRow[] = []) {
-  const byKey = new Map<string, string>()
-  const byPuuid = new Map<string, string>()
-
-  const addName = (name: string | null | undefined, profileId: string) => {
-    if (!name) return
-    const full = normalizeImportKey(name)
-    const base = normalizeBaseName(name)
-    if (full) byKey.set(full, profileId)
-    if (base) byKey.set(base, profileId)
-  }
-
-  // Display names first, so explicit account rows can overwrite.
-  for (const profile of profiles) addName(profile.display_name, profile.id)
-
-  for (const account of accounts) {
-    if (account.riot_puuid) byPuuid.set(account.riot_puuid, account.profile_id)
-    const nameTag = account.riot_tag
-      ? `${account.riot_name}#${account.riot_tag}`
-      : account.riot_name
-    addName(nameTag, account.profile_id)
-    addName(account.riot_name, account.profile_id)
-  }
-
-  return {
-    resolve(playerName: string, puuid?: string | null): string | null {
-      if (puuid) {
-        const byP = byPuuid.get(puuid)
-        if (byP) return byP
-      }
-      return (
-        byKey.get(normalizeImportKey(playerName)) ??
-        byKey.get(normalizeBaseName(playerName)) ??
-        null
-      )
-    },
-    resolveByPuuid(puuid: string): string | null {
-      return byPuuid.get(puuid) ?? null
-    },
-  }
-}
+export const buildProfileMatcher = buildIdentityIndex
 
 export function buildTeamMatcher(teams: TeamRow[]) {
   const byMatchName = new Map<string, TeamRow>()
@@ -145,27 +86,11 @@ export async function getApprovedTeamsForImports(seasonId?: string | null) {
   return (data ?? []) as TeamRow[]
 }
 
-export async function getProfilesForImports() {
-  const { data, error } = await supabaseAdmin.from('profiles').select('id, display_name')
+export const getProfilesForImports = loadProfileNames
 
-  if (error) throw new Error('Failed to load profiles')
-  return (data ?? []) as ProfileRow[]
-}
-
-/**
- * Approved, owned Riot accounts (primary, alts, aliases) for profile matching.
- * Pending and rejected rows are excluded so an unverified claim cannot capture
- * stats; unowned ones have no profile to resolve to.
- */
-export async function getRiotAccountsForImports() {
-  const { data, error } = await supabaseAdmin
-    .from('riot_accounts')
-    .select('profile_id, riot_name, riot_tag, riot_puuid:puuid')
-    .not('profile_id', 'is', null)
-    .eq('status', 'approved')
-
-  if (error) throw new Error('Failed to load Riot accounts')
-  return (data ?? []) as RiotAccountRow[]
+/** Approved, owned Riot accounts (primary, alts, aliases) for profile matching. */
+export function getRiotAccountsForImports() {
+  return loadApprovedRiotAccounts()
 }
 
 export function parseMatchCsvDate(value: string): string {

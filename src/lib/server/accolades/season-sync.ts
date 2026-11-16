@@ -9,6 +9,7 @@ import {
 } from '$lib/server/pickems'
 import { loadSeasonThirdPlaceTeamIds } from '$lib/server/seasons/thirdPlace'
 import { isShortStint } from '$lib/server/matches/subs'
+import { loadIdentityIndex } from '$lib/server/players/identity'
 import {
   planAccoladeSync,
   regularMapPlayers,
@@ -84,58 +85,14 @@ function resolveAwardAccolades(accolades: AccoladeRow[]): Partial<Record<AwardKi
   return byKind
 }
 
-const nameKey = (value: string | null | undefined) =>
-  String(value ?? '')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-
 /**
- * Matches roster and stat rows to profiles. A PUUID or full Riot ID is taken
- * as given; a bare name only counts when exactly one profile answers to it, so
- * two players sharing a handle are never confused.
+ * Matches roster and stat rows to profiles: an existing profile link, else the
+ * shared identity resolver (PUUID, then a name only one profile answers to).
  */
 async function loadProfileResolver() {
-  const [accounts, profiles] = await Promise.all([
-    fetchAllRows<{
-      profile_id: string
-      riot_name: string | null
-      riot_tag: string | null
-      puuid: string | null
-    }>(() =>
-      supabaseAdmin
-        .from('riot_accounts')
-        .select('profile_id, riot_name, riot_tag, puuid')
-        .not('profile_id', 'is', null)
-        .eq('status', 'approved')
-        .order('id')
-    ),
-    fetchAllRows<{ id: string; display_name: string | null }>(() =>
-      supabaseAdmin.from('profiles').select('id, display_name').order('id')
-    ),
-  ])
-
-  const byPuuid = new Map<string, string>()
-  const byName = new Map<string, Set<string>>()
-  const addName = (key: string, profileId: string) => {
-    if (!key) return
-    const owners = byName.get(key) ?? new Set<string>()
-    owners.add(profileId)
-    byName.set(key, owners)
-  }
-  for (const a of accounts) {
-    if (a.puuid) byPuuid.set(a.puuid, a.profile_id)
-    addName(nameKey(a.riot_name), a.profile_id)
-    if (a.riot_name && a.riot_tag) addName(nameKey(`${a.riot_name}#${a.riot_tag}`), a.profile_id)
-  }
-  for (const p of profiles) addName(nameKey(p.display_name), p.id)
-
-  return (row: RosterSource): string | null => {
-    if (row.profile_id) return row.profile_id
-    if (row.puuid && byPuuid.has(row.puuid)) return byPuuid.get(row.puuid)!
-    const owners = byName.get(nameKey(row.player_name))
-    return owners && owners.size === 1 ? [...owners][0]! : null
-  }
+  const index = await loadIdentityIndex()
+  return (row: RosterSource): string | null =>
+    row.profile_id ?? index.resolve(row.player_name, row.puuid)
 }
 
 type Resolver = Awaited<ReturnType<typeof loadProfileResolver>>

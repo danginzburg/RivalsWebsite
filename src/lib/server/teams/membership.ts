@@ -1,14 +1,9 @@
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { relinkTeamMembershipsForClaim } from '$lib/server/players/claim-relink'
-import type { ProfileRow } from '$lib/server/imports/matching'
+import { findProfileIdByName, normalizeNameKey } from '$lib/server/players/identity'
 import { fetchAccount, RiotLookupError } from '$lib/server/riot/henrik'
 
-function normalize(value: unknown) {
-  return String(value ?? '')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-}
+const normalize = normalizeNameKey
 
 /** name#tag → the two parts, or null when there is no usable tag. */
 function splitRiotId(value: string): { name: string; tag: string } | null {
@@ -139,29 +134,9 @@ export async function resolveProfileIdForPlayerName(playerName: string) {
   const normalizedName = normalize(playerName)
   if (!normalizedName) return null
 
-  // A Riot account name (primary, alt or alias) is the deliberate identity, so
-  // it wins over a display name.
-  const { data: accounts, error: accountsError } = await supabaseAdmin
-    .from('riot_accounts')
-    .select('profile_id, riot_name')
-    .not('profile_id', 'is', null)
-    .eq('status', 'approved')
-    .ilike('riot_name', playerName.trim())
-    .limit(1)
-  if (accountsError) throw new Error('Failed to load Riot accounts for roster matching')
-  if (accounts?.[0]?.profile_id) return accounts[0].profile_id as string
-
-  const { data: profiles, error: profilesError } = await supabaseAdmin
-    .from('profiles')
-    .select('id, display_name')
-
-  if (profilesError) throw new Error('Failed to load profiles for roster matching')
-
-  const matchedProfile = ((profiles ?? []) as ProfileRow[]).find(
-    (profile) => normalize(profile.display_name) === normalizedName
-  )
-
-  if (matchedProfile?.id) return matchedProfile.id
+  // A Riot account name, then a display name (see players/identity).
+  const byName = await findProfileIdByName(playerName)
+  if (byName) return byName
 
   const { data: statsMatches, error: statsError } = await supabaseAdmin
     .from('rivals_group_stats')
