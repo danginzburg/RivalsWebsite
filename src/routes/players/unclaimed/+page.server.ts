@@ -1,6 +1,7 @@
 import { error, redirect, type Actions } from '@sveltejs/kit'
 import type { PageServerLoad } from './$types'
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { fetchAllRowsResult } from '$lib/server/supabase/fetch-all'
 import { lookupPlayer } from '$lib/server/players/directory'
 import { claimRiotName, riotNameOwnedByOther } from '$lib/server/players/riot-accounts'
 import { rematchPlayerMatchMapStatsForBase } from '$lib/server/imports/matching'
@@ -9,7 +10,7 @@ import { normalizeRiotBase, isValidRiotBase } from '$lib/server/riot-id'
 import { toBatchLabel } from '$lib/server/stats/batch-label'
 import {
   normalizeRivalsGroupStatBatchFromDb,
-  withSectionFallback,
+  runRivalsBatchQuery,
   type NormalizedRivalsGroupStatBatch,
   type StatImportBatchRow,
 } from '$lib/server/stats/rivals-batch'
@@ -103,11 +104,13 @@ export const load: PageServerLoad = async ({ url, locals }) => {
   // Find all batches where this base appears (base or base#tag variants).
   const baseQuoted = quoteOrValue(base)
   const baseTagLikeQuoted = quoteOrValue(`${base}#%`)
-  const { data: appearances, error: appearancesError } = await supabaseAdmin
-    .from('rivals_group_stats')
-    .select('import_batch_id, player_name, games, imported_at, profile_id, league_rank')
-    .or(`player_name.eq.${baseQuoted},player_name.ilike.${baseTagLikeQuoted}`)
-    .limit(2000)
+  const { data: appearances, error: appearancesError } = await fetchAllRowsResult(() =>
+    supabaseAdmin
+      .from('rivals_group_stats')
+      .select('import_batch_id, player_name, games, imported_at, profile_id, league_rank')
+      .or(`player_name.eq.${baseQuoted},player_name.ilike.${baseTagLikeQuoted}`)
+      .order('id')
+  )
 
   if (appearancesError) {
     console.error('Failed to load unclaimed appearances:', appearancesError)
@@ -124,7 +127,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 
   const batchById = new Map<string, NormalizedRivalsGroupStatBatch>()
   if (batchIds.length > 0) {
-    const { data: batchRows, error: batchError } = await withSectionFallback<StatImportBatchRow[]>(
+    const { data: batchRows, error: batchError } = await runRivalsBatchQuery<StatImportBatchRow[]>(
       (select) =>
         supabaseAdmin
           .from('stat_import_batches')
@@ -256,14 +259,17 @@ export const load: PageServerLoad = async ({ url, locals }) => {
       .is('profile_id', null)
       .or(`player_name.eq.${baseQuoted},player_name.ilike.${baseTagLikeQuoted}`)
       .limit(500),
-    supabaseAdmin
-      .from('player_match_map_stats')
-      .select(
-        'team_id, agents, acs, kills, deaths, assists, kd, adr, kast_pct, hs_pct, rounds, fk, fd, plants, defuses, match_maps(map_name, is_voided, team_a_rounds, team_b_rounds, matches(team_a_id, team_b_id))'
-      )
-      .is('profile_id', null)
-      .or(`player_name.eq.${baseQuoted},player_name.ilike.${baseTagLikeQuoted}`)
-      .limit(1000),
+    // Every map, not a capped page: these feed career per-map averages.
+    fetchAllRowsResult(() =>
+      supabaseAdmin
+        .from('player_match_map_stats')
+        .select(
+          'team_id, agents, acs, kills, deaths, assists, kd, adr, kast_pct, hs_pct, rounds, fk, fd, plants, defuses, match_maps(map_name, is_voided, team_a_rounds, team_b_rounds, matches(team_a_id, team_b_id))'
+        )
+        .is('profile_id', null)
+        .or(`player_name.eq.${baseQuoted},player_name.ilike.${baseTagLikeQuoted}`)
+        .order('id')
+    ),
   ])
 
   const byMatch = new Map<string, MatchMapRow[]>()

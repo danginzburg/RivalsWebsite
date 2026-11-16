@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { fetchAllRows } from '$lib/server/supabase/fetch-all'
 import { RiotLookupError, fetchAccount } from '$lib/server/riot/henrik'
 
 /**
@@ -246,21 +247,43 @@ export type AltAccount = {
 export async function linkedRiotAccountsFor(
   profileIds?: string[]
 ): Promise<Map<string, RiotLink[]>> {
-  let query = supabaseAdmin
-    .from('riot_accounts')
-    .select('profile_id, riot_name, riot_tag, puuid, is_primary, created_at')
-    .not('profile_id', 'is', null)
-    .eq('status', 'approved')
-    .not('puuid', 'is', null)
-    .order('is_primary', { ascending: false })
-    .order('created_at', { ascending: true })
-  if (profileIds) query = query.in('profile_id', profileIds)
+  type LinkRow = {
+    profile_id: string
+    riot_name: string
+    riot_tag: string | null
+    puuid: string
+  }
+  const build = (ids?: string[]) => () => {
+    let query = supabaseAdmin
+      .from('riot_accounts')
+      .select('profile_id, riot_name, riot_tag, puuid, is_primary, created_at')
+      .not('profile_id', 'is', null)
+      .eq('status', 'approved')
+      .not('puuid', 'is', null)
+    if (ids) query = query.in('profile_id', ids)
+    return query
+      .order('is_primary', { ascending: false })
+      .order('created_at', { ascending: true })
+      .order('id')
+  }
 
-  const { data, error } = await query
-  if (error) throw new Error('Failed to load Riot links')
+  // Paged past the row cap, and chunked so a long id list stays within URL limits.
+  const data: LinkRow[] = []
+  try {
+    if (!profileIds) {
+      data.push(...(await fetchAllRows<LinkRow>(build())))
+    } else {
+      const ids = [...new Set(profileIds.filter(Boolean))]
+      for (let i = 0; i < ids.length; i += 100) {
+        data.push(...(await fetchAllRows<LinkRow>(build(ids.slice(i, i + 100)))))
+      }
+    }
+  } catch {
+    throw new Error('Failed to load Riot links')
+  }
 
   const links = new Map<string, RiotLink[]>()
-  for (const a of data ?? []) {
+  for (const a of data) {
     const accounts = links.get(a.profile_id) ?? []
     accounts.push({
       riotId: formatRiotId(a.riot_name, a.riot_tag),

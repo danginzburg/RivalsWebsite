@@ -2,6 +2,7 @@ import { error } from '@sveltejs/kit'
 import type { Actions, PageServerLoad } from './$types'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { fetchAllRowsResult } from '$lib/server/supabase/fetch-all'
 import {
   buildProfileMatcher,
   getProfilesForImports,
@@ -329,10 +330,13 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 
   if (matchError || !match) throw error(404, 'Match not found')
 
-  const { data: profiles } = await supabaseAdmin
-    .from('profiles')
-    .select('id, display_name')
-    .order('display_name', { ascending: true })
+  const { data: profiles } = await fetchAllRowsResult(() =>
+    supabaseAdmin
+      .from('profiles')
+      .select('id, display_name')
+      .order('display_name', { ascending: true })
+      .order('id')
+  )
 
   let maps: MatchMapRow[] = []
   const { data: matchMaps, error: mapsError } = await supabaseAdmin

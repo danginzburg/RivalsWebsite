@@ -1,6 +1,7 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { fetchAllRowsResult } from '$lib/server/supabase/fetch-all'
 import type { MatchStreamRow } from '$lib/server/db-rows'
 import { resolveTargetSeasonId } from '$lib/server/seasons/resolve'
 import { normalizeSectionKey } from '$lib/stats/sections'
@@ -30,8 +31,9 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 
   const seasonId = url.searchParams.get('seasonId')
 
-  let query = supabaseAdmin.from('matches').select(
-    `
+  const buildQuery = () => {
+    let query = supabaseAdmin.from('matches').select(
+      `
       id,
       season_id,
       stage,
@@ -49,18 +51,21 @@ export const GET: RequestHandler = async ({ locals, url }) => {
       team_a:teams!matches_team_a_id_fkey (id, name, tag),
       team_b:teams!matches_team_b_id_fkey (id, name, tag)
     `
-  )
+    )
 
-  if (seasonId === '__none__') {
-    query = query.is('season_id', null)
-  } else if (seasonId) {
-    query = query.eq('season_id', seasonId)
+    if (seasonId === '__none__') {
+      query = query.is('season_id', null)
+    } else if (seasonId) {
+      query = query.eq('season_id', seasonId)
+    }
+
+    // Match the initial page load's ordering so a post-save refetch doesn't reshuffle the list.
+    return query
+      .order('scheduled_at', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: true })
+      .order('id')
   }
-
-  // Match the initial page load's ordering so a post-save refetch doesn't reshuffle the list.
-  const { data: matches, error: matchesError } = await query
-    .order('scheduled_at', { ascending: true, nullsFirst: false })
-    .order('created_at', { ascending: true })
+  const { data: matches, error: matchesError } = await fetchAllRowsResult(buildQuery)
 
   if (matchesError) throw error(500, 'Failed to load matches')
 

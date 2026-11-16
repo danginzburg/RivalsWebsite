@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { fetchAllRowsResult } from '$lib/server/supabase/fetch-all'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
 import type { MatchStreamRow } from '$lib/server/db-rows'
 import { isUnreachableError } from '$lib/server/supabase/unreachable'
@@ -7,10 +8,11 @@ import { loadRecentComments } from '$lib/server/comments/recent'
 
 export const load = async ({ locals }: { locals: App.Locals }) => {
   const isAdmin = locals.user?.role === 'admin'
-  const { data: matches, error: matchesError } = await supabaseAdmin
-    .from('matches')
-    .select(
-      `
+  const { data: matches, error: matchesError } = await fetchAllRowsResult(() =>
+    supabaseAdmin
+      .from('matches')
+      .select(
+        `
       id,
       season_id,
       status,
@@ -25,9 +27,11 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
       team_a:teams!matches_team_a_id_fkey (id, name, tag, logo_path),
       team_b:teams!matches_team_b_id_fkey (id, name, tag, logo_path)
     `
-    )
-    .eq('approval_status', 'approved')
-    .order('scheduled_at', { ascending: true, nullsFirst: false })
+      )
+      .eq('approval_status', 'approved')
+      .order('scheduled_at', { ascending: true, nullsFirst: false })
+      .order('id')
+  )
 
   if (matchesError) {
     console.error('Failed to load matches:', matchesError)
