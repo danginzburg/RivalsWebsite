@@ -22,26 +22,9 @@ type MatchRow = {
   metadata?: Record<string, unknown> | null
 }
 
-type ResultReportRow = {
-  id: string
-  match_id: string
-  status: string
-  team_a_score: number
-  team_b_score: number
-  winner_team_id: string
-  reporting_team_id?: string | null
-  reported_by_profile_id?: string | null
-}
-
 export type MatchLifecycleRepository = {
   getMatchForLifecycle(matchId: string): Promise<MatchRow | null>
   updateMatch(matchId: string, patch: Record<string, unknown>, select?: string): Promise<unknown>
-  getResultReport(reportId: string): Promise<ResultReportRow | null>
-  updateResultReport(
-    reportId: string,
-    patch: Record<string, unknown>,
-    select?: string
-  ): Promise<unknown>
   logAdminAction?(input: {
     adminProfileId: string
     actionType: string
@@ -78,27 +61,6 @@ export function createSupabaseMatchLifecycleRepository(): MatchLifecycleReposito
         .select(select)
         .single()
       if (error || !data) throw new MatchLifecycleError(500, 'Failed to update match')
-      return data
-    },
-    async getResultReport(reportId) {
-      const { data, error } = await supabaseAdmin
-        .from('match_result_reports')
-        .select(
-          'id, match_id, status, team_a_score, team_b_score, winner_team_id, reporting_team_id, reported_by_profile_id'
-        )
-        .eq('id', reportId)
-        .single()
-      if (error || !data) return null
-      return data as ResultReportRow
-    },
-    async updateResultReport(reportId, patch, select = 'id, status') {
-      const { data, error } = await supabaseAdmin
-        .from('match_result_reports')
-        .update(patch)
-        .eq('id', reportId)
-        .select(select)
-        .single()
-      if (error || !data) throw new MatchLifecycleError(500, 'Failed to update result report')
       return data
     },
     logAdminAction,
@@ -235,79 +197,4 @@ export async function updateMatchDetails(
     },
     'id, status, team_a_id, team_b_id, winner_team_id, team_a_score, team_b_score, scheduled_at'
   )
-}
-
-export async function reviewResultReport(
-  input: {
-    reportId: string
-    adminProfileId: string
-    action: 'approve' | 'reject'
-    reviewNotes: string | null
-  },
-  repo: MatchLifecycleRepository = createSupabaseMatchLifecycleRepository()
-) {
-  const report = await repo.getResultReport(input.reportId)
-  if (!report) throw new MatchLifecycleError(404, 'Result report not found')
-  if (report.status !== 'pending')
-    throw new MatchLifecycleError(409, 'Result report is not pending')
-
-  const match = await repo.getMatchForLifecycle(report.match_id)
-  if (!match) throw new MatchLifecycleError(404, 'Match not found')
-  if (match.approval_status !== 'approved')
-    throw new MatchLifecycleError(409, 'Match is not approved')
-  if (['completed', 'cancelled'].includes(match.status ?? '')) {
-    throw new MatchLifecycleError(409, 'Match is already finished')
-  }
-  assertWinner(match, report.winner_team_id)
-
-  if (input.action === 'reject') {
-    const updatedReport = await repo.updateResultReport(input.reportId, {
-      status: 'rejected',
-      reviewed_by_profile_id: input.adminProfileId,
-      reviewed_at: repo.now(),
-      review_notes: input.reviewNotes,
-    })
-    await repo.logAdminAction?.({
-      adminProfileId: input.adminProfileId,
-      actionType: 'match_result_report_rejected',
-      targetTable: 'match_result_reports',
-      targetId: input.reportId,
-      details: { match_id: report.match_id, review_notes: input.reviewNotes },
-    })
-    return { report: updatedReport }
-  }
-
-  const updatedMatch = await finalizeMatch(
-    {
-      matchId: report.match_id,
-      adminProfileId: input.adminProfileId,
-      teamAScore: report.team_a_score,
-      teamBScore: report.team_b_score,
-      winnerTeamId: report.winner_team_id,
-    },
-    repo
-  )
-
-  const updatedReport = await repo.updateResultReport(input.reportId, {
-    status: 'approved',
-    reviewed_by_profile_id: input.adminProfileId,
-    reviewed_at: repo.now(),
-    review_notes: input.reviewNotes,
-  })
-
-  await repo.logAdminAction?.({
-    adminProfileId: input.adminProfileId,
-    actionType: 'match_result_report_approved',
-    targetTable: 'match_result_reports',
-    targetId: input.reportId,
-    details: {
-      match_id: report.match_id,
-      winner_team_id: report.winner_team_id,
-      team_a_score: report.team_a_score,
-      team_b_score: report.team_b_score,
-      review_notes: input.reviewNotes,
-    },
-  })
-
-  return { match: updatedMatch, report: updatedReport }
 }

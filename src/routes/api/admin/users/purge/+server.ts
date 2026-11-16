@@ -58,9 +58,6 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     throw error(500, 'Failed to remove free agent listing')
   }
 
-  // Optional cleanups for result reports (if table exists)
-  await supabaseAdmin.from('match_result_reports').delete().eq('reported_by_profile_id', userId)
-
   await logAdminAction({
     adminProfileId: admin.id,
     actionType: 'user_purged_from_lists',

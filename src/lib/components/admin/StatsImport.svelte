@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Extracted from /add-stats to live under /admin.
+  // Admin CSV stats import, shown on /admin/stats-import.
   import PageContainer from '$lib/components/PageContainer.svelte'
   import { FileSpreadsheet, Loader2, Trash2, ArrowLeft } from 'lucide-svelte'
   import { resolve } from '$app/paths'

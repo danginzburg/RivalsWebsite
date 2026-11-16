@@ -12,13 +12,7 @@ export type NavVisibility = {
 }
 
 /** Pages that can drop out of the header. Everything else in the nav is always shown. */
-export type GatedNavPage =
-  | 'hall-of-fame'
-  | 'scrim-finder'
-  | 'team-balance'
-  | 'rulebook'
-  | 'faq'
-  | 'signup'
+export type GatedNavPage = 'hall-of-fame' | 'team-balance' | 'rulebook' | 'faq' | 'signup'
 
 /** The season state the header uses to decide which tabs to show. */
 export async function loadNavVisibility(): Promise<NavVisibility> {
@@ -63,8 +57,6 @@ export function isNavPageVisible(page: GatedNavPage, vis: NavVisibility): boolea
   switch (page) {
     case 'hall-of-fame':
       return true
-    case 'scrim-finder':
-      return false
     case 'team-balance':
       return !external
     case 'rulebook':

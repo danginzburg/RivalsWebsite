@@ -552,20 +552,4 @@ export async function getPickemResults(
   return resolvePickemResults(event, matches, { linked, candidates })
 }
 
-/** Bracket seeds for a season, keyed by team id — used site-wide for seed labels. */
-export async function getSeasonSeedMap(seasonId: string): Promise<Record<string, number>> {
-  const { data, error: seedError } = await supabaseAdmin
-    .from('pickem_events')
-    .select('config')
-    .eq('season_id', seasonId)
-    .eq('format', 'bracket')
-    .maybeSingle()
-  if (seedError || !data) return {}
-  const config =
-    data.config && typeof data.config === 'object' ? (data.config as Record<string, unknown>) : {}
-  const map: Record<string, number> = {}
-  for (const seed of normalizePickemSeeds(config.seeds)) map[seed.teamId] = seed.seed
-  return map
-}
-
 export { buildPickemSlots }
