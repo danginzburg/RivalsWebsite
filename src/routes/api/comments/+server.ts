@@ -55,7 +55,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   const text = normalizeBody(body.body)
   const parentId = typeof body.parentId === 'string' && body.parentId ? body.parentId : null
 
-  enforceRateLimit(`comment:post:${profile.id}`, {
+  await enforceRateLimit(`comment:post:${profile.id}`, {
     limit: 10,
     windowMs: 60_000,
     message: 'You are commenting too quickly. Please wait a moment.',

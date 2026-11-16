@@ -37,7 +37,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   if (!commentId) throw error(400, 'commentId is required')
   const value = parseVote(body.value)
 
-  enforceRateLimit(`comment:vote:${profile.id}`, {
+  await enforceRateLimit(`comment:vote:${profile.id}`, {
     limit: 60,
     windowMs: 60_000,
     message: 'You are voting too quickly. Please wait a moment.',

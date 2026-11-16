@@ -16,7 +16,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   const id = normalizeOptional(body.id)
   if (!id) throw error(400, 'Signup id is required')
 
-  enforceRateLimit(`signups:games:${admin.id}`, {
+  await enforceRateLimit(`signups:games:${admin.id}`, {
     limit: 20,
     windowMs: 60_000,
     message: 'Too many lookups. Wait a moment before trying again.',

@@ -27,7 +27,7 @@ export const GET: RequestHandler = async ({ locals, url }) => {
   const signupId = url.searchParams.get('signupId')?.trim() || null
   if (!riotId && !profileId) throw error(400, 'riotId or profileId is required')
 
-  enforceRateLimit(`riot:lookup:${admin.id}`, {
+  await enforceRateLimit(`riot:lookup:${admin.id}`, {
     limit: 20,
     windowMs: 60_000,
     message: 'Too many lookups. Wait a moment before trying again.',

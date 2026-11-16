@@ -43,7 +43,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   // Only a fresh run counts: continuation calls are one run split across
   // requests, and a few hundred players need a dozen or more of them.
   if (cursor === 0) {
-    enforceRateLimit(`signups:bulk:${admin.id}`, {
+    await enforceRateLimit(`signups:bulk:${admin.id}`, {
       limit: 6,
       windowMs: 10 * 60_000,
       message: 'Too many bulk imports. Wait a few minutes before running another.',

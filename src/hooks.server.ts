@@ -2,7 +2,7 @@ import { redirect, type Handle } from '@sveltejs/kit'
 import { readSessionCookie, renewSessionCookieIfStale } from '$lib/server/auth/session'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { profileRoleCache } from '$lib/server/cache'
-import { enforceRateLimit } from '$lib/server/rate-limit'
+import { enforceLocalRateLimit } from '$lib/server/rate-limit'
 
 // Routes that require hard redirect to login (add paths here)
 // Note: Pages with graceful "Login to Continue" UI don't need to be listed here
@@ -106,13 +106,13 @@ export const handle: Handle = async ({ event, resolve }) => {
   const pathname = event.url.pathname
   if (pathname.startsWith('/api/')) {
     if (WRITE_METHODS.has(event.request.method)) {
-      enforceRateLimit(rateLimitKey(event, 'api:write'), {
+      enforceLocalRateLimit(rateLimitKey(event, 'api:write'), {
         limit: 60,
         windowMs: 60_000,
         message: 'Too many requests. Please slow down.',
       })
     } else {
-      enforceRateLimit(rateLimitKey(event, 'api:read'), {
+      enforceLocalRateLimit(rateLimitKey(event, 'api:read'), {
         limit: 300,
         windowMs: 60_000,
         message: 'Too many requests. Please slow down.',

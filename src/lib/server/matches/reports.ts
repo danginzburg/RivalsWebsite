@@ -158,7 +158,7 @@ export async function evaluateSubmission(opts: {
   forfeitMap: ForfeitMapSpec | null
   note: string | null
   /** Rate-limit hook, called once the input is known to parse. */
-  beforeFetch?: () => void
+  beforeFetch?: () => void | Promise<void>
 }): Promise<{ series: PreparedSeries; reviewReasons: string[] }> {
   const { match, forfeitMap } = opts
   if (!match.team_a_id || !match.team_b_id) {
@@ -172,7 +172,7 @@ export async function evaluateSubmission(opts: {
       `Couldn't read ${unparsed.length === 1 ? 'this line' : 'these lines'} as a tracker link or match id: ${unparsed.join(', ')}`
     )
   }
-  opts.beforeFetch?.()
+  await opts.beforeFetch?.()
 
   const [prepared, hasStats, elsewhere] = await Promise.all([
     prepareRiotSeries({

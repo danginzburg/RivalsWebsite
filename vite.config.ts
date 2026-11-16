@@ -7,6 +7,10 @@ import { sveltekit } from '@sveltejs/kit/vite'
 export default defineConfig({
   plugins: [tailwindcss(), sveltekit(), devtoolsJson()],
 
+  // A local production build leaves the Vercel output in .vercel/. Vite must
+  // not watch it: the browser tests hang while it churns through those files.
+  server: { watch: { ignored: ['**/.vercel/**'] } },
+
   test: {
     expect: { requireAssertions: true },
 

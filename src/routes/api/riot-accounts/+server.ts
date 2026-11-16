@@ -34,7 +34,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   }
 
   // A Riot lookup runs per add, so cap how fast a player can try new ones.
-  enforceRateLimit(`riot-accounts:add:${profile.id}`, {
+  await enforceRateLimit(`riot-accounts:add:${profile.id}`, {
     limit: 10,
     windowMs: 10 * 60_000,
     message: 'Too many account additions. Wait a few minutes before trying more.',

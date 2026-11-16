@@ -1,12 +1,12 @@
 import { mdsvex } from 'mdsvex'
-import adapter from '@sveltejs/adapter-auto'
+import adapter from '@sveltejs/adapter-vercel'
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
   kit: {
-    // adapter-auto only supports some environments, see https://svelte.dev/docs/kit/adapter-auto for a list.
-    // If your environment is not supported, or you settled on a specific environment, switch out the adapter.
-    // See https://svelte.dev/docs/kit/adapters for more information about adapters.
+    // Deployed on Vercel. Functions are serverless, so per-process memory
+    // (caches, the HenrikDev pacer) is per instance; durable limits live in
+    // Postgres (see $lib/server/rate-limit).
     adapter: adapter(),
   },
 
