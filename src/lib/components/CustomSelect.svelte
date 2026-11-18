@@ -20,6 +20,7 @@
     required = false,
     disabled = false,
     compact = false,
+    searchable,
     onSelect,
   }: {
     options: Option[]
@@ -29,14 +30,47 @@
     required?: boolean
     disabled?: boolean
     compact?: boolean
+    /**
+     * Show a type-to-filter box at the top of the list. Defaults to on for
+     * long lists (players, teams) and off for short fixed ones.
+     */
+    searchable?: boolean
     onSelect?: (value: string) => void
   } = $props()
+
+  const SEARCH_THRESHOLD = 10
 
   let isOpen = $state(false)
   let containerRef: HTMLDivElement
   let triggerRef: HTMLButtonElement
+  let searchRef = $state<HTMLInputElement | null>(null)
+  let listRef = $state<HTMLUListElement | null>(null)
   let dropdownStyle = $state('')
+  let query = $state('')
+  let activeIndex = $state(-1)
   let selectedLabel = $derived(options.find((o) => o.value === value)?.label || placeholder)
+  const isSearchable = $derived(searchable ?? options.length > SEARCH_THRESHOLD)
+
+  // Case- and accent-insensitive, so "eclair" finds "Éclair".
+  const fold = (text: string) => text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+
+  // Every space-separated term must appear in the label; labels starting
+  // with the query rank first, otherwise the caller's order is kept. Blank
+  // "none" entries only show while nothing is typed.
+  const shownOptions = $derived.by(() => {
+    const needle = fold(query).trim()
+    if (!isSearchable || !needle) return options
+    const terms = needle.split(/\s+/)
+    const matches = options.filter((o) => {
+      if (!o.value) return false
+      const label = fold(o.label)
+      return terms.every((t) => label.includes(t))
+    })
+    const starts = matches.filter((o) => fold(o.label).startsWith(needle))
+    const rest = matches.filter((o) => !fold(o.label).startsWith(needle))
+    return [...starts, ...rest]
+  })
+  const filtering = $derived(isSearchable && query.trim().length > 0)
 
   function updateDropdownPosition() {
     if (!triggerRef) return
@@ -46,23 +80,47 @@
     dropdownStyle = `position: fixed; top: ${rect.bottom + 1}px; left: ${rect.left}px; width: ${rect.width}px; max-height: ${maxHeight}px;`
   }
 
-  function toggle() {
+  function open(initialQuery = '') {
     if (disabled) return
-    isOpen = !isOpen
-    if (isOpen) {
-      updateDropdownPosition()
-    }
+    isOpen = true
+    query = initialQuery
+    activeIndex = initialQuery ? 0 : -1
+    updateDropdownPosition()
+    if (isSearchable) queueMicrotask(() => searchRef?.focus())
+  }
+
+  function close() {
+    isOpen = false
+    query = ''
+    activeIndex = -1
+  }
+
+  function toggle() {
+    if (isOpen) close()
+    else open()
   }
 
   function select(option: Option) {
     value = option.value
     onSelect?.(option.value)
-    isOpen = false
+    close()
   }
 
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape') {
-      isOpen = false
+      close()
+    } else if (
+      isSearchable &&
+      !isOpen &&
+      e.key.length === 1 &&
+      e.key !== ' ' &&
+      !e.ctrlKey &&
+      !e.metaKey &&
+      !e.altKey
+    ) {
+      // Typing on the focused trigger opens the list already searching.
+      e.preventDefault()
+      open(e.key)
     } else if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault()
       toggle()
@@ -83,9 +141,44 @@
     }
   }
 
+  function moveActive(delta: number) {
+    if (shownOptions.length === 0) return
+    const start = activeIndex >= 0 ? activeIndex : shownOptions.findIndex((o) => o.value === value)
+    activeIndex = Math.min(Math.max(start + delta, 0), shownOptions.length - 1)
+    queueMicrotask(() =>
+      listRef
+        ?.querySelector<HTMLElement>(`[data-index="${activeIndex}"]`)
+        ?.scrollIntoView({ block: 'nearest' })
+    )
+  }
+
+  function handleSearchInput() {
+    activeIndex = query.trim() && shownOptions.length > 0 ? 0 : -1
+  }
+
+  function handleSearchKeydown(e: KeyboardEvent) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      moveActive(1)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      moveActive(-1)
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      const option = shownOptions[activeIndex >= 0 ? activeIndex : 0]
+      if (option) select(option)
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      close()
+      triggerRef?.focus()
+    } else if (e.key === 'Tab') {
+      close()
+    }
+  }
+
   function handleClickOutside(e: MouseEvent) {
-    if (containerRef && !containerRef.contains(e.target as Node)) {
-      isOpen = false
+    if (isOpen && containerRef && !containerRef.contains(e.target as Node)) {
+      close()
     }
   }
 
@@ -127,25 +220,48 @@
   </button>
 
   {#if isOpen}
-    <ul class="select-dropdown" role="listbox" style={dropdownStyle}>
-      {#each options as option, i (option.value)}
-        {#if option.value !== undefined && option.value !== null}
-          {#if option.group && option.group !== options[i - 1]?.group}
-            <li class="group-header" role="presentation">{option.group}</li>
+    <div class="select-dropdown" style={dropdownStyle}>
+      {#if isSearchable}
+        <div class="search-row">
+          <input
+            bind:this={searchRef}
+            bind:value={query}
+            type="text"
+            class="search-input"
+            placeholder="Type to search…"
+            autocomplete="off"
+            spellcheck="false"
+            aria-label="Search options"
+            oninput={handleSearchInput}
+            onkeydown={handleSearchKeydown}
+          />
+        </div>
+      {/if}
+      <ul role="listbox" bind:this={listRef}>
+        {#each shownOptions as option, i (option.value)}
+          {#if option.value !== undefined && option.value !== null}
+            {#if !filtering && option.group && option.group !== shownOptions[i - 1]?.group}
+              <li class="group-header" role="presentation">{option.group}</li>
+            {/if}
+            <li
+              role="option"
+              data-index={i}
+              aria-selected={value === option.value}
+              class:selected={value === option.value}
+              class:active={activeIndex === i}
+              onclick={() => select(option)}
+              onkeydown={(e) => e.key === 'Enter' && select(option)}
+              onmouseenter={() => (activeIndex = i)}
+              tabindex="0"
+            >
+              {option.label}
+            </li>
           {/if}
-          <li
-            role="option"
-            aria-selected={value === option.value}
-            class:selected={value === option.value}
-            onclick={() => select(option)}
-            onkeydown={(e) => e.key === 'Enter' && select(option)}
-            tabindex="0"
-          >
-            {option.label}
-          </li>
-        {/if}
-      {/each}
-    </ul>
+        {:else}
+          <li class="empty" role="presentation">No matches</li>
+        {/each}
+      </ul>
+    </div>
   {/if}
 </div>
 
@@ -229,11 +345,41 @@
     overflow-y: auto;
     margin: 0;
     padding: 0.25rem;
-    list-style: none;
     background-color: var(--background);
     border: 1px solid var(--border);
     border-radius: 0.375rem;
     box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+  }
+
+  .select-dropdown ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .search-row {
+    position: sticky;
+    top: -0.25rem;
+    z-index: 1;
+    margin: -0.25rem -0.25rem 0.25rem;
+    padding: 0.3rem;
+    background-color: var(--background);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .search-input {
+    width: 100%;
+    padding: 0.35rem 0.55rem;
+    font-size: 0.8125rem;
+    border-radius: 0.25rem;
+    border: 1px solid var(--border);
+    background-color: rgba(0, 0, 0, 0.3);
+    color: var(--text);
+  }
+
+  .search-input:focus {
+    outline: none;
+    border-color: var(--hover);
   }
 
   .select-dropdown li {
@@ -257,11 +403,18 @@
     cursor: default;
   }
 
-  .select-dropdown li.group-header:hover {
+  .select-dropdown li.empty {
+    color: rgba(255, 255, 255, 0.5);
+    cursor: default;
+  }
+
+  .select-dropdown li.group-header:hover,
+  .select-dropdown li.empty:hover {
     background-color: transparent;
   }
 
-  .select-dropdown li:hover {
+  .select-dropdown li:hover,
+  .select-dropdown li.active {
     background-color: var(--hover);
   }
 

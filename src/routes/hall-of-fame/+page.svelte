@@ -273,14 +273,6 @@
               <div class="champions">
                 {#each seasonChampions as champ (champ.code)}
                   <div class="champ">
-                    {#if champ.clipUrl}
-                      <div class="champ-clip">
-                        <ClipPlayer
-                          url={champ.clipUrl}
-                          title={`${cleanName(champ.name)} winning moment`}
-                        />
-                      </div>
-                    {/if}
                     <div class="champ-season">
                       <a href={resolve(`/events/${champ.code}`)}>{cleanName(champ.name)}</a>
                       {#if champ.ends_on}<span>Ended {formatMonth(champ.ends_on)}</span>{/if}
@@ -303,6 +295,14 @@
                         {:else}
                           <span>{champ.mvp.name}</span>
                         {/if}
+                      </div>
+                    {/if}
+                    {#if champ.clipUrl}
+                      <div class="champ-clip">
+                        <ClipPlayer
+                          url={champ.clipUrl}
+                          title={`${cleanName(champ.name)} winning moment`}
+                        />
                       </div>
                     {/if}
                   </div>
@@ -496,10 +496,11 @@
     padding-left: 0;
   }
 
-  /* The winning-moment clip heads the card. Vertical clips are kept 16:9 here
-     too, so one Short can't make its row twice as tall as the others. */
+  /* The winning-moment clip closes the card, under the season details. Vertical
+     clips are kept 16:9 here too, so one Short can't make its row twice as tall
+     as the others. */
   .champ-clip {
-    margin-bottom: 0.25rem;
+    margin-top: 0.25rem;
   }
 
   .champ-clip :global(.clip) {
@@ -983,6 +984,10 @@
 
     .champ-mvp {
       grid-column: 2;
+    }
+
+    .champ-clip {
+      grid-column: 1 / -1;
     }
 
     .head-aside {

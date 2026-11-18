@@ -1,5 +1,6 @@
 <script lang="ts">
   import CustomSelect from '$lib/components/CustomSelect.svelte'
+  import { byLabel } from '$lib/admin/options'
   import { Upload, Plus, X } from 'lucide-svelte'
   import type { AdminSeason, SeasonEditState, SeasonTeamEntry } from '$lib/admin/types'
   import {
@@ -140,10 +141,12 @@
 
   const playerPickerOptions = $derived([
     { value: '', label: '— None —' },
-    ...(players ?? []).map((p) => ({
-      value: p.id,
-      label: p.display_name ?? p.email ?? 'Player',
-    })),
+    ...(players ?? [])
+      .map((p) => ({
+        value: p.id,
+        label: p.display_name ?? p.email ?? 'Player',
+      }))
+      .sort(byLabel),
   ])
 
   const leaderboardBatchOptions = $derived([
