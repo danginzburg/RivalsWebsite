@@ -215,7 +215,7 @@
           <ClipPlayer url={form.mediaUrl.trim()} title={form.title || 'Clip preview'} />
         {/key}
         {#if !embeddable}
-          <p class="mt-1 text-xs" style="color: #fcd34d;">
+          <p class="mt-1 text-xs" style="color: var(--gold);">
             This link can't play inline, so it will show as a "Watch clip" link.
           </p>
         {/if}

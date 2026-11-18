@@ -9,6 +9,8 @@
   import { statsRowKey, displayPlayerName } from '$lib/stats/ui'
   import { resolveBatchSection } from '$lib/stats/sections'
   import BatchPicker from '$lib/components/stats/BatchPicker.svelte'
+  import ExternalEventsToggle from '$lib/components/ExternalEventsToggle.svelte'
+  import { externalEvents } from '$lib/stores/external-events.svelte'
   import ColumnsMenu from '$lib/components/stats/ColumnsMenu.svelte'
   import { parseRank, rankLabel, rankValue, rankBaseValue, rankImageKey } from '$lib/ranks/ranks'
   import AcsKastScatter, { type ScatterPoint } from '$lib/components/stats/AcsKastScatter.svelte'
@@ -467,7 +469,15 @@
       ` by ${sortedLabel}, ${sortDir === 'desc' ? 'high to low' : 'low to high'}`
   )
 
-  const events = $derived((data.events ?? []) as Array<{ name: string; external: boolean }>)
+  const allEvents = $derived((data.events ?? []) as Array<{ name: string; external: boolean }>)
+  const hasExternalEvents = $derived(allEvents.some((e) => e.external))
+  // External events stay out of the picker unless shown — except the one being
+  // viewed (a link or the remembered table), which must stay selectable.
+  const events = $derived.by(() => {
+    if (externalEvents.show) return allEvents
+    const viewing = batches.find((b) => b.id === batchId)?.event
+    return allEvents.filter((e) => !e.external || e.name === viewing)
+  })
 
   /**
    * The chart only exists for a season's Full Season tab. `chartOpen` stays as
@@ -557,6 +567,9 @@
         </div>
 
         <div class="toolbar-end">
+          {#if hasExternalEvents}
+            <ExternalEventsToggle label="External events" />
+          {/if}
           {#if viewer?.profileId}
             <button type="button" class="tool-btn" onclick={findMe}>Find me</button>
           {/if}
@@ -884,7 +897,7 @@
     border-radius: 0.5rem;
     border: 1px solid rgba(251, 191, 36, 0.3);
     background: rgba(251, 191, 36, 0.08);
-    color: #fde68a;
+    color: var(--gold-text);
     font-size: 0.8125rem;
   }
 
@@ -935,7 +948,7 @@
   }
 
   .stats-table tbody tr:hover td {
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--row-hover);
   }
 
   /* The sorted column: accent label, faint tint down the column. */
@@ -1007,6 +1020,19 @@
     justify-content: flex-start;
   }
 
+  /* With every column on, the table packs tight and the Games header would
+     start right against the agent icons. Pad and divide the boundary. */
+  .stats-table td.col-agents,
+  .stats-table thead th.col-agents {
+    padding-right: 1.25rem;
+    border-right: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .stats-table td.col-agents + td,
+  .stats-table thead th.col-agents + th {
+    padding-left: 1.5rem;
+  }
+
   .player-link {
     color: rgba(255, 255, 255, 0.82);
     font-weight: 600;
@@ -1043,6 +1069,15 @@
     vertical-align: middle;
   }
 
+  /* Fixed size, never shrunk: a percentage max-width (the global img reset)
+     lets the table size this column narrower than its icons. */
+  .agent-icon,
+  .agent-fallback,
+  .agent-more {
+    flex: none;
+    max-width: none;
+  }
+
   .agent-icon,
   .agent-fallback {
     width: 1.125rem;
@@ -1065,10 +1100,20 @@
     color: rgba(255, 255, 255, 0.7);
   }
 
+  /* A chip the size of an icon, so the count reads as part of the agent
+     group rather than as a number in the next column. */
   .agent-more {
-    margin-left: 0.125rem;
-    font-size: 0.6875rem;
-    color: rgba(255, 255, 255, 0.45);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.125rem;
+    height: 1.125rem;
+    padding: 0 0.25rem;
+    border-radius: 0.25rem;
+    background: rgba(255, 255, 255, 0.08);
+    font-size: 0.625rem;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.6);
   }
 
   .table-foot {

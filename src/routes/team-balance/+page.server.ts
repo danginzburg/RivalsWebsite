@@ -17,7 +17,22 @@ import { TEAM_CAP_LIMIT, isValidTeamCap } from '$lib/team-balance'
  */
 export const load = async ({ locals }: { locals: App.Locals }) => {
   await requireNavPage(locals, 'team-balance')
-  const [season, cap] = await Promise.all([loadSignupSeason(), loadTeamCap()])
+  const [season, teamCap] = await Promise.all([loadSignupSeason(), loadTeamCap()])
+
+  // The cap stays hidden from players until the season is marked active, so a
+  // provisional number never circulates. Admins always see it to set it.
+  const isAdmin = locals.user?.role === 'admin'
+  let seasonActive = false
+  if (season && !isAdmin) {
+    const { data } = await supabaseAdmin
+      .from('seasons')
+      .select('is_active')
+      .eq('id', season.id)
+      .maybeSingle()
+    seasonActive = data?.is_active === true
+  }
+  const cap = isAdmin || seasonActive ? teamCap : null
+
   if (!season) return { season: null, cap, ratedPlayers: [] }
 
   const { data: signups, error: signupsError } = await supabaseAdmin

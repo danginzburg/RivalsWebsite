@@ -19,7 +19,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   if (!entityId) throw error(400, 'entityId is required')
   const reason = normalizeReviewReason(body.reason)
 
-  enforceRateLimit(`review-flag:${profile.id}`, {
+  await enforceRateLimit(`review-flag:${profile.id}`, {
     limit: 10,
     windowMs: 60_000,
     message: 'You are flagging too quickly. Please wait a moment.',

@@ -73,9 +73,9 @@
   let errorMessage = $state<string | null>(null)
 
   const statusStyle: Record<string, string> = {
-    pending: 'background: rgba(251,191,36,0.16); color: #fcd34d;',
-    approved: 'background: rgba(74,222,128,0.16); color: #86efac;',
-    rejected: 'background: rgba(248,113,113,0.16); color: #fca5a5;',
+    pending: 'background: rgba(251,191,36,0.16); color: var(--gold);',
+    approved: 'background: rgba(74,222,128,0.16); color: var(--good-text);',
+    rejected: 'background: rgba(248,113,113,0.16); color: var(--bad-text);',
   }
 
   async function addAlt() {
@@ -458,7 +458,7 @@
     padding: 0.125rem 0.4375rem;
     border-radius: 9999px;
     background: rgba(74, 222, 128, 0.16);
-    color: #86efac;
+    color: var(--good-text);
   }
   .tracker-link {
     display: inline-flex;
@@ -488,7 +488,7 @@
     padding: 0;
     font-size: 0.75rem;
     font-weight: 600;
-    color: var(--accent-text, #93c5fd);
+    color: var(--accent-text, var(--info));
     cursor: pointer;
   }
   .link-btn:hover {
@@ -537,7 +537,7 @@
     border-radius: 0.375rem;
     border: none;
     background: rgba(74, 222, 128, 0.2);
-    color: #4ade80;
+    color: var(--good);
     font-size: 0.8125rem;
     font-weight: 600;
     cursor: pointer;
@@ -575,6 +575,6 @@
   .error {
     margin-top: 0.375rem;
     font-size: 0.75rem;
-    color: #fca5a5;
+    color: var(--bad-text);
   }
 </style>

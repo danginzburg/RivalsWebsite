@@ -1,14 +1,18 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { fetchAllRowsResult } from '$lib/server/supabase/fetch-all'
 
 export const GET: RequestHandler = async ({ locals }) => {
   await requireAdmin(locals.user)
 
-  const { data: profiles, error: loadError } = await supabaseAdmin
-    .from('profiles')
-    .select('id, display_name, email, created_at')
-    .order('display_name', { ascending: true })
+  const { data: profiles, error: loadError } = await fetchAllRowsResult(() =>
+    supabaseAdmin
+      .from('profiles')
+      .select('id, display_name, email, created_at')
+      .order('display_name', { ascending: true })
+      .order('id')
+  )
   if (loadError) throw error(500, 'Failed to load users')
 
   const normalized = (profiles ?? []).map((p) => ({

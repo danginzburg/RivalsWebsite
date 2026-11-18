@@ -4,8 +4,13 @@
   import Header from '$lib/components/Header.svelte'
   import BugReportButton from '$lib/components/BugReportButton.svelte'
   import { user, isLoading } from '$lib/stores/auth'
+  import { externalEvents } from '$lib/stores/external-events.svelte'
+  import { onMount } from 'svelte'
 
   let { children, data } = $props()
+
+  // After hydration, so the first client render matches the server's (hidden).
+  onMount(() => externalEvents.load())
 
   // Initialize user store from server session data
   $effect(() => {

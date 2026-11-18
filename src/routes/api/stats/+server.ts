@@ -5,7 +5,7 @@ import {
   extractNumericLabel,
   isLatestLabel,
   normalizeRivalsGroupStatBatchFromDb,
-  withSectionFallback,
+  runRivalsBatchQuery,
   type NormalizedRivalsGroupStatBatch,
   type StatImportBatchRow,
 } from '$lib/server/stats/rivals-batch'
@@ -148,7 +148,7 @@ export const GET: RequestHandler = async ({ url }) => {
     season_id?: string | null
     metadata?: StatImportBatchRow['metadata'] & { source_season_id?: string | null }
   }
-  const { data: batchRow, error: batchError } = await withSectionFallback<BatchRow>((select) =>
+  const { data: batchRow, error: batchError } = await runRivalsBatchQuery<BatchRow>((select) =>
     supabaseAdmin
       .from('stat_import_batches')
       .select(`${select}, season_id`)

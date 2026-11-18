@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { fetchAllRowsResult } from '$lib/server/supabase/fetch-all'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
 import type { MatchStreamRow } from '$lib/server/db-rows'
 import { isUnreachableError } from '$lib/server/supabase/unreachable'
@@ -7,10 +8,11 @@ import { loadRecentComments } from '$lib/server/comments/recent'
 
 export const load = async ({ locals }: { locals: App.Locals }) => {
   const isAdmin = locals.user?.role === 'admin'
-  const { data: matches, error: matchesError } = await supabaseAdmin
-    .from('matches')
-    .select(
-      `
+  const { data: matches, error: matchesError } = await fetchAllRowsResult(() =>
+    supabaseAdmin
+      .from('matches')
+      .select(
+        `
       id,
       season_id,
       status,
@@ -25,9 +27,11 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
       team_a:teams!matches_team_a_id_fkey (id, name, tag, logo_path),
       team_b:teams!matches_team_b_id_fkey (id, name, tag, logo_path)
     `
-    )
-    .eq('approval_status', 'approved')
-    .order('scheduled_at', { ascending: true, nullsFirst: false })
+      )
+      .eq('approval_status', 'approved')
+      .order('scheduled_at', { ascending: true, nullsFirst: false })
+      .order('id')
+  )
 
   if (matchesError) {
     console.error('Failed to load matches:', matchesError)
@@ -40,6 +44,19 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
 
   const matchIds = (matches ?? []).map((m) => m.id)
   let streamsByMatch: Record<string, MatchStreamRow[]> = {}
+
+  // External events (Shitter League) are hidden on the client by default.
+  const seasonIds = [...new Set((matches ?? []).map((m) => m.season_id).filter(Boolean))]
+  const externalSeasonIds = new Set<string>()
+  if (seasonIds.length > 0) {
+    const { data: seasons } = await supabaseAdmin
+      .from('seasons')
+      .select('id, kind')
+      .in('id', seasonIds)
+    for (const season of seasons ?? []) {
+      if (season.kind === 'external') externalSeasonIds.add(season.id)
+    }
+  }
 
   if (matchIds.length > 0) {
     const { data: streams } = await supabaseAdmin
@@ -61,6 +78,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
   const normalized = (matches ?? []).map((match) => ({
     ...match,
     streams: streamsByMatch[match.id] ?? [],
+    external: externalSeasonIds.has(match.season_id),
     designation: (match.metadata as Record<string, unknown> | null)?.designation ?? null,
     team_a: match.team_a
       ? {

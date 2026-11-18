@@ -539,11 +539,11 @@
   }
 
   .standings td.rd-pos {
-    color: #4ade80;
+    color: var(--good);
   }
 
   .standings td.rd-neg {
-    color: #f87171;
+    color: var(--bad);
   }
 
   .standings tbody.dim td.rd-pos,

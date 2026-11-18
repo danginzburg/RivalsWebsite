@@ -11,6 +11,7 @@ import { loadCommentThread } from '$lib/server/comments'
 import { getViewerProfileId } from '$lib/server/auth/viewer'
 import { getSeasonLogoUrl } from '$lib/server/seasons/logo'
 import { loadLegacyBracket } from '$lib/server/seasons/legacyBracket'
+import { getSeasonSeeds } from '$lib/server/seasons/seeds'
 import { loadBracketSeries, type BracketSeries } from '$lib/server/seasons/bracket'
 import { isUnreachableError } from '$lib/server/supabase/unreachable'
 import { getValorantMapLookup, resolveMapPool, type MapPoolEntry } from '$lib/server/valorant/maps'
@@ -150,9 +151,9 @@ export const load = async ({
       : []
 
   // Seeds and playoff-team count come from the new pick'em event by default.
-  let bracketSeeds = Object.fromEntries(
-    (pickemCtx.event?.seeds ?? []).filter((s) => s.teamId).map((s) => [s.teamId, s.seed])
-  ) as Record<string, number>
+  // Only seeds 1–4 are stored; getSeasonSeeds derives 5–8 from the picked
+  // opponents, so every bracket team carries a seed like on the pick'em page.
+  let bracketSeeds: Record<string, number> = pickemCtx.event ? await getSeasonSeeds(season.id) : {}
   // Teams in the bracket — how many made playoffs. Only the top seeds are
   // seeded, so count the teams the slots hold rather than the seeds.
   let bracketTeamCount = new Set(

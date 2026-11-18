@@ -318,7 +318,7 @@
   }
   .pill-applied {
     background: rgba(74, 222, 128, 0.16);
-    color: #86efac;
+    color: var(--good-text);
   }
   .pill-rejected {
     background: rgba(244, 63, 94, 0.16);

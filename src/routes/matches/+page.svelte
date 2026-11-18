@@ -2,13 +2,17 @@
   import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import PageHeading from '$lib/components/PageHeading.svelte'
-  import { AlertTriangle, Calendar, ChevronDown } from 'lucide-svelte'
+  import { AlertTriangle, ChevronDown } from 'lucide-svelte'
   import MatchCard from '$lib/components/MatchCard.svelte'
   import RecentActivity from '$lib/components/RecentActivity.svelte'
   import { untrack } from 'svelte'
+  import ExternalEventsToggle from '$lib/components/ExternalEventsToggle.svelte'
+  import { externalEvents } from '$lib/stores/external-events.svelte'
 
   let { data }: PageProps = $props()
-  const matches = $derived(data.matches ?? [])
+  const allMatches = $derived(data.matches ?? [])
+  const hasExternal = $derived(allMatches.some((m) => m.external))
+  const matches = $derived(externalEvents.show ? allMatches : allMatches.filter((m) => !m.external))
   const loadFailed = $derived(data.loadFailed ?? false)
   const unreachable = $derived(data.unreachable ?? false)
   let searchQuery = $state('')
@@ -141,6 +145,7 @@
   $effect(() => {
     activeTab
     searchQuery
+    externalEvents.show
     untrack(() => (showAllOnMobile = false))
   })
 </script>
@@ -148,8 +153,7 @@
 <PageContainer>
   <div class="matches-feed">
     <div class="matches-feed-inner">
-      <PageHeading title="Matches" subtitle="Upcoming, live, and completed matches." icon={Calendar}
-      ></PageHeading>
+      <PageHeading title="Matches" subtitle="Upcoming, live, and completed matches." />
 
       <!-- Tab bar -->
       <div class="tab-bar">
@@ -171,6 +175,9 @@
           {/each}
         </div>
         <div class="tab-search">
+          {#if hasExternal}
+            <ExternalEventsToggle label="External events" />
+          {/if}
           <input bind:value={searchQuery} class="search-input" placeholder="Search teams..." />
         </div>
       </div>
@@ -304,14 +311,14 @@
   }
 
   .tab-live {
-    color: #4ade80;
+    color: var(--good);
   }
 
   .live-dot {
     display: inline-block;
     width: 6px;
     height: 6px;
-    background: #4ade80;
+    background: var(--good);
     border-radius: 50%;
     animation: pulse-live 1.5s ease-in-out infinite;
   }
@@ -328,6 +335,9 @@
 
   .tab-search {
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
   }
 
   .search-input {
@@ -404,7 +414,7 @@
     border-radius: 0.625rem;
     border: 1px solid rgba(248, 113, 113, 0.28);
     background: rgba(248, 113, 113, 0.07);
-    color: #fca5a5;
+    color: var(--bad-text);
   }
 
   .error-title {
@@ -427,7 +437,7 @@
     border-radius: 0.4375rem;
     border: 1px solid rgba(248, 113, 113, 0.3);
     background: transparent;
-    color: #fca5a5;
+    color: var(--bad-text);
     font-size: 0.8125rem;
     font-weight: 600;
     cursor: pointer;
@@ -512,7 +522,9 @@
     }
 
     .search-input {
-      width: 100%;
+      flex: 1;
+      min-width: 0;
+      width: auto;
     }
   }
 </style>

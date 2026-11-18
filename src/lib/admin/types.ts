@@ -221,6 +221,8 @@ export type AdminSeason = {
   runner_up_team_id?: string | null
   third_place_team_id?: string | null
   mvp_profile_id?: string | null
+  /** Winning-moment clip shown on the season's Hall of Fame champion card. */
+  champion_clip_url?: string | null
   final_leaderboard_batch_id?: string | null
 }
 
@@ -335,6 +337,8 @@ export type SeasonEditState = {
   mvpProfileId: string
   /** Placeholder MVP name, used when no profile is picked. */
   mvpName: string
+  /** Winning-moment clip link for the Hall of Fame champion card. */
+  championClipUrl: string
   finalLeaderboardBatchId: string
   /** Canonical Valorant map names shown as the season's map pool. */
   mapPool: string[]

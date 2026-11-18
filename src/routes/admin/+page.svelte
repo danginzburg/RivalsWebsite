@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { SignupsAdmin, type AdminMessages } from '$lib/admin/signups.svelte'
+  import { ModerationAdmin } from '$lib/admin/moderation.svelte'
+  import { AccoladesAdmin } from '$lib/admin/accolades.svelte'
   import PageContainer from '$lib/components/PageContainer.svelte'
   import { teamName, toDatetimeLocal } from '$lib/admin/match-ui'
   import {
@@ -38,18 +41,13 @@
     AdminTabId,
     AdminUser,
     BestOfValue,
-    CommentReport,
     HallOfFameEntry,
     HallOfFameFormState,
     MatchEditState,
     MatchStreamFormState,
     PendingActionConfirmation,
     PendingRoleChange,
-    PlayerSignup,
-    ReviewFlag,
-    BugReport,
     SeasonEditState,
-    SignupEditState,
     TeamEditState,
   } from '$lib/admin/types'
   import { resolveSeasonProfile } from '$lib/seasons/profile'
@@ -93,12 +91,14 @@
     } catch {
       // Ignore storage failures (private mode, quota) — the tab still switches.
     }
-    if (tab === 'accolades' && !accoladesLoaded) loadAccolades()
+    if (tab === 'accolades' && !accoladesAdmin.accoladesLoaded) accoladesAdmin.loadAccolades()
     if (tab === 'hall-of-fame' && !hallOfFameLoaded) loadHallOfFame()
-    if (tab === 'moderation' && !commentReportsLoaded) loadCommentReports()
-    if (tab === 'moderation' && !reviewFlagsLoaded) loadReviewFlags()
-    if (tab === 'moderation' && !bugReportsLoaded) loadBugReports()
-    if (tab === 'signups' && !signupsLoaded) loadSignups()
+    if (tab === 'moderation' && !moderationAdmin.commentReportsLoaded)
+      moderationAdmin.loadCommentReports()
+    if (tab === 'moderation' && !moderationAdmin.reviewFlagsLoaded)
+      moderationAdmin.loadReviewFlags()
+    if (tab === 'moderation' && !moderationAdmin.bugReportsLoaded) moderationAdmin.loadBugReports()
+    if (tab === 'signups' && !signupsAdmin.signupsLoaded) signupsAdmin.loadSignups()
   }
 
   onMount(() => {
@@ -234,33 +234,6 @@
   >({})
   let matchMapsLoading = $state<Record<string, boolean>>({})
 
-  type Accolade = {
-    id: string
-    name: string
-    logo_path: string | null
-    logo_url: string | null
-    icon_key: string | null
-    assignments: Array<{
-      id: string
-      profile_id: string
-      display_name: string
-      context?: string | null
-      source?: 'manual' | 'auto'
-    }>
-  }
-  let accolades = $state<Accolade[]>([])
-  let isSyncingSeasonAccolades = $state(false)
-  let accoladesLoaded = $state(false)
-  let createAccoladeName = $state('')
-  let createAccoladeIconKey = $state('')
-  let createAccoladeLogoFile = $state<File | null>(null)
-  let isCreatingAccolade = $state(false)
-  let accoladeAssignProfileId = $state<Record<string, string>>({})
-  let accoladeAssignContext = $state<Record<string, string>>({})
-  let editingAccoladeId = $state<string | null>(null)
-  let editAccoladeName = $state('')
-  let accoladeLogoStatus = $state<Record<string, 'uploading' | 'done' | null>>({})
-
   // ---- Hall of Fame ----
   const blankHallOfFameForm = (): HallOfFameFormState => ({
     entryType: 'record',
@@ -382,468 +355,27 @@
   }
 
   // ---- Player signups ----
-  let playerSignups = $state<PlayerSignup[]>([])
-  let signupsLoaded = $state(false)
-  let signupStatusFilter = $state('pending')
-  let signupEditForm = $state<Record<string, SignupEditState>>({})
-  let processingSignupId = $state<string | null>(null)
-
-  async function loadSignups() {
-    try {
-      const result = await adminJsonRequest<{ signups?: PlayerSignup[] }>(
-        `/api/admin/signups?status=${encodeURIComponent(signupStatusFilter)}`,
-        { fallbackMessage: 'Failed to load signups' }
-      )
-      playerSignups = result.signups ?? []
-      signupsLoaded = true
-    } catch (err) {
-      errorMessage = err instanceof Error ? err.message : 'Failed to load signups'
-    }
+  /** The page's banners, handed to the per-tab controllers. */
+  const adminMessages: AdminMessages = {
+    get error() {
+      return errorMessage
+    },
+    set error(value) {
+      errorMessage = value
+    },
+    get success() {
+      return successMessage
+    },
+    set success(value) {
+      successMessage = value
+    },
   }
+  const signupsAdmin = new SignupsAdmin(adminMessages, () => refreshPendingCounts())
 
-  function signupStateFor(signupId: string): SignupEditState | null {
-    const existing = signupEditForm[signupId]
-    if (existing) return existing
+  const accoladesAdmin = new AccoladesAdmin(adminMessages)
 
-    const signup = playerSignups.find((s) => s.id === signupId)
-    if (!signup) return null
-
-    return {
-      displayName: signup.display_name ?? '',
-      // Falls back to the Discord name the player logged in with.
-      discordHandle: signup.discord_handle || signup.profile.discord_username || '',
-      currentRank: signup.current_rank ?? '',
-      peakRank: signup.peak_rank ?? '',
-      manualAdjustment: Number(signup.manual_adjustment ?? 0)
-        ? String(signup.manual_adjustment)
-        : '',
-    }
-  }
-
-  function updateSignupEditForm(signupId: string, patch: Partial<SignupEditState>) {
-    const current = signupStateFor(signupId)
-    if (!current) return
-    signupEditForm = { ...signupEditForm, [signupId]: { ...current, ...patch } }
-  }
-
-  /** Blank numeric fields are sent as null so the API clears them. */
-  function signupBody(state: SignupEditState) {
-    return {
-      displayName: state.displayName || null,
-      discordHandle: state.discordHandle || null,
-      currentRank: state.currentRank || null,
-      peakRank: state.peakRank || null,
-    }
-  }
-
-  let riotLookupSignupId = $state<string | null>(null)
-
-  /**
-   * Look the player up through HenrikDev: fill current and peak rank (peak since
-   * V26 Act 1) and store their V26 game count. Any manual override is left alone.
-   */
-  async function fetchRiotRank(signupId: string) {
-    const signup = playerSignups.find((s) => s.id === signupId)
-    if (!signup) return
-
-    // The server prefers the PUUID linked to the player's account and falls
-    // back to the name#tag on the signup.
-    const name = signup.display_name?.trim()
-    const tag = signup.riot_tag?.trim()
-    const query =
-      `profileId=${encodeURIComponent(signup.profile_id)}` +
-      `&signupId=${encodeURIComponent(signupId)}` +
-      (name && tag ? `&riotId=${encodeURIComponent(`${name}#${tag}`)}` : '')
-
-    riotLookupSignupId = signupId
-    errorMessage = null
-    successMessage = null
-    try {
-      // Counted first: a player with no rank to fill still has a game count,
-      // and this lookup leaves the rank below already cached.
-      const games = await adminJsonRequest<{ games: number; account: string | null }>(
-        '/api/admin/signups/comp-games',
-        { method: 'POST', body: { id: signupId }, fallbackMessage: 'V26 games lookup failed' }
-      )
-      playerSignups = playerSignups.map((s) =>
-        s.id === signupId
-          ? { ...s, v26_comp_games: games.games, v26_comp_games_account: games.account }
-          : s
-      )
-
-      const result = await adminJsonRequest<{
-        account: { name: string; tag: string }
-        altCheck: PlayerSignup['alt_check']
-        rank: {
-          currentTier: string | null
-          currentRank: string | null
-          currentSource: 'current' | 'last-act' | null
-          currentAct: string | null
-          peakTier: string | null
-          peakRank: string | null
-          peakSeason: string | null
-        } | null
-      }>(`/api/admin/riot-lookup?${query}`, {
-        fallbackMessage: 'Riot lookup failed',
-      })
-
-      if (result.altCheck) signup.alt_check = result.altCheck
-
-      if (!result.rank || (!result.rank.currentTier && !result.rank.peakTier)) {
-        successMessage = `${result.account.name}#${result.account.tag} verified, but has no competitive rank since V26 Act 1.`
-        return
-      }
-
-      const patch: Partial<SignupEditState> = {}
-      if (result.rank.currentRank) patch.currentRank = result.rank.currentRank
-      if (result.rank.peakRank) patch.peakRank = result.rank.peakRank
-
-      if (Object.keys(patch).length === 0) {
-        successMessage = `${result.account.name}#${result.account.tag} verified, but their tier (${result.rank.currentTier ?? 'unknown'}) does not map to a league rank.`
-        return
-      }
-
-      updateSignupEditForm(signupId, patch)
-      // Say when the current rank is a fallback rather than the live rank.
-      const currentNote =
-        result.rank.currentSource === 'last-act'
-          ? ` (unrated now, end of ${result.rank.currentAct})`
-          : ''
-      const peakNote = result.rank.peakSeason ? ` (${result.rank.peakSeason})` : ''
-      const check = result.altCheck
-      const altNote =
-        check && check.usedRiotId !== check.main.riotId
-          ? ` Used alt ${check.usedRiotId}: ${
-              check.higherAlt === check.usedRiotId
-                ? 'it ranks higher than the main'
-                : 'the main has under 100 games'
-            }.`
-          : ''
-      successMessage = `Filled from Riot: ${result.rank.currentRank ?? '—'} current${currentNote}, ${result.rank.peakRank ?? '—'} peak since V26 A1${peakNote}.${altNote} Save to apply.`
-    } catch (err) {
-      errorMessage = err instanceof Error ? err.message : 'Riot lookup failed'
-    } finally {
-      riotLookupSignupId = null
-    }
-  }
-
-  type BulkImportReport = {
-    processed: number
-    updated: number
-    skipped: number
-    failed: number
-    stoppedEarly: boolean
-    remaining: number
-    retryAfterMs?: number | null
-    rows: Array<{ id: string; name: string; outcome: string; detail: string }>
-  }
-
-  type BulkImportRow = BulkImportReport['rows'][number]
-
-  type BulkImportChunk = {
-    report: BulkImportReport
-    total: number
-    /** Where the next call should start, or null once the list is done. */
-    nextCursor: number | null
-  }
-
-  /** One line of the bulk import's streamed response. */
-  type BulkImportLine =
-    | { type: 'begin'; total: number; cursor: number }
-    | { type: 'start'; index: number; name: string }
-    | { type: 'row'; index: number; row: BulkImportRow }
-    | { type: 'alt'; row: BulkImportRow }
-    | ({ type: 'done' } & BulkImportChunk)
-    | { type: 'error'; message: string }
-
-  /**
-   * One call to the bulk import. The server streams a line per row as it goes,
-   * handed to `onLine`; resolves with the closing summary.
-   */
-  async function requestBulkImportChunk(
-    body: Record<string, unknown>,
-    onLine: (line: BulkImportLine) => void
-  ): Promise<BulkImportChunk> {
-    const response = await fetch('/api/admin/signups/bulk-import', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    if (!response.ok || !response.body) {
-      const payload = await response.json().catch(() => null)
-      throw new Error(payload?.message ?? `Bulk import failed (${response.status})`)
-    }
-
-    const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
-    let buffer = ''
-    let done: BulkImportChunk | null = null
-    for (;;) {
-      const { value, done: ended } = await reader.read()
-      if (value) buffer += value
-      const lines = buffer.split('\n')
-      buffer = ended ? '' : (lines.pop() ?? '')
-      for (const text of lines) {
-        if (!text.trim()) continue
-        const line = JSON.parse(text) as BulkImportLine
-        if (line.type === 'error') throw new Error(line.message)
-        if (line.type === 'done') done = line
-        else onLine(line)
-      }
-      if (ended) break
-    }
-    // A cut-off stream (platform timeout) never sends its closing line.
-    if (!done) throw new Error('Bulk import was cut off. Run it again to continue.')
-    return done
-  }
-
-  /** Calls in a row that got through no rows before the run gives up. */
-  const BULK_IMPORT_MAX_STALLS = 5
-  /** Longest pause between calls; the API's rate-limit window is a minute. */
-  const BULK_IMPORT_MAX_PAUSE_MS = 65_000
-
-  let bulkImportRunning = $state(false)
-  let bulkImportReport = $state<BulkImportReport | null>(null)
-  let bulkImportProgress = $state<{
-    done: number
-    total: number
-    /** The player being looked up now. */
-    current: string | null
-    /** Seconds left in a rate-limit pause. */
-    waitSeconds: number | null
-  } | null>(null)
-  let bulkImportStopRequested = false
-  let wakeBulkImport: (() => void) | null = null
-
-  function stopSignupBulkImport() {
-    bulkImportStopRequested = true
-    wakeBulkImport?.()
-  }
-
-  /** A pause that Stop cuts short. */
-  function bulkImportPause(ms: number) {
-    const endsAt = Date.now() + ms
-    const tick = () => {
-      if (bulkImportProgress) {
-        bulkImportProgress.waitSeconds = Math.max(0, Math.ceil((endsAt - Date.now()) / 1000))
-      }
-    }
-    tick()
-    const countdown = setInterval(tick, 1000)
-    return new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, ms)
-      wakeBulkImport = () => {
-        clearTimeout(timer)
-        resolve()
-      }
-    }).finally(() => {
-      clearInterval(countdown)
-      wakeBulkImport = null
-      if (bulkImportProgress) bulkImportProgress.waitSeconds = null
-    })
-  }
-
-  /**
-   * Fill ranks for the whole filtered list.
-   * Each call to the server works to a time budget and the HenrikDev client
-   * paces every request under the API's limit, so this keeps calling from the
-   * returned cursor — pausing when the server reports a rate limit — until the
-   * list is done or the admin stops it.
-   */
-  async function runSignupBulkImport(overwrite: boolean) {
-    const scope = signupStatusFilter === 'all' ? '' : `${signupStatusFilter} `
-    const warning = overwrite ? '\n\nExisting values will be replaced.' : ''
-    if (!window.confirm(`Fetch ranks and V26 games from Riot for the ${scope}signups?${warning}`)) {
-      return
-    }
-
-    bulkImportRunning = true
-    bulkImportStopRequested = false
-    bulkImportReport = null
-    bulkImportProgress = null
-    errorMessage = null
-    successMessage = null
-
-    const totals: BulkImportReport = {
-      processed: 0,
-      updated: 0,
-      skipped: 0,
-      failed: 0,
-      stoppedEarly: false,
-      remaining: 0,
-      rows: [],
-    }
-    let cursor = 0
-    let stalls = 0
-    /** Outcomes streamed in the current call, until its summary arrives. */
-    let liveCounts: Record<string, number> = {}
-
-    try {
-      for (;;) {
-        const chunkStart = cursor
-        const { report, total, nextCursor } = await requestBulkImportChunk(
-          { overwrite, status: signupStatusFilter, cursor },
-          (line) => {
-            if (line.type === 'begin') {
-              bulkImportProgress = {
-                done: line.cursor,
-                total: line.total,
-                current: null,
-                waitSeconds: null,
-              }
-            } else if (line.type === 'start') {
-              if (bulkImportProgress) bulkImportProgress.current = line.name
-            } else if (line.type === 'row' || line.type === 'alt') {
-              // Counted from the closing summary; shown now.
-              totals.rows.push(line.row)
-              liveCounts[line.row.outcome] = (liveCounts[line.row.outcome] ?? 0) + 1
-              bulkImportReport = {
-                ...totals,
-                updated: totals.updated + (liveCounts.updated ?? 0),
-                skipped: totals.skipped + (liveCounts.skipped ?? 0),
-                failed: totals.failed + (liveCounts.failed ?? 0),
-                rows: [...totals.rows],
-              }
-              if (bulkImportProgress && line.type === 'row') {
-                bulkImportProgress.done = chunkStart + line.index + 1
-              }
-            }
-          }
-        )
-        liveCounts = {}
-
-        totals.processed += report.processed
-        totals.updated += report.updated
-        totals.skipped += report.skipped
-        totals.failed += report.failed
-        totals.remaining = report.remaining
-        totals.stoppedEarly = nextCursor != null
-        bulkImportReport = { ...totals, rows: [...totals.rows] }
-        bulkImportProgress = {
-          done: nextCursor ?? total,
-          total,
-          current: null,
-          waitSeconds: null,
-        }
-
-        if (nextCursor == null) break
-        stalls = report.processed === 0 ? stalls + 1 : 0
-        if (stalls >= BULK_IMPORT_MAX_STALLS) {
-          throw new Error('Riot lookups are still rate limited. Run it again later to continue.')
-        }
-        if (bulkImportStopRequested) break
-        if (report.retryAfterMs) {
-          await bulkImportPause(Math.min(report.retryAfterMs, BULK_IMPORT_MAX_PAUSE_MS))
-          if (bulkImportStopRequested) break
-        }
-        cursor = nextCursor
-      }
-
-      successMessage =
-        `Bulk import: ${totals.updated} updated, ${totals.skipped} skipped, ${totals.failed} failed.` +
-        (totals.stoppedEarly
-          ? ` Stopped with ${totals.remaining} left — run it again to continue.`
-          : '')
-    } catch (err) {
-      errorMessage = err instanceof Error ? err.message : 'Bulk import failed'
-    } finally {
-      bulkImportRunning = false
-      bulkImportProgress = null
-      // Earlier calls may have saved rows even when a later one failed.
-      if (totals.processed > 0) await Promise.all([loadSignups(), refreshPendingCounts()])
-    }
-  }
-
-  async function saveSignup(signupId: string, status?: 'pending' | 'approved' | 'rejected') {
-    const state = signupStateFor(signupId)
-    if (!state) return
-
-    processingSignupId = signupId
-    errorMessage = null
-    successMessage = null
-    try {
-      await adminJsonRequest('/api/admin/signups', {
-        method: 'PATCH',
-        body: { id: signupId, ...signupBody(state), ...(status ? { status } : {}) },
-        fallbackMessage: 'Failed to update signup',
-      })
-      if (status === 'pending') successMessage = 'Signup moved back to pending.'
-      else successMessage = status ? `Signup ${status}.` : 'Signup updated.'
-      await Promise.all([loadSignups(), refreshPendingCounts()])
-    } catch (err) {
-      errorMessage = err instanceof Error ? err.message : 'Failed to update signup'
-    } finally {
-      processingSignupId = null
-    }
-  }
-
-  /**
-   * Save only the adjustment, leaving any other unsaved edits in the form.
-   * `null` removes it.
-   */
-  async function setSignupAdjustment(signupId: string, adjustment: number | null) {
-    const value = adjustment ?? 0
-    if (!Number.isFinite(value)) {
-      errorMessage = 'Enter a number for the adjustment.'
-      return
-    }
-
-    processingSignupId = signupId
-    errorMessage = null
-    successMessage = null
-    try {
-      await adminJsonRequest('/api/admin/signups', {
-        method: 'PATCH',
-        body: { id: signupId, manualAdjustment: value },
-        fallbackMessage: 'Failed to update adjustment',
-      })
-      updateSignupEditForm(signupId, { manualAdjustment: value === 0 ? '' : String(value) })
-      successMessage =
-        value === 0
-          ? 'Adjustment removed.'
-          : `Adjustment of ${value > 0 ? '+' : ''}${value} applied.`
-      await loadSignups()
-    } catch (err) {
-      errorMessage = err instanceof Error ? err.message : 'Failed to update adjustment'
-    } finally {
-      processingSignupId = null
-    }
-  }
-
-  async function deleteSignup(signupId: string, name: string) {
-    if (!window.confirm(`Delete the signup for ${name}?`)) return
-
-    processingSignupId = signupId
-    errorMessage = null
-    successMessage = null
-    try {
-      await adminJsonRequest(`/api/admin/signups?id=${encodeURIComponent(signupId)}`, {
-        method: 'DELETE',
-        fallbackMessage: 'Failed to delete signup',
-      })
-      successMessage = 'Signup deleted.'
-      await Promise.all([loadSignups(), refreshPendingCounts()])
-    } catch (err) {
-      errorMessage = err instanceof Error ? err.message : 'Failed to delete signup'
-    } finally {
-      processingSignupId = null
-    }
-  }
-
-  // ---- Comment moderation ----
-  let commentReports = $state<CommentReport[]>([])
-  let commentReportsLoaded = $state(false)
-  let commentReportStatusFilter = $state('pending')
-  let processingReportId = $state<string | null>(null)
-
-  // ---- Data flags (user-submitted "this looks wrong" reports) ----
-  let reviewFlags = $state<ReviewFlag[]>([])
-  let reviewFlagsLoaded = $state(false)
-  let processingFlagId = $state<string | null>(null)
-
-  // ---- Bug reports (site-wide "something's broken" reports) ----
-  let bugReports = $state<BugReport[]>([])
-  let bugReportsLoaded = $state(false)
-  let processingBugReportId = $state<string | null>(null)
+  // ---- Moderation: comment reports, data flags, bug reports ----
+  const moderationAdmin = new ModerationAdmin(adminMessages, () => refreshPendingCounts())
 
   /*
    * Tab badges come from server-side counts, never from the loaded rows: the
@@ -871,165 +403,6 @@
   const signupsBadge = $derived(pendingCounts.signups)
   /** Drives the masthead pill and the browser-tab title. */
   const pendingTotal = $derived(moderationBadge + signupsBadge)
-
-  async function loadBugReports() {
-    try {
-      const result = await adminJsonRequest<{ reports?: BugReport[] }>(
-        `/api/admin/bug-reports?status=${encodeURIComponent(commentReportStatusFilter)}`,
-        { fallbackMessage: 'Failed to load bug reports' }
-      )
-      bugReports = result.reports ?? []
-      bugReportsLoaded = true
-    } catch (err) {
-      errorMessage = err instanceof Error ? err.message : 'Failed to load bug reports'
-    }
-  }
-
-  async function bugReportAction(
-    reportId: string,
-    action: 'resolve' | 'dismiss',
-    successText: string
-  ) {
-    processingBugReportId = reportId
-    errorMessage = null
-    successMessage = null
-    try {
-      await adminJsonRequest('/api/admin/bug-reports', {
-        method: 'PATCH',
-        body: { action, reportId },
-        fallbackMessage: 'Bug report action failed',
-      })
-      successMessage = successText
-      await Promise.all([loadBugReports(), refreshPendingCounts()])
-    } catch (err) {
-      errorMessage = err instanceof Error ? err.message : 'Bug report action failed'
-    } finally {
-      processingBugReportId = null
-    }
-  }
-
-  function resolveBugReport(reportId: string) {
-    return bugReportAction(reportId, 'resolve', 'Bug report resolved.')
-  }
-
-  function dismissBugReport(reportId: string) {
-    return bugReportAction(reportId, 'dismiss', 'Bug report dismissed.')
-  }
-
-  async function loadReviewFlags() {
-    try {
-      const result = await adminJsonRequest<{ flags?: ReviewFlag[] }>(
-        `/api/admin/review-flags?status=${encodeURIComponent(commentReportStatusFilter)}`,
-        { fallbackMessage: 'Failed to load flags' }
-      )
-      reviewFlags = result.flags ?? []
-      reviewFlagsLoaded = true
-    } catch (err) {
-      errorMessage = err instanceof Error ? err.message : 'Failed to load flags'
-    }
-  }
-
-  async function flagAction(flagId: string, action: 'resolve' | 'dismiss', successText: string) {
-    processingFlagId = flagId
-    errorMessage = null
-    successMessage = null
-    try {
-      await adminJsonRequest('/api/admin/review-flags', {
-        method: 'PATCH',
-        body: { action, flagId },
-        fallbackMessage: 'Flag action failed',
-      })
-      successMessage = successText
-      await Promise.all([loadReviewFlags(), refreshPendingCounts()])
-    } catch (err) {
-      errorMessage = err instanceof Error ? err.message : 'Flag action failed'
-    } finally {
-      processingFlagId = null
-    }
-  }
-
-  function resolveFlag(flagId: string) {
-    return flagAction(flagId, 'resolve', 'Flag resolved.')
-  }
-
-  function dismissFlag(flagId: string) {
-    return flagAction(flagId, 'dismiss', 'Flag dismissed.')
-  }
-
-  async function loadCommentReports() {
-    try {
-      const result = await adminJsonRequest<{ reports?: CommentReport[] }>(
-        `/api/admin/comment-reports?status=${encodeURIComponent(commentReportStatusFilter)}`,
-        { fallbackMessage: 'Failed to load reports' }
-      )
-      commentReports = result.reports ?? []
-      commentReportsLoaded = true
-    } catch (err) {
-      errorMessage = err instanceof Error ? err.message : 'Failed to load reports'
-    }
-  }
-
-  async function moderationAction(
-    reportId: string | null,
-    body: Record<string, unknown>,
-    successText: string
-  ) {
-    processingReportId = reportId
-    errorMessage = null
-    successMessage = null
-    try {
-      await adminJsonRequest('/api/admin/comment-reports', {
-        method: 'PATCH',
-        body,
-        fallbackMessage: 'Moderation action failed',
-      })
-      successMessage = successText
-      await Promise.all([loadCommentReports(), refreshPendingCounts()])
-    } catch (err) {
-      errorMessage = err instanceof Error ? err.message : 'Moderation action failed'
-    } finally {
-      processingReportId = null
-    }
-  }
-
-  function resolveReport(reportId: string) {
-    return moderationAction(reportId, { action: 'resolve', reportId }, 'Report resolved.')
-  }
-
-  function dismissReport(reportId: string) {
-    return moderationAction(reportId, { action: 'dismiss', reportId }, 'Report dismissed.')
-  }
-
-  function deleteReportedComment(commentId: string, reportId: string) {
-    if (!window.confirm('Delete this comment? Replies to it will remain.')) return
-    return moderationAction(reportId, { action: 'delete_comment', commentId }, 'Comment deleted.')
-  }
-
-  function banFromCommenting(profileId: string, name: string) {
-    const input = window.prompt(
-      `Ban ${name} from commenting.\n\nEnter the number of days, or leave blank for a permanent ban.`,
-      '7'
-    )
-    if (input === null) return
-
-    const days = input.trim() === '' ? 0 : Number(input)
-    if (input.trim() !== '' && (!Number.isFinite(days) || days < 0)) {
-      errorMessage = 'Enter a positive number of days, or leave it blank for permanent.'
-      return
-    }
-
-    const reason = window.prompt('Reason shown to the user (optional):') ?? null
-    return moderationAction(
-      null,
-      { action: 'ban', profileId, days, reason },
-      days > 0 ? `${name} banned for ${days} day(s).` : `${name} banned permanently.`
-    )
-  }
-
-  function unbanFromCommenting(profileId: string, name: string) {
-    if (!window.confirm(`Lift the commenting ban on ${name}?`)) return
-    return moderationAction(null, { action: 'unban', profileId }, `Ban lifted for ${name}.`)
-  }
 
   function updateHallOfFameEditForm(entryId: string, patch: Partial<HallOfFameFormState>) {
     const entry = hallOfFameEntries.find((e) => e.id === entryId)
@@ -1094,193 +467,6 @@
       }
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Failed to update map'
-    }
-  }
-
-  async function loadAccolades() {
-    try {
-      const result = await adminJsonRequest<{ accolades?: Accolade[] }>('/api/admin/accolades', {
-        fallbackMessage: 'Failed to load accolades',
-      })
-      accolades = result.accolades ?? []
-      accoladesLoaded = true
-    } catch (err) {
-      errorMessage = err instanceof Error ? err.message : 'Failed to load accolades'
-    }
-  }
-
-  async function createAccolade() {
-    if (!createAccoladeName.trim() || isCreatingAccolade) return
-    isCreatingAccolade = true
-    errorMessage = null
-    try {
-      const form = new FormData()
-      form.set('name', createAccoladeName.trim())
-      if (createAccoladeIconKey) form.set('icon_key', createAccoladeIconKey)
-      if (createAccoladeLogoFile) form.set('logo', await shrinkLogo(createAccoladeLogoFile))
-      const result = await adminFormRequest<{ accolade?: Accolade }>('/api/admin/accolades', {
-        method: 'POST',
-        body: form,
-        fallbackMessage: 'Failed to create accolade',
-      })
-      if (result.accolade) accolades = [result.accolade, ...accolades]
-      createAccoladeName = ''
-      createAccoladeIconKey = ''
-      createAccoladeLogoFile = null
-      successMessage = 'Accolade created.'
-    } catch (err) {
-      errorMessage = err instanceof Error ? err.message : 'Failed to create accolade'
-    } finally {
-      isCreatingAccolade = false
-    }
-  }
-
-  async function renameAccolade(accoladeId: string) {
-    if (!editAccoladeName.trim()) return
-    try {
-      await adminJsonRequest('/api/admin/accolades', {
-        method: 'PATCH',
-        body: { accoladeId, action: 'rename', name: editAccoladeName.trim() },
-        fallbackMessage: 'Failed to rename accolade',
-      })
-      accolades = accolades.map((a) =>
-        a.id === accoladeId ? { ...a, name: editAccoladeName.trim() } : a
-      )
-      editingAccoladeId = null
-      editAccoladeName = ''
-      successMessage = 'Accolade renamed.'
-    } catch (err) {
-      errorMessage = err instanceof Error ? err.message : 'Failed to rename accolade'
-    }
-  }
-
-  async function deleteAccolade(accoladeId: string) {
-    if (!window.confirm('Delete this accolade? This removes it from all players.')) return
-    try {
-      await adminJsonRequest('/api/admin/accolades', {
-        method: 'DELETE',
-        body: { accoladeId },
-        fallbackMessage: 'Failed to delete accolade',
-      })
-      accolades = accolades.filter((a) => a.id !== accoladeId)
-      successMessage = 'Accolade deleted.'
-    } catch (err) {
-      errorMessage = err instanceof Error ? err.message : 'Failed to delete accolade'
-    }
-  }
-
-  async function updateAccoladeLogo(accoladeId: string, file: File) {
-    accoladeLogoStatus = { ...accoladeLogoStatus, [accoladeId]: 'uploading' }
-    try {
-      const form = new FormData()
-      form.set('accoladeId', accoladeId)
-      form.set('logo', await shrinkLogo(file))
-      const result = await adminFormRequest<{ logo_url?: string }>('/api/admin/accolades', {
-        method: 'PUT',
-        body: form,
-        fallbackMessage: 'Failed to upload logo',
-      })
-      accolades = accolades.map((a) =>
-        a.id === accoladeId ? { ...a, logo_url: result.logo_url ?? a.logo_url } : a
-      )
-      accoladeLogoStatus = { ...accoladeLogoStatus, [accoladeId]: 'done' }
-      window.setTimeout(() => {
-        accoladeLogoStatus = { ...accoladeLogoStatus, [accoladeId]: null }
-      }, 2000)
-    } catch (err) {
-      accoladeLogoStatus = { ...accoladeLogoStatus, [accoladeId]: null }
-      errorMessage = err instanceof Error ? err.message : 'Failed to upload logo'
-    }
-  }
-
-  async function setAccoladeIconKey(accoladeId: string, iconKey: string) {
-    try {
-      await adminJsonRequest('/api/admin/accolades', {
-        method: 'PATCH',
-        body: { accoladeId, action: 'set_icon_key', icon_key: iconKey },
-        fallbackMessage: 'Failed to update accolade icon',
-      })
-      accolades = accolades.map((a) =>
-        a.id === accoladeId ? { ...a, icon_key: iconKey || null } : a
-      )
-      successMessage = 'Accolade icon updated.'
-    } catch (err) {
-      errorMessage = err instanceof Error ? err.message : 'Failed to update accolade icon'
-    }
-  }
-
-  async function assignAccolade(accoladeId: string) {
-    const playerName = (accoladeAssignProfileId[accoladeId] ?? '').trim()
-    const context = (accoladeAssignContext[accoladeId] ?? '').trim() || null
-    if (!playerName) return
-    try {
-      const result = await adminJsonRequest<{
-        assignment?: Omit<Accolade['assignments'][number], 'id'>
-      }>('/api/admin/accolades', {
-        method: 'PATCH',
-        body: { accoladeId, action: 'assign', playerName, context },
-        fallbackMessage: 'Failed to assign accolade',
-      })
-      const assignment = result.assignment
-      if (assignment) {
-        accoladeAssignProfileId = { ...accoladeAssignProfileId, [accoladeId]: '' }
-        accoladeAssignContext = { ...accoladeAssignContext, [accoladeId]: '' }
-        accolades = accolades.map((a) =>
-          a.id === accoladeId
-            ? {
-                ...a,
-                assignments: [...a.assignments, { ...assignment, id: crypto.randomUUID() }],
-              }
-            : a
-        )
-      }
-    } catch (err) {
-      errorMessage = err instanceof Error ? err.message : 'Failed to assign accolade'
-    }
-  }
-
-  async function unassignAccolade(accoladeId: string, assignmentId: string) {
-    try {
-      await adminJsonRequest('/api/admin/accolades', {
-        method: 'PATCH',
-        body: { accoladeId, action: 'unassign', assignmentId },
-        fallbackMessage: 'Failed to unassign accolade',
-      })
-      accolades = accolades.map((a) =>
-        a.id === accoladeId
-          ? { ...a, assignments: a.assignments.filter((x) => x.id !== assignmentId) }
-          : a
-      )
-    } catch (err) {
-      errorMessage = err instanceof Error ? err.message : 'Failed to unassign accolade'
-    }
-  }
-
-  async function syncSeasonAccolades() {
-    if (isSyncingSeasonAccolades) return
-    isSyncingSeasonAccolades = true
-    try {
-      const result = await adminJsonRequest<{
-        added?: number
-        removed?: number
-        unmatched?: Record<string, string[]>
-      }>('/api/admin/accolades', {
-        method: 'PATCH',
-        body: { action: 'sync_seasons' },
-        fallbackMessage: 'Failed to sync season accolades',
-      })
-      const unmatchedCount = Object.values(result.unmatched ?? {}).reduce(
-        (sum, names) => sum + names.length,
-        0
-      )
-      successMessage =
-        `Season accolades synced: ${result.added ?? 0} added, ${result.removed ?? 0} removed.` +
-        (unmatchedCount > 0 ? ` ${unmatchedCount} roster names had no matching player.` : '')
-      await loadAccolades()
-    } catch (err) {
-      errorMessage = err instanceof Error ? err.message : 'Failed to sync season accolades'
-    } finally {
-      isSyncingSeasonAccolades = false
     }
   }
 
@@ -1556,6 +742,7 @@
         thirdPlaceTeamId: season.third_place_team_id ?? '',
         mvpProfileId: season.mvp_profile_id ?? '',
         mvpName: seasonMvpName(season.metadata),
+        championClipUrl: season.champion_clip_url ?? '',
         finalLeaderboardBatchId: season.final_leaderboard_batch_id ?? '',
         mapPool: Array.isArray(season.metadata?.map_pool)
           ? (season.metadata.map_pool as unknown[]).filter(
@@ -1634,12 +821,14 @@
    */
   async function refreshLazyTabs() {
     await Promise.all([
-      accoladesLoaded ? loadAccolades() : Promise.resolve(),
+      accoladesAdmin.accoladesLoaded ? accoladesAdmin.loadAccolades() : Promise.resolve(),
       hallOfFameLoaded ? loadHallOfFame() : Promise.resolve(),
-      commentReportsLoaded ? loadCommentReports() : Promise.resolve(),
-      reviewFlagsLoaded ? loadReviewFlags() : Promise.resolve(),
-      bugReportsLoaded ? loadBugReports() : Promise.resolve(),
-      signupsLoaded ? loadSignups() : Promise.resolve(),
+      moderationAdmin.commentReportsLoaded
+        ? moderationAdmin.loadCommentReports()
+        : Promise.resolve(),
+      moderationAdmin.reviewFlagsLoaded ? moderationAdmin.loadReviewFlags() : Promise.resolve(),
+      moderationAdmin.bugReportsLoaded ? moderationAdmin.loadBugReports() : Promise.resolve(),
+      signupsAdmin.signupsLoaded ? signupsAdmin.loadSignups() : Promise.resolve(),
       // Badges cover every queue, opened or not.
       refreshPendingCounts(),
     ])
@@ -2022,6 +1211,7 @@
           thirdPlaceTeamId: state.thirdPlaceTeamId || null,
           mvpProfileId: state.mvpProfileId || null,
           mvpName: state.mvpName || null,
+          championClipUrl: state.championClipUrl || null,
           finalLeaderboardBatchId: state.finalLeaderboardBatchId || null,
           mapPool: state.mapPool ?? [],
           profile: { sections: state.sections, links: state.links },
@@ -2537,7 +1727,7 @@
       matches: matches.length,
       seasons: seasons.length,
       pickems: (data.pickems ?? []).filter((p) => p.status !== 'draft').length,
-      accolades: accolades.length,
+      accolades: accoladesAdmin.accolades.length,
       hallOfFame: hallOfFameEntries.length,
       moderation: moderationBadge,
       signups: signupsBadge,
@@ -2722,47 +1912,47 @@
 
     {#if activeTab === 'accolades'}
       <AdminAccoladesTab
-        {accolades}
-        {accoladesLoaded}
-        {createAccoladeName}
-        {createAccoladeIconKey}
-        {isCreatingAccolade}
-        {accoladeAssignProfileId}
-        {accoladeAssignContext}
-        {editingAccoladeId}
-        {editAccoladeName}
-        {accoladeLogoStatus}
-        onCreateAccoladeNameChange={(value) => (createAccoladeName = value)}
-        onCreateAccoladeIconKeyChange={(value) => (createAccoladeIconKey = value)}
-        onCreateAccoladeLogoInput={(file) => (createAccoladeLogoFile = file)}
-        onCreateAccolade={createAccolade}
+        accolades={accoladesAdmin.accolades}
+        accoladesLoaded={accoladesAdmin.accoladesLoaded}
+        createAccoladeName={accoladesAdmin.createAccoladeName}
+        createAccoladeIconKey={accoladesAdmin.createAccoladeIconKey}
+        isCreatingAccolade={accoladesAdmin.isCreatingAccolade}
+        accoladeAssignProfileId={accoladesAdmin.accoladeAssignProfileId}
+        accoladeAssignContext={accoladesAdmin.accoladeAssignContext}
+        editingAccoladeId={accoladesAdmin.editingAccoladeId}
+        editAccoladeName={accoladesAdmin.editAccoladeName}
+        accoladeLogoStatus={accoladesAdmin.accoladeLogoStatus}
+        onCreateAccoladeNameChange={(value) => (accoladesAdmin.createAccoladeName = value)}
+        onCreateAccoladeIconKeyChange={(value) => (accoladesAdmin.createAccoladeIconKey = value)}
+        onCreateAccoladeLogoInput={(file) => (accoladesAdmin.createAccoladeLogoFile = file)}
+        onCreateAccolade={accoladesAdmin.createAccolade}
         onEditAccolade={(accolade) => {
-          editingAccoladeId = accolade.id
-          editAccoladeName = accolade.name
+          accoladesAdmin.editingAccoladeId = accolade.id
+          accoladesAdmin.editAccoladeName = accolade.name
         }}
         onCancelEditAccolade={() => {
-          editingAccoladeId = null
-          editAccoladeName = ''
+          accoladesAdmin.editingAccoladeId = null
+          accoladesAdmin.editAccoladeName = ''
         }}
-        onEditAccoladeNameChange={(value) => (editAccoladeName = value)}
-        onRenameAccolade={renameAccolade}
-        onDeleteAccolade={deleteAccolade}
-        onUpdateAccoladeLogo={updateAccoladeLogo}
+        onEditAccoladeNameChange={(value) => (accoladesAdmin.editAccoladeName = value)}
+        onRenameAccolade={accoladesAdmin.renameAccolade}
+        onDeleteAccolade={accoladesAdmin.deleteAccolade}
+        onUpdateAccoladeLogo={accoladesAdmin.updateAccoladeLogo}
         onAssignProfileChange={(accoladeId, value) =>
-          (accoladeAssignProfileId = {
-            ...accoladeAssignProfileId,
+          (accoladesAdmin.accoladeAssignProfileId = {
+            ...accoladesAdmin.accoladeAssignProfileId,
             [accoladeId]: value,
           })}
         onAssignContextChange={(accoladeId, value) =>
-          (accoladeAssignContext = {
-            ...accoladeAssignContext,
+          (accoladesAdmin.accoladeAssignContext = {
+            ...accoladesAdmin.accoladeAssignContext,
             [accoladeId]: value,
           })}
-        onAssignAccolade={assignAccolade}
-        onSetAccoladeIconKey={setAccoladeIconKey}
-        onUnassignAccolade={unassignAccolade}
-        {isSyncingSeasonAccolades}
-        onSyncSeasonAccolades={syncSeasonAccolades}
+        onAssignAccolade={accoladesAdmin.assignAccolade}
+        onSetAccoladeIconKey={accoladesAdmin.setAccoladeIconKey}
+        onUnassignAccolade={accoladesAdmin.unassignAccolade}
+        isSyncingSeasonAccolades={accoladesAdmin.isSyncingSeasonAccolades}
+        onSyncSeasonAccolades={accoladesAdmin.syncSeasonAccolades}
       />
     {/if}
 
@@ -2784,58 +1974,58 @@
 
     {#if activeTab === 'moderation'}
       <AdminModerationTab
-        reports={commentReports}
-        reportsLoaded={commentReportsLoaded}
-        statusFilter={commentReportStatusFilter}
-        {processingReportId}
+        reports={moderationAdmin.commentReports}
+        reportsLoaded={moderationAdmin.commentReportsLoaded}
+        statusFilter={moderationAdmin.commentReportStatusFilter}
+        processingReportId={moderationAdmin.processingReportId}
         onStatusFilterChange={(value) => {
-          commentReportStatusFilter = value
-          loadCommentReports()
-          loadReviewFlags()
-          loadBugReports()
+          moderationAdmin.commentReportStatusFilter = value
+          moderationAdmin.loadCommentReports()
+          moderationAdmin.loadReviewFlags()
+          moderationAdmin.loadBugReports()
         }}
-        onResolve={resolveReport}
-        onDismiss={dismissReport}
-        onDeleteComment={deleteReportedComment}
-        onBanUser={banFromCommenting}
-        onUnbanUser={unbanFromCommenting}
-        flags={reviewFlags}
-        flagsLoaded={reviewFlagsLoaded}
-        {processingFlagId}
-        onResolveFlag={resolveFlag}
-        onDismissFlag={dismissFlag}
-        {bugReports}
-        {bugReportsLoaded}
-        {processingBugReportId}
-        onResolveBugReport={resolveBugReport}
-        onDismissBugReport={dismissBugReport}
+        onResolve={moderationAdmin.resolveReport}
+        onDismiss={moderationAdmin.dismissReport}
+        onDeleteComment={moderationAdmin.deleteReportedComment}
+        onBanUser={moderationAdmin.banFromCommenting}
+        onUnbanUser={moderationAdmin.unbanFromCommenting}
+        flags={moderationAdmin.reviewFlags}
+        flagsLoaded={moderationAdmin.reviewFlagsLoaded}
+        processingFlagId={moderationAdmin.processingFlagId}
+        onResolveFlag={moderationAdmin.resolveFlag}
+        onDismissFlag={moderationAdmin.dismissFlag}
+        bugReports={moderationAdmin.bugReports}
+        bugReportsLoaded={moderationAdmin.bugReportsLoaded}
+        processingBugReportId={moderationAdmin.processingBugReportId}
+        onResolveBugReport={moderationAdmin.resolveBugReport}
+        onDismissBugReport={moderationAdmin.dismissBugReport}
       />
     {/if}
 
     {#if activeTab === 'signups'}
       <AdminSignupsTab
-        signups={playerSignups}
-        {signupsLoaded}
-        statusFilter={signupStatusFilter}
-        editForm={signupEditForm}
-        {processingSignupId}
+        signups={signupsAdmin.playerSignups}
+        signupsLoaded={signupsAdmin.signupsLoaded}
+        statusFilter={signupsAdmin.signupStatusFilter}
+        editForm={signupsAdmin.signupEditForm}
+        processingSignupId={signupsAdmin.processingSignupId}
         onStatusFilterChange={(value) => {
-          signupStatusFilter = value
-          loadSignups()
+          signupsAdmin.signupStatusFilter = value
+          signupsAdmin.loadSignups()
         }}
-        onEditChange={updateSignupEditForm}
-        {riotLookupSignupId}
-        onFetchRiotRank={fetchRiotRank}
-        {bulkImportRunning}
-        {bulkImportReport}
-        {bulkImportProgress}
-        onBulkImport={runSignupBulkImport}
-        onStopBulkImport={stopSignupBulkImport}
-        onDismissBulkReport={() => (bulkImportReport = null)}
-        onSave={(signupId) => saveSignup(signupId)}
-        onSetStatus={(signupId, status) => saveSignup(signupId, status)}
-        onSetAdjustment={setSignupAdjustment}
-        onDelete={deleteSignup}
+        onEditChange={signupsAdmin.updateSignupEditForm}
+        riotLookupSignupId={signupsAdmin.riotLookupSignupId}
+        onFetchRiotRank={signupsAdmin.fetchRiotRank}
+        bulkImportRunning={signupsAdmin.bulkImportRunning}
+        bulkImportReport={signupsAdmin.bulkImportReport}
+        bulkImportProgress={signupsAdmin.bulkImportProgress}
+        onBulkImport={signupsAdmin.runSignupBulkImport}
+        onStopBulkImport={signupsAdmin.stopSignupBulkImport}
+        onDismissBulkReport={() => (signupsAdmin.bulkImportReport = null)}
+        onSave={(signupId) => signupsAdmin.saveSignup(signupId)}
+        onSetStatus={(signupId, status) => signupsAdmin.saveSignup(signupId, status)}
+        onSetAdjustment={signupsAdmin.setSignupAdjustment}
+        onDelete={signupsAdmin.deleteSignup}
         onRiotAccountReviewed={refreshPendingCounts}
       />
     {/if}

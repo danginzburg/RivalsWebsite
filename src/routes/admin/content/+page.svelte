@@ -661,7 +661,7 @@
   }
 
   .ce-unsaved {
-    color: #fcd34d;
+    color: var(--gold);
     font-weight: 700;
   }
 
@@ -786,7 +786,7 @@
 
   .ce-pill {
     background: rgba(251, 191, 36, 0.16);
-    color: #fcd34d;
+    color: var(--gold);
   }
 
   .ce-count {
@@ -824,12 +824,12 @@
   }
 
   .ce-icon-btn-on {
-    color: #fcd34d;
+    color: var(--gold);
   }
 
   .ce-icon-btn-danger:hover:not(:disabled) {
     background: rgba(239, 68, 68, 0.16);
-    color: #fca5a5;
+    color: var(--bad-text);
   }
 
   .ce-card-body {

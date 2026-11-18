@@ -1,6 +1,7 @@
 import { redirect } from '@sveltejs/kit'
 
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { fetchAllRowsResult } from '$lib/server/supabase/fetch-all'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
 import { getSeasonLogoUrl } from '$lib/server/seasons/logo'
@@ -36,7 +37,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     // from this payload, and a missing field would be saved back as null.
     .select(
       `id, code, name, kind, starts_on, ends_on, is_active, signups_open, metadata, created_at, logo_path,
-       summary, winner_team_id, runner_up_team_id, third_place_team_id, mvp_profile_id, final_leaderboard_batch_id`
+       summary, winner_team_id, runner_up_team_id, third_place_team_id, mvp_profile_id, champion_clip_url, final_leaderboard_batch_id`
     )
     .order('is_active', { ascending: false })
     .order('starts_on', { ascending: false, nullsFirst: false })
@@ -104,10 +105,11 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
   })
 
   /** Same reasoning as `seasonTeams`, for the playoff pick'em match links. */
-  const { data: seasonMatches, error: seasonMatchesError } = await supabaseAdmin
-    .from('matches')
-    .select(
-      `
+  const { data: seasonMatches, error: seasonMatchesError } = await fetchAllRowsResult(() =>
+    supabaseAdmin
+      .from('matches')
+      .select(
+        `
       id,
       season_id,
       scheduled_at,
@@ -116,8 +118,10 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
       team_a:teams!matches_team_a_id_fkey (id, name, tag),
       team_b:teams!matches_team_b_id_fkey (id, name, tag)
     `
-    )
-    .order('scheduled_at', { ascending: true, nullsFirst: false })
+      )
+      .order('scheduled_at', { ascending: true, nullsFirst: false })
+      .order('id')
+  )
 
   if (seasonMatchesError) {
     console.error('Error fetching matches for season pickers:', seasonMatchesError)

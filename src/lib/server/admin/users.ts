@@ -5,6 +5,7 @@ import {
 } from '$lib/server/players/riot-identities'
 import { loadPlayerDirectory, type PlayerDirectoryEntry } from '$lib/server/players/directory'
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { fetchAllRowsResult } from '$lib/server/supabase/fetch-all'
 import { IDENTITY_USER_PREFIX, type AdminUser } from '$lib/admin/types'
 
 function formatRiotId(name: string | null, tag: string | null): string | null {
@@ -28,10 +29,13 @@ function aliasesOf(entry: PlayerDirectoryEntry | undefined): string[] {
  * show the same thing.
  */
 export async function listAdminUsers(): Promise<AdminUser[]> {
-  const { data: users, error } = await supabaseAdmin
-    .from('profiles')
-    .select('id, email, display_name, role, created_at')
-    .order('created_at', { ascending: false })
+  const { data: users, error } = await fetchAllRowsResult(() =>
+    supabaseAdmin
+      .from('profiles')
+      .select('id, email, display_name, role, created_at')
+      .order('created_at', { ascending: false })
+      .order('id')
+  )
   if (error) throw new Error('Failed to fetch users')
 
   // The PUUID-backed Riot ID wins; a primary account that never verified is

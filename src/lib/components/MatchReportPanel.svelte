@@ -453,7 +453,7 @@
   }
   .pill-applied {
     background: rgba(74, 222, 128, 0.16);
-    color: #86efac;
+    color: var(--good-text);
   }
   .actions {
     display: flex;

@@ -570,11 +570,11 @@
   }
 
   .stat-pos {
-    color: #4ade80 !important;
+    color: var(--good) !important;
   }
 
   .stat-neg {
-    color: #f87171 !important;
+    color: var(--bad) !important;
   }
 
   /* Body — roster left, matches right, a hairline between. */
@@ -784,7 +784,7 @@
   .former-error {
     margin: 0.375rem 0 0;
     font-size: 0.75rem;
-    color: #fca5a5;
+    color: var(--bad-text);
   }
 
   .former-dates {
@@ -826,7 +826,7 @@
   }
 
   .match-row:hover {
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--row-hover);
   }
 
   .match-row:hover .row-name {
@@ -847,12 +847,12 @@
 
   .row-win {
     background: rgba(74, 222, 128, 0.16);
-    color: #4ade80;
+    color: var(--good);
   }
 
   .row-loss {
     background: rgba(248, 113, 113, 0.14);
-    color: #f87171;
+    color: var(--bad);
   }
 
   .row-badge-vs {

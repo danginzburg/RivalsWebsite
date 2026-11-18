@@ -1,21 +1,18 @@
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { fetchAllRowsResult } from '$lib/server/supabase/fetch-all'
 import {
   buildProfileMatcher,
   rebuildPlayerMatchStats,
   type ProfileRow,
   type RiotAccountRow,
 } from '$lib/server/imports/matching'
+import { loadApprovedRiotAccounts, normalizeNameKey } from '$lib/server/players/identity'
 import { syncSeasonAccoladesSafely } from '$lib/server/accolades/season-sync'
 import { regenerateBatchesHoldingMatches } from '$lib/server/stats/from-matches'
 
 /** Approved Riot accounts (primary, alts, aliases) owned by one profile. */
-async function getProfileRiotAccounts(profileId: string): Promise<RiotAccountRow[]> {
-  const { data } = await supabaseAdmin
-    .from('riot_accounts')
-    .select('profile_id, riot_name, riot_tag, riot_puuid:puuid')
-    .eq('profile_id', profileId)
-    .eq('status', 'approved')
-  return (data ?? []) as RiotAccountRow[]
+function getProfileRiotAccounts(profileId: string): Promise<RiotAccountRow[]> {
+  return loadApprovedRiotAccounts([profileId])
 }
 
 /** Every name a profile is known by: its display name and Riot accounts. */
@@ -39,12 +36,7 @@ export type ClaimRelinkResult = {
   rivalsGroupStatsRowsUpdated: number
 }
 
-function normalizeMembershipName(value: unknown) {
-  return String(value ?? '')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-}
+const normalizeMembershipName = normalizeNameKey
 
 function quoteOrValue(value: string): string {
   return `"${value.replaceAll('"', '""')}"`
@@ -242,12 +234,14 @@ export async function relinkPlayerMatchMapStatsForClaim(profileId: string): Prom
     orParts.push(`metadata->>puuid.eq.${quoteOrValue(puuid)}`)
   }
 
-  const { data: candidates, error: candErr } = await supabaseAdmin
-    .from('player_match_map_stats')
-    .select('id, match_id, player_name, puuid, metadata')
-    .is('profile_id', null)
-    .or(orParts.join(','))
-    .limit(5000)
+  const { data: candidates, error: candErr } = await fetchAllRowsResult(() =>
+    supabaseAdmin
+      .from('player_match_map_stats')
+      .select('id, match_id, player_name, puuid, metadata')
+      .is('profile_id', null)
+      .or(orParts.join(','))
+      .order('id')
+  )
 
   if (candErr) {
     throw new Error('Failed to load unmatched player match map stats')

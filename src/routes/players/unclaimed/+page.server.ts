@@ -1,6 +1,7 @@
 import { error, redirect, type Actions } from '@sveltejs/kit'
 import type { PageServerLoad } from './$types'
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { fetchAllRowsResult } from '$lib/server/supabase/fetch-all'
 import { lookupPlayer } from '$lib/server/players/directory'
 import { claimRiotName, riotNameOwnedByOther } from '$lib/server/players/riot-accounts'
 import { rematchPlayerMatchMapStatsForBase } from '$lib/server/imports/matching'
@@ -9,11 +10,12 @@ import { normalizeRiotBase, isValidRiotBase } from '$lib/server/riot-id'
 import { toBatchLabel } from '$lib/server/stats/batch-label'
 import {
   normalizeRivalsGroupStatBatchFromDb,
-  withSectionFallback,
+  runRivalsBatchQuery,
   type NormalizedRivalsGroupStatBatch,
   type StatImportBatchRow,
 } from '$lib/server/stats/rivals-batch'
 import { isWeekBatch } from '$lib/stats/sections'
+import { groupBatchesByEvent } from '$lib/server/stats/batch-events'
 import { claimRelinkAfterProfileUpdate } from '$lib/server/players/claim-relink'
 import { rankValue } from '$lib/ranks/ranks'
 
@@ -31,6 +33,7 @@ type TeamLite = { id: string; name: string; tag?: string | null }
 
 type MatchRel = {
   id: string
+  season_id?: string | null
   status?: string | null
   approval_status?: string | null
   scheduled_at?: string | null
@@ -103,11 +106,13 @@ export const load: PageServerLoad = async ({ url, locals }) => {
   // Find all batches where this base appears (base or base#tag variants).
   const baseQuoted = quoteOrValue(base)
   const baseTagLikeQuoted = quoteOrValue(`${base}#%`)
-  const { data: appearances, error: appearancesError } = await supabaseAdmin
-    .from('rivals_group_stats')
-    .select('import_batch_id, player_name, games, imported_at, profile_id, league_rank')
-    .or(`player_name.eq.${baseQuoted},player_name.ilike.${baseTagLikeQuoted}`)
-    .limit(2000)
+  const { data: appearances, error: appearancesError } = await fetchAllRowsResult(() =>
+    supabaseAdmin
+      .from('rivals_group_stats')
+      .select('import_batch_id, player_name, games, imported_at, profile_id, league_rank')
+      .or(`player_name.eq.${baseQuoted},player_name.ilike.${baseTagLikeQuoted}`)
+      .order('id')
+  )
 
   if (appearancesError) {
     console.error('Failed to load unclaimed appearances:', appearancesError)
@@ -123,8 +128,9 @@ export const load: PageServerLoad = async ({ url, locals }) => {
   )
 
   const batchById = new Map<string, NormalizedRivalsGroupStatBatch>()
+  let rawBatchRows: StatImportBatchRow[] = []
   if (batchIds.length > 0) {
-    const { data: batchRows, error: batchError } = await withSectionFallback<StatImportBatchRow[]>(
+    const { data: batchRows, error: batchError } = await runRivalsBatchQuery<StatImportBatchRow[]>(
       (select) =>
         supabaseAdmin
           .from('stat_import_batches')
@@ -137,6 +143,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
     if (batchError) {
       console.error('Failed to load batch metadata:', batchError)
     }
+    rawBatchRows = batchRows ?? []
 
     for (const b of batchRows ?? []) {
       const normalized = normalizeRivalsGroupStatBatchFromDb(b, {
@@ -146,6 +153,26 @@ export const load: PageServerLoad = async ({ url, locals }) => {
       if (!isWeekBatch(normalized)) batchById.set(b.id, normalized)
     }
   }
+
+  // External events (Shitter League) are hidden on the client unless shown, so
+  // each option and match carries whether it belongs to one.
+  const { data: seasonRows } = await supabaseAdmin
+    .from('seasons')
+    .select('id, code, name, kind, metadata, starts_on, created_at')
+    .order('starts_on', { ascending: false, nullsFirst: false })
+    .order('created_at', { ascending: false })
+  const externalSeasonIds = (seasonRows ?? [])
+    .filter((season) => season.kind === 'external')
+    .map((season) => season.id as string)
+  const { batches: batchesWithEvent, events: batchEvents } = groupBatchesByEvent(
+    Array.from(batchById.values()),
+    seasonRows ?? [],
+    rawBatchRows
+  )
+  const externalEventNames = new Set(batchEvents.filter((e) => e.external).map((e) => e.name))
+  const externalBatchIds = new Set(
+    batchesWithEvent.filter((b) => externalEventNames.has(b.event)).map((b) => b.id)
+  )
 
   const batchOptions = Array.from(batchById.values())
     .sort((a, b) => {
@@ -169,6 +196,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
       label: toBatchLabel(b),
       value: b.id,
       import_kind: b.import_kind ?? null,
+      external: externalBatchIds.has(b.id),
     }))
 
   const batchId =
@@ -240,6 +268,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
       hs_pct,
       matches (
         id,
+        season_id,
         status,
         approval_status,
         scheduled_at,
@@ -256,14 +285,17 @@ export const load: PageServerLoad = async ({ url, locals }) => {
       .is('profile_id', null)
       .or(`player_name.eq.${baseQuoted},player_name.ilike.${baseTagLikeQuoted}`)
       .limit(500),
-    supabaseAdmin
-      .from('player_match_map_stats')
-      .select(
-        'team_id, agents, acs, kills, deaths, assists, kd, adr, kast_pct, hs_pct, rounds, fk, fd, plants, defuses, match_maps(map_name, is_voided, team_a_rounds, team_b_rounds, matches(team_a_id, team_b_id))'
-      )
-      .is('profile_id', null)
-      .or(`player_name.eq.${baseQuoted},player_name.ilike.${baseTagLikeQuoted}`)
-      .limit(1000),
+    // Every map, not a capped page: these feed career per-map averages.
+    fetchAllRowsResult(() =>
+      supabaseAdmin
+        .from('player_match_map_stats')
+        .select(
+          'team_id, agents, acs, kills, deaths, assists, kd, adr, kast_pct, hs_pct, rounds, fk, fd, plants, defuses, match_maps(map_name, is_voided, team_a_rounds, team_b_rounds, matches(team_a_id, team_b_id))'
+        )
+        .is('profile_id', null)
+        .or(`player_name.eq.${baseQuoted},player_name.ilike.${baseTagLikeQuoted}`)
+        .order('id')
+    ),
   ])
 
   const byMatch = new Map<string, MatchMapRow[]>()
@@ -439,6 +471,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
     bestRank,
     viewer,
     matchHistory,
+    externalSeasonIds,
     mapStats,
     agentStats,
   }

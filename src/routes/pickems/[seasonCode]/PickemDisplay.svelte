@@ -914,13 +914,13 @@
   .pk-bar-ok {
     margin-left: 0.5rem;
     font-size: 0.75rem;
-    color: #4ade80;
+    color: var(--good);
   }
 
   .pk-bar-error {
     margin-left: 0.5rem;
     font-size: 0.75rem;
-    color: #f87171;
+    color: var(--bad);
   }
 
   .pk-legend {
@@ -944,11 +944,11 @@
   }
 
   .mk-hit {
-    color: #4ade80;
+    color: var(--good);
   }
 
   .mk-miss {
-    color: #f87171;
+    color: var(--bad);
   }
 
   /* ---------- Bracket ---------- */
@@ -1425,7 +1425,7 @@
   }
 
   .lb-row:hover {
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--row-hover);
   }
 
   .lb-row.lb-active {

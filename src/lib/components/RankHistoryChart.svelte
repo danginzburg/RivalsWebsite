@@ -248,18 +248,18 @@
   /* Hollow markers: playoff placements, told apart by shape as well as the divider. */
   .seg-up,
   .dot-up {
-    --move: #4ade80;
+    --move: var(--good);
   }
 
   .seg-down,
   .dot-down {
-    --move: #f87171;
+    --move: var(--bad);
   }
 
   /* Medal colours, the same ones the Hall of Fame podium uses. */
   .seg-gold,
   .dot-gold {
-    --move: #fcd34d;
+    --move: var(--gold);
   }
 
   .seg-silver,

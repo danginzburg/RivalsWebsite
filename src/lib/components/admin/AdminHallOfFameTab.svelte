@@ -68,7 +68,7 @@
   }
 
   function typeColor(type: string) {
-    if (type === 'record') return 'background: rgba(96,165,250,0.16); color: #93c5fd;'
+    if (type === 'record') return 'background: rgba(96,165,250,0.16); color: var(--info);'
     if (type === 'moment') return 'background: rgba(251,146,60,0.16); color: #fdba74;'
     return 'background: rgba(192,132,252,0.16); color: #d8b4fe;'
   }

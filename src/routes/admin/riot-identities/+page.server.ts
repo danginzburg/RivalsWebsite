@@ -1,6 +1,7 @@
 import { redirect } from '@sveltejs/kit'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { fetchAllRowsResult } from '$lib/server/supabase/fetch-all'
 import { listUnlinkedIdentities } from '$lib/server/players/riot-identities'
 import { listNameOnlyRosterSlots } from '$lib/server/teams/roster-slots'
 
@@ -23,16 +24,22 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
   const [identities, rosterSlots, { data: profiles }, { data: accounts }] = await Promise.all([
     listUnlinkedIdentities(200, { seasonId: activeSeasonId }),
     listNameOnlyRosterSlots(activeSeasonId),
-    supabaseAdmin
-      .from('profiles')
-      .select('id, display_name')
-      .order('display_name', { ascending: true, nullsFirst: false }),
+    fetchAllRowsResult(() =>
+      supabaseAdmin
+        .from('profiles')
+        .select('id, display_name')
+        .order('display_name', { ascending: true, nullsFirst: false })
+        .order('id')
+    ),
     // Each player's existing Riot accounts, so the link confirmation can warn
     // before a second identity is attached to the same player by mistake.
-    supabaseAdmin
-      .from('riot_accounts')
-      .select('profile_id, riot_name, riot_tag')
-      .not('profile_id', 'is', null),
+    fetchAllRowsResult(() =>
+      supabaseAdmin
+        .from('riot_accounts')
+        .select('profile_id, riot_name, riot_tag')
+        .not('profile_id', 'is', null)
+        .order('id')
+    ),
   ])
 
   // Queue entries already holding a roster slot this season. They stay in the

@@ -278,11 +278,11 @@
 
   .bug-notice {
     font-size: 0.76rem;
-    color: #86efac;
+    color: var(--good-text);
   }
 
   .bug-notice.is-error {
-    color: #fca5a5;
+    color: var(--bad-text);
   }
 
   .bug-submit {

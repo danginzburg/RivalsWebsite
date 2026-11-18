@@ -1,14 +1,15 @@
 import { error, redirect } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { fetchAllRowsResult } from '$lib/server/supabase/fetch-all'
 import { claimRelinkAfterProfileUpdate } from '$lib/server/players/claim-relink'
 import { normalizeRiotBase, isValidRiotBase } from '$lib/server/riot-id'
 import { toBatchLabel } from '$lib/server/stats/batch-label'
-import { average, sum, weightedAverage } from '$lib/server/math'
+import { average, sum } from '$lib/server/math'
 import {
   extractNumericLabel,
   isLatestLabel,
   normalizeRivalsGroupStatBatchFromDb,
-  withSectionFallback,
+  runRivalsBatchQuery,
   type NormalizedRivalsGroupStatBatch,
   type StatImportBatchRow,
 } from '$lib/server/stats/rivals-batch'
@@ -31,7 +32,6 @@ import {
   loadSubOverridesForMatches,
   matchRosterTime,
   resolveIsSub,
-  isShortStint,
   type RosterTimeline,
 } from '$lib/server/matches/subs'
 import {
@@ -42,7 +42,6 @@ import {
   statsNameAlias,
 } from '$lib/server/players/riot-accounts'
 import { loadPlayerDirectory, riotNamesByProfile } from '$lib/server/players/directory'
-import { loadSeasonThirdPlaceTeamIds } from '$lib/server/seasons/thirdPlace'
 import {
   loadReassignmentsForMatches,
   loadReassignmentsToProfile,
@@ -50,422 +49,19 @@ import {
   type MatchStatReassignment,
 } from '$lib/server/matches/reassignments'
 
+import { type TeamRel, loadTeamHistory } from '$lib/server/players/team-history'
+import {
+  type StatRow,
+  type NormalizedStatRow,
+  type MatchRel,
+  type ParticipatedRow,
+  type MatchHistoryEntry,
+  type PerMapStatRow,
+  aggregateStats,
+  buildBreakdowns,
+} from '$lib/server/players/profile-stats'
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-
-type TeamRel = {
-  id: string
-  name: string
-  tag?: string | null
-  logo_path?: string | null
-  approval_status?: string | null
-}
-
-type SeasonRel = {
-  id: string
-  name?: string | null
-  code?: string | null
-  starts_on?: string | null
-  winner_team_id?: string | null
-  runner_up_team_id?: string | null
-  mvp_profile_id?: string | null
-}
-
-type MembershipTeamRel = TeamRel & {
-  season_id?: string | null
-  seasons?: SeasonRel | SeasonRel[] | null
-}
-
-type TeamHistoryRow = {
-  /** Team id doubles as the key — one row per team, however many stints. */
-  team: { id: string; name: string; tag: string | null; logo_url: string | null }
-  season: { id: string; name: string; code: string | null } | null
-  role: string | null
-  joined_at: string | null
-  /** When the player left this team; null while any stint on it is still open. */
-  left_at: string | null
-  /** Sort key: when this team's season began, empty for an unassigned team. */
-  season_started_on: string
-  /** Final finish, set only once the season's results have been recorded. */
-  placement: 'champion' | 'runner_up' | 'third' | null
-  /** The player was that season's MVP; carried on one row per season. */
-  is_mvp: boolean
-}
-
-/**
- * Every team this player has been rostered on, newest season first.
- *
- * Unapproved teams are left out: their team pages 404 for ordinary visitors, so
- * a row for one would be a dead link.
- *
- * Rosters carry duplicate rows for the same player and team — a re-add writes a
- * second membership rather than reviving the first — so stints are collapsed to
- * one row per team. A genuine move between two teams still shows as two rows.
- *
- * An open membership is not read as "current team". Rosters are season-scoped,
- * so a backfilled past season leaves its memberships open indefinitely and an
- * open membership says nothing about where the player is today; the season column
- * carries that information instead. A closed one does carry a fact, though: the
- * player left that team, typically by moving to another mid-event, so its
- * departure date is kept for the row.
- */
-async function loadTeamHistory(profileId: string): Promise<TeamHistoryRow[]> {
-  // `seasons` has three FKs back to `teams` (season_id, winner, runner-up), so
-  // the embed has to name the one it means or PostgREST refuses the query.
-  const { data, error: historyError } = await supabaseAdmin
-    .from('team_memberships')
-    .select(
-      `
-      id,
-      role,
-      is_active,
-      joined_at,
-      left_at,
-      teams (
-        id, name, tag, logo_path, approval_status, season_id,
-        seasons!teams_season_id_fkey (
-          id, name, code, starts_on, winner_team_id, runner_up_team_id, mvp_profile_id
-        )
-      )
-    `
-    )
-    .eq('profile_id', profileId)
-    .order('joined_at', { ascending: false, nullsFirst: false })
-
-  if (historyError) {
-    console.error('Failed to load team history:', historyError)
-    return []
-  }
-
-  type Row = {
-    id: number
-    role?: string | null
-    is_active?: boolean | null
-    joined_at?: string | null
-    left_at?: string | null
-    teams?: MembershipTeamRel | MembershipTeamRel[] | null
-  }
-
-  const byTeam = new Map<string, TeamHistoryRow>()
-  const openTeams = new Set<string>()
-  const mvpSeasonByTeam = new Map<string, string>()
-  const seasonByTeam = new Map<string, string>()
-  const bracketSeasonIds = new Set<string>()
-  for (const row of (data ?? []) as Row[]) {
-    const team = Array.isArray(row.teams) ? row.teams[0] : row.teams
-    if (!team || team.approval_status !== 'approved') continue
-    // Closed within a day of opening: a roster mis-entry, not a stint on the team.
-    if (isShortStint(row.joined_at, row.left_at)) continue
-
-    const seasonRel = Array.isArray(team.seasons) ? team.seasons[0] : team.seasons
-    const isOpen = Boolean(row.is_active) && !row.left_at
-    const existing = byTeam.get(team.id)
-
-    if (existing) {
-      // Merge the stints, keeping the earliest join.
-      if (row.joined_at && (!existing.joined_at || row.joined_at < existing.joined_at)) {
-        existing.joined_at = row.joined_at
-      }
-      // An open stint's role is the one worth showing.
-      if (isOpen && row.role) existing.role = row.role
-      if (isOpen) openTeams.add(team.id)
-      else if (row.left_at && (!existing.left_at || row.left_at > existing.left_at)) {
-        existing.left_at = row.left_at
-      }
-      continue
-    }
-
-    byTeam.set(team.id, {
-      team: {
-        id: team.id,
-        name: team.name,
-        tag: team.tag ?? null,
-        logo_url: getTeamLogoUrl(team),
-      },
-      season: seasonRel
-        ? { id: seasonRel.id, name: seasonRel.name ?? 'Season', code: seasonRel.code ?? null }
-        : null,
-      role: row.role ?? null,
-      joined_at: row.joined_at ?? null,
-      left_at: isOpen ? null : (row.left_at ?? null),
-      season_started_on: seasonRel?.starts_on ?? '',
-      // The winner and runner-up are only filled in once the season is over,
-      // so their presence is what marks a finished season.
-      placement:
-        seasonRel?.winner_team_id === team.id
-          ? 'champion'
-          : seasonRel?.runner_up_team_id === team.id
-            ? 'runner_up'
-            : null,
-      is_mvp: false,
-    })
-    if (isOpen) openTeams.add(team.id)
-    if (seasonRel?.mvp_profile_id === profileId) mvpSeasonByTeam.set(team.id, seasonRel.id)
-    if (
-      seasonRel?.winner_team_id &&
-      seasonRel.winner_team_id !== team.id &&
-      seasonRel.runner_up_team_id !== team.id
-    ) {
-      bracketSeasonIds.add(seasonRel.id)
-      seasonByTeam.set(team.id, seasonRel.id)
-    }
-  }
-  for (const teamId of openTeams) {
-    const entry = byTeam.get(teamId)
-    if (entry) entry.left_at = null
-  }
-
-  // 3rd place comes from the season's admin-set result or, failing that, its
-  // bracket — only for finished seasons where this player's team did not already place 1st/2nd.
-  const thirdBySeason = new Map(
-    await Promise.all(
-      [...bracketSeasonIds].map(
-        async (seasonId) => [seasonId, await loadSeasonThirdPlaceTeamIds(seasonId)] as const
-      )
-    )
-  )
-  for (const [teamId, seasonId] of seasonByTeam) {
-    const entry = byTeam.get(teamId)
-    if (entry && thirdBySeason.get(seasonId)?.includes(teamId)) entry.placement = 'third'
-  }
-
-  // Newest season first; within a season, the most recent roster first.
-  const rows = [...byTeam.entries()].sort(([, a], [, b]) => {
-    if (a.season_started_on !== b.season_started_on) {
-      return b.season_started_on.localeCompare(a.season_started_on)
-    }
-    return (b.joined_at ?? '').localeCompare(a.joined_at ?? '')
-  })
-
-  // A player who moved teams mid-season has two rows for it; the MVP award
-  // goes on the latest one only, rather than appearing twice.
-  const mvpSeasonsShown = new Set<string>()
-  for (const [teamId, entry] of rows) {
-    const seasonId = mvpSeasonByTeam.get(teamId)
-    if (!seasonId || mvpSeasonsShown.has(seasonId)) continue
-    mvpSeasonsShown.add(seasonId)
-    entry.is_mvp = true
-  }
-
-  return rows.map(([, entry]) => entry)
-}
-
-type StatBatchInfo = Partial<NormalizedRivalsGroupStatBatch> & { id: string; display_name: string }
-
-type StatRow = {
-  import_batch_id: string
-  imported_at?: string | null
-  [key: string]: unknown
-}
-
-type NormalizedStatRow = StatRow & { batch: StatBatchInfo }
-
-type TeamLite = {
-  id: string
-  name: string
-  tag?: string | null
-  logo_path?: string | null
-  logo_url?: string | null
-}
-
-type MatchRel = {
-  id: string
-  season_id?: string | null
-  status?: string | null
-  approval_status?: string | null
-  scheduled_at?: string | null
-  ended_at?: string | null
-  team_a_id?: string | null
-  team_b_id?: string | null
-  team_a_score?: number | null
-  team_b_score?: number | null
-  winner_team_id?: string | null
-  team_a?: TeamLite | TeamLite[] | null
-  team_b?: TeamLite | TeamLite[] | null
-}
-
-type ParticipatedRow = {
-  id?: string | number | null
-  match_id?: string | null
-  profile_id?: string | null
-  player_name?: string | null
-  puuid?: string | null
-  team_id?: string | null
-  metadata?: Record<string, unknown> | null
-  agents?: string | null
-  acs?: number | null
-  kills?: number | null
-  deaths?: number | null
-  assists?: number | null
-  kd?: number | null
-  adr?: number | null
-  kast_pct?: number | null
-  hs_pct?: number | null
-  matches?: MatchRel | MatchRel[] | null
-}
-
-type MatchHistoryEntry = {
-  match: MatchRel | null
-  team_id: string | null
-  is_sub: boolean
-  opponent: TeamLite | null
-  score: { us: number; them: number }
-  agents: string | null
-  acs: number | null
-  kills: number | null
-  deaths: number | null
-  assists: number | null
-  kd: number | null
-  adr: number | null
-  kast_pct: number | null
-  hs_pct: number | null
-}
-
-type AggregatedStatEntry = {
-  key: string
-  maps_played: number
-  maps_won: number
-  /** Maps with a determinable winner — the denominator behind win_pct. */
-  maps_decided: number
-  win_pct: number | null
-  rounds: number
-  acs: number | null
-  kills: number
-  deaths: number
-  assists: number
-  kd: number | null
-  adr: number | null
-  kast_pct: number | null
-  hs_pct: number | null
-  fk: number
-  fd: number
-}
-
-type PerMapStatRow = {
-  match_id: string | null
-  team_id: string | null
-  puuid?: string | null
-  player_name?: string | null
-  agents: string | null
-  acs: number | null
-  kills: number | null
-  deaths: number | null
-  assists: number | null
-  kd: number | null
-  adr: number | null
-  kast_pct: number | null
-  hs_pct: number | null
-  rounds: number | null
-  fk: number | null
-  fd: number | null
-  plants: number | null
-  defuses: number | null
-  match_maps: {
-    map_name: string | null
-    is_voided: boolean
-    team_a_rounds: number | null
-    team_b_rounds: number | null
-    matches: {
-      team_a_id: string | null
-      team_b_id: string | null
-      season_id?: string | null
-    } | null
-  } | null
-}
-
-function didWinMap(row: PerMapStatRow): boolean | null {
-  const mm = Array.isArray(row.match_maps) ? row.match_maps[0] : row.match_maps
-  if (!mm || !row.team_id) return null
-  const match = Array.isArray(mm.matches) ? mm.matches[0] : mm.matches
-  if (!match) return null
-
-  // The player's team must be one of the two sides. Without this guard a row
-  // whose team_id matches neither (a re-linked roster, a bad import) falls
-  // through to the team-B branch and is scored against the wrong side.
-  const isTeamA = row.team_id === match.team_a_id
-  const isTeamB = row.team_id === match.team_b_id
-  if (!isTeamA && !isTeamB) return null
-
-  const aRounds = mm.team_a_rounds ?? 0
-  const bRounds = mm.team_b_rounds ?? 0
-  if (aRounds === bRounds) return null
-
-  return isTeamA ? aRounds > bRounds : bRounds > aRounds
-}
-
-function aggregateStats(rows: PerMapStatRow[]): Omit<AggregatedStatEntry, 'key'> {
-  const totalKills = sum(rows.map((r) => r.kills))
-  const totalDeaths = sum(rows.map((r) => r.deaths))
-
-  // Evaluate each row once — didWinMap walks joined rows and was previously
-  // called twice per row per aggregate.
-  const outcomes = rows.map(didWinMap)
-  const wins = outcomes.filter((o) => o === true).length
-  // Maps with no determinable result are excluded from the percentage rather
-  // than counted as losses, so `maps_decided` is the honest denominator.
-  const decided = outcomes.filter((o) => o !== null).length
-
-  return {
-    maps_played: rows.length,
-    maps_won: wins,
-    maps_decided: decided,
-    win_pct: decided > 0 ? (wins / decided) * 100 : null,
-    rounds: sum(rows.map((r) => r.rounds)),
-    acs: average(rows.map((r) => r.acs)),
-    kills: totalKills,
-    deaths: totalDeaths,
-    assists: sum(rows.map((r) => r.assists)),
-    kd: totalDeaths > 0 ? totalKills / totalDeaths : null,
-    adr: weightedAverage(
-      rows.map((r) => ({ adr: r.adr, rounds: r.rounds })),
-      'adr',
-      'rounds'
-    ),
-    kast_pct: weightedAverage(
-      rows.map((r) => ({ kast_pct: r.kast_pct, rounds: r.rounds })),
-      'kast_pct',
-      'rounds'
-    ),
-    hs_pct: average(rows.map((r) => r.hs_pct)),
-    fk: sum(rows.map((r) => r.fk)),
-    fd: sum(rows.map((r) => r.fd)),
-  }
-}
-
-/** Group per-map rows by map and by agent, aggregating each group. */
-function buildBreakdowns(rows: PerMapStatRow[]): {
-  mapStats: AggregatedStatEntry[]
-  agentStats: AggregatedStatEntry[]
-} {
-  const byMap = new Map<string, PerMapStatRow[]>()
-  for (const r of rows) {
-    const mm = Array.isArray(r.match_maps) ? r.match_maps[0] : r.match_maps
-    const mapName = mm?.map_name ?? 'Unknown'
-    const arr = byMap.get(mapName) ?? []
-    arr.push(r)
-    byMap.set(mapName, arr)
-  }
-  const mapStats: AggregatedStatEntry[] = Array.from(byMap.entries())
-    .map(([mapName, rs]) => ({ key: mapName, ...aggregateStats(rs) }))
-    .sort((a, b) => b.maps_played - a.maps_played)
-
-  const byAgent = new Map<string, PerMapStatRow[]>()
-  for (const r of rows) {
-    const agents = String(r.agents ?? '')
-      .split(/\s+/)
-      .map((a) => a.trim())
-      .filter(Boolean)
-    for (const agent of agents.length > 0 ? agents : ['Unknown']) {
-      const arr = byAgent.get(agent) ?? []
-      arr.push(r)
-      byAgent.set(agent, arr)
-    }
-  }
-  const agentStats: AggregatedStatEntry[] = Array.from(byAgent.entries())
-    .map(([agent, rs]) => ({ key: agent, ...aggregateStats(rs) }))
-    .sort((a, b) => b.maps_played - a.maps_played)
-
-  return { mapStats, agentStats }
-}
 
 function kindOrder(kind: unknown): number {
   return kind === 'aggregate' ? 0 : 1
@@ -655,7 +251,7 @@ export const load = async ({
   )
 
   const { data: batches } = batchIds.length
-    ? await withSectionFallback<Array<StatImportBatchRow & { season_id?: string | null }>>(
+    ? await runRivalsBatchQuery<Array<StatImportBatchRow & { season_id?: string | null }>>(
         (select) =>
           supabaseAdmin
             .from('stat_import_batches')
@@ -909,26 +505,31 @@ export const load = async ({
           .order('created_at', { ascending: false })
           .limit(500)
       : Promise.resolve({ data: [] }),
-    supabaseAdmin
-      .from('player_match_map_stats')
-      .select(perMapSelect)
-      .eq('profile_id', profileId)
-      .limit(1000),
+    // Every map, not a capped page: these feed career per-map averages.
+    fetchAllRowsResult(() =>
+      supabaseAdmin
+        .from('player_match_map_stats')
+        .select(perMapSelect)
+        .eq('profile_id', profileId)
+        .order('id')
+    ),
     importNameFilters.length > 0
-      ? supabaseAdmin
-          .from('player_match_map_stats')
-          .select(perMapSelect)
-          .is('profile_id', null)
-          .or(
-            importNameFilters
-              .map((name) =>
-                name.endsWith('#%')
-                  ? `player_name.ilike.${quoteOrValue(name)}`
-                  : `player_name.eq.${quoteOrValue(name)}`
-              )
-              .join(',')
-          )
-          .limit(1000)
+      ? fetchAllRowsResult(() =>
+          supabaseAdmin
+            .from('player_match_map_stats')
+            .select(perMapSelect)
+            .is('profile_id', null)
+            .or(
+              importNameFilters
+                .map((name) =>
+                  name.endsWith('#%')
+                    ? `player_name.ilike.${quoteOrValue(name)}`
+                    : `player_name.eq.${quoteOrValue(name)}`
+                )
+                .join(',')
+            )
+            .order('id')
+        )
       : Promise.resolve({ data: [] }),
     loadReassignmentsToProfile(profileId).catch(() => [] as MatchStatReassignment[]),
   ])
@@ -1309,6 +910,8 @@ export const load = async ({
     activeTeam,
     teamHistory,
     activeSeasonId: currentSeasonId,
+    // External events (Shitter League) are hidden on the client unless shown.
+    externalSeasonIds: allSeasons.filter((s) => s.kind === 'external').map((s) => s.id),
     accolades: playerAccolades,
     riotAccounts,
     viewer: {

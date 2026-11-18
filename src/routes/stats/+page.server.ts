@@ -4,7 +4,7 @@ import { safeInt } from '$lib/server/parse'
 import { loadIdentityDisplayNames } from '$lib/server/players/riot-identities'
 import {
   normalizeRivalsGroupStatBatchFromDb,
-  withSectionFallback,
+  runRivalsBatchQuery,
   type NormalizedRivalsGroupStatBatch,
   type StatImportBatchRow,
 } from '$lib/server/stats/rivals-batch'
@@ -187,7 +187,7 @@ export const load: PageServerLoad = async ({ fetch, url, locals, cookies }) => {
   }
 
   let batches: NormalizedRivalsGroupStatBatch[] = []
-  const { data: batchRows, error: batchError } = await withSectionFallback<StatImportBatchRow[]>(
+  const { data: batchRows, error: batchError } = await runRivalsBatchQuery<StatImportBatchRow[]>(
     (select) =>
       supabaseAdmin
         .from('stat_import_batches')

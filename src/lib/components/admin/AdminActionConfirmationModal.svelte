@@ -50,7 +50,7 @@
       {#if warning}
         <p
           class="mb-5 rounded-md border px-3 py-2 text-left text-xs leading-relaxed"
-          style="border-color: rgba(251, 191, 36, 0.45); background: rgba(251, 191, 36, 0.08); color: #fcd34d;"
+          style="border-color: rgba(251, 191, 36, 0.45); background: rgba(251, 191, 36, 0.08); color: var(--gold);"
         >
           {warning}
         </p>

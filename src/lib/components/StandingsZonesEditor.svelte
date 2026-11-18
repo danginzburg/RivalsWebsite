@@ -451,7 +451,7 @@
 
   .editor-error {
     font-size: 0.8125rem;
-    color: #fca5a5;
+    color: var(--bad-text);
   }
 
   .editor-actions {

@@ -75,7 +75,10 @@ describe('admin api helpers', () => {
       seasons: [{ id: 's1' }],
       queue: [{ id: 'q1' }],
       approved: [{ id: 't1' }],
+      // Unscoped, the all-seasons lists are the same rows as the scoped ones.
+      seasonTeams: [{ id: 't1' }],
       matches: [{ id: 'm1' }],
+      seasonMatches: [{ id: 'm1' }],
     })
   })
 })

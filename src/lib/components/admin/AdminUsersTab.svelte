@@ -65,13 +65,13 @@
     {:else if user.riot_linked}
       <span
         class="rounded px-1.5 py-0.5"
-        style="background: rgba(34,197,94,0.12); color: #86efac;"
+        style="background: rgba(34,197,94,0.12); color: var(--good-text);"
         title="Linked by PUUID (match import, Identities tab or login)">Linked</span
       >
     {:else}
       <span
         class="rounded px-1.5 py-0.5"
-        style="background: rgba(250,204,21,0.12); color: #fde68a;"
+        style="background: rgba(250,204,21,0.12); color: var(--gold-text);"
         title="No PUUID yet — they will be prompted for their Riot ID on next login"
         >Not linked</span
       >

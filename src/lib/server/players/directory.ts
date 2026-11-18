@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { accountNames, loadApprovedRiotAccounts } from '$lib/server/players/identity'
 import { fetchAllRows } from '$lib/server/supabase/fetch-all'
 
 /**
@@ -143,22 +144,11 @@ export async function currentRiotIdsByPuuid(puuids: string[]): Promise<Map<strin
  */
 export async function riotNamesByProfile(profileIds: string[]): Promise<Map<string, string[]>> {
   const names = new Map<string, string[]>()
-  const ids = [...new Set(profileIds.filter(Boolean))]
-  for (let i = 0; i < ids.length; i += 100) {
-    const { data, error } = await supabaseAdmin
-      .from('riot_accounts')
-      .select('profile_id, riot_name, riot_tag')
-      .in('profile_id', ids.slice(i, i + 100))
-      .eq('status', 'approved')
-    if (error) throw new Error('Failed to load Riot account names')
-    for (const row of data ?? []) {
-      const name = String(row.riot_name ?? '').trim()
-      if (!name) continue
-      const list = names.get(row.profile_id) ?? []
-      list.push(name)
-      if (row.riot_tag) list.push(`${name}#${row.riot_tag}`)
-      names.set(row.profile_id, list)
-    }
+  for (const account of await loadApprovedRiotAccounts(profileIds)) {
+    const list = names.get(account.profile_id) ?? []
+    // Bare name first, then name#tag, as callers have always received them.
+    list.push(...accountNames(account).reverse())
+    names.set(account.profile_id, list)
   }
   return names
 }

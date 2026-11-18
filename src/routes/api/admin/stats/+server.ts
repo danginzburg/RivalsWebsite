@@ -1,7 +1,6 @@
 import { json, error } from '@sveltejs/kit'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { requireAdmin } from '$lib/server/auth/profile'
-import { errorMessage } from '$lib/server/errors'
 
 type RawStatRow = {
   player_name?: string | null
@@ -142,21 +141,9 @@ export const POST = async ({ locals, request }: { locals: App.Locals; request: R
     },
   }
 
-  let batchInsertError: { message?: string | null } | null = null
-  {
-    const { error: err } = await supabaseAdmin.from('stat_import_batches').insert(batchPayload)
-    batchInsertError = err
-  }
-
-  // Backwards compatibility if display fields aren't migrated yet.
-  if (batchInsertError && errorMessage(batchInsertError).includes('display_name')) {
-    const fallbackPayload = { ...batchPayload }
-    delete fallbackPayload.display_name
-    delete fallbackPayload.import_kind
-    delete fallbackPayload.week_label
-    const { error: err } = await supabaseAdmin.from('stat_import_batches').insert(fallbackPayload)
-    batchInsertError = err
-  }
+  const { error: batchInsertError } = await supabaseAdmin
+    .from('stat_import_batches')
+    .insert(batchPayload)
 
   // If stat_import_batches isn't deployed yet, don't block import.
   if (batchInsertError) {

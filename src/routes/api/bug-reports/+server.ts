@@ -13,7 +13,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   const description = normalizeBugDescription(body.description)
   const pagePath = normalizeBugPagePath(body.pagePath)
 
-  enforceRateLimit(`bug-report:${profile.id}`, {
+  await enforceRateLimit(`bug-report:${profile.id}`, {
     limit: 5,
     windowMs: 60_000,
     message: 'You are submitting reports too quickly. Please wait a moment.',

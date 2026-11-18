@@ -2,7 +2,7 @@ import { redirect, error } from '@sveltejs/kit'
 import type { PageServerLoad } from './$types'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { errorMessage } from '$lib/server/errors'
-import { withSectionFallback } from '$lib/server/stats/rivals-batch'
+import { runRivalsBatchQuery } from '$lib/server/stats/rivals-batch'
 import { isAllTimeBatch } from '$lib/server/stats/all-time'
 
 type StatBatchRow = {
@@ -70,7 +70,7 @@ export const load: PageServerLoad = async ({ locals }) => {
     })),
     // For manual ordering, sectioning and ID visibility.
     batches: await (async () => {
-      const { data: rows, error: batchError } = await withSectionFallback<StatBatchRow[]>(
+      const { data: rows, error: batchError } = await runRivalsBatchQuery<StatBatchRow[]>(
         (select) =>
           supabaseAdmin
             .from('stat_import_batches')

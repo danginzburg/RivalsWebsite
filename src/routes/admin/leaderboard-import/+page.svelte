@@ -290,7 +290,9 @@
             {#each LEADERBOARD_FIELDS as field (field.id)}
               <div>
                 <div class="admin-field-label">
-                  {field.label}{#if field.required}<span style="color: #fca5a5;"> *</span>{/if}
+                  {field.label}{#if field.required}<span style="color: var(--bad-text);">
+                      *</span
+                    >{/if}
                 </div>
                 <CustomSelect
                   options={columnOptions}
@@ -322,11 +324,11 @@
         </div>
         <div class="admin-stat">
           <div class="admin-stat-label"><CheckCircle2 size={14} /> Matched Tags</div>
-          <div class="admin-stat-value" style="color: #86efac;">{stats.matched}</div>
+          <div class="admin-stat-value" style="color: var(--good-text);">{stats.matched}</div>
         </div>
         <div class="admin-stat">
           <div class="admin-stat-label"><AlertTriangle size={14} /> Unmatched Tags</div>
-          <div class="admin-stat-value" style="color: #fca5a5;">{stats.unmatched}</div>
+          <div class="admin-stat-value" style="color: var(--bad-text);">{stats.unmatched}</div>
         </div>
       </section>
 
@@ -388,7 +390,7 @@
                     {#if showRoundDiff}<td class="px-3 py-2">{row.round_diff}</td>{/if}
                     <td
                       class="px-3 py-2"
-                      style={`color: ${row.matchedTeamId ? '#86efac' : '#fca5a5'};`}
+                      style={`color: ${row.matchedTeamId ? 'var(--good-text)' : 'var(--bad-text)'};`}
                     >
                       {row.matchedTeamId ? 'Matched' : 'Unmatched'}
                     </td>

@@ -462,7 +462,7 @@
     padding: 0.0625rem 0.4375rem;
     border-radius: 0.25rem;
     border: 1px dashed rgba(252, 211, 77, 0.55);
-    color: #fcd34d;
+    color: var(--gold);
   }
 
   .hero-title {
@@ -568,7 +568,7 @@
   }
 
   .chip-pickem {
-    color: #fcd34d;
+    color: var(--gold);
     border-color: rgba(252, 211, 77, 0.35);
   }
 
@@ -579,7 +579,7 @@
     padding: 0.125rem 0.5rem;
     border-radius: 999px;
     background: rgba(74, 222, 128, 0.14);
-    color: #4ade80;
+    color: var(--good);
     letter-spacing: 0.1em;
     font-size: 0.6875rem;
     font-weight: 700;
@@ -590,7 +590,7 @@
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: #4ade80;
+    background: var(--good);
     animation: pulse-live 1.5s ease-in-out infinite;
   }
 
@@ -700,7 +700,7 @@
   }
 
   .feature-score-win {
-    color: #4ade80;
+    color: var(--good);
   }
 
   .feature-score-sep {

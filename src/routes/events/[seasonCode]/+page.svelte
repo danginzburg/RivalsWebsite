@@ -430,7 +430,11 @@
           <span class="match-mid">
             {#if match.status === 'completed'}
               <span class="match-score tabular">
-                {match.team_a_score}–{match.team_b_score}
+                <span class:score-winner={match.winner_team_id === match.team_a?.id}
+                  >{match.team_a_score}</span
+                >–<span class:score-winner={match.winner_team_id === match.team_b?.id}
+                  >{match.team_b_score}</span
+                >
               </span>
             {:else}
               <span class="match-vs">vs</span>
@@ -593,7 +597,7 @@
   }
 
   .podium-gold {
-    color: #fcd34d;
+    color: var(--gold);
   }
 
   .podium-silver {
@@ -856,7 +860,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: #fca5a5;
+    color: var(--bad-text);
     background: rgba(248, 113, 113, 0.12);
     border: 1px solid rgba(248, 113, 113, 0.25);
     padding: 0.0625rem 0.3125rem;
@@ -1000,7 +1004,7 @@
   }
 
   .match-row:hover {
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--row-hover);
   }
 
   /* Grid cell — the chip inside only renders when there is a designation. */
@@ -1012,8 +1016,9 @@
     display: inline-block;
     font-size: 0.625rem;
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.72);
-    background: rgba(255, 255, 255, 0.07);
+    /* Gold, matching the designation on the match page header. */
+    color: var(--gold-text);
+    background: var(--gold-soft);
     padding: 0.125rem 0.4375rem;
     border-radius: 0.3125rem;
     white-space: nowrap;
@@ -1085,6 +1090,11 @@
 
   .match-score {
     color: rgba(255, 255, 255, 0.82);
+  }
+
+  .score-winner {
+    color: var(--good);
+    font-weight: 600;
   }
 
   .match-vs {

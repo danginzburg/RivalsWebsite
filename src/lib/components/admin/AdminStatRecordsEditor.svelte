@@ -259,7 +259,7 @@
       Loading records...
     </div>
   {:else if loadError}
-    <div class="py-8 text-center text-sm" style="color: #fca5a5;">{loadError}</div>
+    <div class="py-8 text-center text-sm" style="color: var(--bad-text);">{loadError}</div>
   {:else}
     {#each tracks as track (track.key)}
       <div class="mt-4">
@@ -390,7 +390,7 @@
                         <div class="entry-row">
                           <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
                             <span class="rank">#{entry.rank}</span>
-                            <span class="tabular-nums" style="color: #93c5fd;"
+                            <span class="tabular-nums" style="color: var(--info);"
                               >{entry.value} {entry.unit}</span
                             >
                             <span>{holderName(entry)}</span>
@@ -597,7 +597,7 @@
 
   .badge-blue {
     background: rgba(96, 165, 250, 0.16);
-    color: #93c5fd;
+    color: var(--info);
   }
 
   .badge-muted {
@@ -607,6 +607,6 @@
 
   .badge-amber {
     background: rgba(251, 191, 36, 0.16);
-    color: #fcd34d;
+    color: var(--gold);
   }
 </style>

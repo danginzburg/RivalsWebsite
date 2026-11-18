@@ -48,7 +48,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   const { ids, unparsed } = parseSeriesInput(body.input, forfeitMap)
 
   // Each map is one upstream request, so the budget is per-map not per-call.
-  enforceRateLimit(`matches:import-riot:${admin.id}`, {
+  await enforceRateLimit(`matches:import-riot:${admin.id}`, {
     limit: 20,
     windowMs: 10 * 60_000,
     message: 'Too many match imports. Wait a few minutes before running more.',

@@ -14,7 +14,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
   const reason = typeof body.reason === 'string' ? body.reason.trim().slice(0, 500) : null
 
-  enforceRateLimit(`comment:report:${profile.id}`, {
+  await enforceRateLimit(`comment:report:${profile.id}`, {
     limit: 10,
     windowMs: 60_000,
     message: 'You are reporting too quickly. Please wait a moment.',

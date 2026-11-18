@@ -20,7 +20,7 @@
 <a
   {href}
   class="admin-edit-link {className}"
-  style="background: rgba(59,130,246,0.2); color: #93c5fd;"
+  style="background: rgba(59,130,246,0.2); color: var(--info);"
 >
   {label}
 </a>

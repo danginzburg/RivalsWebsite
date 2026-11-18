@@ -1,5 +1,10 @@
 import { supabaseAdmin } from '$lib/supabase/admin'
-import { normalizeImportKey, normalizeBaseName } from '$lib/server/imports/matching'
+import {
+  accountNames,
+  loadApprovedRiotAccounts,
+  nameKeys,
+  normalizeNameKey,
+} from '$lib/server/players/identity'
 
 /**
  * Substitute (sub) detection for a match.
@@ -30,12 +35,6 @@ export type RosterSets = Map<string, TeamRoster>
  * tag-stripped base on each side is what lets a rostered player match instead of
  * being mistaken for a sub.
  */
-function nameKeys(value: string | null | undefined): string[] {
-  const full = normalizeImportKey(value)
-  const base = normalizeBaseName(value)
-  return [full, base].filter(Boolean)
-}
-
 /** One roster stint: a membership row with the moments it covered. */
 export type Stint = {
   id: number
@@ -128,7 +127,7 @@ export function stintCovers(stint: Stint, time: number | null): boolean {
 function stintIdentity(stint: Pick<Stint, 'profile_id' | 'puuid' | 'player_name'>): string {
   if (stint.profile_id) return `p:${stint.profile_id}`
   if (stint.puuid) return `u:${stint.puuid}`
-  return `n:${normalizeImportKey(stint.player_name)}`
+  return `n:${normalizeNameKey(stint.player_name)}`
 }
 
 /** Every roster stint for a set of teams in one season, readable at any moment. */
@@ -228,12 +227,9 @@ export async function loadRosterTimeline(
     new Set(stints.map((s) => s.profile_id).filter((id): id is string => Boolean(id)))
   )
   if (profileIds.length > 0) {
-    const [{ data: profiles }, { data: riotAccounts }] = await Promise.all([
+    const [{ data: profiles }, riotAccounts] = await Promise.all([
       supabaseAdmin.from('profiles').select('id, display_name').in('id', profileIds),
-      supabaseAdmin
-        .from('riot_accounts')
-        .select('profile_id, riot_name, riot_tag, puuid')
-        .in('profile_id', profileIds),
+      loadApprovedRiotAccounts(profileIds),
     ])
     const addKeys = (profileId: string, keys: string[], puuid: string | null) => {
       const entry = profileKeys.get(profileId) ?? { names: [], puuids: [] }
@@ -244,16 +240,13 @@ export async function loadRosterTimeline(
     for (const profile of profiles ?? []) {
       addKeys(profile.id as string, nameKeys(profile.display_name as string | null), null)
     }
-    // Every registered Riot account (primary, alts, aliases) is a name and PUUID the
+    // Every approved Riot account (primary, alts, aliases) is a name and PUUID the
     // player may appear under in the stats.
-    for (const account of riotAccounts ?? []) {
-      const name = account.riot_name as string | null
-      const tag = account.riot_tag as string | null
-      const full = name && tag ? `${name}#${tag}` : name
+    for (const account of riotAccounts) {
       addKeys(
-        account.profile_id as string,
-        [...nameKeys(full), ...nameKeys(name)],
-        (account.puuid as string | null) ?? null
+        account.profile_id,
+        accountNames(account).flatMap((name) => nameKeys(name)),
+        account.riot_puuid ?? null
       )
     }
   }
@@ -344,9 +337,9 @@ export function overrideFor(
   }
   // Overrides are stored against the exact source-account name, so match on the
   // exact (case-insensitive) name rather than the tag-stripped base.
-  const name = normalizeImportKey(playerName)
+  const name = normalizeNameKey(playerName)
   if (name) {
-    const byName = overrides.find((o) => !o.puuid && normalizeImportKey(o.player_name) === name)
+    const byName = overrides.find((o) => !o.puuid && normalizeNameKey(o.player_name) === name)
     if (byName) return byName.is_sub
   }
   return null

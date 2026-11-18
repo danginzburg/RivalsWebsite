@@ -15,26 +15,13 @@ export type StatImportBatchRow = {
 export const RIVALS_BATCH_SELECT =
   'id, source_filename, display_name, import_kind, week_label, section, created_at, metadata, sort_order, row_count'
 
-/** The same list before `section` existed. */
-const RIVALS_BATCH_SELECT_LEGACY =
-  'id, source_filename, display_name, import_kind, week_label, created_at, metadata, sort_order, row_count'
-
 type QueryResult<T> = { data: T | null; error: { message?: string | null } | null }
 
-/**
- * Run a batch query, retrying without `section` if the column is not there yet.
- *
- * Same shape as the `display_name` fallback in the stats import endpoint: the
- * migration is applied by hand against Supabase, so a deploy that lands first
- * must degrade to name inference rather than emptying the batch picker.
- */
-export async function withSectionFallback<T>(
+/** Run a batch query with the standard batch column list. */
+export function runRivalsBatchQuery<T>(
   run: (select: string) => PromiseLike<QueryResult<T>>
-): Promise<QueryResult<T>> {
-  const first = await run(RIVALS_BATCH_SELECT)
-  if (!first.error) return first
-  if (!/section/i.test(first.error.message ?? '')) return first
-  return run(RIVALS_BATCH_SELECT_LEGACY)
+): PromiseLike<QueryResult<T>> {
+  return run(RIVALS_BATCH_SELECT)
 }
 
 export function extractNumericLabel(value: unknown): number | null {

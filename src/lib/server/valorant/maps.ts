@@ -151,7 +151,9 @@ export type VetoStep = {
 function detectVetoAction(text: string): VetoAction {
   const lower = text.toLowerCase()
   if (/\bban(?:s|ned|ning)?\b/.test(lower)) return 'ban'
-  if (/\b(?:decider|deciding|remaining|leftover)\b/.test(lower)) return 'decider'
+  // "Haven remains", "Bind final", "Lotus left over", "last map: Split" …
+  if (/\b(?:decider|deciding|remains?|remaining|left\s*over|leftover|final|last)\b/.test(lower))
+    return 'decider'
   if (/\bpick(?:s|ed|ing)?\b/.test(lower)) return 'pick'
   return null
 }

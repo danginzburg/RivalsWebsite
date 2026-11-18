@@ -15,7 +15,7 @@
 <div class="page-header">
   <div class="flex items-center gap-3">
     {#if Icon}
-      <Icon size={32} style="color: var(--text); flex-shrink: 0;" />
+      <Icon size={32} style="color: var(--accent-text); flex-shrink: 0;" />
     {/if}
     <div class="min-w-0">
       <h1 class="heading-title">{title}</h1>

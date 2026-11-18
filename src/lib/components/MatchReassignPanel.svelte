@@ -310,7 +310,7 @@
   }
   .clear-btn {
     background: rgba(248, 113, 113, 0.14);
-    color: #fca5a5;
+    color: var(--bad-text);
   }
   .cancel-btn {
     background: rgba(255, 255, 255, 0.06);
@@ -324,6 +324,6 @@
   .error {
     margin-bottom: 0.5rem;
     font-size: 0.75rem;
-    color: #fca5a5;
+    color: var(--bad-text);
   }
 </style>

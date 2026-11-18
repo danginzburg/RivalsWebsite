@@ -489,11 +489,11 @@
    * bold was previously the only emphasis that showed.
    */
   .perf-table td.hot {
-    color: #86efac;
+    color: var(--good-text);
   }
 
   .perf-table td.ace {
-    color: #4ade80;
+    color: var(--good);
   }
 
   /* Clutch columns are narrow and numerous — keep them tight and even. */
@@ -575,12 +575,12 @@
 
   .corner-a {
     display: block;
-    color: #93c5fd;
+    color: var(--info);
   }
 
   .corner-b {
     display: block;
-    color: #fca5a5;
+    color: var(--bad-text);
   }
 
   .corner-sep {
@@ -639,11 +639,11 @@
   }
 
   .diff-up {
-    color: #93c5fd;
+    color: var(--info);
   }
 
   .diff-down {
-    color: #fca5a5;
+    color: var(--bad-text);
   }
 
   /* Totals edge: a heavier rule on the right column and the bottom row. */

@@ -37,12 +37,70 @@
    * any purple *text* or icon; keep --hover for fills and borders.
    */
   --accent-text: #c084fc;
+
+  /*
+   * Supporting accents. Purple stays the base; these add a little color
+   * around it. Each has a full-strength value (icons, edges, small marks),
+   * a -text value that clears 4.5:1 on --secondary-background, and a -soft
+   * fill for washes and pills. Keep fills at -soft strength or below so
+   * the color stays subtle.
+   */
+  --good: #4ade80;
+  --good-text: #86efac;
+  --good-soft: rgba(74, 222, 128, 0.14);
+
+  --bad: #f87171;
+  --bad-text: #fca5a5;
+  --bad-soft: rgba(248, 113, 113, 0.14);
+
+  --gold: #fcd34d;
+  --gold-text: #fde68a;
+  --gold-soft: rgba(252, 211, 77, 0.14);
+
+  --info: #93c5fd;
+  --info-soft: rgba(147, 197, 253, 0.14);
+
+  /* Cool counterweight to the purple: links, focus rings, accent edges. */
+  --teal: #5eead4;
+  --teal-text: #99f6e4;
+  --teal-soft: rgba(94, 234, 212, 0.12);
+
+  /* Warm pink used only in the ambient page glow and gradient accents. */
+  --magenta: #e879f9;
+
+  /* Faint purple wash for hovered table and list rows. */
+  --row-hover: rgba(192, 132, 252, 0.08);
+}
+
+/* Keyboard focus ring. Elements that style their own :focus (the admin
+   inputs, for one) keep theirs, since their selectors are more specific. */
+:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
 }
 
 body {
   background: var(--secondary-background);
   color: var(--text-muted);
   min-height: 100vh;
+}
+
+/*
+ * Ambient glow: two faint color pools pinned to the viewport, warm pink at
+ * the top-left and teal at the bottom-right, so the flat purple reads with
+ * some depth. A fixed pseudo-element rather than `background-attachment:
+ * fixed`, which iOS Safari ignores and which repaints on every scroll.
+ * Translucent surfaces (.sheet, .info-card) let it show faintly through.
+ */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(60rem 40rem at 0% 0%, rgba(232, 121, 249, 0.1), transparent 70%),
+    radial-gradient(55rem 40rem at 100% 100%, rgba(94, 234, 212, 0.07), transparent 70%);
 }
 
 nav {
@@ -194,6 +252,11 @@ nav {
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: var(--title);
+}
+
+/* Any icon inside a section title picks up the accent rather than white. */
+.sheet-title svg {
+  color: var(--accent-text);
 }
 
 .sheet-note {
@@ -539,7 +602,7 @@ nav {
 .admin-btn-go {
   background: rgba(74, 222, 128, 0.16);
   border-color: rgba(74, 222, 128, 0.32);
-  color: #86efac;
+  color: var(--good-text);
 }
 
 .admin-btn-go:hover:not(:disabled) {
@@ -549,7 +612,7 @@ nav {
 .admin-btn-info {
   background: rgba(59, 130, 246, 0.18);
   border-color: rgba(59, 130, 246, 0.32);
-  color: #93c5fd;
+  color: var(--info);
 }
 
 .admin-btn-info:hover:not(:disabled) {
@@ -559,7 +622,7 @@ nav {
 .admin-btn-warn {
   background: rgba(234, 179, 8, 0.16);
   border-color: rgba(234, 179, 8, 0.32);
-  color: #fcd34d;
+  color: var(--gold);
 }
 
 .admin-btn-warn:hover:not(:disabled) {
@@ -579,7 +642,7 @@ nav {
 .admin-btn-danger {
   background: rgba(248, 113, 113, 0.16);
   border-color: rgba(248, 113, 113, 0.32);
-  color: #fca5a5;
+  color: var(--bad-text);
 }
 
 .admin-btn-danger:hover:not(:disabled) {
@@ -629,11 +692,11 @@ nav {
 .admin-alert-success {
   background: rgba(74, 222, 128, 0.14);
   border-color: rgba(74, 222, 128, 0.32);
-  color: #86efac;
+  color: var(--good-text);
 }
 
 .admin-alert-warn {
   background: rgba(234, 179, 8, 0.12);
   border-color: rgba(234, 179, 8, 0.3);
-  color: #fde68a;
+  color: var(--gold-text);
 }
