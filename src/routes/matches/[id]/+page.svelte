@@ -459,7 +459,11 @@
             <span class="sb-designation">{match.designation}</span>
           {/if}
           {#if !isComplete}
-            <span class="sb-status" class:sb-status-live={match.status === 'live'}>
+            <span
+              class="sb-status"
+              class:sb-status-live={match.status === 'live'}
+              class:sb-status-cancelled={match.status === 'cancelled'}
+            >
               {formatStatus(match.status)}
             </span>
           {/if}
@@ -753,7 +757,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.14em;
-    color: #fcd34d;
+    color: var(--gold);
   }
 
   .sb-status,
@@ -768,14 +772,25 @@
     color: rgba(255, 255, 255, 0.7);
   }
 
+  /* Scheduled (the default for an unfinished match): teal. */
+  .sb-status {
+    background: var(--teal-soft);
+    color: var(--teal-text);
+  }
+
   .sb-status-live {
     background: rgba(74, 222, 128, 0.16);
-    color: #4ade80;
+    color: var(--good);
+  }
+
+  .sb-status-cancelled {
+    background: var(--bad-soft);
+    color: var(--bad-text);
   }
 
   .sb-no-stage {
     background: rgba(248, 113, 113, 0.16);
-    color: #f87171;
+    color: var(--bad);
   }
 
   .sb-actions {
@@ -1084,7 +1099,7 @@
     padding: 0.0625rem 0.3125rem;
     border-radius: 0.25rem;
     background: rgba(248, 113, 113, 0.18);
-    color: #fca5a5;
+    color: var(--bad-text);
   }
 
   .seg-score {
@@ -1183,7 +1198,7 @@
     padding: 0.875rem 1.5rem;
     border-top: 1px solid rgba(251, 191, 36, 0.3);
     background: rgba(251, 191, 36, 0.07);
-    color: #fcd34d;
+    color: var(--gold);
   }
 
   .notice-inline {
@@ -1196,7 +1211,7 @@
   .notice-title {
     font-size: 0.8125rem;
     font-weight: 700;
-    color: #fcd34d;
+    color: var(--gold);
   }
 
   .notice-body {
@@ -1233,11 +1248,11 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    color: #fca5a5;
+    color: var(--bad-text);
   }
 
   .team-result-win {
-    color: #4ade80;
+    color: var(--good);
   }
 
   .stat-table {
@@ -1276,7 +1291,7 @@
   }
 
   .stat-table tbody tr:hover {
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--row-hover);
   }
 
   .stat-table .col-player,

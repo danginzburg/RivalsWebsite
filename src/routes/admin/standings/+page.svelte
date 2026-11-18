@@ -440,7 +440,7 @@
     margin-left: 0.35rem;
     font-size: 0.65rem;
     text-transform: uppercase;
-    color: #fcd34d;
+    color: var(--gold);
   }
   .editor {
     position: sticky;

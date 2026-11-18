@@ -237,7 +237,7 @@
     border: 1px solid rgba(251, 191, 36, 0.35);
     border-radius: 9999px;
     background: rgba(251, 191, 36, 0.14);
-    color: #fcd34d;
+    color: var(--gold);
     font-size: 0.75rem;
     font-weight: 700;
     cursor: pointer;
@@ -392,7 +392,7 @@
 
   .admin-banner-success {
     background: rgba(74, 222, 128, 0.16);
-    color: #86efac;
+    color: var(--good-text);
   }
 
   /*

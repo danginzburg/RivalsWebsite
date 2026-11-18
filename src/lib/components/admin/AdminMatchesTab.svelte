@@ -155,7 +155,8 @@
       </h3>
     </div>
     <p class="mb-3 text-xs" style="color: rgba(255,255,255,0.55);">
-      Filed under <strong style="color: {targetSeasonIsPast ? '#fcd34d' : 'rgba(255,255,255,0.8)'};"
+      Filed under <strong
+        style="color: {targetSeasonIsPast ? 'var(--gold)' : 'rgba(255,255,255,0.8)'};"
         >{targetSeasonLabel}</strong
       >{#if targetSeasonIsPast}
         — backfilling a past season.{/if}
@@ -340,7 +341,7 @@
                 {#if match.metadata?.out_of_group === true}
                   <span
                     class="rounded-full px-2 py-1 text-xs font-bold"
-                    style="background: rgba(252,211,77,0.16); color: #fcd34d;"
+                    style="background: rgba(252,211,77,0.16); color: var(--gold);"
                     title="Out-of-group game: left out of the calculated standings"
                   >
                     OOG
@@ -349,7 +350,7 @@
                 {#if resolveMatchStageKey(match.stage, match.metadata?.designation) === null}
                   <span
                     class="rounded-full px-2 py-1 text-xs font-bold"
-                    style="background: rgba(248,113,113,0.16); color: #f87171;"
+                    style="background: rgba(248,113,113,0.16); color: var(--bad);"
                     title="Not assigned to a stage, so stage-filtered stat batches leave it out"
                   >
                     No stage
@@ -615,15 +616,17 @@
                         <div style="color: var(--text);">
                           Map {map.map_order}{map.map_name ? ` - ${map.map_name}` : ''}
                           {#if map.is_voided}
-                            <span class="ml-2 font-bold" style="color: #fca5a5;">VOIDED / FF</span>
+                            <span class="ml-2 font-bold" style="color: var(--bad-text);"
+                              >VOIDED / FF</span
+                            >
                           {/if}
                         </div>
                         <button
                           type="button"
                           class="rounded px-2 py-1 text-[11px] font-semibold"
                           style={map.is_voided
-                            ? 'background: rgba(74,222,128,0.16); color: #86efac;'
-                            : 'background: rgba(248,113,113,0.16); color: #fca5a5;'}
+                            ? 'background: rgba(74,222,128,0.16); color: var(--good-text);'
+                            : 'background: rgba(248,113,113,0.16); color: var(--bad-text);'}
                           onclick={() => onToggleMapVoided(match.id, map.id, map.is_voided)}
                         >
                           {map.is_voided ? 'Restore' : 'Mark Voided/FF'}

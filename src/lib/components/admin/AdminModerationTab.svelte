@@ -91,8 +91,8 @@
   }
 
   function statusStyle(status: string) {
-    if (status === 'pending') return 'background: rgba(251,191,36,0.16); color: #fcd34d;'
-    if (status === 'resolved') return 'background: rgba(74,222,128,0.16); color: #86efac;'
+    if (status === 'pending') return 'background: rgba(251,191,36,0.16); color: var(--gold);'
+    if (status === 'resolved') return 'background: rgba(74,222,128,0.16); color: var(--good-text);'
     return 'background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.6);'
   }
 </script>
@@ -145,7 +145,7 @@
               <a
                 href={report.page_path}
                 class="ml-auto text-xs font-semibold"
-                style="color: #93c5fd;"
+                style="color: var(--info);"
                 target="_blank"
                 rel="noopener noreferrer"
               >
@@ -156,7 +156,7 @@
 
           <div
             class="rounded p-2 text-xs"
-            style="background: rgba(251,191,36,0.07); color: #fde68a;"
+            style="background: rgba(251,191,36,0.07); color: var(--gold-text);"
           >
             <strong>Report:</strong>
             <span class="whitespace-pre-wrap">{report.description}</span>
@@ -228,7 +228,7 @@
             </span>
             <span
               class="rounded px-2 py-0.5 text-[10px] font-bold uppercase"
-              style="background: rgba(147,197,253,0.14); color: #93c5fd;"
+              style="background: rgba(147,197,253,0.14); color: var(--info);"
             >
               {flag.entity_type}
             </span>
@@ -241,7 +241,7 @@
             <a
               href={flagHref(flag)}
               class="ml-auto text-xs font-semibold"
-              style="color: #93c5fd;"
+              style="color: var(--info);"
               target="_blank"
               rel="noopener noreferrer"
             >
@@ -251,7 +251,7 @@
 
           <div
             class="rounded p-2 text-xs"
-            style="background: rgba(251,191,36,0.07); color: #fde68a;"
+            style="background: rgba(251,191,36,0.07); color: var(--gold-text);"
           >
             <strong>What's wrong:</strong>
             {flag.reason}
@@ -338,7 +338,7 @@
               <a
                 {href}
                 class="ml-auto text-xs font-semibold"
-                style="color: #93c5fd;"
+                style="color: var(--info);"
                 target="_blank"
                 rel="noopener noreferrer"
               >
@@ -350,7 +350,7 @@
           {#if report.reason}
             <div
               class="mb-2 rounded p-2 text-xs"
-              style="background: rgba(251,191,36,0.07); color: #fde68a;"
+              style="background: rgba(251,191,36,0.07); color: var(--gold-text);"
             >
               <strong>Reason:</strong>
               {report.reason}
@@ -369,7 +369,7 @@
                 {#if banned}
                   <span
                     class="rounded px-1.5 py-0.5 text-[10px] font-bold uppercase"
-                    style="background: rgba(248,113,113,0.18); color: #fca5a5;"
+                    style="background: rgba(248,113,113,0.18); color: var(--bad-text);"
                   >
                     Banned
                   </span>

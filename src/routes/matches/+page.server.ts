@@ -45,6 +45,19 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
   const matchIds = (matches ?? []).map((m) => m.id)
   let streamsByMatch: Record<string, MatchStreamRow[]> = {}
 
+  // External events (Shitter League) are hidden on the client by default.
+  const seasonIds = [...new Set((matches ?? []).map((m) => m.season_id).filter(Boolean))]
+  const externalSeasonIds = new Set<string>()
+  if (seasonIds.length > 0) {
+    const { data: seasons } = await supabaseAdmin
+      .from('seasons')
+      .select('id, kind')
+      .in('id', seasonIds)
+    for (const season of seasons ?? []) {
+      if (season.kind === 'external') externalSeasonIds.add(season.id)
+    }
+  }
+
   if (matchIds.length > 0) {
     const { data: streams } = await supabaseAdmin
       .from('match_streams')
@@ -65,6 +78,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
   const normalized = (matches ?? []).map((match) => ({
     ...match,
     streams: streamsByMatch[match.id] ?? [],
+    external: externalSeasonIds.has(match.season_id),
     designation: (match.metadata as Record<string, unknown> | null)?.designation ?? null,
     team_a: match.team_a
       ? {

@@ -306,7 +306,7 @@
               {#if season.is_active}
                 <span
                   class="rounded-full px-2 py-1 text-xs font-bold"
-                  style="background: rgba(74,222,128,0.18); color: #86efac;"
+                  style="background: rgba(74,222,128,0.18); color: var(--good-text);"
                 >
                   Active
                 </span>
@@ -314,7 +314,7 @@
               {#if season.signups_open}
                 <span
                   class="rounded-full px-2 py-1 text-xs font-bold"
-                  style="background: rgba(96,165,250,0.18); color: #93c5fd;"
+                  style="background: rgba(96,165,250,0.18); color: var(--info);"
                 >
                   Signups open
                 </span>
@@ -503,7 +503,7 @@
                   <div class="text-xs" style="color: rgba(255,255,255,0.62);">
                     Champion, MVP, and summary shown on the Events page
                     {#if season.winner_team_id}
-                      <span style="color: #fcd34d;"> · Champion set</span>
+                      <span style="color: var(--gold);"> · Champion set</span>
                     {/if}
                   </div>
                 </div>
@@ -915,7 +915,7 @@
 
   .map-pool-chip-on {
     opacity: 1;
-    border-color: #86efac;
+    border-color: var(--good-text);
   }
 
   .map-pool-art {

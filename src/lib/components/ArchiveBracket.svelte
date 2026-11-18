@@ -357,7 +357,7 @@
 
   /* Green means "won", the same as round differential on the standings. */
   .team.win .score {
-    color: #4ade80;
+    color: var(--good);
     font-weight: 700;
   }
 

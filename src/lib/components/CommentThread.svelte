@@ -664,7 +664,7 @@
     padding: 0.0625rem 0.3125rem;
     border-radius: 0.1875rem;
     background: rgba(248, 113, 113, 0.18);
-    color: #fca5a5;
+    color: var(--bad-text);
   }
 
   .comment-time,
@@ -737,11 +737,11 @@
   }
 
   .vote-on {
-    color: #4ade80;
+    color: var(--good);
   }
 
   .vote-on-down {
-    color: #f87171;
+    color: var(--bad);
   }
 
   .vote-score {
@@ -754,11 +754,11 @@
   }
 
   .vote-score-up {
-    color: #86efac;
+    color: var(--good-text);
   }
 
   .vote-score-down {
-    color: #fca5a5;
+    color: var(--bad-text);
   }
 
   .action {
@@ -785,11 +785,11 @@
   }
 
   .action-danger:hover:not(:disabled) {
-    color: #f87171;
+    color: var(--bad);
   }
 
   .action-confirm:hover:not(:disabled) {
-    color: #4ade80;
+    color: var(--good);
   }
 
   .reply-composer {

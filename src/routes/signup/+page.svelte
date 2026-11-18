@@ -1,8 +1,7 @@
 <script lang="ts">
   import type { PageProps } from './$types'
   import PageContainer from '$lib/components/PageContainer.svelte'
-  import PageHeading from '$lib/components/PageHeading.svelte'
-  import { ClipboardList, Plus, X, Lock, Info, Eye } from 'lucide-svelte'
+  import { ClipboardList, Plus, X, Lock, Info, Eye, Search } from 'lucide-svelte'
   import { resolve } from '$app/paths'
   import DiscordIcon from '$lib/components/icons/DiscordIcon.svelte'
   import { enhance } from '$app/forms'
@@ -83,12 +82,6 @@
     )
   })
 
-  const statusStyle: Record<string, string> = {
-    pending: 'background: rgba(251,191,36,0.16); color: #fcd34d;',
-    approved: 'background: rgba(74,222,128,0.16); color: #86efac;',
-    rejected: 'background: rgba(248,113,113,0.16); color: #fca5a5;',
-  }
-
   const statusCopy: Record<string, string> = {
     pending: 'Waiting for an admin to review your details.',
     approved: 'You are registered for this season.',
@@ -100,332 +93,339 @@
 
 <PageContainer>
   <div class="page-content-narrow py-6">
-    <PageHeading
-      title="Player Signup"
-      subtitle={signupSeason
-        ? `Registering for ${signupSeason.name}`
-        : 'Registration is currently closed'}
-      icon={ClipboardList}
-    />
-
-    {#if !signupSeason}
-      <div class="notice notice-warn">
-        Signups are closed right now. Check back when the next season opens.
-      </div>
-    {:else}
-      <!-- Current status -->
-      {#if signup}
-        <div class="status-card" class:status-card-approved={isApproved}>
-          <div class="status-head">
-            <span class="status-pill" style={statusStyle[signup.status] ?? ''}>
-              {signup.status}
-            </span>
-            <span class="status-copy">{statusCopy[signup.status] ?? ''}</span>
-          </div>
-
-          {#if isApproved}
-            <div class="assigned">
-              <span class="assigned-label">Assigned value</span>
-              <span class="assigned-value">
-                {signup.assigned_value ?? 'Not yet set'}
-              </span>
-            </div>
-          {/if}
-
-          {#if signup.admin_notes}
-            <div class="admin-note">
-              <Info size={14} style="flex-shrink: 0; margin-top: 1px;" />
-              <span>{signup.admin_notes}</span>
-            </div>
-          {/if}
+    <div class="sheet">
+      <header class="su-head">
+        <div class="su-head-text">
+          <h1 class="su-title">Player Signup</h1>
+          <p class="su-sub">
+            {signupSeason
+              ? `Registering for ${signupSeason.name}`
+              : 'Registration is currently closed'}
+          </p>
         </div>
-      {/if}
+        {#if signupSeason && signup}
+          <span class="su-pill su-pill-{signup.status}">{signup.status}</span>
+        {/if}
+      </header>
 
-      {#if form?.success}
-        <div class="notice notice-success">{form.message}</div>
-      {:else if form?.message}
-        <div class="notice notice-error">{form.message}</div>
-      {/if}
-
-      {#if isLocked}
-        <div class="locked-panel">
-          <Lock size={18} style="color: rgba(255,255,255,0.6); flex-shrink: 0;" />
-          <div>
-            <div class="locked-title">Your signup is locked</div>
-            <p class="locked-text">
-              Approved signups can't be edited or withdrawn. Message an admin if your Riot ID,
-              Discord, or tracker links need updating.
-            </p>
-          </div>
+      {#if !signupSeason}
+        <div class="su-closed">
+          <ClipboardList size={22} class="su-closed-icon" />
+          <p class="su-closed-title">Signups are closed</p>
+          <p class="su-closed-text">Check back when the next season opens.</p>
         </div>
-
-        <!-- Read-only summary -->
-        <section class="form-section">
-          <h2 class="section-title">Submitted details</h2>
-          <dl class="summary">
-            <dt>Riot ID</dt>
-            <dd>
-              {#if signup?.display_name}
-                {signup.display_name}{#if signup.riot_tag}<span class="summary-tag"
-                    >#{signup.riot_tag}</span
-                  >{/if}
-              {:else}
-                —
-              {/if}
-            </dd>
-            <dt>Discord</dt>
-            <dd>{signup?.discord_handle ?? '—'}</dd>
-            <dt>Trackers</dt>
-            <dd>
-              {#if (signup?.tracker_links ?? []).length > 0}
-                <div class="summary-links">
-                  {#each signup?.tracker_links ?? [] as link (link.url)}
-                    <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
-                    <a href={link.url} target="_blank" rel="noopener noreferrer">{link.label}</a>
-                  {/each}
-                </div>
-              {:else}
-                —
-              {/if}
-            </dd>
-          </dl>
-        </section>
       {:else}
-        <form
-          method="POST"
-          action="?/submit"
-          class="signup-form"
-          use:enhance={() => {
-            submitting = true
-            return async ({ update }) => {
-              await update()
-              submitting = false
-            }
-          }}
-        >
-          <section class="form-section">
-            <h2 class="section-title">Who you are</h2>
-
-            <div class="field">
-              <span class="field-label">Riot ID <span class="required">*</span></span>
-              <div class="riot-id-row">
-                <input
-                  name="riotId"
-                  bind:value={riotId}
-                  class="input"
-                  placeholder="YourName"
-                  required
-                  minlength="3"
-                  maxlength="24"
-                  disabled={submitting}
-                  aria-label="Riot ID name"
-                />
-                <span class="riot-hash">#</span>
-                <input
-                  name="riotTag"
-                  bind:value={riotTag}
-                  class="input input-tag"
-                  placeholder="NA1"
-                  required
-                  minlength="3"
-                  maxlength="5"
-                  disabled={submitting}
-                  aria-label="Riot ID tagline"
-                />
-              </div>
-              <span class="field-hint">
-                Both parts of your in-game Riot ID. This is your identity across rosters, stats, and
-                match pages, and is what an admin uses to look up your rank.
-              </span>
-            </div>
-
-            <label class="field">
-              <span class="field-label">Discord <span class="required">*</span></span>
-              <input
-                name="discordHandle"
-                bind:value={discordHandle}
-                class="input"
-                placeholder="yourname"
-                required
-                maxlength="64"
-                disabled={submitting}
-              />
-              <span class="field-hint">
-                {#if data.profile.discord_handle && !data.signup}
-                  Filled in from your Discord login — edit it if you use a different handle.
-                {:else}
-                  Shown on your player profile once approved, so captains can reach you.
-                {/if}
-              </span>
-            </label>
-          </section>
-
-          <section class="form-section">
-            <h2 class="section-title">Tracker links <span class="required">*</span></h2>
-            <p class="section-intro">
-              An admin uses these to verify your rank and set your rating. Add at least one.
-              {#if data.profile.tracker_url && !data.signup}
-                Your profile's tracker is filled in — add any alt accounts below.
-              {/if}
-            </p>
-
-            <div class="links">
-              {#each trackerLinks as link, index (index)}
-                <div class="link-row">
-                  <input
-                    name="trackerUrl"
-                    bind:value={link.url}
-                    class="input"
-                    placeholder="https://tracker.gg/valorant/profile/..."
-                    type="url"
-                    disabled={submitting}
-                  />
-                  {#if trackerLinks.length > 1}
-                    <button
-                      type="button"
-                      class="link-remove"
-                      aria-label="Remove link"
-                      onclick={() => removeLink(index)}
-                    >
-                      <X size={14} />
-                    </button>
-                  {/if}
-                </div>
-              {/each}
-            </div>
-
-            {#if trackerLinks.length < data.maxTrackerLinks}
-              <button type="button" class="add-link" onclick={addLink}>
-                <Plus size={13} /> Add another link
-              </button>
-            {/if}
-          </section>
-
-          <div class="rating-note">
-            <Info
-              size={14}
-              style="flex-shrink: 0; margin-top: 2px; color: rgba(255,255,255,0.6);"
-            />
-            <p>
-              Your rank and rating are set by an admin after reviewing your tracker — you don't
-              enter them yourself. {#if signup}Editing your signup sends it back for review.{/if}
-            </p>
-          </div>
-
-          <div class="form-actions">
-            {#if signup}
-              <button
-                type="submit"
-                form="withdraw-form"
-                class="withdraw-btn"
-                disabled={withdrawing || submitting}
-              >
-                {withdrawing ? 'Withdrawing...' : 'Withdraw signup'}
-              </button>
-            {/if}
-            {#if signedIn}
-              <button type="submit" class="submit-btn" disabled={submitting || !canSubmit}>
-                {submitting ? 'Saving...' : signup ? 'Update signup' : 'Submit signup'}
-              </button>
-            {:else}
-              <button type="button" class="submit-btn" onclick={() => (signInPromptOpen = true)}>
-                Sign in to submit
-              </button>
-            {/if}
-          </div>
-        </form>
-
+        <!-- Current status -->
         {#if signup}
-          <!-- Separate form so the withdraw button posts no signup fields. -->
+          <section class="su-status" class:su-status-approved={isApproved}>
+            <p class="su-status-copy">{statusCopy[signup.status] ?? ''}</p>
+
+            {#if isApproved}
+              <div class="su-assigned">
+                <span class="su-assigned-label">Assigned value</span>
+                <span class="su-assigned-value">{signup.assigned_value ?? 'Not yet set'}</span>
+              </div>
+            {/if}
+
+            {#if signup.admin_notes}
+              <div class="su-admin-note">
+                <Info size={14} class="su-inline-icon" />
+                <span>{signup.admin_notes}</span>
+              </div>
+            {/if}
+          </section>
+        {/if}
+
+        {#if form?.success}
+          <div class="su-banner su-banner-success">{form.message}</div>
+        {:else if form?.message}
+          <div class="su-banner su-banner-error">{form.message}</div>
+        {/if}
+
+        {#if isLocked}
+          <div class="su-banner su-banner-locked">
+            <Lock size={15} class="su-inline-icon" />
+            <div>
+              <strong>Your signup is locked.</strong>
+              Approved signups can't be edited or withdrawn. Message an admin if your Riot ID, Discord,
+              or tracker links need updating.
+            </div>
+          </div>
+
+          <!-- Read-only summary -->
+          <section class="sheet-section">
+            <div class="sheet-head"><h2 class="sheet-title">Submitted details</h2></div>
+            <div class="sheet-body">
+              <dl class="su-summary">
+                <dt>Riot ID</dt>
+                <dd>
+                  {#if signup?.display_name}
+                    {signup.display_name}{#if signup.riot_tag}<span class="su-summary-tag"
+                        >#{signup.riot_tag}</span
+                      >{/if}
+                  {:else}
+                    —
+                  {/if}
+                </dd>
+                <dt>Discord</dt>
+                <dd>{signup?.discord_handle ?? '—'}</dd>
+                <dt>Trackers</dt>
+                <dd>
+                  {#if (signup?.tracker_links ?? []).length > 0}
+                    <div class="su-summary-links">
+                      {#each signup?.tracker_links ?? [] as link (link.url)}
+                        <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+                        <a href={link.url} target="_blank" rel="noopener noreferrer">{link.label}</a
+                        >
+                      {/each}
+                    </div>
+                  {:else}
+                    —
+                  {/if}
+                </dd>
+              </dl>
+            </div>
+          </section>
+        {:else}
           <form
-            id="withdraw-form"
             method="POST"
-            action="?/withdraw"
+            action="?/submit"
             use:enhance={() => {
-              if (!window.confirm('Withdraw your signup for this season?')) {
-                return async () => {}
-              }
-              withdrawing = true
+              submitting = true
               return async ({ update }) => {
                 await update()
-                withdrawing = false
+                submitting = false
               }
             }}
-          ></form>
-        {/if}
-      {/if}
+          >
+            <section class="sheet-section">
+              <div class="sheet-head"><h2 class="sheet-title">Who you are</h2></div>
+              <div class="sheet-body su-fields">
+                <div class="su-field">
+                  <span class="su-label">Riot ID <span class="su-required">*</span></span>
+                  <div class="su-riot-row">
+                    <input
+                      name="riotId"
+                      bind:value={riotId}
+                      class="su-input"
+                      placeholder="YourName"
+                      required
+                      minlength="3"
+                      maxlength="24"
+                      disabled={submitting}
+                      aria-label="Riot ID name"
+                    />
+                    <span class="su-hash">#</span>
+                    <input
+                      name="riotTag"
+                      bind:value={riotTag}
+                      class="su-input su-input-tag"
+                      placeholder="NA1"
+                      required
+                      minlength="3"
+                      maxlength="5"
+                      disabled={submitting}
+                      aria-label="Riot ID tagline"
+                    />
+                  </div>
+                  <span class="su-hint">
+                    Both parts of your in-game Riot ID. This is your identity across rosters, stats,
+                    and match pages, and is what an admin uses to look up your rank.
+                  </span>
+                </div>
 
-      {#if ratings}
-        <section class="form-section ratings-section">
-          <div class="ratings-head">
-            <h2 class="section-title ratings-title">
-              {ratings.preview ? 'Player ratings preview' : 'Approved players'}
-              <span class="ratings-count">{ratings.rows.length}</span>
-            </h2>
-            {#if ratings.preview}
-              <button
-                type="button"
-                class="preview-toggle"
-                aria-expanded={previewOpen}
-                onclick={() => (previewOpen = !previewOpen)}
-              >
-                <Eye size={13} />
-                {previewOpen ? 'Hide preview' : 'Preview'}
-              </button>
-            {/if}
-          </div>
-
-          {#if ratings.preview}
-            <p class="section-intro">
-              Only admins can see this. The list shows approved players only and goes public once
-              the first signup is accepted.
-            </p>
-          {/if}
-
-          {#if !ratings.preview || previewOpen}
-            {#if ratings.rows.length === 0}
-              <p class="section-intro">No approved signups yet.</p>
-            {:else}
-              <input
-                class="input ratings-search"
-                type="search"
-                placeholder="Search Riot ID or Discord"
-                aria-label="Search player ratings"
-                bind:value={ratingsQuery}
-              />
-              <div class="ratings-table-wrap">
-                <table class="ratings-table">
-                  <thead>
-                    <tr>
-                      <th class="col-place">#</th>
-                      <th>Player</th>
-                      <th class="col-discord">Discord</th>
-                      <th class="col-score">Rating</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {#each ratingRows as row (row.profileId)}
-                      <tr>
-                        <td class="col-place">{row.place}</td>
-                        <td>
-                          <a href={resolve(`/players/${row.profileId}`)} class="ratings-player">
-                            {row.riotId ?? 'Unknown'}
-                          </a>
-                        </td>
-                        <td class="col-discord">{row.discord ?? '—'}</td>
-                        <td class="col-score">{row.score ?? '—'}</td>
-                      </tr>
+                <label class="su-field">
+                  <span class="su-label">Discord <span class="su-required">*</span></span>
+                  <input
+                    name="discordHandle"
+                    bind:value={discordHandle}
+                    class="su-input"
+                    placeholder="yourname"
+                    required
+                    maxlength="64"
+                    disabled={submitting}
+                  />
+                  <span class="su-hint">
+                    {#if data.profile.discord_handle && !data.signup}
+                      Filled in from your Discord login — edit it if you use a different handle.
                     {:else}
-                      <tr><td colspan="4" class="ratings-empty">No players match.</td></tr>
-                    {/each}
-                  </tbody>
-                </table>
+                      Shown on your player profile once approved, so captains can reach you.
+                    {/if}
+                  </span>
+                </label>
+              </div>
+            </section>
+
+            <section class="sheet-section">
+              <div class="sheet-head">
+                <h2 class="sheet-title">Tracker links <span class="su-required">*</span></h2>
+              </div>
+              <div class="sheet-body">
+                <p class="su-intro">
+                  An admin uses these to verify your rank and set your rating. Add at least one.
+                  {#if data.profile.tracker_url && !data.signup}
+                    Your profile's tracker is filled in — add any alt accounts below.
+                  {/if}
+                </p>
+
+                <div class="su-links">
+                  {#each trackerLinks as link, index (index)}
+                    <div class="su-link-row">
+                      <input
+                        name="trackerUrl"
+                        bind:value={link.url}
+                        class="su-input"
+                        placeholder="https://tracker.gg/valorant/profile/..."
+                        type="url"
+                        aria-label="Tracker link {index + 1}"
+                        disabled={submitting}
+                      />
+                      {#if trackerLinks.length > 1}
+                        <button
+                          type="button"
+                          class="su-link-remove"
+                          aria-label="Remove link"
+                          onclick={() => removeLink(index)}
+                        >
+                          <X size={14} />
+                        </button>
+                      {/if}
+                    </div>
+                  {/each}
+                </div>
+
+                {#if trackerLinks.length < data.maxTrackerLinks}
+                  <button type="button" class="su-add-link" onclick={addLink}>
+                    <Plus size={13} /> Add another link
+                  </button>
+                {/if}
+              </div>
+            </section>
+
+            <footer class="su-foot">
+              <p class="su-foot-note">
+                <Info size={13} class="su-inline-icon" />
+                <span>
+                  Your rank and rating are set by an admin after reviewing your tracker — you don't
+                  enter them yourself. {#if signup}Editing your signup sends it back for review.{/if}
+                </span>
+              </p>
+
+              <div class="su-actions">
+                {#if signup}
+                  <button
+                    type="submit"
+                    form="withdraw-form"
+                    class="su-withdraw"
+                    disabled={withdrawing || submitting}
+                  >
+                    {withdrawing ? 'Withdrawing...' : 'Withdraw'}
+                  </button>
+                {/if}
+                {#if signedIn}
+                  <button type="submit" class="su-submit" disabled={submitting || !canSubmit}>
+                    {submitting ? 'Saving...' : signup ? 'Update signup' : 'Submit signup'}
+                  </button>
+                {:else}
+                  <button type="button" class="su-submit" onclick={() => (signInPromptOpen = true)}>
+                    Sign in to submit
+                  </button>
+                {/if}
+              </div>
+            </footer>
+          </form>
+
+          {#if signup}
+            <!-- Separate form so the withdraw button posts no signup fields. -->
+            <form
+              id="withdraw-form"
+              method="POST"
+              action="?/withdraw"
+              use:enhance={() => {
+                if (!window.confirm('Withdraw your signup for this season?')) {
+                  return async () => {}
+                }
+                withdrawing = true
+                return async ({ update }) => {
+                  await update()
+                  withdrawing = false
+                }
+              }}
+            ></form>
+          {/if}
+        {/if}
+
+        {#if ratings}
+          <section class="sheet-section su-ratings">
+            <div class="sheet-head">
+              <h2 class="sheet-title">
+                {ratings.preview ? 'Player ratings preview' : 'Approved players'}
+              </h2>
+              <span class="su-count">{ratings.rows.length}</span>
+              {#if ratings.preview}
+                <span class="sheet-note">Admins only until the first signup is approved</span>
+                <button
+                  type="button"
+                  class="su-preview-toggle"
+                  aria-expanded={previewOpen}
+                  onclick={() => (previewOpen = !previewOpen)}
+                >
+                  <Eye size={13} />
+                  {previewOpen ? 'Hide' : 'Show'}
+                </button>
+              {/if}
+            </div>
+
+            {#if !ratings.preview || previewOpen}
+              <div class="sheet-body">
+                {#if ratings.rows.length === 0}
+                  <p class="su-intro">No approved signups yet.</p>
+                {:else}
+                  <div class="su-search-wrap">
+                    <Search size={14} class="su-search-icon" />
+                    <input
+                      class="su-input su-search"
+                      type="search"
+                      placeholder="Search Riot ID or Discord"
+                      aria-label="Search player ratings"
+                      bind:value={ratingsQuery}
+                    />
+                  </div>
+                  <div class="su-table-wrap">
+                    <table class="su-table">
+                      <thead>
+                        <tr>
+                          <th class="col-place">#</th>
+                          <th>Player</th>
+                          <th class="col-discord">Discord</th>
+                          <th class="col-score">Rating</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {#each ratingRows as row (row.profileId)}
+                          <tr>
+                            <td class="col-place">{row.place}</td>
+                            <td>
+                              <a href={resolve(`/players/${row.profileId}`)} class="su-player">
+                                {row.riotId ?? 'Unknown'}
+                              </a>
+                            </td>
+                            <td class="col-discord">{row.discord ?? '—'}</td>
+                            <td class="col-score">{row.score ?? '—'}</td>
+                          </tr>
+                        {:else}
+                          <tr><td colspan="4" class="su-table-empty">No players match.</td></tr>
+                        {/each}
+                      </tbody>
+                    </table>
+                  </div>
+                {/if}
               </div>
             {/if}
-          {/if}
-        </section>
+          </section>
+        {/if}
       {/if}
-    {/if}
+    </div>
   </div>
 </PageContainer>
 
@@ -481,337 +481,338 @@
 {/if}
 
 <style>
-  .signup-form {
+  /* Header band */
+  .su-head {
     display: flex;
-    flex-direction: column;
-    gap: 1.25rem;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    background: rgba(255, 255, 255, 0.025);
+    padding: 1.375rem 1.5rem 1.125rem;
   }
 
-  .form-section {
-    padding: 1.25rem;
-    border-radius: 0.75rem;
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    background: rgba(0, 0, 0, 0.2);
+  .su-head-text {
+    min-width: 0;
   }
 
-  .section-title {
-    font-size: 0.6875rem;
+  .su-title {
+    margin: 0;
+    font-size: 1.625rem;
+    font-weight: 700;
+    line-height: 1.2;
+    color: var(--title);
+  }
+
+  .su-sub {
+    margin-top: 0.25rem;
+    font-size: 0.8125rem;
+    color: rgba(255, 255, 255, 0.64);
+  }
+
+  .su-pill {
+    flex-shrink: 0;
+    margin-top: 0.25rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.625rem;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: rgba(255, 255, 255, 0.64);
-    margin-bottom: 0.875rem;
-    padding-bottom: 0.5rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.8);
   }
 
-  .section-intro {
+  .su-pill-pending {
+    background: rgba(251, 191, 36, 0.16);
+    color: var(--gold);
+  }
+
+  .su-pill-approved {
+    background: rgba(74, 222, 128, 0.16);
+    color: var(--good-text);
+  }
+
+  .su-pill-rejected {
+    background: rgba(248, 113, 113, 0.16);
+    color: var(--bad-text);
+  }
+
+  /* Closed state */
+  .su-closed {
+    padding: 2.75rem 1.5rem 2.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    text-align: center;
+  }
+
+  :global(.su-closed-icon) {
+    margin: 0 auto 0.625rem;
+    color: rgba(255, 255, 255, 0.4);
+  }
+
+  .su-closed-title {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.82);
+  }
+
+  .su-closed-text {
+    margin-top: 0.375rem;
     font-size: 0.8125rem;
-    color: rgba(255, 255, 255, 0.55);
-    line-height: 1.5;
-    margin-bottom: 0.875rem;
+    color: rgba(255, 255, 255, 0.56);
   }
 
-  .field {
+  /* Status band */
+  .su-status {
+    padding: 0.875rem 1.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .su-status-approved {
+    background: rgba(74, 222, 128, 0.045);
+    box-shadow: inset 2px 0 0 rgba(74, 222, 128, 0.6);
+  }
+
+  .su-status-copy {
+    font-size: 0.8125rem;
+    color: rgba(255, 255, 255, 0.72);
+  }
+
+  .su-assigned {
+    display: flex;
+    align-items: baseline;
+    gap: 0.625rem;
+    flex-wrap: wrap;
+    margin-top: 0.625rem;
+  }
+
+  .su-assigned-label {
+    font-size: 0.625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .su-assigned-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1;
+    color: #d8b4fe;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .su-admin-note {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    color: rgba(255, 255, 255, 0.72);
+  }
+
+  :global(.su-inline-icon) {
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  /* Flush banners: a tinted band across the sheet with an edge accent. */
+  .su-banner {
+    display: flex;
+    gap: 0.625rem;
+    padding: 0.75rem 1.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+  }
+
+  .su-banner strong {
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  .su-banner-success {
+    background: rgba(74, 222, 128, 0.07);
+    box-shadow: inset 2px 0 0 rgba(74, 222, 128, 0.6);
+    color: #bbf7d0;
+  }
+
+  .su-banner-error {
+    background: rgba(248, 113, 113, 0.07);
+    box-shadow: inset 2px 0 0 rgba(248, 113, 113, 0.6);
+    color: #fecaca;
+  }
+
+  .su-banner-locked {
+    background: rgba(255, 255, 255, 0.025);
+    color: rgba(255, 255, 255, 0.62);
+  }
+
+  /* Form fields */
+  .su-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .su-field {
     display: flex;
     flex-direction: column;
     gap: 0.3125rem;
   }
 
-  .field + .field {
-    margin-top: 0.875rem;
-  }
-
-  .field-label {
+  .su-label {
     font-size: 0.75rem;
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.75);
+    color: rgba(255, 255, 255, 0.78);
   }
 
-  .required {
-    color: #f87171;
+  .su-required {
+    color: var(--bad);
   }
 
-  .input {
+  .su-input {
     width: 100%;
     padding: 0.5rem 0.75rem;
     border-radius: 0.5rem;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(0, 0, 0, 0.28);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(0, 0, 0, 0.22);
     color: var(--text);
     font-size: 0.875rem;
+    transition: border-color 0.15s;
   }
 
-  .input::placeholder {
-    color: rgba(255, 255, 255, 0.52);
+  .su-input::placeholder {
+    color: rgba(255, 255, 255, 0.45);
   }
 
-  .input:focus {
+  .su-input:focus {
     outline: none;
-    border-color: var(--hover);
+    border-color: rgba(192, 132, 252, 0.6);
   }
 
-  .input:disabled {
+  .su-input:disabled {
     opacity: 0.6;
   }
 
-  .field-hint {
+  .su-hint {
     font-size: 0.6875rem;
-    color: rgba(255, 255, 255, 0.6);
     line-height: 1.45;
+    color: rgba(255, 255, 255, 0.56);
+  }
+
+  .su-intro {
+    margin-bottom: 0.75rem;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    color: rgba(255, 255, 255, 0.6);
   }
 
   /* Name and tagline read as one field, split by a literal '#'. */
-  .riot-id-row {
+  .su-riot-row {
     display: flex;
     align-items: center;
     gap: 0.375rem;
   }
 
-  .riot-hash {
-    color: rgba(255, 255, 255, 0.56);
-    font-size: 0.9375rem;
+  .su-hash {
     flex-shrink: 0;
+    font-size: 0.9375rem;
+    color: rgba(255, 255, 255, 0.5);
   }
 
-  .input-tag {
+  .su-input-tag {
     max-width: 6rem;
     flex-shrink: 0;
     text-transform: uppercase;
   }
 
   /* Tracker links */
-  .links {
+  .su-links {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
   }
 
-  .link-row {
+  .su-link-row {
     display: flex;
-    gap: 0.5rem;
     align-items: center;
+    gap: 0.5rem;
   }
 
-  .link-remove {
+  .su-link-remove {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 1.875rem;
-    height: 1.875rem;
+    width: 2.125rem;
+    height: 2.125rem;
     flex-shrink: 0;
-    border-radius: 0.375rem;
     border: none;
-    background: rgba(248, 113, 113, 0.12);
-    color: #f87171;
+    border-radius: 0.5rem;
+    background: none;
+    color: rgba(255, 255, 255, 0.45);
     cursor: pointer;
+    transition:
+      background 0.15s,
+      color 0.15s;
   }
 
-  .link-remove:hover {
-    background: rgba(248, 113, 113, 0.22);
+  .su-link-remove:hover {
+    background: rgba(248, 113, 113, 0.12);
+    color: var(--bad);
   }
 
-  .add-link {
+  .su-add-link {
     display: inline-flex;
     align-items: center;
     gap: 0.3125rem;
-    margin-top: 0.625rem;
-    background: none;
-    border: none;
+    margin-top: 0.75rem;
     padding: 0;
+    border: none;
+    background: none;
     font-size: 0.75rem;
     font-weight: 600;
     color: var(--accent-text);
     cursor: pointer;
   }
 
-  .add-link:hover {
-    text-decoration: underline;
+  .su-add-link:hover {
+    color: #e9d5ff;
   }
 
-  /* Status */
-  .status-card {
-    padding: 0.875rem 1rem;
-    border-radius: 0.625rem;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    margin-bottom: 0.75rem;
+  /* Footer band with the actions */
+  .su-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.875rem 1.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.025);
   }
 
-  .status-card-approved {
-    border-color: rgba(74, 222, 128, 0.28);
-    background: rgba(74, 222, 128, 0.05);
+  .su-foot-note {
+    display: flex;
+    gap: 0.5rem;
+    max-width: 46ch;
+    font-size: 0.6875rem;
+    line-height: 1.5;
+    color: rgba(255, 255, 255, 0.56);
   }
 
-  .status-head {
+  .su-actions {
     display: flex;
     align-items: center;
     gap: 0.625rem;
-    flex-wrap: wrap;
+    flex-shrink: 0;
   }
 
-  .status-pill {
-    font-size: 0.625rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    padding: 0.1875rem 0.4375rem;
-    border-radius: 9999px;
-  }
-
-  .status-copy {
-    font-size: 0.8125rem;
-    color: rgba(255, 255, 255, 0.62);
-  }
-
-  .assigned {
-    display: flex;
-    align-items: baseline;
-    gap: 0.5rem;
-    margin-top: 0.75rem;
-    padding-top: 0.75rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.07);
-    flex-wrap: wrap;
-  }
-
-  .assigned-label {
-    font-size: 0.625rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
-    color: rgba(255, 255, 255, 0.62);
-  }
-
-  .assigned-value {
-    font-size: 1.375rem;
-    font-weight: 700;
-    color: #d8b4fe;
-    font-variant-numeric: tabular-nums;
-    line-height: 1;
-  }
-
-  .admin-note {
-    display: flex;
-    gap: 0.5rem;
-    margin-top: 0.75rem;
-    padding-top: 0.75rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.07);
-    font-size: 0.8125rem;
-    line-height: 1.5;
-    color: rgba(255, 255, 255, 0.7);
-  }
-
-  /* Locked */
-  .locked-panel {
-    display: flex;
-    gap: 0.75rem;
-    padding: 0.875rem 1rem;
-    border-radius: 0.625rem;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    margin-bottom: 1.25rem;
-  }
-
-  .locked-title {
-    font-size: 0.875rem;
-    font-weight: 600;
-    color: var(--text);
-  }
-
-  .locked-text {
-    font-size: 0.8125rem;
-    color: rgba(255, 255, 255, 0.55);
-    line-height: 1.5;
-    margin-top: 0.1875rem;
-  }
-
-  .summary {
-    display: grid;
-    grid-template-columns: 7rem 1fr;
-    gap: 0.5rem 1rem;
-    font-size: 0.8125rem;
-  }
-
-  .summary dt {
-    font-weight: 600;
-    color: rgba(255, 255, 255, 0.64);
-  }
-
-  .summary dd {
-    color: rgba(255, 255, 255, 0.8);
-    word-break: break-word;
-  }
-
-  .summary-tag {
-    color: rgba(255, 255, 255, 0.64);
-  }
-
-  .summary-links {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-  }
-
-  .summary-links a {
-    color: #93c5fd;
-    text-decoration: none;
-  }
-
-  .summary-links a:hover {
-    text-decoration: underline;
-  }
-
-  /* Notices */
-  .rating-note {
-    display: flex;
-    gap: 0.5rem;
-    padding: 0.75rem 1rem;
-    border-radius: 0.5rem;
-    background: rgba(255, 255, 255, 0.025);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    font-size: 0.75rem;
-    line-height: 1.5;
-    color: rgba(255, 255, 255, 0.5);
-  }
-
-  .notice {
-    padding: 0.75rem 1rem;
-    border-radius: 0.5rem;
-    font-size: 0.8125rem;
-    line-height: 1.5;
-    margin-bottom: 0.75rem;
-  }
-
-  .notice-success {
-    background: rgba(74, 222, 128, 0.1);
-    border: 1px solid rgba(74, 222, 128, 0.3);
-    color: #bbf7d0;
-  }
-
-  .notice-error {
-    background: rgba(248, 113, 113, 0.1);
-    border: 1px solid rgba(248, 113, 113, 0.3);
-    color: #fecaca;
-  }
-
-  .notice-warn {
-    background: rgba(251, 191, 36, 0.08);
-    border: 1px solid rgba(251, 191, 36, 0.28);
-    color: #fde68a;
-  }
-
-  /* Actions */
-  .form-actions {
-    display: flex;
-    justify-content: flex-end;
-    align-items: center;
-    gap: 0.75rem;
-  }
-
-  .submit-btn {
-    padding: 0.625rem 1.75rem;
-    border-radius: 0.5rem;
+  .su-submit {
+    min-height: 2.5rem;
+    padding: 0 1.5rem;
     border: none;
+    border-radius: 0.5rem;
     background: var(--accent);
     color: var(--text);
     font-size: 0.875rem;
@@ -820,35 +821,199 @@
     transition: background 0.15s;
   }
 
-  .submit-btn:hover:not(:disabled) {
+  .su-submit:hover:not(:disabled) {
     background: var(--hover);
   }
 
-  .submit-btn:disabled {
+  .su-submit:disabled {
     opacity: 0.5;
     cursor: not-allowed;
   }
 
-  .withdraw-btn {
-    margin-right: auto;
-    padding: 0.625rem 1rem;
-    border-radius: 0.5rem;
+  .su-withdraw {
+    min-height: 2.5rem;
+    padding: 0 1rem;
     border: 1px solid rgba(248, 113, 113, 0.25);
+    border-radius: 0.5rem;
     background: transparent;
-    color: #f87171;
+    color: var(--bad);
     font-size: 0.8125rem;
     font-weight: 600;
     cursor: pointer;
     transition: background 0.15s;
   }
 
-  .withdraw-btn:hover:not(:disabled) {
+  .su-withdraw:hover:not(:disabled) {
     background: rgba(248, 113, 113, 0.12);
   }
 
-  .withdraw-btn:disabled {
+  .su-withdraw:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+
+  /* Read-only summary */
+  .su-summary {
+    display: grid;
+    grid-template-columns: 7rem 1fr;
+    gap: 0.625rem 1rem;
+    font-size: 0.8125rem;
+  }
+
+  .su-summary dt {
+    font-size: 0.625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    line-height: 1.6rem;
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .su-summary dd {
+    line-height: 1.6rem;
+    color: rgba(255, 255, 255, 0.85);
+    word-break: break-word;
+  }
+
+  .su-summary-tag {
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  .su-summary-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.75rem;
+  }
+
+  .su-summary-links a {
+    color: var(--accent-text);
+    text-decoration: none;
+  }
+
+  .su-summary-links a:hover {
+    text-decoration: underline;
+  }
+
+  /* Ratings list */
+  .su-count {
+    padding: 0.0625rem 0.4375rem;
+    border-radius: 9999px;
+    background: rgba(192, 132, 252, 0.16);
+    font-size: 0.6875rem;
+    font-weight: 700;
+    color: #d8b4fe;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .su-preview-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3125rem;
+    margin-left: auto;
+    min-height: 2rem;
+    padding: 0 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 0.5rem;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.72);
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .su-preview-toggle:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: #fff;
+  }
+
+  /* A collapsed preview still needs a little room under its head. */
+  .su-ratings:not(:has(.sheet-body)) {
+    padding-bottom: 0.75rem;
+  }
+
+  .su-search-wrap {
+    position: relative;
+    margin-bottom: 0.5rem;
+  }
+
+  :global(.su-search-icon) {
+    position: absolute;
+    top: 50%;
+    left: 0.75rem;
+    transform: translateY(-50%);
+    color: rgba(255, 255, 255, 0.42);
+    pointer-events: none;
+  }
+
+  .su-search {
+    padding-left: 2.125rem;
+  }
+
+  .su-table-wrap {
+    max-height: 32rem;
+    overflow-y: auto;
+  }
+
+  .su-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8125rem;
+  }
+
+  .su-table th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    height: 2.25rem;
+    padding: 0 0.5rem;
+    background: #23123a;
+    text-align: left;
+    font-size: 0.625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .su-table td {
+    padding: 0.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.78);
+    word-break: break-word;
+  }
+
+  .su-table tbody tr:hover td {
+    background: var(--row-hover);
+  }
+
+  .su-table .col-place {
+    width: 2.5rem;
+    color: rgba(255, 255, 255, 0.45);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .su-table .col-score {
+    width: 4.5rem;
+    text-align: right;
+    font-weight: 700;
+    color: #d8b4fe;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .su-player {
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.88);
+    text-decoration: none;
+  }
+
+  .su-player:hover {
+    color: #fff;
+    text-decoration: underline;
+  }
+
+  .su-table-empty {
+    text-align: center;
+    color: rgba(255, 255, 255, 0.55);
   }
 
   /* Sign-in prompt */
@@ -953,140 +1118,45 @@
     color: rgba(255, 255, 255, 0.75);
   }
 
-  /* Ratings list */
-  .ratings-section {
-    margin-top: 1.25rem;
-  }
-
-  .ratings-head {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 0.75rem;
-  }
-
-  .ratings-title {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-
-  .ratings-count {
-    padding: 0.0625rem 0.4375rem;
-    border-radius: 9999px;
-    background: rgba(120, 67, 145, 0.24);
-    color: #d8b4fe;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .preview-toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3125rem;
-    flex-shrink: 0;
-    padding: 0.3125rem 0.625rem;
-    border-radius: 0.375rem;
-    border: 1px solid rgba(147, 197, 253, 0.3);
-    background: rgba(147, 197, 253, 0.1);
-    color: #93c5fd;
-    font-size: 0.75rem;
-    font-weight: 600;
-    cursor: pointer;
-  }
-
-  .preview-toggle:hover {
-    background: rgba(147, 197, 253, 0.18);
-  }
-
-  .ratings-search {
-    margin-bottom: 0.75rem;
-  }
-
-  .ratings-table-wrap {
-    max-height: 32rem;
-    overflow-y: auto;
-  }
-
-  .ratings-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.8125rem;
-  }
-
-  .ratings-table th {
-    position: sticky;
-    top: 0;
-    background: #24153b;
-    text-align: left;
-    font-size: 0.625rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
-    color: rgba(255, 255, 255, 0.6);
-    padding: 0.375rem 0.5rem;
-  }
-
-  .ratings-table td {
-    padding: 0.4375rem 0.5rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
-    color: rgba(255, 255, 255, 0.8);
-    word-break: break-word;
-  }
-
-  .ratings-table .col-place {
-    width: 2.5rem;
-    color: rgba(255, 255, 255, 0.5);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .ratings-table .col-score {
-    width: 4.5rem;
-    text-align: right;
-    font-weight: 700;
-    color: #d8b4fe;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .ratings-player {
-    color: var(--text);
-    text-decoration: none;
-    font-weight: 600;
-  }
-
-  .ratings-player:hover {
-    text-decoration: underline;
-  }
-
-  .ratings-empty {
-    text-align: center;
-    color: rgba(255, 255, 255, 0.55);
-  }
-
   @media (max-width: 640px) {
-    .form-section {
-      padding: 0.875rem;
+    .su-head {
+      padding: 1.125rem 1rem 1rem;
     }
 
-    .summary {
+    .su-title {
+      font-size: 1.375rem;
+    }
+
+    .su-status,
+    .su-banner {
+      padding: 0.75rem 1rem;
+    }
+
+    .su-summary {
       grid-template-columns: 1fr;
-      gap: 0.125rem 0;
+      gap: 0;
     }
 
-    .summary dd {
+    .su-summary dd {
       margin-bottom: 0.5rem;
     }
 
-    .form-actions {
+    .su-foot {
+      flex-direction: column;
+      align-items: stretch;
+      padding: 0.875rem 1rem;
+    }
+
+    .su-foot-note {
+      max-width: none;
+    }
+
+    .su-actions {
       flex-direction: column-reverse;
       align-items: stretch;
     }
 
-    .withdraw-btn {
-      margin-right: 0;
-    }
-
-    .ratings-table .col-discord {
+    .su-table .col-discord {
       display: none;
     }
   }

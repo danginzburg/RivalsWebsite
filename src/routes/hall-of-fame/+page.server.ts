@@ -1,7 +1,7 @@
 import { requireNavPage } from '$lib/server/nav-visibility'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
-import { loadRecordTracks } from '$lib/server/records/tracks'
+import { loadRecordTracks, RIVALS_TRACK } from '$lib/server/records/tracks'
 import {
   loadRecordViewer,
   loadTrackRecords,
@@ -28,18 +28,20 @@ function firstRel<T>(value: T | T[] | null | undefined): T | null {
 
 export const load = async ({ locals, url }: { locals: App.Locals; url: URL }) => {
   await requireNavPage(locals, 'hall-of-fame')
-  // Rivals records show while a Rivals season is active; a side league's show only
-  // when it is the sole active season.
-  // Rivals and any ended side league stay one click away via ?track=.
-  const { rivals, sideLeague, display, pastSideLeagues } = await loadRecordTracks()
-  const trackOptions = [
+  // The whole page is one book at a time: Rivals, or one side league (an external
+  // event like Shitter League). Rivals shows while a Rivals season is active; a
+  // side league's book is the default only when it is the sole active season.
+  // The others stay one click away via ?track=.
+  const { rivals, sideLeague, display, pastSideLeagues, endedSideLeagues } =
+    await loadRecordTracks()
+  const candidates = [
     display,
-    ...[rivals, sideLeague, ...pastSideLeagues].filter(
+    ...[rivals, sideLeague, ...endedSideLeagues].filter(
       (t): t is NonNullable<typeof t> => !!t && t.key !== display.key
     ),
   ]
   const requested = url.searchParams.get('track')
-  const recordTrack = trackOptions.find((t) => t.key === requested) ?? display
+  const recordTrack = candidates.find((t) => t.key === requested) ?? display
   const isAdmin = locals.user?.role === 'admin'
 
   const [
@@ -176,11 +178,35 @@ export const load = async ({ locals, url }: { locals: App.Locals; url: URL }) =>
     }
   })
 
+  // Which book a season belongs to: its own side league, or Rivals (every
+  // rivalsN season, including the ones before stat records were tracked).
+  const sideLeagueCodes = new Set(endedSideLeagues.map((t) => t.key))
+  if (sideLeague) sideLeagueCodes.add(sideLeague.key)
+  const trackOf = (code: string | null | undefined) =>
+    code && sideLeagueCodes.has(code) ? code : RIVALS_TRACK
+  const inTrack = (code: string | null | undefined) => trackOf(code) === recordTrack.key
+
+  // An ended side league earns a tab once it has anything to show.
+  const hasContent = new Set<string>([
+    ...pastSideLeagues.map((t) => t.key),
+    ...seasonChampions.map((c) => trackOf(c.code)),
+    ...normalized.map((e) => trackOf(e.season?.code)),
+  ])
+  const trackOptions = candidates.filter(
+    (t) =>
+      t.key === display.key ||
+      t.key === recordTrack.key ||
+      !endedSideLeagues.some((p) => p.key === t.key) ||
+      hasContent.has(t.key)
+  )
+
+  const shown = normalized.filter((e) => inTrack(e.season?.code))
+
   return {
-    records: normalized.filter((e) => e.entry_type === 'record'),
-    moments: normalized.filter((e) => e.entry_type === 'moment'),
-    awards: normalized.filter((e) => e.entry_type === 'award'),
-    seasonChampions,
+    records: shown.filter((e) => e.entry_type === 'record'),
+    moments: shown.filter((e) => e.entry_type === 'moment'),
+    awards: shown.filter((e) => e.entry_type === 'award'),
+    seasonChampions: seasonChampions.filter((c) => inTrack(c.code)),
     statRecords,
     recordTrack: {
       key: recordTrack.key,
@@ -191,7 +217,9 @@ export const load = async ({ locals, url }: { locals: App.Locals; url: URL }) =>
       key: t.key,
       label: t.isSideLeague ? t.label : 'Rivals',
       isDefault: t.key === display.key,
-      isPast: pastSideLeagues.some((p) => p.key === t.key),
+      isPast: endedSideLeagues.some((p) => p.key === t.key),
+      // Side leagues (Shitter League) are hidden on the client unless shown.
+      isSideLeague: t.isSideLeague,
     })),
     viewer: { isAdmin },
   }

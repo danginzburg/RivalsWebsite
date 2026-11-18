@@ -162,7 +162,7 @@
     padding: 0 0.3125rem;
     border-radius: 999px;
     background: rgba(251, 191, 36, 0.25);
-    color: #fde68a;
+    color: var(--gold-text);
     font-size: 0.625rem;
     font-weight: 700;
   }
@@ -242,7 +242,7 @@
   }
   .seg-btn.active {
     background: rgba(251, 191, 36, 0.2);
-    color: #fde68a;
+    color: var(--gold-text);
   }
   .seg-btn:disabled {
     opacity: 0.5;
@@ -251,6 +251,6 @@
   .error {
     margin-bottom: 0.5rem;
     font-size: 0.75rem;
-    color: #fca5a5;
+    color: var(--bad-text);
   }
 </style>

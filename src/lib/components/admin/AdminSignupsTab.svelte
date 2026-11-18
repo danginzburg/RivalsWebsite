@@ -123,8 +123,8 @@
   }
 
   function outcomeStyle(outcome: string) {
-    if (outcome === 'updated') return 'background: rgba(74,222,128,0.16); color: #86efac;'
-    if (outcome === 'failed') return 'background: rgba(248,113,113,0.16); color: #fca5a5;'
+    if (outcome === 'updated') return 'background: rgba(74,222,128,0.16); color: var(--good-text);'
+    if (outcome === 'failed') return 'background: rgba(248,113,113,0.16); color: var(--bad-text);'
     return 'background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.6);'
   }
 
@@ -191,9 +191,9 @@
   }
 
   function statusStyle(status: string) {
-    if (status === 'pending') return 'background: rgba(251,191,36,0.16); color: #fcd34d;'
-    if (status === 'approved') return 'background: rgba(74,222,128,0.16); color: #86efac;'
-    return 'background: rgba(248,113,113,0.16); color: #fca5a5;'
+    if (status === 'pending') return 'background: rgba(251,191,36,0.16); color: var(--gold);'
+    if (status === 'approved') return 'background: rgba(74,222,128,0.16); color: var(--good-text);'
+    return 'background: rgba(248,113,113,0.16); color: var(--bad-text);'
   }
 
   function effectiveValue(signup: PlayerSignup) {
@@ -293,7 +293,7 @@
             {#if !bulkImportProgress}
               Loading signups…
             {:else if bulkImportProgress.waitSeconds != null}
-              <span style="color: #fcd34d;">
+              <span style="color: var(--gold);">
                 Rate limited — resuming in {bulkImportProgress.waitSeconds}s
               </span>
             {:else if bulkImportProgress.current}
@@ -350,7 +350,7 @@
           {bulkImportReport.updated} updated · {bulkImportReport.skipped} skipped · {bulkImportReport.failed}
           failed
           {#if bulkImportReport.stoppedEarly && !bulkImportRunning}
-            <span style="color: #fcd34d;">
+            <span style="color: var(--gold);">
               · stopped with {bulkImportReport.remaining} left, run again to continue
             </span>
           {/if}
@@ -432,7 +432,7 @@
             {#if pendingAlts > 0}
               <span
                 class="rounded px-2 py-0.5 text-[10px] font-bold uppercase"
-                style="background: rgba(147,197,253,0.16); color: #93c5fd;"
+                style="background: rgba(147,197,253,0.16); color: var(--info);"
                 title="Expand this signup to approve or reject"
               >
                 {pendingAlts} pending {pendingAlts === 1 ? 'alt' : 'alts'}
@@ -441,7 +441,7 @@
             {#if usedAlt}
               <span
                 class="rounded px-2 py-0.5 text-[10px] font-bold uppercase"
-                style="background: rgba(134,239,172,0.14); color: #86efac;"
+                style="background: rgba(134,239,172,0.14); color: var(--good-text);"
                 title="Ranks come from the alt {usedAlt}{usedAlt === higherAlt
                   ? ', which ranks higher than the main'
                   : ' (the main is short of V26 games)'}"
@@ -451,7 +451,7 @@
             {:else if higherAlt}
               <span
                 class="rounded px-2 py-0.5 text-[10px] font-bold uppercase"
-                style="background: rgba(251,191,36,0.16); color: #fcd34d;"
+                style="background: rgba(251,191,36,0.16); color: var(--gold);"
                 title="{higherAlt} has a higher base score than the main account"
               >
                 Alt higher
@@ -470,7 +470,7 @@
             {:else if !meetsGamesMinimum(signup.v26_comp_games)}
               <span
                 class="rounded px-2 py-0.5 text-[10px] font-bold uppercase"
-                style="background: rgba(248,113,113,0.16); color: #fca5a5; font-variant-numeric: tabular-nums;"
+                style="background: rgba(248,113,113,0.16); color: var(--bad-text); font-variant-numeric: tabular-nums;"
                 title="Needs {MIN_V26_COMP_GAMES} V26 competitive games on the main account"
               >
                 ⚠ {signup.v26_comp_games}/{MIN_V26_COMP_GAMES} V26 games
@@ -498,7 +498,7 @@
                 <a
                   href={resolve(`/players/${signup.profile.id}`)}
                   class="font-semibold"
-                  style="color: #93c5fd;"
+                  style="color: var(--info);"
                 >
                   View profile →
                 </a>
@@ -517,7 +517,7 @@
                     V26 comp games: <strong
                       style="color: {usedAlt || meetsGamesMinimum(signup.v26_comp_games)
                         ? 'rgba(255,255,255,0.85)'
-                        : '#fca5a5'};">{signup.v26_comp_games}</strong
+                        : 'var(--bad-text)'};">{signup.v26_comp_games}</strong
                     >
                     {#if signup.v26_comp_games_account}
                       on {signup.v26_comp_games_account}
@@ -555,7 +555,7 @@
                     {signup.display_name}#{signup.riot_tag}
                   </span>
                 {:else}
-                  <span class="text-[11px]" style="color: #fcd34d;">
+                  <span class="text-[11px]" style="color: var(--gold);">
                     No tagline on this signup — the lookup needs a linked Riot account.
                   </span>
                 {/if}
@@ -576,7 +576,7 @@
                       <span>{main.currentRank ?? '—'} / {main.peakRank ?? '—'}</span>
                       <span>base {fmt(main.baseScore)}</span>
                       {#if main.riotId === signup.alt_check.usedRiotId}
-                        <span style="color: #86efac;">ranks from this account</span>
+                        <span style="color: var(--good-text);">ranks from this account</span>
                       {/if}
                     </li>
                   {/if}
@@ -593,10 +593,10 @@
                         <span>not checked yet</span>
                       {/if}
                       {#if alt.riotId === signup.alt_check?.usedRiotId}
-                        <span style="color: #86efac;">ranks from this account</span>
+                        <span style="color: var(--good-text);">ranks from this account</span>
                       {/if}
                       {#if alt.riotId === higherAlt}
-                        <span style="color: #fcd34d;">higher than main</span>
+                        <span style="color: var(--gold);">higher than main</span>
                       {/if}
                       {#if alt.status === 'pending'}
                         <span class="ml-auto flex gap-1">
@@ -621,7 +621,7 @@
                     </li>
                   {/each}
                   {#if altError}
-                    <li style="color: #fca5a5;">{altError}</li>
+                    <li style="color: var(--bad-text);">{altError}</li>
                   {/if}
                 </ul>
               {/if}

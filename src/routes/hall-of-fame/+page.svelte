@@ -4,6 +4,8 @@
   import PageHeading from '$lib/components/PageHeading.svelte'
   import ClipPlayer from '$lib/components/ClipPlayer.svelte'
   import { resolve } from '$app/paths'
+  import ExternalEventsToggle from '$lib/components/ExternalEventsToggle.svelte'
+  import { externalEvents } from '$lib/stores/external-events.svelte'
 
   let { data }: PageProps = $props()
 
@@ -13,7 +15,15 @@
   const seasonChampions = $derived(data.seasonChampions ?? [])
   const statRecords = $derived(data.statRecords ?? [])
   const recordTrack = $derived(data.recordTrack)
-  const trackOptions = $derived(data.trackOptions ?? [])
+  const allTrackOptions = $derived(data.trackOptions ?? [])
+  // A side league's tab is hidden unless external events are shown — never the
+  // default book or the one being viewed.
+  const isHideable = (o: (typeof allTrackOptions)[number]) =>
+    o.isSideLeague && !o.isDefault && o.key !== data.recordTrack.key
+  const hasHideableTracks = $derived(allTrackOptions.some(isHideable))
+  const trackOptions = $derived(
+    externalEvents.show ? allTrackOptions : allTrackOptions.filter((o) => !isHideable(o))
+  )
 
   type StatRecord = PageProps['data']['statRecords'][number]
   type StatEntry = StatRecord['top'][number]
@@ -195,10 +205,46 @@
   <div class="page-content py-6">
     <PageHeading
       title="Hall of Fame"
-      subtitle="Records, champions, and the moments worth remembering."
-    ></PageHeading>
+      subtitle={recordTrack.isSideLeague
+        ? `${recordTrack.label}: its champions, records and moments.`
+        : 'Records, champions, and the moments worth remembering.'}
+    >
+      {#snippet actions()}
+        <div class="hof-actions">
+          {#if trackOptions.length > 1}
+            <!-- Rivals is permanent; side leagues keep their own book, frozen once they end. -->
+            <nav class="track-seg" aria-label="Event">
+              {#each trackOptions as option (option.key)}
+                <!-- eslint-disable svelte/no-navigation-without-resolve -->
+                <!-- resolve() plus a ?track= query; the rule cannot see through the concatenation -->
+                <a
+                  href={resolve('/hall-of-fame') +
+                    (option.isDefault ? '' : `?track=${encodeURIComponent(option.key)}`)}
+                  class="track-option"
+                  class:active={option.key === recordTrack.key}
+                  aria-current={option.key === recordTrack.key ? 'page' : undefined}
+                  data-sveltekit-noscroll
+                >
+                  {option.label}{option.isPast ? ' (archived)' : ''}
+                </a>
+                <!-- eslint-enable svelte/no-navigation-without-resolve -->
+              {/each}
+            </nav>
+          {/if}
+          {#if hasHideableTracks}
+            <ExternalEventsToggle label="External events" />
+          {/if}
+        </div>
+      {/snippet}
+    </PageHeading>
 
-    {#if isEmpty}
+    {#if isEmpty && recordTrack.isSideLeague}
+      <div class="sheet">
+        <div class="empty-state">
+          <p class="empty-title">Nothing enshrined for {recordTrack.label} yet</p>
+        </div>
+      </div>
+    {:else if isEmpty}
       <div class="sheet">
         <div class="empty-state">
           <p class="empty-title">Nothing enshrined yet</p>
@@ -215,7 +261,9 @@
         {#if seasonChampions.length > 0}
           <section class="sheet-section" aria-labelledby="hof-champions">
             <div class="sheet-head">
-              <h2 class="sheet-title" id="hof-champions">Season champions</h2>
+              <h2 class="sheet-title" id="hof-champions">
+                {recordTrack.isSideLeague ? 'Champions' : 'Season champions'}
+              </h2>
               <span class="sheet-note head-aside">
                 {seasonChampions.length}
                 {seasonChampions.length === 1 ? 'season' : 'seasons'}
@@ -265,32 +313,10 @@
         {/if}
 
         <!-- Stat records (generated from match stats, Season 5 onward) -->
-        {#if statRecords.length > 0 || trackOptions.length > 1}
+        {#if statRecords.length > 0 || !recordTrack.isSideLeague}
           <section class="sheet-section" aria-labelledby="hof-records">
             <div class="sheet-head">
-              <h2 class="sheet-title" id="hof-records">
-                {recordTrack.isSideLeague ? `${recordTrack.label} records` : 'Stat records'}
-              </h2>
-              {#if trackOptions.length > 1}
-                <!-- Rivals is permanent; ended side leagues keep their frozen records here. -->
-                <nav class="track-seg head-aside" aria-label="Record books">
-                  {#each trackOptions as option (option.key)}
-                    <!-- eslint-disable svelte/no-navigation-without-resolve -->
-                    <!-- resolve() plus a ?track= query; the rule cannot see through the concatenation -->
-                    <a
-                      href={resolve('/hall-of-fame') +
-                        (option.isDefault ? '' : `?track=${encodeURIComponent(option.key)}`)}
-                      class="track-option"
-                      class:active={option.key === recordTrack.key}
-                      aria-current={option.key === recordTrack.key ? 'page' : undefined}
-                      data-sveltekit-noscroll
-                    >
-                      {option.label}{option.isPast ? ' (archived)' : ''}
-                    </a>
-                    <!-- eslint-enable svelte/no-navigation-without-resolve -->
-                  {/each}
-                </nav>
-              {/if}
+              <h2 class="sheet-title" id="hof-records">Stat records</h2>
             </div>
             <div class="sheet-body">
               {#if statRecords.length > 0}
@@ -562,7 +588,15 @@
     color: rgba(255, 255, 255, 0.5);
   }
 
-  /* Record book switch, docked to the section header. */
+  /* Event switch, docked to the page heading; it filters every section. */
+  .hof-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem 1rem;
+  }
+
   .track-seg {
     display: inline-flex;
     flex-wrap: wrap;
@@ -760,7 +794,7 @@
 
   .rank-gold .pod-rank,
   .rank-gold .pod-value {
-    color: #fcd34d;
+    color: var(--gold);
   }
 
   .rank-silver .pod-rank,

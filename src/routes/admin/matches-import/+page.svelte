@@ -1230,7 +1230,7 @@
             <div class="admin-stat-label">
               <CheckCircle2 size={16} /> Matched Players
             </div>
-            <div class="admin-stat-value" style="color: #86efac;">
+            <div class="admin-stat-value" style="color: var(--good-text);">
               {seriesSummary.matchedPlayers}
             </div>
           </div>
@@ -1238,7 +1238,7 @@
             <div class="admin-stat-label">
               <AlertTriangle size={16} /> Unmatched Players
             </div>
-            <div class="admin-stat-value" style="color: #fca5a5;">
+            <div class="admin-stat-value" style="color: var(--bad-text);">
               {seriesSummary.unmatchedPlayers}
             </div>
           </div>

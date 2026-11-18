@@ -143,7 +143,7 @@
     border-radius: 0.625rem;
     border: 1px solid rgba(248, 113, 113, 0.28);
     background: rgba(248, 113, 113, 0.07);
-    color: #fca5a5;
+    color: var(--bad-text);
     font-size: 0.875rem;
   }
 

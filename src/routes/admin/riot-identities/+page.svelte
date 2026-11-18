@@ -348,7 +348,7 @@
                         {#each identity.rostered_on as teamName (teamName)}
                           <span
                             class="ml-1.5 inline-block rounded-full px-2 py-0.5 align-middle text-[10px] font-semibold uppercase"
-                            style="background: rgba(74, 222, 128, 0.12); color: #86efac;"
+                            style="background: rgba(74, 222, 128, 0.12); color: var(--good-text);"
                             title="Holds this team's roster slot; still needs linking to a player profile"
                           >
                             Rostered · {teamName}

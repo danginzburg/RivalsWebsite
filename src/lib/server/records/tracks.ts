@@ -69,7 +69,10 @@ export function buildRecordTracks(seasons: SeasonRow[]): {
 export async function loadRecordTracks() {
   const { data, error } = await supabaseAdmin.from('seasons').select('id, code, name, is_active')
   if (error) throw new Error(`Failed to load seasons: ${error.message}`)
-  const tracks = buildRecordTracks((data ?? []) as SeasonRow[])
+  const built = buildRecordTracks((data ?? []) as SeasonRow[])
+  // Every ended side league, records or not — the Hall of Fame still lists one
+  // whose champion or hand-made entries are all it has.
+  const tracks = { ...built, endedSideLeagues: built.pastSideLeagues }
   if (tracks.pastSideLeagues.length === 0) return tracks
 
   // Only side leagues that were tracked while they ran have records to show.

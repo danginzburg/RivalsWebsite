@@ -98,7 +98,7 @@
   }
 
   .review-flag-btn:hover:not(:disabled) {
-    color: #fca5a5;
+    color: var(--bad-text);
     border-color: rgba(248, 113, 113, 0.4);
     background: rgba(248, 113, 113, 0.08);
   }
@@ -110,10 +110,10 @@
 
   .review-flag-notice {
     font-size: 0.78rem;
-    color: #86efac;
+    color: var(--good-text);
   }
 
   .review-flag-notice.is-error {
-    color: #fca5a5;
+    color: var(--bad-text);
   }
 </style>

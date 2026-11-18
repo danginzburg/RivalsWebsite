@@ -439,7 +439,7 @@
         <div
           class="mt-4 rounded-md border p-3 text-sm"
           style={submitResult.success
-            ? 'border-color: rgba(34,197,94,0.30); background: rgba(34,197,94,0.08); color: #86efac;'
+            ? 'border-color: rgba(34,197,94,0.30); background: rgba(34,197,94,0.08); color: var(--good-text);'
             : 'border-color: rgba(248,113,113,0.35); background: rgba(248,113,113,0.08); color: #fecaca;'}
         >
           {submitResult.message}
@@ -516,12 +516,13 @@
                     {#if row.matched_profile_id}
                       <span
                         class="rounded-full px-2 py-1 text-xs font-semibold"
-                        style="background: rgba(74,222,128,0.18); color: #86efac;">Yes</span
+                        style="background: rgba(74,222,128,0.18); color: var(--good-text);"
+                        >Yes</span
                       >
                     {:else}
                       <span
                         class="rounded-full px-2 py-1 text-xs font-semibold"
-                        style="background: rgba(250,204,21,0.18); color: #fde68a;">No</span
+                        style="background: rgba(250,204,21,0.18); color: var(--gold-text);">No</span
                       >
                     {/if}
                   </td>

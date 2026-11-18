@@ -8,21 +8,45 @@
   import { enhance } from '$app/forms'
   import { agentIconUrl, rankIconUrlByKey } from '$lib/icons'
   import { rankImageKey, rankLabel } from '$lib/ranks/ranks'
+  import ExternalEventsToggle from '$lib/components/ExternalEventsToggle.svelte'
+  import { externalEvents } from '$lib/stores/external-events.svelte'
 
   let { data, form }: PageProps = $props()
 
   const clickedName = $derived(String(data.clickedName ?? 'Player'))
   const base = $derived(String(data.base ?? ''))
   const batchId = $derived(data.batchId ?? null)
-  const batchOptions = $derived(
+  const allBatchOptions = $derived(
     (data.batchOptions ?? []) as Array<{
       label: string
       value: string
       import_kind?: string | null
+      external?: boolean
     }>
   )
+  // External events (Shitter League) are hidden unless shown — except when the
+  // picked stats table is one.
+  const viewingExternal = $derived(allBatchOptions.some((o) => o.value === batchId && o.external))
+  const hideExternal = $derived(!externalEvents.show && !viewingExternal)
+  const externalSeasonIds = $derived(new Set((data.externalSeasonIds ?? []) as string[]))
+  const isExternalMatch = (season_id: string | null | undefined) =>
+    Boolean(season_id) && externalSeasonIds.has(season_id as string)
+  const batchOptions = $derived(
+    hideExternal
+      ? allBatchOptions.filter((o) => !o.external || o.value === batchId)
+      : allBatchOptions
+  )
   const selected = $derived(data.selected ?? null)
-  const matchHistory = $derived(data.matchHistory ?? [])
+  const allMatchHistory = $derived(data.matchHistory ?? [])
+  const hasExternalContent = $derived(
+    allBatchOptions.some((o) => o.external) ||
+      allMatchHistory.some((e) => isExternalMatch(e.match.season_id))
+  )
+  const matchHistory = $derived(
+    hideExternal
+      ? allMatchHistory.filter((e) => !isExternalMatch(e.match.season_id))
+      : allMatchHistory
+  )
   const mapStats = $derived(
     (data.mapStats ?? []) as Array<{
       key: string
@@ -237,7 +261,7 @@
                   type="submit"
                   formaction="?/claim"
                   class="rounded-md px-3 py-2 text-sm font-semibold"
-                  style="background: rgba(74,222,128,0.2); color: #4ade80;"
+                  style="background: rgba(74,222,128,0.2); color: var(--good);"
                 >
                   Save
                 </button>
@@ -269,6 +293,9 @@
                     onSelect={navToBatch}
                   />
                 </div>
+              {/if}
+              {#if hasExternalContent && !viewingExternal}
+                <ExternalEventsToggle label="External events" />
               {/if}
             </div>
           </div>
@@ -621,7 +648,7 @@
   }
 
   .data-table tbody tr:hover {
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--row-hover);
   }
 
   .data-table .col-left {
@@ -672,7 +699,7 @@
   }
 
   .match-row:hover {
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--row-hover);
   }
 
   .match-row:hover .row-name {
@@ -693,12 +720,12 @@
 
   .row-win {
     background: rgba(74, 222, 128, 0.16);
-    color: #4ade80;
+    color: var(--good);
   }
 
   .row-loss {
     background: rgba(248, 113, 113, 0.14);
-    color: #f87171;
+    color: var(--bad);
   }
 
   .row-logo {

@@ -131,7 +131,7 @@
     padding: 0.0625rem 0.4375rem;
     border-radius: 9999px;
     background: rgba(251, 191, 36, 0.16);
-    color: #fcd34d;
+    color: var(--gold);
   }
   .row {
     display: flex;
@@ -177,7 +177,7 @@
   }
   .warn {
     font-size: 0.625rem;
-    color: #fcd34d;
+    color: var(--gold);
   }
   .actions {
     display: flex;
@@ -194,11 +194,11 @@
   }
   .approve {
     background: rgba(74, 222, 128, 0.2);
-    color: #4ade80;
+    color: var(--good);
   }
   .reject {
     background: rgba(248, 113, 113, 0.14);
-    color: #fca5a5;
+    color: var(--bad-text);
   }
   .approve:disabled,
   .reject:disabled {
@@ -208,6 +208,6 @@
   .error {
     margin-bottom: 0.5rem;
     font-size: 0.75rem;
-    color: #fca5a5;
+    color: var(--bad-text);
   }
 </style>

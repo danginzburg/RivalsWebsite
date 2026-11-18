@@ -3,12 +3,11 @@
   import PageContainer from '$lib/components/PageContainer.svelte'
   import { ChevronRight } from 'lucide-svelte'
   import { resolve } from '$app/paths'
-  import { onMount } from 'svelte'
-
-  const HIDE_EXTERNAL_STORAGE_KEY = 'events:hide-external'
+  import ExternalEventsToggle from '$lib/components/ExternalEventsToggle.svelte'
+  import { externalEvents } from '$lib/stores/external-events.svelte'
 
   let { data }: PageProps = $props()
-  let hideExternal = $state(false)
+  const hideExternal = $derived(!externalEvents.show)
   const allSeasons = $derived(data.seasons ?? [])
   const externalCount = $derived(allSeasons.filter((s) => s.external).length)
   const seasons = $derived(hideExternal ? allSeasons.filter((s) => !s.external) : allSeasons)
@@ -23,24 +22,6 @@
       { label: 'Past', rows: seasons.filter((s) => !s.is_active && !s.upcoming) },
     ].filter((g) => g.rows.length > 0)
   )
-
-  // localStorage only exists in the browser, so read it after mount.
-  onMount(() => {
-    try {
-      hideExternal = localStorage.getItem(HIDE_EXTERNAL_STORAGE_KEY) === '1'
-    } catch {
-      // Storage blocked; keep the default.
-    }
-  })
-
-  function toggleHideExternal() {
-    hideExternal = !hideExternal
-    try {
-      localStorage.setItem(HIDE_EXTERNAL_STORAGE_KEY, hideExternal ? '1' : '0')
-    } catch {
-      // Storage blocked; the toggle still works for this visit.
-    }
-  }
 
   function formatRange(startsOn: string | null, endsOn: string | null) {
     if (!startsOn && !endsOn) return 'Dates TBD'
@@ -121,16 +102,7 @@
           {/if}
         </span>
         {#if externalCount > 0}
-          <button
-            type="button"
-            class="ev-switch"
-            class:ev-switch-on={hideExternal}
-            aria-pressed={hideExternal}
-            onclick={toggleHideExternal}
-          >
-            <span class="ev-track" aria-hidden="true"><span class="ev-knob"></span></span>
-            Hide external events
-          </button>
+          <ExternalEventsToggle />
         {/if}
       </div>
 
@@ -141,9 +113,7 @@
               <p class="ev-empty-title">No seasons yet</p>
               <p class="ev-empty-text">Once a season is created it will appear here.</p>
             {:else}
-              <p class="ev-empty-text">
-                Every event is external. Turn the switch off to show them.
-              </p>
+              <p class="ev-empty-text">Every event is external. Turn the switch on to show them.</p>
             {/if}
           </div>
         {:else}
@@ -215,7 +185,9 @@
                     </div>
                   </div>
                 {:else}
-                  <div class="ev-status">{statusText(season)}</div>
+                  <div class="ev-status" class:ev-status-upcoming={season.upcoming}>
+                    {statusText(season)}
+                  </div>
                 {/if}
 
                 <div class="ev-num" class:ev-dim={season.team_count === 0}>
@@ -274,54 +246,6 @@
     font-weight: 600;
     color: rgba(255, 255, 255, 0.9);
     font-variant-numeric: tabular-nums;
-  }
-
-  .ev-switch {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.625rem;
-    min-height: 2.75rem;
-    padding: 0 0.125rem;
-    background: none;
-    border: 0;
-    font: inherit;
-    font-size: 0.8125rem;
-    color: rgba(255, 255, 255, 0.82);
-    cursor: pointer;
-  }
-
-  .ev-switch:hover {
-    color: #fff;
-  }
-
-  .ev-track {
-    position: relative;
-    width: 1.875rem;
-    height: 1.125rem;
-    border-radius: 9999px;
-    background: rgba(255, 255, 255, 0.14);
-    flex-shrink: 0;
-    transition: background 0.15s;
-  }
-
-  .ev-knob {
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 0.875rem;
-    height: 0.875rem;
-    border-radius: 9999px;
-    background: rgba(255, 255, 255, 0.8);
-    transition: transform 0.15s;
-  }
-
-  .ev-switch-on .ev-track {
-    background: rgba(192, 132, 252, 0.5);
-  }
-
-  .ev-switch-on .ev-knob {
-    transform: translateX(12px);
-    background: #fff;
   }
 
   .ev-list {
@@ -388,7 +312,7 @@
   }
 
   .ev-d1 {
-    background: #fcd34d;
+    background: var(--gold);
   }
 
   .ev-d2 {
@@ -428,7 +352,7 @@
   }
 
   .ev-row:hover {
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--row-hover);
   }
 
   .ev-logo {
@@ -545,7 +469,13 @@
   .ev-status {
     grid-column: 3 / span 4;
     font-size: 0.8125rem;
-    color: rgba(255, 255, 255, 0.56);
+    /* Season played, results pending. */
+    color: var(--gold-text);
+    opacity: 0.8;
+  }
+
+  .ev-status-upcoming {
+    color: var(--teal-text);
   }
 
   .ev-num {

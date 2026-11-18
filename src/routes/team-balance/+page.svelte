@@ -1,7 +1,6 @@
 <script lang="ts">
   import PageContainer from '$lib/components/PageContainer.svelte'
-  import PageHeading from '$lib/components/PageHeading.svelte'
-  import { CheckCircle, XCircle, Users, RotateCcw, Search, AlertCircle } from 'lucide-svelte'
+  import { CheckCircle, XCircle, RotateCcw, Search, AlertCircle } from 'lucide-svelte'
   import { enhance } from '$app/forms'
   import { TEAM_CAP_LIMIT } from '$lib/team-balance'
   import type { PageProps } from './$types'
@@ -21,7 +20,9 @@
   const ratedPlayers = $derived((data.ratedPlayers ?? []) as RatedPlayer[])
   const hasRoster = $derived(ratedPlayers.length > 0)
   const season = $derived(data.season)
-  const maxAverage = $derived(data.cap.maxAverage)
+  /** Null for non-admins until the season is marked active. */
+  const cap = $derived(data.cap)
+  const maxAverage = $derived(cap?.maxAverage ?? 0)
   const isAdmin = $derived(data.user?.role === 'admin')
 
   let savingCap = $state(false)
@@ -84,7 +85,7 @@
   const totalValue = $derived(matchedRoster.reduce((sum, p) => sum + p.value, 0))
   const average = $derived(matchedRoster.length > 0 ? totalValue / matchedRoster.length : 0)
   const allFilled = $derived(matchedRoster.length === ROSTER_SIZE)
-  const isEligible = $derived(allFilled && average <= maxAverage)
+  const isEligible = $derived(cap !== null && allFilled && average <= maxAverage)
 
   /** Rating headroom left for the slots still empty. */
   const slotsLeft = $derived(ROSTER_SIZE - matchedRoster.length)
@@ -165,466 +166,497 @@
 
 <PageContainer>
   <div class="page-content-narrow py-6">
-    <PageHeading
-      title="Team Balance Calculator"
-      subtitle={season
-        ? `Add five players approved for ${season.name} to check the roster against the cap.`
-        : 'Add five registered players to check the roster against the cap.'}
-      icon={Users}
-    />
+    <div class="sheet tb-sheet">
+      <header class="tb-head">
+        <h1 class="tb-title">Team Balance</h1>
+        <p class="tb-sub">
+          {season
+            ? `Add five players approved for ${season.name} to check the roster against the cap.`
+            : 'Add five registered players to check the roster against the cap.'}
+        </p>
+      </header>
 
-    {#if data.cap.isDefault}
-      <div class="notice">
-        <AlertCircle size={16} style="flex-shrink: 0; margin-top: 1px;" />
-        <div>
-          <strong>Provisional cap.</strong>
-          The team average cap hasn't been finalised — {maxAverage} is a placeholder and may change before
-          the season starts.
+      {#if !cap}
+        <div class="tb-notice">
+          <AlertCircle size={15} class="tb-notice-icon" />
+          <p>
+            <strong>Cap not announced yet.</strong>
+            The team average cap will be shown here once the season starts. You can still build a roster
+            and see its average.
+          </p>
         </div>
-      </div>
-    {/if}
-
-    {#if isAdmin}
-      <form
-        class="cap-form"
-        method="POST"
-        action="?/setCap"
-        use:enhance={({ formData, cancel }) => {
-          const next = formData.get('maxAverage')
-          const prompt = `Change the team average cap from ${maxAverage} to ${next}? This changes the cap for everyone.`
-          if (!window.confirm(prompt)) {
-            cancel()
-            return
-          }
-          savingCap = true
-          return async ({ update }) => {
-            await update({ reset: false })
-            savingCap = false
-          }
-        }}
-      >
-        <label class="cap-label" for="cap-input">Team average cap</label>
-        <input
-          id="cap-input"
-          class="input cap-input"
-          type="number"
-          name="maxAverage"
-          step="0.01"
-          min="0.01"
-          max={TEAM_CAP_LIMIT}
-          required
-          value={maxAverage}
-        />
-        <button type="submit" class="clear-btn" disabled={savingCap}>
-          {savingCap ? 'Saving…' : 'Save cap'}
-        </button>
-        {#if form?.capError}
-          <span class="cap-form-msg cap-over">{form.capError}</span>
-        {:else if form?.capSaved}
-          <span class="cap-form-msg cap-ok">Saved. This is now the cap for everyone.</span>
-        {/if}
-      </form>
-    {/if}
-
-    {#if !hasRoster}
-      <div class="notice">
-        <AlertCircle size={16} style="flex-shrink: 0; margin-top: 1px;" />
-        <div>
-          <strong>No rated players yet.</strong>
-          Values come from approved signups. Once an admin approves players for
-          {season ? season.name : 'the season taking signups'}, they'll be selectable here.
-        </div>
-      </div>
-    {/if}
-
-    <!-- Cap summary -->
-    <div class="cap-bar">
-      <div class="cap-item">
-        <span class="cap-label">Team average</span>
-        <span class="cap-value" class:cap-over={allFilled && !isEligible} class:cap-ok={isEligible}>
-          {matchedRoster.length > 0 ? average.toFixed(2) : '—'}
-        </span>
-      </div>
-      <div class="cap-divider"></div>
-      <div class="cap-item">
-        <span class="cap-label">Maximum</span>
-        <span class="cap-value cap-muted">{maxAverage}</span>
-      </div>
-      <div class="cap-divider"></div>
-      <div class="cap-item">
-        <span class="cap-label">Players</span>
-        <span class="cap-value cap-muted">{matchedRoster.length}/{ROSTER_SIZE}</span>
-      </div>
-      {#if slotsLeft > 0 && matchedRoster.length > 0}
-        <div class="cap-divider"></div>
-        <div class="cap-item">
-          <span class="cap-label">Budget per empty slot</span>
-          <span class="cap-value" class:cap-over={maxForNext < 0}>{maxForNext.toFixed(2)}</span>
+      {:else if cap.isDefault}
+        <div class="tb-notice">
+          <AlertCircle size={15} class="tb-notice-icon" />
+          <p>
+            <strong>Provisional cap.</strong>
+            The team average cap hasn't been finalised — {maxAverage} is a placeholder and may change
+            before the season starts.
+          </p>
         </div>
       {/if}
-    </div>
 
-    <!-- Verdict -->
-    {#if allFilled}
-      <div class="verdict" class:verdict-ok={isEligible} class:verdict-bad={!isEligible}>
-        {#if isEligible}
-          <CheckCircle size={20} />
-          <span>
-            <strong>Eligible.</strong> Average {average.toFixed(2)} is within the
-            {maxAverage} cap.
-          </span>
-        {:else}
-          <XCircle size={20} />
-          <span>
-            <strong>Over the cap.</strong> Average {average.toFixed(2)} exceeds
-            {maxAverage} by {(average - maxAverage).toFixed(2)}.
-          </span>
-        {/if}
-      </div>
-    {/if}
+      {#if !hasRoster}
+        <div class="tb-notice">
+          <AlertCircle size={15} class="tb-notice-icon" />
+          <p>
+            <strong>No rated players yet.</strong>
+            Values come from approved signups. Once an admin approves players for
+            {season ? season.name : 'the season taking signups'}, they'll be selectable here.
+          </p>
+        </div>
+      {/if}
 
-    <!-- Roster -->
-    <section class="roster">
-      <div class="roster-head">
-        <h2 class="roster-title">Roster</h2>
-        {#if unknownCount > 0}
-          <span class="roster-warn">
-            <AlertCircle size={13} />
-            {unknownCount}
-            {unknownCount === 1 ? 'name is' : 'names are'} not a registered player
-          </span>
-        {/if}
-      </div>
-
-      <div class="rows">
-        {#each names as name, i (i)}
-          {@const matched = matchedPlayer(name)}
-          {@const unknown = isUnknown(i)}
-          {@const suggestions = openSlot === i ? suggestionsFor(i) : []}
-          <div class="row" class:row-matched={matched} class:row-unknown={unknown}>
-            <span class="row-num">{i + 1}</span>
-
-            <div class="row-name">
-              <input
-                type="text"
-                id="player-{i}"
-                role="combobox"
-                aria-autocomplete="list"
-                aria-expanded={suggestions.length > 0}
-                aria-controls="player-options-{i}"
-                aria-activedescendant={suggestions.length > 0
-                  ? `player-option-${i}-${highlighted}`
-                  : undefined}
-                autocomplete="off"
-                bind:value={names[i]}
-                oninput={() => handleInput(i)}
-                onkeydown={(e) => handleKeydown(e, i)}
-                onblur={() => (openSlot = null)}
-                placeholder={hasRoster ? 'Search by name or Riot ID' : 'No players available'}
-                disabled={!hasRoster}
-                class="input"
-              />
-
-              {#if suggestions.length > 0}
-                <div class="suggestions" id="player-options-{i}" role="listbox">
-                  {#each suggestions as player, s (player.profileId)}
-                    <button
-                      type="button"
-                      id="player-option-{i}-{s}"
-                      class="suggestion"
-                      class:suggestion-active={s === highlighted}
-                      role="option"
-                      aria-selected={s === highlighted}
-                      tabindex="-1"
-                      onmousedown={(e) => e.preventDefault()}
-                      onmouseenter={() => (highlighted = s)}
-                      onclick={() => pick(i, player)}
-                    >
-                      <span class="suggestion-text">
-                        <span class="suggestion-name">{player.name}</span>
-                        {#if player.riotId && player.riotId !== player.name}
-                          <span class="suggestion-riot">{player.riotId}</span>
-                        {/if}
-                      </span>
-                      <span class="suggestion-value">{player.value}</span>
-                    </button>
-                  {/each}
-                </div>
-              {/if}
-
-              {#if !name}
-                <span class="row-icon"><Search size={13} /></span>
-              {:else if unknown}
-                <span class="row-icon row-icon-warn"><AlertCircle size={14} /></span>
-              {/if}
-            </div>
-
-            <div class="row-value">
-              {#if matched}
-                <span class="value-num">{matched.value}</span>
-                {#if matched.isManual}
-                  <span class="value-src">set by admin</span>
-                {:else if matched.rank}
-                  <span class="value-src">{matched.rank}</span>
-                {/if}
-              {:else if unknown}
-                <span class="value-unknown">not found</span>
-              {:else}
-                <span class="value-empty">—</span>
-              {/if}
-            </div>
-
-            <button
-              type="button"
-              class="row-clear"
-              aria-label="Clear slot {i + 1}"
-              disabled={!name}
-              onclick={() => (names[i] = '')}
+      <!-- Cap summary -->
+      <section class="tb-summary" aria-label="Roster summary">
+        <div class="tb-stats">
+          <div class="tb-stat">
+            <span class="tb-stat-label">Team average</span>
+            <span
+              class="tb-stat-value"
+              class:tb-over={cap && allFilled && !isEligible}
+              class:tb-ok={isEligible}
             >
-              <XCircle size={14} />
-            </button>
+              {matchedRoster.length > 0 ? average.toFixed(2) : '—'}
+            </span>
           </div>
-        {/each}
-      </div>
+          {#if cap}
+            <div class="tb-stat">
+              <span class="tb-stat-label">Cap</span>
+              <span class="tb-stat-value tb-muted">{maxAverage}</span>
+            </div>
+          {/if}
+          <div class="tb-stat">
+            <span class="tb-stat-label">Players</span>
+            <span class="tb-stat-value tb-muted">{matchedRoster.length}/{ROSTER_SIZE}</span>
+          </div>
+          {#if cap && slotsLeft > 0 && matchedRoster.length > 0}
+            <div class="tb-stat">
+              <span class="tb-stat-label">Budget per empty slot</span>
+              <span class="tb-stat-value" class:tb-over={maxForNext < 0}
+                >{maxForNext.toFixed(2)}</span
+              >
+            </div>
+          {/if}
+        </div>
 
-      <div class="roster-foot">
-        <p class="foot-note">
+        {#if cap && allFilled}
+          <div
+            class="tb-verdict"
+            class:tb-verdict-ok={isEligible}
+            class:tb-verdict-bad={!isEligible}
+          >
+            {#if isEligible}
+              <CheckCircle size={16} />
+              <span>
+                <strong>Eligible.</strong> Average {average.toFixed(2)} is within the
+                {maxAverage} cap.
+              </span>
+            {:else}
+              <XCircle size={16} />
+              <span>
+                <strong>Over the cap.</strong> Average {average.toFixed(2)} exceeds
+                {maxAverage} by {(average - maxAverage).toFixed(2)}.
+              </span>
+            {/if}
+          </div>
+        {/if}
+      </section>
+
+      <!-- Roster -->
+      <section class="sheet-section">
+        <div class="sheet-head">
+          <h2 class="sheet-title">Roster</h2>
+          {#if unknownCount > 0}
+            <span class="tb-warn">
+              <AlertCircle size={12} />
+              {unknownCount}
+              {unknownCount === 1 ? 'name is' : 'names are'} not a registered player
+            </span>
+          {/if}
+        </div>
+
+        <div class="sheet-body">
+          <div class="tb-rows">
+            {#each names as name, i (i)}
+              {@const matched = matchedPlayer(name)}
+              {@const unknown = isUnknown(i)}
+              {@const suggestions = openSlot === i ? suggestionsFor(i) : []}
+              <div class="tb-row" class:tb-row-matched={matched} class:tb-row-unknown={unknown}>
+                <span class="tb-row-num">{i + 1}</span>
+
+                <div class="tb-row-name">
+                  <input
+                    type="text"
+                    id="player-{i}"
+                    role="combobox"
+                    aria-label="Player {i + 1}"
+                    aria-autocomplete="list"
+                    aria-expanded={suggestions.length > 0}
+                    aria-controls="player-options-{i}"
+                    aria-activedescendant={suggestions.length > 0
+                      ? `player-option-${i}-${highlighted}`
+                      : undefined}
+                    autocomplete="off"
+                    bind:value={names[i]}
+                    oninput={() => handleInput(i)}
+                    onkeydown={(e) => handleKeydown(e, i)}
+                    onblur={() => (openSlot = null)}
+                    placeholder={hasRoster ? 'Search by name or Riot ID' : 'No players available'}
+                    disabled={!hasRoster}
+                    class="tb-input"
+                  />
+
+                  {#if suggestions.length > 0}
+                    <div class="tb-suggestions" id="player-options-{i}" role="listbox">
+                      {#each suggestions as player, s (player.profileId)}
+                        <button
+                          type="button"
+                          id="player-option-{i}-{s}"
+                          class="tb-suggestion"
+                          class:tb-suggestion-active={s === highlighted}
+                          role="option"
+                          aria-selected={s === highlighted}
+                          tabindex="-1"
+                          onmousedown={(e) => e.preventDefault()}
+                          onmouseenter={() => (highlighted = s)}
+                          onclick={() => pick(i, player)}
+                        >
+                          <span class="tb-suggestion-text">
+                            <span class="tb-suggestion-name">{player.name}</span>
+                            {#if player.riotId && player.riotId !== player.name}
+                              <span class="tb-suggestion-riot">{player.riotId}</span>
+                            {/if}
+                          </span>
+                          <span class="tb-suggestion-value">{player.value}</span>
+                        </button>
+                      {/each}
+                    </div>
+                  {/if}
+
+                  {#if !name}
+                    <span class="tb-row-icon"><Search size={13} /></span>
+                  {:else if unknown}
+                    <span class="tb-row-icon tb-row-icon-warn"><AlertCircle size={14} /></span>
+                  {/if}
+                </div>
+
+                <div class="tb-row-value">
+                  {#if matched}
+                    <span class="tb-value-num">{matched.value}</span>
+                    {#if matched.isManual}
+                      <span class="tb-value-src">set by admin</span>
+                    {:else if matched.rank}
+                      <span class="tb-value-src">{matched.rank}</span>
+                    {/if}
+                  {:else if unknown}
+                    <span class="tb-value-unknown">not found</span>
+                  {:else}
+                    <span class="tb-value-empty">—</span>
+                  {/if}
+                </div>
+
+                <button
+                  type="button"
+                  class="tb-row-clear"
+                  aria-label="Clear slot {i + 1}"
+                  disabled={!name}
+                  onclick={() => (names[i] = '')}
+                >
+                  <XCircle size={14} />
+                </button>
+              </div>
+            {/each}
+          </div>
+        </div>
+      </section>
+
+      <footer class="tb-foot">
+        <p class="tb-foot-note">
           Each player's value is their signup score: current and peak rank plus a rating bonus, with
           any admin adjustment. Names that don't match a registered player are ignored in the
           average.
         </p>
-        <button type="button" class="clear-btn" onclick={clearAll}>
+        <button type="button" class="tb-btn" onclick={clearAll}>
           <RotateCcw size={13} /> Clear all
         </button>
-      </div>
-    </section>
+      </footer>
+
+      {#if isAdmin}
+        <section class="sheet-section tb-admin">
+          <div class="sheet-head">
+            <h2 class="sheet-title">Admin</h2>
+            <span class="sheet-note">Changes the cap for everyone</span>
+          </div>
+          <div class="sheet-body">
+            <form
+              class="tb-cap-form"
+              method="POST"
+              action="?/setCap"
+              use:enhance={({ formData, cancel }) => {
+                const next = formData.get('maxAverage')
+                const prompt = `Change the team average cap from ${maxAverage} to ${next}? This changes the cap for everyone.`
+                if (!window.confirm(prompt)) {
+                  cancel()
+                  return
+                }
+                savingCap = true
+                return async ({ update }) => {
+                  await update({ reset: false })
+                  savingCap = false
+                }
+              }}
+            >
+              <label class="tb-cap-label" for="cap-input">Team average cap</label>
+              <input
+                id="cap-input"
+                class="tb-input tb-cap-input"
+                type="number"
+                name="maxAverage"
+                step="0.01"
+                min="0.01"
+                max={TEAM_CAP_LIMIT}
+                required
+                value={maxAverage}
+              />
+              <button type="submit" class="tb-btn" disabled={savingCap}>
+                {savingCap ? 'Saving…' : 'Save cap'}
+              </button>
+              {#if form?.capError}
+                <span class="tb-cap-msg tb-over">{form.capError}</span>
+              {:else if form?.capSaved}
+                <span class="tb-cap-msg tb-ok">Saved. This is now the cap for everyone.</span>
+              {/if}
+            </form>
+          </div>
+        </section>
+      {/if}
+    </div>
   </div>
 </PageContainer>
 
 <style>
-  .notice {
+  /* The suggestion dropdowns hang below their row, so the sheet must not clip
+     them; the header band rounds its own top corners instead. */
+  .tb-sheet {
+    overflow: visible;
+  }
+
+  .tb-head {
+    background: rgba(255, 255, 255, 0.025);
+    border-radius: 0.875rem 0.875rem 0 0;
+    padding: 1.375rem 1.5rem 1.125rem;
+  }
+
+  .tb-title {
+    margin: 0;
+    font-size: 1.625rem;
+    font-weight: 700;
+    line-height: 1.2;
+    color: var(--title);
+  }
+
+  .tb-sub {
+    margin-top: 0.25rem;
+    font-size: 0.8125rem;
+    color: rgba(255, 255, 255, 0.64);
+  }
+
+  /* Notices sit flush in the sheet as a tinted band, not a floating card. */
+  .tb-notice {
     display: flex;
     gap: 0.625rem;
-    padding: 0.875rem 1.125rem;
-    border-radius: 0.625rem;
-    background: rgba(251, 191, 36, 0.08);
-    border: 1px solid rgba(251, 191, 36, 0.28);
-    color: #fde68a;
+    padding: 0.75rem 1.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(251, 191, 36, 0.06);
+    box-shadow: inset 2px 0 0 rgba(251, 191, 36, 0.6);
     font-size: 0.8125rem;
     line-height: 1.5;
-    margin-bottom: 0.75rem;
+    color: var(--gold-text);
   }
 
-  /* Admin cap control */
-  .cap-form {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 0.625rem;
-    padding: 0.625rem 1.25rem;
-    border-radius: 0.75rem;
-    border: 1px dashed rgba(255, 255, 255, 0.14);
-    margin-bottom: 0.75rem;
+  .tb-notice strong {
+    font-weight: 700;
   }
 
-  .cap-input {
-    width: 6rem;
-    padding-right: 0.5rem;
+  :global(.tb-notice-icon) {
+    flex-shrink: 0;
+    margin-top: 2px;
   }
 
-  .cap-form-msg {
-    font-size: 0.75rem;
+  /* Summary strip */
+  .tb-summary {
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
   }
 
-  /* Cap summary */
-  .cap-bar {
-    display: flex;
-    align-items: stretch;
-    flex-wrap: wrap;
-    gap: 0.25rem;
-    padding: 0.875rem 1.25rem;
-    border-radius: 0.75rem;
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    background: rgba(0, 0, 0, 0.22);
-    margin-bottom: 0.75rem;
+  .tb-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
   }
 
-  .cap-item {
+  .tb-stat {
     display: flex;
     flex-direction: column;
-    gap: 0.1875rem;
-    padding: 0 0.875rem;
-    flex: 1;
-    min-width: 5.5rem;
+    gap: 0.25rem;
+    padding: 1rem 1.5rem;
   }
 
-  .cap-divider {
-    width: 1px;
-    background: rgba(255, 255, 255, 0.08);
+  .tb-stat + .tb-stat {
+    border-left: 1px solid rgba(255, 255, 255, 0.06);
   }
 
-  .cap-label {
+  .tb-stat-label {
     font-size: 0.625rem;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.07em;
+    letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .tb-stat-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1.1;
+    color: var(--heading);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tb-muted {
     color: rgba(255, 255, 255, 0.6);
   }
 
-  .cap-value {
-    font-size: 1.375rem;
-    font-weight: 700;
-    color: var(--text);
-    font-variant-numeric: tabular-nums;
-    line-height: 1.1;
+  .tb-ok {
+    color: var(--good);
   }
 
-  .cap-muted {
-    color: rgba(255, 255, 255, 0.55);
+  .tb-over {
+    color: var(--bad);
   }
 
-  .cap-ok {
-    color: #4ade80;
-  }
-
-  .cap-over {
-    color: #f87171;
-  }
-
-  /* Verdict */
-  .verdict {
+  .tb-verdict {
     display: flex;
     align-items: center;
-    gap: 0.625rem;
-    padding: 0.75rem 1.125rem;
-    border-radius: 0.625rem;
-    font-size: 0.875rem;
-    margin-bottom: 0.75rem;
+    gap: 0.5rem;
+    padding: 0.625rem 1.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    font-size: 0.8125rem;
   }
 
-  .verdict-ok {
-    background: rgba(74, 222, 128, 0.1);
-    border: 1px solid rgba(74, 222, 128, 0.3);
+  .tb-verdict-ok {
+    background: rgba(74, 222, 128, 0.07);
     color: #bbf7d0;
   }
 
-  .verdict-bad {
-    background: rgba(248, 113, 113, 0.1);
-    border: 1px solid rgba(248, 113, 113, 0.3);
+  .tb-verdict-bad {
+    background: rgba(248, 113, 113, 0.07);
     color: #fecaca;
   }
 
   /* Roster */
-  .roster {
-    padding: 1.25rem;
-    border-radius: 0.75rem;
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    background: rgba(0, 0, 0, 0.2);
-  }
-
-  .roster-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    flex-wrap: wrap;
-    margin-bottom: 0.875rem;
-    padding-bottom: 0.625rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-  }
-
-  .roster-title {
-    font-size: 0.6875rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: rgba(255, 255, 255, 0.64);
-  }
-
-  .roster-warn {
+  .tb-warn {
     display: inline-flex;
     align-items: center;
     gap: 0.3125rem;
+    margin-left: auto;
     font-size: 0.6875rem;
-    color: #fcd34d;
+    color: var(--gold);
   }
 
-  .rows {
+  .tb-rows {
     display: flex;
     flex-direction: column;
-    gap: 0.375rem;
   }
 
-  .row {
+  .tb-row {
+    position: relative;
     display: grid;
     grid-template-columns: 1.25rem minmax(0, 1fr) 7rem 1.5rem;
     align-items: center;
     gap: 0.75rem;
-    padding: 0.5rem;
+    padding: 0.5rem 0;
+  }
+
+  .tb-row + .tb-row {
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  /* A slim accent at the left edge marks a filled or unknown slot. */
+  .tb-row::before {
+    content: '';
+    position: absolute;
+    left: -1.5rem;
+    top: 0.5rem;
+    bottom: 0.5rem;
+    width: 2px;
+    border-radius: 0 2px 2px 0;
+    background: transparent;
+  }
+
+  .tb-row-matched::before {
+    background: rgba(192, 132, 252, 0.7);
+  }
+
+  .tb-row-unknown::before {
+    background: rgba(251, 191, 36, 0.7);
+  }
+
+  .tb-row-num {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.45);
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tb-row-matched .tb-row-num {
+    color: var(--accent-text);
+  }
+
+  .tb-row-name {
+    position: relative;
+    min-width: 0;
+  }
+
+  .tb-input {
+    width: 100%;
+    padding: 0.5rem 2rem 0.5rem 0.75rem;
     border-radius: 0.5rem;
-    border: 1px solid transparent;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(0, 0, 0, 0.22);
+    color: var(--text);
+    font-size: 0.875rem;
     transition:
       border-color 0.15s,
       background 0.15s;
   }
 
-  .row-matched {
-    border-color: rgba(120, 67, 145, 0.3);
-    background: rgba(120, 67, 145, 0.06);
-  }
-
-  .row-unknown {
-    border-color: rgba(251, 191, 36, 0.25);
-    background: rgba(251, 191, 36, 0.04);
-  }
-
-  .row-num {
-    font-size: 0.75rem;
-    font-weight: 700;
-    color: rgba(255, 255, 255, 0.52);
-    text-align: center;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .row-name {
-    position: relative;
-    min-width: 0;
-  }
-
-  .input {
-    width: 100%;
-    padding: 0.5rem 2rem 0.5rem 0.75rem;
-    border-radius: 0.4375rem;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(0, 0, 0, 0.3);
-    color: var(--text);
-    font-size: 0.875rem;
-  }
-
-  .row-matched .input {
-    border-color: rgba(120, 67, 145, 0.45);
+  .tb-row-matched .tb-input {
+    border-color: transparent;
+    background: rgba(255, 255, 255, 0.03);
     font-weight: 600;
   }
 
-  .row-unknown .input {
+  .tb-row-unknown .tb-input {
     border-color: rgba(251, 191, 36, 0.35);
   }
 
-  .input::placeholder {
-    color: rgba(255, 255, 255, 0.5);
+  .tb-input::placeholder {
+    color: rgba(255, 255, 255, 0.45);
   }
 
-  .input:focus {
+  .tb-input:focus,
+  .tb-row-matched .tb-input:focus {
     outline: none;
-    border-color: var(--hover);
+    border-color: rgba(192, 132, 252, 0.6);
+    background: rgba(0, 0, 0, 0.22);
   }
 
-  .input:disabled {
+  .tb-input:disabled {
     opacity: 0.5;
     cursor: not-allowed;
   }
 
-  .suggestions {
+  .tb-suggestions {
     position: absolute;
     top: calc(100% + 0.25rem);
     left: 0;
@@ -633,54 +665,54 @@
     display: flex;
     flex-direction: column;
     padding: 0.25rem;
-    border-radius: 0.4375rem;
-    border: 1px solid var(--border);
-    background: var(--background);
-    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+    border-radius: 0.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: #24153b;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
   }
 
-  .suggestion {
+  .tb-suggestion {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 0.75rem;
     padding: 0.4375rem 0.625rem;
     border: none;
-    border-radius: 0.25rem;
+    border-radius: 0.375rem;
     background: transparent;
     color: var(--text);
     text-align: left;
     cursor: pointer;
   }
 
-  .suggestion-active {
-    background: var(--hover);
+  .tb-suggestion-active {
+    background: rgba(192, 132, 252, 0.16);
   }
 
-  .suggestion-text {
+  .tb-suggestion-text {
     display: flex;
     flex-direction: column;
     min-width: 0;
   }
 
-  .suggestion-name,
-  .suggestion-riot {
+  .tb-suggestion-name,
+  .tb-suggestion-riot {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .suggestion-name {
+  .tb-suggestion-name {
     font-size: 0.875rem;
     font-weight: 600;
   }
 
-  .suggestion-riot {
+  .tb-suggestion-riot {
     font-size: 0.6875rem;
     color: rgba(255, 255, 255, 0.6);
   }
 
-  .suggestion-value {
+  .tb-suggestion-value {
     font-size: 0.875rem;
     font-weight: 700;
     color: #d8b4fe;
@@ -688,155 +720,210 @@
     flex-shrink: 0;
   }
 
-  .suggestion-active .suggestion-value {
-    color: var(--text);
-  }
-
-  .row-icon {
+  .tb-row-icon {
     position: absolute;
     top: 50%;
     right: 0.625rem;
     transform: translateY(-50%);
-    color: rgba(255, 255, 255, 0.45);
+    color: rgba(255, 255, 255, 0.4);
     pointer-events: none;
     display: flex;
   }
 
-  .row-icon-warn {
-    color: #fcd34d;
+  .tb-row-icon-warn {
+    color: var(--gold);
   }
 
-  .row-value {
+  .tb-row-value {
     display: flex;
     flex-direction: column;
     align-items: flex-end;
-    gap: 0.0625rem;
+    gap: 0.125rem;
     line-height: 1.1;
   }
 
-  .value-num {
+  .tb-value-num {
     font-size: 1.125rem;
     font-weight: 700;
     color: #d8b4fe;
     font-variant-numeric: tabular-nums;
   }
 
-  .value-src {
+  .tb-value-src {
     font-size: 0.5625rem;
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: rgba(255, 255, 255, 0.52);
+    letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.5);
   }
 
-  .value-unknown {
+  .tb-value-unknown {
     font-size: 0.6875rem;
-    color: #fcd34d;
+    color: var(--gold);
   }
 
-  .value-empty {
+  .tb-value-empty {
     font-size: 1.125rem;
-    color: rgba(255, 255, 255, 0.45);
+    color: rgba(255, 255, 255, 0.35);
   }
 
-  .row-clear {
+  .tb-row-clear {
     display: flex;
     align-items: center;
     justify-content: center;
     background: none;
     border: none;
     padding: 0;
-    color: rgba(255, 255, 255, 0.45);
+    color: rgba(255, 255, 255, 0.42);
     cursor: pointer;
     transition: color 0.15s;
   }
 
-  .row-clear:hover:not(:disabled) {
-    color: #f87171;
+  .tb-row-clear:hover:not(:disabled) {
+    color: var(--bad);
   }
 
-  .row-clear:disabled {
+  .tb-row-clear:disabled {
     opacity: 0.25;
     cursor: default;
   }
 
-  .roster-foot {
+  /* Footer band */
+  .tb-foot {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 1rem;
-    margin-top: 1rem;
-    padding-top: 0.875rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.07);
+    padding: 0.875rem 1.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.025);
   }
 
-  .foot-note {
+  /* With no admin section below, the footer is the sheet's last band. */
+  .tb-foot:last-child {
+    border-radius: 0 0 0.875rem 0.875rem;
+  }
+
+  .tb-foot-note {
     font-size: 0.6875rem;
-    color: rgba(255, 255, 255, 0.58);
     line-height: 1.5;
-    max-width: 44ch;
+    color: rgba(255, 255, 255, 0.56);
+    max-width: 52ch;
   }
 
-  .clear-btn {
+  .tb-btn {
     display: inline-flex;
     align-items: center;
     gap: 0.3125rem;
-    padding: 0.4375rem 0.875rem;
-    border-radius: 0.4375rem;
+    flex-shrink: 0;
+    min-height: 2.25rem;
+    padding: 0 0.875rem;
+    border-radius: 0.5rem;
     border: 1px solid rgba(255, 255, 255, 0.12);
     background: transparent;
-    color: rgba(255, 255, 255, 0.6);
+    color: rgba(255, 255, 255, 0.7);
     font-size: 0.75rem;
     font-weight: 600;
     cursor: pointer;
-    flex-shrink: 0;
     transition:
       background 0.15s,
       color 0.15s;
   }
 
-  .clear-btn:disabled {
+  .tb-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.06);
+    color: #fff;
+  }
+
+  .tb-btn:disabled {
     opacity: 0.5;
     cursor: default;
   }
 
-  .clear-btn:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.06);
-    color: var(--text);
+  /* Admin cap control */
+  .tb-cap-form {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.625rem;
+  }
+
+  .tb-cap-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.75);
+  }
+
+  .tb-cap-input {
+    width: 6rem;
+    padding-right: 0.5rem;
+  }
+
+  .tb-cap-msg {
+    font-size: 0.75rem;
   }
 
   @media (max-width: 640px) {
-    .cap-bar {
-      padding: 0.75rem 0.5rem;
+    .tb-head {
+      padding: 1.125rem 1rem 1rem;
     }
 
-    .cap-item {
-      padding: 0 0.5rem;
-      min-width: 4.5rem;
+    .tb-title {
+      font-size: 1.375rem;
     }
 
-    .cap-value {
-      font-size: 1.125rem;
+    .tb-notice {
+      padding: 0.75rem 1rem;
     }
 
-    .cap-divider {
-      display: none;
+    .tb-stats {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    .roster {
-      padding: 0.875rem;
+    .tb-stat {
+      padding: 0.75rem 1rem;
     }
 
-    .row {
+    .tb-stat + .tb-stat {
+      border-left: 0;
+    }
+
+    .tb-stat:nth-child(even) {
+      border-left: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .tb-stat:nth-child(n + 3) {
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .tb-stat-value {
+      font-size: 1.25rem;
+    }
+
+    .tb-verdict {
+      padding: 0.625rem 1rem;
+    }
+
+    .tb-warn {
+      margin-left: 0;
+    }
+
+    .tb-row {
       grid-template-columns: 1.25rem minmax(0, 1fr) 4.5rem 1.25rem;
       gap: 0.5rem;
     }
 
-    .roster-foot {
-      flex-direction: column;
-      align-items: stretch;
+    .tb-row::before {
+      left: -0.875rem;
     }
 
-    .foot-note {
+    .tb-foot {
+      flex-direction: column;
+      align-items: stretch;
+      padding: 0.875rem 1rem;
+    }
+
+    .tb-foot-note {
       max-width: none;
     }
   }

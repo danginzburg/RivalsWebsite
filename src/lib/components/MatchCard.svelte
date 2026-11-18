@@ -126,7 +126,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.1em;
-    color: #fcd34d;
+    color: var(--gold);
     margin-bottom: 0.625rem;
     padding-bottom: 0.5rem;
     border-bottom: 1px solid rgba(252, 211, 77, 0.18);
@@ -207,7 +207,7 @@
     border-radius: 999px;
     border: 1px solid rgba(74, 222, 128, 0.4);
     background: rgba(74, 222, 128, 0.12);
-    color: #4ade80;
+    color: var(--good);
     font-size: 0.6875rem;
     font-weight: 700;
     text-transform: uppercase;
@@ -219,7 +219,7 @@
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: #4ade80;
+    background: var(--good);
     animation: pulse-live 1.5s ease-in-out infinite;
   }
 
@@ -248,7 +248,7 @@
   }
 
   .score-winner {
-    color: #4ade80;
+    color: var(--good);
   }
 
   .score-sep {

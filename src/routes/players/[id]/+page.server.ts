@@ -910,6 +910,8 @@ export const load = async ({
     activeTeam,
     teamHistory,
     activeSeasonId: currentSeasonId,
+    // External events (Shitter League) are hidden on the client unless shown.
+    externalSeasonIds: allSeasons.filter((s) => s.kind === 'external').map((s) => s.id),
     accolades: playerAccolades,
     riotAccounts,
     viewer: {

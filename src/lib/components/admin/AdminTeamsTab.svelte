@@ -192,7 +192,8 @@
     Create Team
   </h3>
   <p class="mb-3 text-xs" style="color: rgba(255,255,255,0.55);">
-    Filed under <strong style="color: {targetSeasonIsPast ? '#fcd34d' : 'rgba(255,255,255,0.8)'};"
+    Filed under <strong
+      style="color: {targetSeasonIsPast ? 'var(--gold)' : 'rgba(255,255,255,0.8)'};"
       >{targetSeasonLabel}</strong
     >{#if targetSeasonIsPast}
       — backfilling a past season.{/if}
@@ -396,7 +397,7 @@
                       {#if player.role === 'captain'}
                         <span
                           class="ml-2 rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase"
-                          style="background: rgba(250,204,21,0.2); color: #fde68a;"
+                          style="background: rgba(250,204,21,0.2); color: var(--gold-text);"
                         >
                           Captain
                         </span>
@@ -496,7 +497,7 @@
                   </ul>
                 {/if}
                 {#if addState.profileId}
-                  <p class="mt-1 text-[10px]" style="color: #86efac;">
+                  <p class="mt-1 text-[10px]" style="color: var(--good-text);">
                     Linked to an existing player.
                   </p>
                 {/if}

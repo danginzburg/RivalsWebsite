@@ -282,7 +282,7 @@
                     {/if}
                     <button
                       type="button"
-                      style="color: #fca5a5;"
+                      style="color: var(--bad-text);"
                       onclick={() => onUnassignAccolade(accolade.id, assignment.id)}>Remove</button
                     >
                   </span>

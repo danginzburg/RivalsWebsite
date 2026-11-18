@@ -2,7 +2,9 @@
   import type { PageProps } from './$types'
   import { formatLeftDay } from '$lib/players/roster-dates'
   import PageContainer from '$lib/components/PageContainer.svelte'
-  import { phaseLabel, resolveBatchSection, sectionOrder } from '$lib/stats/sections'
+  import BatchPicker from '$lib/components/stats/BatchPicker.svelte'
+  import ExternalEventsToggle from '$lib/components/ExternalEventsToggle.svelte'
+  import { externalEvents } from '$lib/stores/external-events.svelte'
   import CommentThread from '$lib/components/CommentThread.svelte'
   import ReviewFlagButton from '$lib/components/ReviewFlagButton.svelte'
   import RiotAccountsPanel from '$lib/components/RiotAccountsPanel.svelte'
@@ -22,8 +24,31 @@
   const selectedBatchId = $derived((data.stats?.selectedBatchId ?? null) as string | null)
   const statBatches = $derived(data.stats?.batches ?? [])
   const batchEvents = $derived(data.stats?.batchEvents ?? [])
-  const matchHistory = $derived((data.matchHistory ?? []) as any[])
-  const teamHistory = $derived(data.teamHistory ?? [])
+  // External events (Shitter League) are hidden unless shown — except when the
+  // picked stats table is one, which already scopes everything to that event.
+  const externalSeasonIds = $derived(new Set((data.externalSeasonIds ?? []) as string[]))
+  const selectedEvent = $derived(statBatches.find((b) => b.id === selectedBatchId)?.event ?? null)
+  const viewingExternal = $derived(
+    batchEvents.some((ev) => ev.name === selectedEvent && ev.external)
+  )
+  const hideExternal = $derived(!externalEvents.show && !viewingExternal)
+  const isExternalSeason = (id: string | null | undefined) =>
+    Boolean(id) && externalSeasonIds.has(id as string)
+  const allMatchHistory = $derived((data.matchHistory ?? []) as any[])
+  const allTeamHistory = $derived(data.teamHistory ?? [])
+  const hasExternalContent = $derived(
+    allTeamHistory.some((e) => isExternalSeason(e.season?.id)) ||
+      allMatchHistory.some((e) => isExternalSeason(e.match?.season_id)) ||
+      batchEvents.some((ev) => ev.external && statBatches.some((b) => b.event === ev.name))
+  )
+  const matchHistory = $derived(
+    hideExternal
+      ? allMatchHistory.filter((e) => !isExternalSeason(e.match?.season_id))
+      : allMatchHistory
+  )
+  const teamHistory = $derived(
+    hideExternal ? allTeamHistory.filter((e) => !isExternalSeason(e.season?.id)) : allTeamHistory
+  )
   const activeSeasonId = $derived((data.activeSeasonId ?? null) as string | null)
   // Defaults to the full history; "This Season" narrows it to the active
   // season, and is hidden when none is configured.
@@ -220,26 +245,13 @@
     return (value as { name?: string }).name ?? 'Team'
   }
 
-  // The batch picker as one grouped select: an optgroup per event (Rivals
-  // seasons first, outside events after), each phase an option. Within an event
-  // the phases follow section order, the server's order breaking ties.
-  const batchGroups = $derived(
-    [...batchEvents]
-      .sort((a, b) => Number(a.external) - Number(b.external))
-      .map((ev) => ({
-        event: ev.name,
-        label: ev.external ? `${ev.name} (external)` : ev.name,
-        phases: statBatches
-          .map((b, index) => ({ b, index }))
-          .filter(({ b }) => b.event === ev.name)
-          .sort(
-            (a, z) =>
-              sectionOrder(resolveBatchSection(a.b)) - sectionOrder(resolveBatchSection(z.b)) ||
-              a.index - z.index
-          )
-          .map(({ b }) => ({ id: b.id, label: phaseLabel(b) })),
-      }))
-      .filter((g) => g.phases.length > 0)
+  // Only events that have at least one batch reach the picker.
+  const pickerEvents = $derived(
+    batchEvents.filter(
+      (ev) =>
+        statBatches.some((b) => b.event === ev.name) &&
+        (!ev.external || !hideExternal || ev.name === selectedEvent)
+    )
   )
 
   // Map / Agent switch for the single Breakdown section.
@@ -265,7 +277,9 @@
     return selected ? `Batch sets the totals above. ${below}` : below
   })
 
-  const showFilterBar = $derived(batchGroups.length > 0 || canFilterRoster || canCompareRoster)
+  const showFilterBar = $derived(
+    pickerEvents.length > 0 || canFilterRoster || canCompareRoster || hasExternalContent
+  )
 </script>
 
 <svelte:head><title>{player.riot_id}</title></svelte:head>
@@ -627,26 +641,16 @@
       <!-- One filter bar for every scope control -->
       {#if showFilterBar}
         <div class="filter-bar">
-          {#if batchGroups.length > 0}
-            <label class="filter-item">
+          {#if pickerEvents.length > 0}
+            <div class="filter-item filter-item-batch">
               <span class="filter-label">Stats</span>
-              <select
-                class="batch-select"
-                value={selectedBatchId ?? ''}
-                onchange={(e) => navToBatch(e.currentTarget.value)}
-              >
-                {#if !selectedBatchId}
-                  <option value="" disabled>Pick a batch</option>
-                {/if}
-                {#each batchGroups as group (group.event)}
-                  <optgroup label={group.label}>
-                    {#each group.phases as phase (phase.id)}
-                      <option value={phase.id}>{phase.label}</option>
-                    {/each}
-                  </optgroup>
-                {/each}
-              </select>
-            </label>
+              <BatchPicker
+                batches={statBatches}
+                events={pickerEvents}
+                batchId={selectedBatchId}
+                onPick={navToBatch}
+              />
+            </div>
           {/if}
 
           {#if canFilterRoster}
@@ -691,6 +695,10 @@
             >
               Main vs Sub
             </button>
+          {/if}
+
+          {#if hasExternalContent && !viewingExternal}
+            <ExternalEventsToggle label="External events" />
           {/if}
 
           <span class="filter-note">{scopeNote}</span>
@@ -1114,7 +1122,7 @@
 
   .callout-error {
     font-size: 0.75rem;
-    color: #fca5a5;
+    color: var(--bad-text);
   }
 
   .callout-controls {
@@ -1298,24 +1306,17 @@
     max-width: 100%;
   }
 
-  .batch-select {
-    min-width: 0;
-    max-width: 100%;
-    min-height: 2.125rem;
-    padding: 0 1.75rem 0 0.625rem;
-    border-radius: 0.4375rem;
-    border: 1px solid rgba(255, 255, 255, 0.16);
-    background-color: rgba(0, 0, 0, 0.25);
-    color: var(--text);
-    font-size: 0.8125rem;
-    font-weight: 600;
-    cursor: pointer;
+  /* The shared picker, sized to this bar's 2.125rem controls. */
+  @media (min-width: 641px) {
+    .filter-item-batch :global(.picker-slot .select-trigger) {
+      height: 2.125rem;
+    }
   }
 
-  .batch-select optgroup,
-  .batch-select option {
-    background: #261543;
-    color: var(--text);
+  @media (max-width: 640px) {
+    .filter-item-batch {
+      flex: 1 1 100%;
+    }
   }
 
   .filter-note {
@@ -1418,11 +1419,11 @@
   }
 
   .record-win {
-    color: #4ade80;
+    color: var(--good);
   }
 
   .record-loss {
-    color: #f87171;
+    color: var(--bad);
   }
 
   .card-empty {
@@ -1472,7 +1473,7 @@
   }
 
   .data-table tbody tr:hover {
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--row-hover);
   }
 
   .data-table .col-left {
@@ -1558,7 +1559,7 @@
   }
 
   .team-row:hover {
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--row-hover);
   }
 
   .team-row:hover .team-row-name {
@@ -1662,7 +1663,7 @@
   }
 
   .match-row:hover {
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--row-hover);
   }
 
   .match-row:hover .row-name {
@@ -1700,12 +1701,12 @@
 
   .row-win {
     background: rgba(74, 222, 128, 0.14);
-    color: #4ade80;
+    color: var(--good);
   }
 
   .row-loss {
     background: rgba(248, 113, 113, 0.14);
-    color: #f87171;
+    color: var(--bad);
   }
 
   .row-logo {

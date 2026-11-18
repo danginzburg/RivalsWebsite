@@ -680,7 +680,7 @@
   }
 
   .dot-found {
-    fill: #4ade80;
+    fill: var(--good);
     stroke: #bbf7d0;
     stroke-width: 2;
   }
@@ -693,7 +693,7 @@
 
   .found-ring {
     fill: none;
-    stroke: #4ade80;
+    stroke: var(--good);
     stroke-width: 2;
     animation: found-pulse 1.4s ease-out infinite;
     pointer-events: none;
@@ -738,7 +738,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.07em;
-    color: #fde68a;
+    color: var(--gold-text);
   }
 
   .tooltip-row + .tooltip-row {
@@ -757,7 +757,7 @@
   }
 
   .tooltip-mine {
-    color: #86efac;
+    color: var(--good-text);
   }
 
   .tooltip-rank {

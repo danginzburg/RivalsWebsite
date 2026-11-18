@@ -15,6 +15,7 @@ import {
   type StatImportBatchRow,
 } from '$lib/server/stats/rivals-batch'
 import { isWeekBatch } from '$lib/stats/sections'
+import { groupBatchesByEvent } from '$lib/server/stats/batch-events'
 import { claimRelinkAfterProfileUpdate } from '$lib/server/players/claim-relink'
 import { rankValue } from '$lib/ranks/ranks'
 
@@ -32,6 +33,7 @@ type TeamLite = { id: string; name: string; tag?: string | null }
 
 type MatchRel = {
   id: string
+  season_id?: string | null
   status?: string | null
   approval_status?: string | null
   scheduled_at?: string | null
@@ -126,6 +128,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
   )
 
   const batchById = new Map<string, NormalizedRivalsGroupStatBatch>()
+  let rawBatchRows: StatImportBatchRow[] = []
   if (batchIds.length > 0) {
     const { data: batchRows, error: batchError } = await runRivalsBatchQuery<StatImportBatchRow[]>(
       (select) =>
@@ -140,6 +143,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
     if (batchError) {
       console.error('Failed to load batch metadata:', batchError)
     }
+    rawBatchRows = batchRows ?? []
 
     for (const b of batchRows ?? []) {
       const normalized = normalizeRivalsGroupStatBatchFromDb(b, {
@@ -149,6 +153,26 @@ export const load: PageServerLoad = async ({ url, locals }) => {
       if (!isWeekBatch(normalized)) batchById.set(b.id, normalized)
     }
   }
+
+  // External events (Shitter League) are hidden on the client unless shown, so
+  // each option and match carries whether it belongs to one.
+  const { data: seasonRows } = await supabaseAdmin
+    .from('seasons')
+    .select('id, code, name, kind, metadata, starts_on, created_at')
+    .order('starts_on', { ascending: false, nullsFirst: false })
+    .order('created_at', { ascending: false })
+  const externalSeasonIds = (seasonRows ?? [])
+    .filter((season) => season.kind === 'external')
+    .map((season) => season.id as string)
+  const { batches: batchesWithEvent, events: batchEvents } = groupBatchesByEvent(
+    Array.from(batchById.values()),
+    seasonRows ?? [],
+    rawBatchRows
+  )
+  const externalEventNames = new Set(batchEvents.filter((e) => e.external).map((e) => e.name))
+  const externalBatchIds = new Set(
+    batchesWithEvent.filter((b) => externalEventNames.has(b.event)).map((b) => b.id)
+  )
 
   const batchOptions = Array.from(batchById.values())
     .sort((a, b) => {
@@ -172,6 +196,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
       label: toBatchLabel(b),
       value: b.id,
       import_kind: b.import_kind ?? null,
+      external: externalBatchIds.has(b.id),
     }))
 
   const batchId =
@@ -243,6 +268,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
       hs_pct,
       matches (
         id,
+        season_id,
         status,
         approval_status,
         scheduled_at,
@@ -445,6 +471,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
     bestRank,
     viewer,
     matchHistory,
+    externalSeasonIds,
     mapStats,
     agentStats,
   }

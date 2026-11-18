@@ -378,6 +378,8 @@
     color: var(--text);
     background-color: var(--active);
     font-weight: 600;
+    /* Teal edge along the bottom marks the current page. */
+    box-shadow: inset 0 -2px 0 var(--teal);
   }
 
   .nav-link-active:hover {
@@ -488,6 +490,7 @@
     background-color: var(--active);
     color: var(--text);
     font-weight: 600;
+    box-shadow: inset 3px 0 0 var(--teal);
   }
 
   .mobile-link-auth {
