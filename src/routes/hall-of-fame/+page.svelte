@@ -321,7 +321,8 @@
             <div class="sheet-body">
               {#if statRecords.length > 0}
                 <p class="sheet-note records-note">
-                  Best single-map performances from imported matches · {statRecords.length}
+                  Best single-map performances from imported matches{#if !recordTrack.isSideLeague},
+                    tracked from Season 5 onward{/if} · {statRecords.length}
                   records
                 </p>
                 <div class="record-grid">
@@ -330,7 +331,10 @@
                   {/each}
                 </div>
               {:else}
-                <p class="empty-line">No records in this book yet.</p>
+                <p class="empty-line">
+                  No records in this book yet.{#if !recordTrack.isSideLeague}
+                    Stat records are tracked from Season 5 onward.{/if}
+                </p>
               {/if}
             </div>
           </section>
