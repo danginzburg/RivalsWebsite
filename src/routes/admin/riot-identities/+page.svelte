@@ -1,5 +1,6 @@
 <script lang="ts">
   import PageContainer from '$lib/components/PageContainer.svelte'
+  import { byLabel } from '$lib/admin/options'
   import CustomSelect from '$lib/components/CustomSelect.svelte'
   import AdminActionConfirmationModal from '$lib/components/admin/AdminActionConfirmationModal.svelte'
   import { adminJsonRequest } from '$lib/admin/api'
@@ -26,7 +27,9 @@
   const getInitialIdentities = () => data.identities
   let identities = $state<Identity[]>(getInitialIdentities())
   const profiles = $derived(data.profiles)
-  const profileOptions = $derived(profiles.map((p) => ({ value: p.id, label: p.label })))
+  const profileOptions = $derived(
+    profiles.map((p) => ({ value: p.id, label: p.label })).sort(byLabel)
+  )
 
   let search = $state('')
   let selection = $state<Record<string, string>>({})

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { SignupsAdmin, type AdminMessages } from '$lib/admin/signups.svelte'
+  import { byLabel } from '$lib/admin/options'
   import { ModerationAdmin } from '$lib/admin/moderation.svelte'
   import { AccoladesAdmin } from '$lib/admin/accolades.svelte'
   import PageContainer from '$lib/components/PageContainer.svelte'
@@ -270,10 +271,12 @@
 
   const hofPlayerOptions = $derived([
     { value: '', label: '— None —' },
-    ...profileUsers.map((u) => ({
-      value: u.id,
-      label: u.display_name ?? u.email ?? 'Player',
-    })),
+    ...profileUsers
+      .map((u) => ({
+        value: u.id,
+        label: u.display_name ?? u.email ?? 'Player',
+      }))
+      .sort(byLabel),
   ])
 
   const hofSeasonOptions = $derived([

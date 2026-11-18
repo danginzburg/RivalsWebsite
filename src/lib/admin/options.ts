@@ -63,3 +63,7 @@ export const roleSelectOptions: AdminSelectOption[] = [
   { value: 'banned', label: 'Banned' },
   { value: 'admin', label: 'Admin' },
 ]
+
+/** Sort comparator for picker options: alphabetical, case- and accent-insensitive. */
+export const byLabel = (a: { label: string }, b: { label: string }) =>
+  a.label.localeCompare(b.label, undefined, { sensitivity: 'base', numeric: true })
