@@ -68,13 +68,16 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   if (!teamId || (!resolvedProfileId && !playerName))
     throw error(400, 'Missing teamId and player identity')
 
+  // seasons also points back at teams (winner/runner-up/third place), so the
+  // embed must name the FK or PostgREST rejects it as ambiguous (PGRST201).
   const { data: team, error: teamError } = await supabaseAdmin
     .from('teams')
-    .select('id, name, approval_status, season_id, seasons (is_active)')
+    .select('id, name, approval_status, season_id, seasons!teams_season_id_fkey (is_active)')
     .eq('id', teamId)
     .maybeSingle()
 
-  if (teamError || !team) throw error(404, 'Team not found')
+  if (teamError) throw error(500, `Failed to load team: ${teamError.message}`)
+  if (!team) throw error(404, 'Team not found')
   if (team.approval_status !== 'approved') {
     throw error(400, 'Team must be approved before adding players')
   }
