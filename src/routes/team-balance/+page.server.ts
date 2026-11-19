@@ -14,6 +14,9 @@ import { TEAM_CAP_LIMIT, isValidTeamCap } from '$lib/team-balance'
  *
  * Rosters are built for the season taking signups, which may be the next
  * event rather than the active one.
+ *
+ * Admins also get pending signups, flagged `isPending`, so they can try
+ * rosters before approving everyone. Players never receive them.
  */
 export const load = async ({ locals }: { locals: App.Locals }) => {
   await requireNavPage(locals, 'team-balance')
@@ -37,8 +40,10 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
 
   const { data: signups, error: signupsError } = await supabaseAdmin
     .from('player_signups')
-    .select('profile_id, current_rank, computed_value, manual_value_override, manual_adjustment')
-    .eq('status', 'approved')
+    .select(
+      'profile_id, status, current_rank, computed_value, manual_value_override, manual_adjustment'
+    )
+    .in('status', isAdmin ? ['approved', 'pending'] : ['approved'])
     .eq('season_id', season.id)
 
   if (signupsError) {
@@ -73,6 +78,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
         rank: row.current_rank ?? null,
         value,
         isManual: row.manual_value_override != null || Number(row.manual_adjustment ?? 0) !== 0,
+        isPending: row.status === 'pending',
       }
     })
     // A signup without a rating cannot help the calculator.
