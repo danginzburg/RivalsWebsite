@@ -1005,6 +1005,37 @@
     min-width: 9rem;
   }
 
+  /* The player's name stays in view while the stats scroll sideways. */
+  .stats-table .col-player {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: var(--head);
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .stats-table thead th.col-player {
+    z-index: 6;
+  }
+
+  /* Row tints are translucent; layer them over an opaque base so the
+     columns scrolling underneath do not show through the name cell. */
+  .stats-table tbody tr:hover td.col-player {
+    background: linear-gradient(var(--row-hover), var(--row-hover)), var(--head);
+  }
+
+  .stats-table td.col-player.sorted {
+    background: linear-gradient(rgba(192, 132, 252, 0.06), rgba(192, 132, 252, 0.06)), var(--head);
+  }
+
+  .stats-table thead th.col-player.sorted {
+    background: #33194f;
+  }
+
+  .stats-table tbody tr.row-highlight td.col-player {
+    background: linear-gradient(rgba(192, 132, 252, 0.14), rgba(192, 132, 252, 0.14)), var(--head);
+  }
+
   .col-stat {
     text-align: right;
   }
@@ -1192,21 +1223,11 @@
       max-height: 70dvh;
     }
 
-    /* The player's name stays in view while the stats scroll sideways. */
     .stats-table .col-player {
-      position: sticky;
-      left: 0;
-      z-index: 2;
-      background: var(--head);
-      border-right: 1px solid rgba(255, 255, 255, 0.08);
       min-width: 7.5rem;
       max-width: 9rem;
       overflow: hidden;
       text-overflow: ellipsis;
-    }
-
-    .stats-table thead th.col-player {
-      z-index: 6;
     }
 
     .stats-table td {
