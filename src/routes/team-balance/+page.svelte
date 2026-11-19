@@ -2,6 +2,7 @@
   import PageContainer from '$lib/components/PageContainer.svelte'
   import { CheckCircle, XCircle, RotateCcw, Search, AlertCircle } from 'lucide-svelte'
   import { enhance } from '$app/forms'
+  import { browser } from '$app/environment'
   import { TEAM_CAP_LIMIT } from '$lib/team-balance'
   import type { PageProps } from './$types'
 
@@ -15,9 +16,37 @@
     rank: string | null
     value: number
     isManual: boolean
+    /** Only admins are sent pending signups. */
+    isPending: boolean
   }
 
-  const ratedPlayers = $derived((data.ratedPlayers ?? []) as RatedPlayer[])
+  const PENDING_KEY = 'team-balance:include-pending'
+
+  /** Admin-only: let signups still awaiting review into the calculator. Remembered per browser. */
+  let includePending = $state(readIncludePending())
+
+  function readIncludePending() {
+    if (!browser) return false
+    try {
+      return localStorage.getItem(PENDING_KEY) === '1'
+    } catch {
+      return false
+    }
+  }
+
+  $effect(() => {
+    try {
+      localStorage.setItem(PENDING_KEY, includePending ? '1' : '0')
+    } catch {
+      // Storage can be blocked; the toggle still works for this visit.
+    }
+  })
+
+  const allPlayers = $derived((data.ratedPlayers ?? []) as RatedPlayer[])
+  const pendingCount = $derived(allPlayers.filter((p) => p.isPending).length)
+  const ratedPlayers = $derived(
+    includePending ? allPlayers : allPlayers.filter((p) => !p.isPending)
+  )
   const hasRoster = $derived(ratedPlayers.length > 0)
   const season = $derived(data.season)
   /** Null for non-admins until the season is marked active. */
@@ -80,6 +109,7 @@
       // The same player typed twice (say by name and by Riot ID) counts once.
       .filter((p, i, all) => all.findIndex((q) => q.profileId === p.profileId) === i)
   )
+  const pendingInRoster = $derived(matchedRoster.some((p) => p.isPending))
   const unknownCount = $derived(names.filter((_, i) => isUnknown(i)).length)
 
   const totalValue = $derived(matchedRoster.reduce((sum, p) => sum + p.value, 0))
@@ -192,6 +222,16 @@
             <strong>Provisional cap.</strong>
             The team average cap hasn't been finalised — {maxAverage} is a placeholder and may change
             before the season starts.
+          </p>
+        </div>
+      {/if}
+
+      {#if isAdmin && includePending && pendingInRoster}
+        <div class="tb-notice">
+          <AlertCircle size={15} class="tb-notice-icon" />
+          <p>
+            <strong>Pending players in this roster.</strong>
+            Their values may change on review, and players can't select them until they're approved.
           </p>
         </div>
       {/if}
@@ -323,7 +363,11 @@
                           onclick={() => pick(i, player)}
                         >
                           <span class="tb-suggestion-text">
-                            <span class="tb-suggestion-name">{player.name}</span>
+                            <span class="tb-suggestion-name"
+                              >{player.name}
+                              {#if player.isPending}<span class="tb-pending-tag">pending</span
+                                >{/if}</span
+                            >
                             {#if player.riotId && player.riotId !== player.name}
                               <span class="tb-suggestion-riot">{player.riotId}</span>
                             {/if}
@@ -344,7 +388,9 @@
                 <div class="tb-row-value">
                   {#if matched}
                     <span class="tb-value-num">{matched.value}</span>
-                    {#if matched.isManual}
+                    {#if matched.isPending}
+                      <span class="tb-value-src tb-pending-src">pending</span>
+                    {:else if matched.isManual}
                       <span class="tb-value-src">set by admin</span>
                     {:else if matched.rank}
                       <span class="tb-value-src">{matched.rank}</span>
@@ -388,7 +434,17 @@
             <h2 class="sheet-title">Admin</h2>
             <span class="sheet-note">Changes the cap for everyone</span>
           </div>
-          <div class="sheet-body">
+          <div class="sheet-body tb-admin-body">
+            <label class="tb-toggle">
+              <input type="checkbox" bind:checked={includePending} />
+              <span>
+                Include pending players
+                <span class="tb-toggle-note">
+                  {pendingCount}
+                  {pendingCount === 1 ? 'signup awaits' : 'signups await'} review · only you see this
+                </span>
+              </span>
+            </label>
             <form
               class="tb-cap-form"
               method="POST"
@@ -840,7 +896,51 @@
     cursor: default;
   }
 
-  /* Admin cap control */
+  /* Admin controls */
+  .tb-admin-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.875rem;
+  }
+
+  .tb-toggle {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.75);
+    cursor: pointer;
+  }
+
+  .tb-toggle input {
+    margin-top: 0.125rem;
+    accent-color: #c084fc;
+  }
+
+  .tb-toggle-note {
+    display: block;
+    font-weight: 400;
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .tb-pending-tag {
+    margin-left: 0.375rem;
+    padding: 0 0.3125rem;
+    border-radius: 0.25rem;
+    background: rgba(251, 191, 36, 0.14);
+    color: var(--gold);
+    font-size: 0.5625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    vertical-align: middle;
+  }
+
+  .tb-pending-src {
+    color: var(--gold);
+  }
+
   .tb-cap-form {
     display: flex;
     align-items: center;
