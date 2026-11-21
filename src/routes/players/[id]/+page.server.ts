@@ -93,7 +93,9 @@ export const load = async ({
 
   const { data: profileRel, error: profileError } = await supabaseAdmin
     .from('profiles')
-    .select('id, auth0_sub, role, display_name, email, created_at, discord_username')
+    .select(
+      'id, auth0_sub, role, display_name, email, created_at, discord_username, discord_id, avatar_url'
+    )
     .eq('id', profileId)
     .maybeSingle()
 
@@ -902,6 +904,9 @@ export const load = async ({
         (latestSignup as { discord_handle?: string | null } | null)?.discord_handle ||
         profileRel.discord_username ||
         null,
+      // Picture from their Discord login, refreshed every sign-in. Only for
+      // Discord-linked profiles: other Auth0 logins get a generated placeholder.
+      avatar_url: profileRel.discord_id ? (profileRel.avatar_url ?? null) : null,
       display_name: profileRel?.display_name ?? null,
       email: profileRel?.email ?? null,
       created_at: profileRel?.created_at ?? null,
