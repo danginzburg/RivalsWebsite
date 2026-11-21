@@ -19,6 +19,12 @@
   let { data, form }: PageProps = $props()
 
   const player = $derived(data.player)
+  // A stale Discord avatar URL 404s after they change it; show the icon instead.
+  let avatarFailed = $state(false)
+  $effect(() => {
+    void player.avatar_url
+    avatarFailed = false
+  })
   const activeTeam = $derived(data.activeTeam)
   const viewer = $derived(data.viewer ?? { canEditRiotIdBase: false })
   const selected = $derived((data.stats?.selected ?? null) as any | null)
@@ -469,8 +475,15 @@
       <!-- Identity: the top of the sheet -->
       <header class="hero">
         <div class="hero-top">
-          {#if activeTeam?.logo_url}
-            <img src={activeTeam.logo_url} alt="{activeTeam.name} logo" class="hero-logo" />
+          <!-- Their Discord avatar; the team logo already shows beside the team name. -->
+          {#if player.avatar_url && !avatarFailed}
+            <img
+              src={player.avatar_url}
+              alt=""
+              class="hero-logo hero-avatar"
+              referrerpolicy="no-referrer"
+              onerror={() => (avatarFailed = true)}
+            />
           {:else}
             <div class="hero-logo hero-logo-empty">
               <User size={34} />
@@ -1053,6 +1066,11 @@
     border-radius: 0.625rem;
     object-fit: contain;
     flex-shrink: 0;
+  }
+
+  .hero-avatar {
+    object-fit: cover;
+    border-radius: 50%;
   }
 
   .hero-logo-empty {
