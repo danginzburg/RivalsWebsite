@@ -125,11 +125,6 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
     performance: await loadPerformanceFor(existing.profile_id),
   })
 
-  const manualOverride =
-    body.manualValueOverride === undefined || body.manualValueOverride === null
-      ? null
-      : parseScore(body.manualValueOverride)
-
   // `undefined` leaves the adjustment alone; blank clears it to 0.
   const manualAdjustment =
     body.manualAdjustment === undefined
@@ -146,9 +141,16 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
     current_rank: currentRank,
     peak_rank: peakRank,
     computed_value: computedValue,
-    manual_value_override: manualOverride,
     manual_adjustment: manualAdjustment,
-    admin_notes: normalizeOptional(body.adminNotes),
+  }
+  // Left out means left alone: the admin tab never sends these, so a save (or the
+  // auto-save after a Riot lookup) must not wipe a legacy override or a note.
+  if (body.manualValueOverride !== undefined) {
+    updates.manual_value_override =
+      body.manualValueOverride === null ? null : parseScore(body.manualValueOverride)
+  }
+  if (body.adminNotes !== undefined) {
+    updates.admin_notes = normalizeOptional(body.adminNotes)
   }
 
   // The signup's Riot name is the player's primary Riot account; correcting it
