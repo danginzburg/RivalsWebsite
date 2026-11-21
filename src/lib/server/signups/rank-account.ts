@@ -6,12 +6,13 @@ import type { RankLookup } from '$lib/server/riot/henrik'
 /**
  * Which of a player's accounts a signup's ranks come from.
  *
- * The best-scoring ranked alt is the source of truth when either the main is
- * short of games since V26 Act 1, or that alt's base score beats the main's.
- * Only the main is held to the games minimum; an alt counts as long as it was
- * submitted (not rejected) and has a rank. Otherwise the main is used, also
- * when no alt has a rank. An alt that beats the main is still called out for
- * an admin as `higherAlt`.
+ * When the main has the games minimum since V26 Act 1, the best-scoring ranked
+ * alt is the source of truth if its base score beats the main's, however few
+ * games the alt has. When the main is short, only an alt that has the minimum
+ * itself can stand in (the best-scoring one); if no account has the games, the
+ * main is used and the signup reads as short. The main is also used when no
+ * alt has a rank. An alt that beats the main is still called out for an admin
+ * as `higherAlt`.
  */
 
 export type RankTarget = { riotId: string | null; puuid: string | null }
@@ -64,10 +65,15 @@ export async function pickSignupAccount(
 
   const best = byScore[0]
   const altBeatsMain = best != null && scoreOf(best.account) > scoreOf(mainAccount)
-  const standIn =
-    best?.account.baseScore != null && (altBeatsMain || !meetsGamesMinimum(mainAccount.games))
+  const mainQualifies = meetsGamesMinimum(mainAccount.games)
+  // A main short of games only hands over to an alt that has the games itself;
+  // when no account has them, the signup stays on the main and reads as short.
+  const candidate = mainQualifies
+    ? altBeatsMain
       ? best
-      : null
+      : undefined
+    : byScore.find((alt) => meetsGamesMinimum(alt.account.games))
+  const standIn = candidate?.account.baseScore != null ? candidate : null
 
   const higherAlt = altBeatsMain ? best.account.riotId : null
 

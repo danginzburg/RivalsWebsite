@@ -57,7 +57,7 @@ describe('pickSignupAccount', () => {
     expect(check?.higherAlt).toBeNull()
   })
 
-  it('uses the best alt when the main is short of games, however few the alt has', async () => {
+  it('uses the best alt with the games when the main is short of them', async () => {
     const { lookup, check } = await pickSignupAccount(
       main,
       [alt, alt2],
@@ -68,9 +68,21 @@ describe('pickSignupAccount', () => {
       })
     )
 
-    expect(lookup.rank?.currentRank).toBe('Diamond 1')
-    expect(check?.usedRiotId).toBe('alt2#NA1')
+    expect(lookup.rank?.currentRank).toBe('Platinum 1')
+    expect(check?.usedRiotId).toBe('alt#NA1')
     expect(check?.higherAlt).toBe('alt2#NA1')
+  })
+
+  it('stays on the main when no account has the games', async () => {
+    const { lookup, check } = await pickSignupAccount(
+      main,
+      [alt],
+      lookups({ 'main#NA1': found(...GOLD, 40), 'alt#NA1': found(...DIAMOND, 60) })
+    )
+
+    expect(lookup.rank?.currentRank).toBe('Gold 1')
+    expect(check?.usedRiotId).toBe('main#NA1')
+    expect(check?.higherAlt).toBe('alt#NA1')
   })
 
   it('stays on a main short of games when no alt has a rank', async () => {
