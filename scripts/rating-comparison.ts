@@ -1,7 +1,7 @@
 /**
  * Rating comparison: today's signup scores next to two rank-relative alternatives.
  *
- *   npx tsx --env-file=.env --tsconfig scripts/tsconfig.json scripts/rating-comparison.ts
+ *   npx tsx --env-file=.env --tsconfig scripts/tsconfig.json scripts/rating-comparison.ts [--full]
  *
  * Read-only. Writes scripts/out/rating-comparison.csv (one row per signup for the
  * target season) and scripts/out/rating-comparison-summary.csv (average bonus by
@@ -21,7 +21,8 @@
  *              compared with players of the same rank at the time (and, in
  *              Season 4, the same opponent strength), Season 4 weighted above
  *              Season 3, shrunk toward 0 for small samples.
- * Adjusted and New bonuses both taper at the high end (TAPER below).
+ * Adjusted and New bonuses both taper at the high end (TAPER below) and shrink
+ * for players who have climbed since their stats were played.
  */
 import { writeFileSync, mkdirSync } from 'node:fs'
 import { supabaseAdmin as db } from './lib/db'
@@ -43,19 +44,33 @@ const STAT_SEASONS = [
   { code: 'rivals4', label: 'S4', weight: 1.0 },
 ] as const
 
-/** How the per-stat comparisons combine into one performance number. */
-const STAT_WEIGHTS = { acs: 0.25, kd: 0.2, adr: 0.15, kast: 0.2, fkfd: 0.2 } as const
+/**
+ * How the per-stat comparisons combine into one performance number. ADR is left
+ * out because it measures the same damage ACS already does; its share went to
+ * ACS and KAST.
+ */
+const STAT_WEIGHTS = { acs: 0.35, kd: 0.2, kast: 0.25, fkfd: 0.2 } as const
 
 /** Weighted rounds at which a player's metric is trusted halfway (~9 maps). */
 const SHRINK_ROUNDS = 200
 
 /** New bonus: points per standard deviation of rank-relative performance, and its cap. */
-const NEW_POINTS_PER_SD = 1.5
+const NEW_POINTS_PER_SD = 2
 const NEW_CAP = 3
 
-/** Adjusted bonus keeps the current scale: 10 points per 1.0 of rating, capped at ±5. */
-const ADJUSTED_POINTS_PER_RATING = 10
-const ADJUSTED_CAP = 5
+/** Adjusted bonus: 15 points per 1.0 of rating above or below expected, capped at ±3. */
+const ADJUSTED_POINTS_PER_RATING = 15
+const ADJUSTED_CAP = 3
+
+/**
+ * Climbers: a player who has climbed since their stats were played already has
+ * part of that performance in their new rank, so the bonus (either sign) loses
+ * CLIMB_SHRINK_PER_TIER for every tier (3 divisions) climbed, down to 0.
+ */
+const CLIMB_SHRINK_PER_TIER = 0.25
+function climbFactor(divisionsClimbed: number): number {
+  return Math.max(0, 1 - CLIMB_SHRINK_PER_TIER * (Math.max(0, divisionsClimbed) / 3))
+}
 
 /**
  * Bonuses shrink toward the top: full size at Iron, TAPER_FLOOR of full size at
@@ -458,10 +473,13 @@ for (const s of signups) {
       ? `S3 (${s3.rankSource})`
       : ''
   const rankThenPts = rankPoints(rankThen) ?? rankPoints(s.current_rank)
+  const climbed = (rankPoints(s.current_rank) ?? rankThenPts ?? 0) - (rankThenPts ?? 0)
+  const climb = climbFactor(climbed)
   const exp = rating != null && rankThenPts != null ? expectedRating(rankThenPts) : null
   const adjBonus =
     rating != null && exp != null
-      ? taper(rankScore) *
+      ? climb *
+        taper(rankScore) *
         Math.max(-ADJUSTED_CAP, Math.min(ADJUSTED_CAP, ADJUSTED_POINTS_PER_RATING * (rating - exp)))
       : 0
   const adjScore = rankScore == null ? null : rankScore + adjBonus
@@ -476,7 +494,7 @@ for (const s of signups) {
   const newBonus =
     metric == null
       ? 0
-      : taper(rankScore) * Math.max(-NEW_CAP, Math.min(NEW_CAP, NEW_POINTS_PER_SD * metric))
+      : climb * taper(rankScore) * Math.max(-NEW_CAP, Math.min(NEW_CAP, NEW_POINTS_PER_SD * metric))
   const newScore = rankScore == null ? null : rankScore + newBonus
 
   const statZ = (stat: string) => {
@@ -492,6 +510,7 @@ for (const s of signups) {
   if (rating == null && (s3 || s4)) flags.push('stats but no sheet rating')
   if (rankScore == null) flags.push('missing signup rank')
   if (s.manual_value_override != null) flags.push('manual override')
+  if (climb < 1) flags.push(`climbed ${climbed} divisions since`)
 
   out.push({
     Player: entry?.display_name ?? '',
@@ -508,6 +527,7 @@ for (const s of signups) {
       rankThen && s.current_rank
         ? fmt((rankPoints(s.current_rank) ?? 0) - (rankPoints(rankThen) ?? 0), 0)
         : '',
+    'Climb factor': fmt(climb),
     // Current
     'CUR sheet rating': fmt(rating),
     'CUR bonus': fmt(curBonus),
@@ -526,7 +546,6 @@ for (const s of signups) {
     'NEW S4 perf (SD)': fmt(s4?.composite),
     'NEW ACS vs rank (SD)': fmt(statZ('acs')),
     'NEW KD vs rank (SD)': fmt(statZ('kd')),
-    'NEW ADR vs rank (SD)': fmt(statZ('adr')),
     'NEW KAST vs rank (SD)': fmt(statZ('kast')),
     'NEW FK-FD vs rank (SD)': fmt(statZ('fkfd')),
     'NEW combined (SD)': fmt(combined),
@@ -575,7 +594,21 @@ const summary = [...tierAcc]
   }))
 
 mkdirSync('scripts/out', { recursive: true })
-writeFileSync('scripts/out/rating-comparison.csv', csv(out))
+// The sheet stays small: names, ranks and the three scores. Pass --full for
+// every working column (bonuses, per-stat values, rounds, flags).
+const full = process.argv.includes('--full')
+const sheetRows = full
+  ? out
+  : out.map((r) => ({
+      'Riot ID': r['Riot ID'],
+      Discord: r.Discord,
+      'Current rank': r['Current rank'],
+      'Peak rank': r['Peak rank'],
+      'Current score': r['CUR score'],
+      'Adjusted score': r['ADJ score'],
+      'New score': r['NEW score'],
+    }))
+writeFileSync('scripts/out/rating-comparison.csv', csv(sheetRows))
 writeFileSync('scripts/out/rating-comparison-summary.csv', csv(summary))
 
 console.log(`Signups scored: ${out.length} (${TARGET_SEASON})`)
