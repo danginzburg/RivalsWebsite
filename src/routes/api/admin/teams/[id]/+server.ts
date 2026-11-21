@@ -2,6 +2,7 @@ import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { uploadLogo } from '$lib/server/logo-upload'
+import { invalidateFinalPlacements } from '$lib/server/seasons/finalPlacementsCache'
 
 function normalizeOptional(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -80,6 +81,9 @@ export const PATCH: RequestHandler = async ({ locals, request, params }) => {
     }
     throw error(500, 'Failed to update team')
   }
+
+  // A status change moves the team in or out of its season's finishes.
+  if (status !== existing.status) invalidateFinalPlacements()
 
   return json({ success: true, team: updated })
 }

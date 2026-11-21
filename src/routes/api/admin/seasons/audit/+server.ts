@@ -69,8 +69,10 @@ export const GET: RequestHandler = async ({ locals }) => {
   ])
   if (teamsRes.error || matchesRes.error) throw error(500, 'Failed to load season data')
 
-  const teams = ((teamsRes.data ?? []) as TeamRow[]).filter((t) => t.status !== 'disbanded')
-  const teamName = new Map(teams.map((t) => [t.id, t.name]))
+  const allTeams = (teamsRes.data ?? []) as TeamRow[]
+  const teams = allTeams.filter((t) => t.status !== 'disbanded')
+  // Named from every team, disbanded too, so a message never falls back to an id.
+  const teamName = new Map(allTeams.map((t) => [t.id, t.name]))
 
   const rostered = new Set<string>()
   const teamIds = teams.map((t) => t.id)

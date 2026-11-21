@@ -37,13 +37,36 @@ function metadataStringList(
  */
 export const buildProfileMatcher = buildIdentityIndex
 
+/**
+ * A looser key for team names: accents, spacing and punctuation dropped, so a
+ * sheet's "2FNTASTIC2FURIOUS" or "Krüise Esports" still finds
+ * "2FNTASTIC 2FURIOUS" / "Kruise Esports".
+ */
+function compactTeamKey(value: unknown): string {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+}
+
 export function buildTeamMatcher(teams: TeamRow[]) {
   const byMatchName = new Map<string, TeamRow>()
   const byLeaderboardTag = new Map<string, TeamRow>()
+  // Compact keys are only trusted when one team owns them; `null` marks a
+  // key two teams share, which must not resolve to either.
+  const byCompactName = new Map<string, TeamRow | null>()
+  const addCompact = (key: string, team: TeamRow) => {
+    if (!key) return
+    const existing = byCompactName.get(key)
+    if (existing === undefined) byCompactName.set(key, team)
+    else if (existing && existing.id !== team.id) byCompactName.set(key, null)
+  }
 
   for (const team of teams) {
     const nameKey = normalizeImportKey(team.name)
     if (nameKey) byMatchName.set(nameKey, team)
+    addCompact(compactTeamKey(team.name), team)
 
     const tagKey = normalizeImportKey(team.tag)
     if (tagKey) byLeaderboardTag.set(tagKey, team)
@@ -51,6 +74,7 @@ export function buildTeamMatcher(teams: TeamRow[]) {
     for (const alias of metadataStringList(team.metadata ?? null, 'match_import_names')) {
       const aliasKey = normalizeImportKey(alias)
       if (aliasKey) byMatchName.set(aliasKey, team)
+      addCompact(compactTeamKey(alias), team)
     }
 
     for (const alias of metadataStringList(team.metadata ?? null, 'leaderboard_import_tags')) {
@@ -61,7 +85,9 @@ export function buildTeamMatcher(teams: TeamRow[]) {
 
   return {
     byMatchName(name: string): TeamRow | null {
-      return byMatchName.get(normalizeImportKey(name)) ?? null
+      return (
+        byMatchName.get(normalizeImportKey(name)) ?? byCompactName.get(compactTeamKey(name)) ?? null
+      )
     },
     byLeaderboardTag(tag: string): TeamRow | null {
       return byLeaderboardTag.get(normalizeImportKey(tag)) ?? null
