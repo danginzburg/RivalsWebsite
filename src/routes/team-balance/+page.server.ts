@@ -1,18 +1,9 @@
-import { fail } from '@sveltejs/kit'
-import { requireAdmin } from '$lib/server/auth/profile'
 import { requireNavPage } from '$lib/server/nav-visibility'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { effectiveValue } from '$lib/server/signups'
 import { loadSignupSeason } from '$lib/server/signups/season'
 import { loadPlayerDirectory } from '$lib/server/players/directory'
-import { loadTeamCap, saveTeamCap } from '$lib/server/team-balance'
-import {
-  IMMORTAL_CAP_LIMIT,
-  TEAM_CAP_LIMIT,
-  isImmortalPeak,
-  isValidImmortalCap,
-  isValidTeamCap,
-} from '$lib/team-balance'
+import { TEAM_MAX_AVERAGE, TEAM_MAX_IMMORTAL_TOTAL, isImmortalPeak } from '$lib/team-balance'
 
 /**
  * Players with an approved signup carry a rating from the signup formula.
@@ -26,10 +17,11 @@ import {
  */
 export const load = async ({ locals }: { locals: App.Locals }) => {
   await requireNavPage(locals, 'team-balance')
-  const [season, teamCap] = await Promise.all([loadSignupSeason(), loadTeamCap()])
+  const season = await loadSignupSeason()
+  const teamCap = { maxAverage: TEAM_MAX_AVERAGE, maxImmortalTotal: TEAM_MAX_IMMORTAL_TOTAL }
 
-  // The cap stays hidden from players until the season is marked active, so a
-  // provisional number never circulates. Admins always see it to set it.
+  // The caps stay hidden from players until the season is marked active, so they
+  // are announced with the season. Admins always see them.
   const isAdmin = locals.user?.role === 'admin'
   let seasonActive = false
   if (season && !isAdmin) {
@@ -94,30 +86,4 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     .sort((a, b) => a.name.localeCompare(b.name))
 
   return { season, cap, ratedPlayers }
-}
-
-export const actions = {
-  setCap: async ({ locals, request }: { locals: App.Locals; request: Request }) => {
-    const admin = await requireAdmin(locals.user)
-    const form = await request.formData()
-
-    const maxAverage = Math.round(Number(form.get('maxAverage')) * 100) / 100
-    if (!isValidTeamCap(maxAverage)) {
-      return fail(400, { capError: `Enter a cap above 0 and no higher than ${TEAM_CAP_LIMIT}.` })
-    }
-    const maxImmortalTotal = Math.round(Number(form.get('maxImmortalTotal')) * 100) / 100
-    if (!isValidImmortalCap(maxImmortalTotal)) {
-      return fail(400, {
-        capError: `Enter an Immortal cap above 0 and no higher than ${IMMORTAL_CAP_LIMIT}.`,
-      })
-    }
-
-    try {
-      await saveTeamCap({ maxAverage, maxImmortalTotal }, admin.id)
-    } catch (err) {
-      console.error('[team-balance] failed to save cap', err)
-      return fail(500, { capError: 'Failed to save the cap.' })
-    }
-    return { capSaved: true }
-  },
 }

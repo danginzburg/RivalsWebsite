@@ -1,12 +1,10 @@
 <script lang="ts">
   import PageContainer from '$lib/components/PageContainer.svelte'
   import { CheckCircle, XCircle, RotateCcw, Search, AlertCircle } from 'lucide-svelte'
-  import { enhance } from '$app/forms'
   import { browser } from '$app/environment'
-  import { IMMORTAL_CAP_LIMIT, TEAM_CAP_LIMIT } from '$lib/team-balance'
   import type { PageProps } from './$types'
 
-  let { data, form }: PageProps = $props()
+  let { data }: PageProps = $props()
 
   type RatedPlayer = {
     profileId: string
@@ -56,8 +54,6 @@
   const maxAverage = $derived(cap?.maxAverage ?? 0)
   const maxImmortalTotal = $derived(cap?.maxImmortalTotal ?? 0)
   const isAdmin = $derived(data.user?.role === 'admin')
-
-  let savingCap = $state(false)
 
   const nameKey = (name: string) => name.trim().toLowerCase()
 
@@ -225,15 +221,6 @@
             <strong>Cap not announced yet.</strong>
             The team average cap will be shown here once the season starts. You can still build a roster
             and see its average.
-          </p>
-        </div>
-      {:else if cap.isDefault}
-        <div class="tb-notice">
-          <AlertCircle size={15} class="tb-notice-icon" />
-          <p>
-            <strong>Provisional cap.</strong>
-            The team average cap hasn't been finalised — {maxAverage} is a placeholder and may change
-            before the season starts.
           </p>
         </div>
       {/if}
@@ -467,7 +454,7 @@
         <section class="sheet-section tb-admin">
           <div class="sheet-head">
             <h2 class="sheet-title">Admin</h2>
-            <span class="sheet-note">Changes the caps for everyone</span>
+            <span class="sheet-note">Only you see this</span>
           </div>
           <div class="sheet-body tb-admin-body">
             <label class="tb-toggle">
@@ -480,58 +467,6 @@
                 </span>
               </span>
             </label>
-            <form
-              class="tb-cap-form"
-              method="POST"
-              action="?/setCap"
-              use:enhance={({ formData, cancel }) => {
-                const next = formData.get('maxAverage')
-                const nextImmortal = formData.get('maxImmortalTotal')
-                const prompt = `Set the team average cap to ${next} (was ${maxAverage}) and the Immortal-peak limit to ${nextImmortal} (was ${maxImmortalTotal})? This changes the caps for everyone.`
-                if (!window.confirm(prompt)) {
-                  cancel()
-                  return
-                }
-                savingCap = true
-                return async ({ update }) => {
-                  await update({ reset: false })
-                  savingCap = false
-                }
-              }}
-            >
-              <label class="tb-cap-label" for="cap-input">Team average cap</label>
-              <input
-                id="cap-input"
-                class="tb-input tb-cap-input"
-                type="number"
-                name="maxAverage"
-                step="0.01"
-                min="0.01"
-                max={TEAM_CAP_LIMIT}
-                required
-                value={maxAverage}
-              />
-              <label class="tb-cap-label" for="imm-cap-input">Immortal-peak limit</label>
-              <input
-                id="imm-cap-input"
-                class="tb-input tb-cap-input"
-                type="number"
-                name="maxImmortalTotal"
-                step="0.01"
-                min="0.01"
-                max={IMMORTAL_CAP_LIMIT}
-                required
-                value={maxImmortalTotal}
-              />
-              <button type="submit" class="tb-btn" disabled={savingCap}>
-                {savingCap ? 'Saving…' : 'Save caps'}
-              </button>
-              {#if form?.capError}
-                <span class="tb-cap-msg tb-over">{form.capError}</span>
-              {:else if form?.capSaved}
-                <span class="tb-cap-msg tb-ok">Saved. These are now the caps for everyone.</span>
-              {/if}
-            </form>
           </div>
         </section>
       {/if}
@@ -991,28 +926,6 @@
 
   .tb-imm-src {
     color: #d8b4fe;
-  }
-
-  .tb-cap-form {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 0.625rem;
-  }
-
-  .tb-cap-label {
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: rgba(255, 255, 255, 0.75);
-  }
-
-  .tb-cap-input {
-    width: 6rem;
-    padding-right: 0.5rem;
-  }
-
-  .tb-cap-msg {
-    font-size: 0.75rem;
   }
 
   @media (max-width: 640px) {
