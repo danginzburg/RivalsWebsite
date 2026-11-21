@@ -475,10 +475,8 @@
       <!-- Identity: the top of the sheet -->
       <header class="hero">
         <div class="hero-top">
-          {#if activeTeam?.logo_url}
-            <img src={activeTeam.logo_url} alt="{activeTeam.name} logo" class="hero-logo" />
-          {:else if player.avatar_url && !avatarFailed}
-            <!-- No team: fall back to their Discord avatar. -->
+          <!-- Their Discord avatar; the team logo already shows beside the team name. -->
+          {#if player.avatar_url && !avatarFailed}
             <img
               src={player.avatar_url}
               alt=""
