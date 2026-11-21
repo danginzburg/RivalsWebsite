@@ -5,6 +5,7 @@ import { FIXED_PLAYOFF_PLACEMENTS } from '$lib/server/seasons/fixedPlacements'
 import { bracketPlacement } from '$lib/server/leaderboard/playoff-placement'
 import { getSeasonStandingsRanks } from '$lib/server/leaderboard/ranks'
 import { finalPlacementsCache as cache } from '$lib/server/seasons/finalPlacementsCache'
+import { buildTeamMatcher, getApprovedTeamsForImports } from '$lib/server/imports/matching'
 import { supabaseAdmin } from '$lib/supabase/admin'
 
 /**
@@ -64,15 +65,53 @@ async function loadBracket(
   return legacy ? { matches: legacy.matches, slots: legacy.slots, seeded: legacy.teamCount } : null
 }
 
-async function loadBatchRanks(batchId: string): Promise<Record<string, number>> {
-  const { data } = await supabaseAdmin
-    .from('leaderboard_entries')
-    .select('team_id, rank')
-    .eq('import_batch_id', batchId)
+async function loadBatchRanks(batchId: string, seasonId: string): Promise<Record<string, number>> {
+  const [{ data }, { data: batch }] = await Promise.all([
+    supabaseAdmin
+      .from('leaderboard_entries')
+      .select('team_id, rank')
+      .eq('import_batch_id', batchId),
+    supabaseAdmin.from('stat_import_batches').select('metadata').eq('id', batchId).maybeSingle(),
+  ])
   const ranks: Record<string, number> = {}
   for (const r of (data ?? []) as Array<{ team_id: string | null; rank: number | null }>) {
     if (r.team_id && Number(r.rank) > 0) ranks[r.team_id] = Number(r.rank)
   }
+  return fillUnmatchedRanks(ranks, batch?.metadata, seasonId)
+}
+
+/**
+ * Give back the ranks an import dropped.
+ *
+ * A standings import that could not match a team skipped its row but kept the
+ * name in `unmatched_teams`, in sheet order — and rows are ranked by sheet
+ * position, so the ranks missing from the batch belong to those names in the
+ * same order. Each name is matched against the season's teams as the importer
+ * would now (spacing, accents and small typos forgiven); a name that still
+ * matches nothing, or a team that already has a rank, leaves its gap empty.
+ */
+async function fillUnmatchedRanks(
+  ranks: Record<string, number>,
+  metadata: unknown,
+  seasonId: string
+): Promise<Record<string, number>> {
+  const raw = (metadata as { unmatched_teams?: unknown } | null)?.unmatched_teams
+  const unmatched = Array.isArray(raw) ? raw.map((v) => String(v ?? '').trim()).filter(Boolean) : []
+  if (unmatched.length === 0) return ranks
+
+  const taken = new Set(Object.values(ranks))
+  const total = taken.size + unmatched.length
+  const gaps: number[] = []
+  for (let rank = 1; rank <= total; rank++) if (!taken.has(rank)) gaps.push(rank)
+  // Gaps that do not line up one-to-one with the names mean the batch was
+  // edited since; guessing would misplace teams.
+  if (gaps.length !== unmatched.length) return ranks
+
+  const matcher = buildTeamMatcher(await getApprovedTeamsForImports(seasonId))
+  unmatched.forEach((name, i) => {
+    const team = matcher.byMatchName(name) ?? matcher.byCloseName(name)
+    if (team && ranks[team.id] === undefined) ranks[team.id] = gaps[i]
+  })
   return ranks
 }
 
@@ -142,7 +181,7 @@ async function compute(seasonId: string): Promise<SeasonFinalPlacements> {
   // Everyone the bracket did not place ranks below it, in standings order —
   // the pinned final table when the season has one.
   const ranks = row.final_leaderboard_batch_id
-    ? await loadBatchRanks(row.final_leaderboard_batch_id)
+    ? await loadBatchRanks(row.final_leaderboard_batch_id, seasonId)
     : await getSeasonStandingsRanks(seasonId)
   const bracketSize = Math.max(bracket?.seeded ?? fixed?.size ?? 0, bracketTeams.size)
   const rest = teamIds
