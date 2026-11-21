@@ -1,6 +1,7 @@
 import { buildPickemSlots, type PickemMatch, type PickemSlot } from '$lib/pickems'
 import { getPickemResults, getPublishedPickemContextBySeasonId } from '$lib/server/pickems'
 import { loadLegacyBracket } from '$lib/server/seasons/legacyBracket'
+import { FIXED_PLAYOFF_PLACEMENTS } from '$lib/server/seasons/fixedPlacements'
 import { bracketPlacement } from '$lib/server/leaderboard/playoff-placement'
 import { getSeasonStandingsRanks } from '$lib/server/leaderboard/ranks'
 import { finalPlacementsCache as cache } from '$lib/server/seasons/finalPlacementsCache'
@@ -40,6 +41,7 @@ export type SeasonFinalPlacements = {
 
 type SeasonRow = {
   id: string
+  code: string | null
   metadata: unknown
   winner_team_id: string | null
   runner_up_team_id: string | null
@@ -79,7 +81,7 @@ async function compute(seasonId: string): Promise<SeasonFinalPlacements> {
     supabaseAdmin
       .from('seasons')
       .select(
-        'id, metadata, winner_team_id, runner_up_team_id, third_place_team_id, final_leaderboard_batch_id'
+        'id, code, metadata, winner_team_id, runner_up_team_id, third_place_team_id, final_leaderboard_batch_id'
       )
       .eq('id', seasonId)
       .maybeSingle(),
@@ -106,6 +108,14 @@ async function compute(seasonId: string): Promise<SeasonFinalPlacements> {
   const placements: Record<string, FinalPlacement> = {}
   const bracket = await loadBracket(row)
   const bracketTeams = new Set<string>()
+  // A season whose bracket the site cannot draw has its places hard-coded.
+  const fixed = bracket ? undefined : FIXED_PLAYOFF_PLACEMENTS[row.code ?? '']
+  if (fixed) {
+    for (const [teamId, place] of Object.entries(fixed.places)) {
+      placements[teamId] = { ...place }
+      bracketTeams.add(teamId)
+    }
+  }
   if (bracket) {
     for (const slot of bracket.slots) {
       if (slot.teamAId) bracketTeams.add(slot.teamAId)
@@ -134,7 +144,7 @@ async function compute(seasonId: string): Promise<SeasonFinalPlacements> {
   const ranks = row.final_leaderboard_batch_id
     ? await loadBatchRanks(row.final_leaderboard_batch_id)
     : await getSeasonStandingsRanks(seasonId)
-  const bracketSize = Math.max(bracket?.seeded ?? 0, bracketTeams.size)
+  const bracketSize = Math.max(bracket?.seeded ?? fixed?.size ?? 0, bracketTeams.size)
   const rest = teamIds
     .filter((id) => !bracketTeams.has(id) && ranks[id] !== undefined)
     .sort((a, b) => ranks[a] - ranks[b])

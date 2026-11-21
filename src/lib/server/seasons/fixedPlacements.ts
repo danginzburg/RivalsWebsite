@@ -1,6 +1,7 @@
 /**
  * Final playoff places for seasons whose bracket the site cannot model, shown
- * on the event page in place of the bracket.
+ * on the event page in place of the bracket and used for career average finish
+ * (finalPlacements.ts).
  *
  * Season 1's playoffs were a 6-team bracket of their own shape (two seeds
  * skipped round one, and the lower bracket was routed by hand), so there is no
