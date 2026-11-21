@@ -1,6 +1,7 @@
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { TtlCache } from '$lib/server/cache'
 import { orderStandingsBatches } from '$lib/server/leaderboard/batch'
+import { invalidateFinalPlacements } from '$lib/server/seasons/finalPlacementsCache'
 
 /**
  * Standings position, keyed by team id.
@@ -156,4 +157,5 @@ export async function getStandingsRanksForSeasons(
 export function invalidateStandingsRanks(_seasonId?: string | null) {
   batchIndexCache.clear()
   rankCache.clear()
+  invalidateFinalPlacements()
 }

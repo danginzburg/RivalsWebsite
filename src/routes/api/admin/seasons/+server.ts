@@ -6,6 +6,7 @@ import { getSeasonLogoUrl } from '$lib/server/seasons/logo'
 import { sanitizeSeasonProfile, type SeasonKind } from '$lib/seasons/profile'
 import { sanitizeSeasonSchedule } from '$lib/seasons/schedule'
 import { syncSeasonAccoladesSafely } from '$lib/server/accolades/season-sync'
+import { invalidateFinalPlacements } from '$lib/server/seasons/finalPlacementsCache'
 
 const SEASON_COLUMNS = `
   id,
@@ -227,6 +228,9 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
     if (updateError.code === '23505') throw error(409, 'Season code already exists')
     throw error(500, 'Failed to update season')
   }
+
+  // Results, the pinned standings or the bracket metadata may have moved.
+  invalidateFinalPlacements()
 
   // Placement and MVP accolades follow the season's results.
   if (RESULT_FIELDS.some(([bodyKey]) => body[bodyKey] !== undefined)) {

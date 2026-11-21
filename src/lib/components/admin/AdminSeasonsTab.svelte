@@ -20,6 +20,7 @@
     type SeasonStageKey,
   } from '$lib/seasons/schedule'
   import { seasonMvpName } from '$lib/seasons/mvp'
+  import AdminSeasonBackfillCheck from './AdminSeasonBackfillCheck.svelte'
 
   const weekdayOptions = WEEKDAY_LABELS.map((label, day) => ({ value: String(day), label }))
 
@@ -241,6 +242,8 @@
       </button>
     </div>
   </section>
+
+  <AdminSeasonBackfillCheck />
 
   <section class="admin-bordered p-3">
     <div
