@@ -8,7 +8,8 @@
   import CommentThread from '$lib/components/CommentThread.svelte'
   import ReviewFlagButton from '$lib/components/ReviewFlagButton.svelte'
   import RiotAccountsPanel from '$lib/components/RiotAccountsPanel.svelte'
-  import { User } from 'lucide-svelte'
+  import { AlertTriangle, User } from 'lucide-svelte'
+  import { ordinal } from '$lib/format/ordinal'
   import { resolve } from '$app/paths'
   import { agentIconUrl, rankIconUrlByKey } from '$lib/icons'
   import { builtInAccoladeIcons } from '$lib/accolades/icons'
@@ -59,6 +60,34 @@
   const shownTeamHistory = $derived(
     activeSeasonId && teamHistoryScope === 'season' ? currentSeasonTeams : teamHistory
   )
+  /*
+   * Career finishes across Rivals seasons. External events never count. A
+   * player who moved mid-season has two rows for it; the newest (listed first)
+   * stands for the season. A finished season whose data does not place the
+   * team is counted as missing, so the average says what it leaves out.
+   */
+  const rivalsFinishes = $derived.by(() => {
+    const seen: string[] = []
+    const values: number[] = []
+    let best: number | null = null
+    const missing: string[] = []
+    for (const e of allTeamHistory) {
+      const season = e.season
+      if (!season || e.season_kind === 'external' || isExternalSeason(season.id)) continue
+      if (!e.finish && !e.finish_missing) continue
+      if (seen.includes(season.id)) continue
+      seen.push(season.id)
+      if (e.finish) {
+        values.push((e.finish.start + e.finish.end) / 2)
+        best = best === null ? e.finish.start : Math.min(best, e.finish.start)
+      } else missing.push(season.name)
+    }
+    const avg = values.length ? values.reduce((a, b) => a + b, 0) / values.length : null
+    return { avg, best, count: values.length, missing }
+  })
+  const finishLabel = (f: { start: number; end: number }) =>
+    f.start === f.end ? ordinal(f.start) : `${ordinal(f.start)}–${ordinal(f.end)}`
+
   const mapStats = $derived(
     (data.mapStats ?? []) as Array<{
       key: string
@@ -736,6 +765,35 @@
         {:else if shownTeamHistory.length === 0}
           <p class="card-empty">Not rostered on a team this season.</p>
         {:else}
+          {#if rivalsFinishes.count > 0 || rivalsFinishes.missing.length > 0}
+            <div class="finish-summary">
+              {#if rivalsFinishes.avg !== null}
+                <span class="finish-stat">
+                  <span class="finish-stat-label">Avg finish</span>
+                  <span class="finish-stat-value">{rivalsFinishes.avg.toFixed(1)}</span>
+                </span>
+                {#if rivalsFinishes.best !== null}
+                  <span class="finish-stat">
+                    <span class="finish-stat-label">Best</span>
+                    <span class="finish-stat-value">{ordinal(rivalsFinishes.best)}</span>
+                  </span>
+                {/if}
+                <span class="finish-stat">
+                  <span class="finish-stat-label">Rivals seasons</span>
+                  <span class="finish-stat-value">{rivalsFinishes.count}</span>
+                </span>
+              {/if}
+              {#if rivalsFinishes.missing.length > 0}
+                <span
+                  class="finish-missing"
+                  title="These seasons' final standings haven't been backfilled yet, so they're left out of the average."
+                >
+                  <AlertTriangle size={13} aria-hidden="true" />
+                  No final placing for {rivalsFinishes.missing.join(', ')}
+                </span>
+              {/if}
+            </div>
+          {/if}
           <div class="team-rows">
             {#each shownTeamHistory as entry (entry.team.id)}
               <a href={resolve(`/teams/${entry.team.id}`)} class="team-row">
@@ -780,6 +838,21 @@
                         <span class="team-row-award-label">MVP</span>
                       </span>
                     {/if}
+                  </span>
+                {/if}
+
+                {#if entry.finish && !entry.placement}
+                  <span class="team-row-finish" title="Final placing">
+                    {finishLabel(entry.finish)}
+                    <span class="team-row-finish-of">of {entry.finish.of}</span>
+                  </span>
+                {:else if entry.finish_missing}
+                  <span
+                    class="team-row-finish team-row-finish-missing"
+                    title="This season's final standings haven't been backfilled yet."
+                  >
+                    <AlertTriangle size={12} aria-hidden="true" />
+                    No placing
                   </span>
                 {/if}
 
@@ -1616,6 +1689,57 @@
     object-fit: contain;
   }
 
+  .finish-summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 1.25rem;
+    padding: 0.125rem 1.5rem 0.625rem;
+  }
+
+  .finish-stat {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.375rem;
+  }
+
+  .finish-stat-label {
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .finish-stat-value {
+    font-size: 0.875rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: rgba(255, 255, 255, 0.9);
+  }
+
+  .finish-missing,
+  .team-row-finish-missing {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3125rem;
+    color: rgb(251, 191, 36);
+  }
+
+  .finish-missing {
+    font-size: 0.71875rem;
+  }
+
+  .team-row-finish {
+    flex-shrink: 0;
+    font-size: 0.71875rem;
+    font-variant-numeric: tabular-nums;
+    color: rgba(255, 255, 255, 0.72);
+  }
+
+  .team-row-finish-of {
+    color: rgba(255, 255, 255, 0.4);
+  }
+
   .team-row-season {
     flex-shrink: 0;
     /* Stays hard right whether it shares the first line or wraps below. */
@@ -1855,6 +1979,7 @@
     }
 
     .team-row,
+    .finish-summary,
     .match-grid {
       padding-left: 0.875rem;
       padding-right: 0.875rem;

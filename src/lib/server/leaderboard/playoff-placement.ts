@@ -6,6 +6,7 @@ import {
   type PickemSlot,
 } from '$lib/pickems'
 import type { RankPoint } from '$lib/server/leaderboard/rank-history'
+import { ordinal } from '$lib/format/ordinal'
 
 /**
  * Where a team can still finish in a playoff bracket, read off the bracket's
@@ -168,12 +169,7 @@ export function placementAt(
   return bracketPlacement(matches, slots, teamId)
 }
 
-/** "1st", "2nd", "3rd", "11th". */
-export function ordinal(n: number): string {
-  const tens = n % 100
-  if (tens >= 11 && tens <= 13) return `${n}th`
-  return `${n}${['th', 'st', 'nd', 'rd'][n % 10] ?? 'th'}`
-}
+export { ordinal }
 
 /** Short reading of a placement: "Top 3 locked", "Finished 3rd", "Champions". */
 export function describePlacement(p: PlayoffPlacement): string {
