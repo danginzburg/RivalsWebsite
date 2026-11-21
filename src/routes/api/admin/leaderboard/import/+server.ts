@@ -56,7 +56,8 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     season = seasonRow
   }
 
-  const teams = await getApprovedTeamsForImports()
+  // Team names repeat across seasons, so a season's sheet matches only its own teams.
+  const teams = await getApprovedTeamsForImports(seasonId)
   const matcher = buildTeamMatcher(teams)
   const seenTeamIds = new Set<string>()
   const unresolved: string[] = []
@@ -67,9 +68,14 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
     /*
      * Older season sheets list teams by full name rather than tag, so a tag
-     * miss falls back to the name index before the row is given up on.
+     * miss falls back to the name index, then to a close name, before the
+     * row is given up on.
      */
-    const team = matcher.byLeaderboardTag(teamCode) ?? matcher.byMatchName(teamCode)
+    const team =
+      matcher.byLeaderboardTag(teamCode) ??
+      matcher.byMatchName(teamCode) ??
+      // A sheet's name with a typo in it, matched within the season's teams.
+      (seasonId ? matcher.byCloseName(teamCode) : null)
     if (!team) {
       unresolved.push(teamCode)
       return null
@@ -144,6 +150,25 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
   deleteQuery = seasonId ? deleteQuery.eq('season_id', seasonId) : deleteQuery.is('season_id', null)
 
+  // Batches whose rows this import replaces: a season pinned to one of them as
+  // its final standings is moved onto the new batch below.
+  let replacedQuery = supabaseAdmin
+    .from('leaderboard_entries')
+    .select('import_batch_id')
+    .eq('split', split)
+    .eq('as_of_date', asOfDate)
+  replacedQuery = seasonId
+    ? replacedQuery.eq('season_id', seasonId)
+    : replacedQuery.is('season_id', null)
+  const { data: replacedRows } = await replacedQuery
+  const replacedBatchIds = [
+    ...new Set(
+      ((replacedRows ?? []) as Array<{ import_batch_id: string | null }>)
+        .map((r) => r.import_batch_id)
+        .filter((id): id is string => Boolean(id))
+    ),
+  ]
+
   const { error: deleteError } = await deleteQuery
 
   if (deleteError)
@@ -173,6 +198,14 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     .from('leaderboard_entries')
     .insert(rowsToInsert)
   if (insertError) throw error(500, insertError.message || 'Failed to insert leaderboard rows')
+
+  if (replacedBatchIds.length > 0) {
+    const { error: repinError } = await supabaseAdmin
+      .from('seasons')
+      .update({ final_leaderboard_batch_id: batchId })
+      .in('final_leaderboard_batch_id', replacedBatchIds)
+    if (repinError) console.warn('Failed to move final standings pin:', repinError.message)
+  }
 
   // The public leaderboard caches the latest batch, and the match surfaces
   // cache this season's ranks — drop both so the new standings are visible

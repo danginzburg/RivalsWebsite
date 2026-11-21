@@ -4,6 +4,7 @@ import { requireAdmin } from '$lib/server/auth/profile'
 import { logAdminAction } from '$lib/server/audit/admin-actions'
 import { resolveRosterIdentity, resolveRosterIdentityByPuuid } from '$lib/server/teams/membership'
 import { createNotification } from '$lib/server/notifications'
+import { invalidateFinalPlacements } from '$lib/server/seasons/finalPlacementsCache'
 
 function normalizeOptional(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -254,6 +255,8 @@ export const DELETE: RequestHandler = async ({ locals, request }) => {
     if (disbandError) {
       throw error(500, 'Failed to disband team')
     }
+    // Disbanded teams drop out of season finishes.
+    invalidateFinalPlacements()
 
     await supabaseAdmin
       .from('team_memberships')
@@ -289,6 +292,7 @@ export const DELETE: RequestHandler = async ({ locals, request }) => {
   if (updateError) {
     throw error(500, 'Failed to remove team')
   }
+  invalidateFinalPlacements()
 
   await supabaseAdmin
     .from('team_memberships')
