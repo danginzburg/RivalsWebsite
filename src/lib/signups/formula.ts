@@ -27,7 +27,7 @@ import { TEAM_BALANCE_RANKS } from '$lib/team-balance'
  * same as being average for their rank.
  */
 
-export const SCORE_WEIGHTS = {
+const SCORE_WEIGHTS = {
   current: 0.35,
   peak: 0.65,
   /** Bonus points per standard deviation of rank-relative performance. */
@@ -86,7 +86,7 @@ export function performanceBonus(
   return bonus === 0 ? 0 : bonus
 }
 
-export type ScoreBreakdown = {
+type ScoreBreakdown = {
   currentPoints: number | null
   peakPoints: number | null
   /** 0.35·C + 0.65·P, or null when either rank is missing. */

@@ -14,10 +14,8 @@ import {
 } from './performance-model'
 
 /**
- * League performance for signup scores, from the site's own stats.
- *
- * Replaces the externally calculated sheet rating (`./ratings`, kept for the
- * comparison script): see `./performance-model` for the method.
+ * League performance for signup scores, from the site's own stats: see
+ * `./performance-model` for the method.
  */
 
 /**
@@ -36,8 +34,8 @@ const CACHE_MS = 10 * 60_000
 let cache: { at: number; model: Promise<PerformanceModel> } | null = null
 
 /** The model, built once and reused until the cache runs out. */
-export function loadPerformanceModel({ fresh = false } = {}): Promise<PerformanceModel> {
-  if (!fresh && cache && Date.now() - cache.at < CACHE_MS) return cache.model
+function loadPerformanceModel(): Promise<PerformanceModel> {
+  if (cache && Date.now() - cache.at < CACHE_MS) return cache.model
   const model = buildFromDatabase()
   cache = { at: Date.now(), model }
   // A failed build must not stay cached.

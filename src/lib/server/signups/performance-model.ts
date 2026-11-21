@@ -27,7 +27,7 @@ import { rankPoints, type Performance } from '$lib/signups/formula'
  * The stats, and how much each counts. ADR is left out because it measures the
  * same damage ACS does.
  */
-export const STAT_WEIGHTS = { acs: 0.35, kd: 0.2, kast: 0.25, fkfd: 0.2 } as const
+const STAT_WEIGHTS = { acs: 0.35, kd: 0.2, kast: 0.25, fkfd: 0.2 } as const
 type Stat = keyof typeof STAT_WEIGHTS
 const STATS = Object.keys(STAT_WEIGHTS) as Stat[]
 
@@ -122,7 +122,7 @@ export function parseLeagueRank(raw: string | null | undefined): string | null {
 }
 
 /** Name key used across stat sheets: the Riot name without its tag, lowercased. */
-export function performanceNameKey(name: string | null | undefined): string {
+function performanceNameKey(name: string | null | undefined): string {
   return String(name ?? '')
     .split('#')[0]
     .trim()
