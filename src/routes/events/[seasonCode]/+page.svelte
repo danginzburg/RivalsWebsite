@@ -25,6 +25,10 @@
   let activeTab = $state<TabId>('overview')
 
   const showBracket = $derived(sections.bracket && bracket.slots.length > 0)
+  // A season whose playoffs the bracket cannot draw shows its final places instead.
+  const showPlacements = $derived(
+    sections.bracket && !showBracket && (bracket.placements?.length ?? 0) > 0
+  )
   const showStandings = $derived(sections.standings && leaderboard.length > 0)
   const showMatches = $derived(sections.matches && matches.length > 0)
   const showTeams = $derived(sections.teams && teams.length > 0)
@@ -35,12 +39,19 @@
       { id: 'overview', label: 'Overview' },
     ]
     if (showBracket) items.push({ id: 'bracket', label: 'Bracket' })
+    if (showPlacements) items.push({ id: 'bracket', label: 'Playoffs' })
     if (showStandings) items.push({ id: 'standings', label: 'Standings' })
     if (showMatches) items.push({ id: 'matches', label: 'Matches', count: matches.length })
     if (showTeams) items.push({ id: 'teams', label: 'Teams', count: teams.length })
     if (showMaps) items.push({ id: 'maps', label: 'Map Pool' })
     return items
   })
+
+  function placeLabel(n: number) {
+    const tens = n % 100
+    if (tens >= 11 && tens <= 13) return `${n}th`
+    return `${n}${['th', 'st', 'nd', 'rd'][n % 10] ?? 'th'}`
+  }
 
   function formatRange(startsOn: string | null, endsOn: string | null) {
     if (!startsOn && !endsOn) return 'Dates TBD'
@@ -237,6 +248,11 @@
             <div class="sheet-head"><h2 class="sheet-title">Playoff Bracket</h2></div>
             <div class="sheet-body">{@render bracketView()}</div>
           </section>
+        {:else if showPlacements}
+          <section class="sheet-section">
+            <div class="sheet-head"><h2 class="sheet-title">Playoff Results</h2></div>
+            <div class="sheet-body">{@render placementsTable()}</div>
+          </section>
         {/if}
 
         {#if showMatches}
@@ -260,8 +276,13 @@
         {/if}
       {:else if activeTab === 'bracket'}
         <section class="sheet-section">
-          <div class="sheet-head"><h2 class="sheet-title">Playoff Bracket</h2></div>
-          <div class="sheet-body">{@render bracketView()}</div>
+          {#if showBracket}
+            <div class="sheet-head"><h2 class="sheet-title">Playoff Bracket</h2></div>
+            <div class="sheet-body">{@render bracketView()}</div>
+          {:else}
+            <div class="sheet-head"><h2 class="sheet-title">Playoff Results</h2></div>
+            <div class="sheet-body">{@render placementsTable()}</div>
+          {/if}
         </section>
       {:else if activeTab === 'standings'}
         <section class="sheet-section">
@@ -317,6 +338,40 @@
     matchIds={bracket.matchIds}
     series={bracket.series}
   />
+{/snippet}
+
+{#snippet placementsTable()}
+  <div class="table-scroll">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th class="col-place">Place</th>
+          <th>Team</th>
+        </tr>
+      </thead>
+      <tbody>
+        {#each bracket.placements as row, i (row.team?.id ?? i)}
+          <tr>
+            <td class="col-place tabular">
+              {placeLabel(row.start)}{#if row.end !== row.start}–{placeLabel(row.end)}{/if}
+            </td>
+            <td>
+              {#if row.team}
+                <a href={resolve(`/teams/${row.team.id}`)} class="team-cell">
+                  {#if row.team.logo_url}
+                    <img src={row.team.logo_url} alt="" class="cell-logo" />
+                  {/if}
+                  <span class="team-cell-name">{row.team.name}</span>
+                </a>
+              {:else}
+                <span class="muted">Unknown team</span>
+              {/if}
+            </td>
+          </tr>
+        {/each}
+      </tbody>
+    </table>
+  </div>
 {/snippet}
 
 {#snippet teamsList()}
@@ -802,6 +857,11 @@
 
   td.col-rank {
     color: rgba(255, 255, 255, 0.5);
+  }
+
+  .col-place {
+    width: 5.5rem;
+    white-space: nowrap;
   }
 
   .col-num {

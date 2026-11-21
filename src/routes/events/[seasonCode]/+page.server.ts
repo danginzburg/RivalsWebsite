@@ -11,6 +11,7 @@ import { loadCommentThread } from '$lib/server/comments'
 import { getViewerProfileId } from '$lib/server/auth/viewer'
 import { getSeasonLogoUrl } from '$lib/server/seasons/logo'
 import { loadLegacyBracket } from '$lib/server/seasons/legacyBracket'
+import { FIXED_PLAYOFF_PLACEMENTS } from '$lib/server/seasons/fixedPlacements'
 import { getSeasonSeeds } from '$lib/server/seasons/seeds'
 import { loadBracketSeries, type BracketSeries } from '$lib/server/seasons/bracket'
 import { isUnreachableError } from '$lib/server/supabase/unreachable'
@@ -175,12 +176,26 @@ export const load = async ({
     }
   }
 
+  /**
+   * Seasons whose playoffs the bracket cannot draw carry a hard-coded result
+   * instead: each playoff team's final place, shown as a results table.
+   */
+  const fixed = bracketSlots.length === 0 ? FIXED_PLAYOFF_PLACEMENTS[season.code ?? ''] : undefined
+  if (fixed) bracketTeamCount = fixed.size
+  const fixedPlacementRows = fixed
+    ? Object.entries(fixed.places)
+        .map(([teamId, place]) => ({ teamId, ...place }))
+        .filter((row) => row.start <= fixed.size)
+        .sort((a, b) => a.start - b.start)
+    : []
+
   // Linked matches may reference teams neither the roster nor the seeds list, so
   // backfill any slot team still missing from the map to avoid TBD labels.
   const missingSlotTeamIds = Array.from(
     new Set(
       bracketSlots
         .flatMap((slot) => [slot.teamAId, slot.teamBId])
+        .concat(fixedPlacementRows.map((row) => row.teamId))
         .filter((id): id is string => Boolean(id) && !teamMap[id!])
     )
   )
@@ -445,6 +460,12 @@ export const load = async ({
       // The real match and series score behind each slot, keyed by slot id.
       matchIds: bracketMatchIds,
       series: bracketSeries,
+      // Final places for a season with a hard-coded result instead of a bracket.
+      placements: fixedPlacementRows.map((row) => ({
+        start: row.start,
+        end: row.end,
+        team: teamMap[row.teamId] ?? null,
+      })),
     },
     comments,
     profile,
