@@ -1,12 +1,10 @@
 <script lang="ts">
   import PageContainer from '$lib/components/PageContainer.svelte'
   import { CheckCircle, XCircle, RotateCcw, Search, AlertCircle } from 'lucide-svelte'
-  import { enhance } from '$app/forms'
   import { browser } from '$app/environment'
-  import { TEAM_CAP_LIMIT } from '$lib/team-balance'
   import type { PageProps } from './$types'
 
-  let { data, form }: PageProps = $props()
+  let { data }: PageProps = $props()
 
   type RatedPlayer = {
     profileId: string
@@ -53,8 +51,6 @@
   const cap = $derived(data.cap)
   const maxAverage = $derived(cap?.maxAverage ?? 0)
   const isAdmin = $derived(data.user?.role === 'admin')
-
-  let savingCap = $state(false)
 
   const nameKey = (name: string) => name.trim().toLowerCase()
 
@@ -432,7 +428,7 @@
         <section class="sheet-section tb-admin">
           <div class="sheet-head">
             <h2 class="sheet-title">Admin</h2>
-            <span class="sheet-note">Changes the cap for everyone</span>
+            <span class="sheet-note">Only you see this</span>
           </div>
           <div class="sheet-body tb-admin-body">
             <label class="tb-toggle">
@@ -445,45 +441,6 @@
                 </span>
               </span>
             </label>
-            <form
-              class="tb-cap-form"
-              method="POST"
-              action="?/setCap"
-              use:enhance={({ formData, cancel }) => {
-                const next = formData.get('maxAverage')
-                const prompt = `Change the team average cap from ${maxAverage} to ${next}? This changes the cap for everyone.`
-                if (!window.confirm(prompt)) {
-                  cancel()
-                  return
-                }
-                savingCap = true
-                return async ({ update }) => {
-                  await update({ reset: false })
-                  savingCap = false
-                }
-              }}
-            >
-              <label class="tb-cap-label" for="cap-input">Team average cap</label>
-              <input
-                id="cap-input"
-                class="tb-input tb-cap-input"
-                type="number"
-                name="maxAverage"
-                step="0.01"
-                min="0.01"
-                max={TEAM_CAP_LIMIT}
-                required
-                value={maxAverage}
-              />
-              <button type="submit" class="tb-btn" disabled={savingCap}>
-                {savingCap ? 'Saving…' : 'Save cap'}
-              </button>
-              {#if form?.capError}
-                <span class="tb-cap-msg tb-over">{form.capError}</span>
-              {:else if form?.capSaved}
-                <span class="tb-cap-msg tb-ok">Saved. This is now the cap for everyone.</span>
-              {/if}
-            </form>
           </div>
         </section>
       {/if}
@@ -939,28 +896,6 @@
 
   .tb-pending-src {
     color: var(--gold);
-  }
-
-  .tb-cap-form {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 0.625rem;
-  }
-
-  .tb-cap-label {
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: rgba(255, 255, 255, 0.75);
-  }
-
-  .tb-cap-input {
-    width: 6rem;
-    padding-right: 0.5rem;
-  }
-
-  .tb-cap-msg {
-    font-size: 0.75rem;
   }
 
   @media (max-width: 640px) {

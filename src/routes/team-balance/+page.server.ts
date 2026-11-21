@@ -1,12 +1,9 @@
-import { fail } from '@sveltejs/kit'
-import { requireAdmin } from '$lib/server/auth/profile'
 import { requireNavPage } from '$lib/server/nav-visibility'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { effectiveValue } from '$lib/server/signups'
 import { loadSignupSeason } from '$lib/server/signups/season'
 import { loadPlayerDirectory } from '$lib/server/players/directory'
-import { loadTeamCap, saveTeamCap } from '$lib/server/team-balance'
-import { TEAM_CAP_LIMIT, isValidTeamCap } from '$lib/team-balance'
+import { loadTeamCap } from '$lib/server/team-balance'
 
 /**
  * Players with an approved signup carry a rating from the signup formula.
@@ -23,7 +20,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
   const [season, teamCap] = await Promise.all([loadSignupSeason(), loadTeamCap()])
 
   // The cap stays hidden from players until the season is marked active, so a
-  // provisional number never circulates. Admins always see it to set it.
+  // provisional number never circulates. Admins always see it.
   const isAdmin = locals.user?.role === 'admin'
   let seasonActive = false
   if (season && !isAdmin) {
@@ -86,24 +83,4 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     .sort((a, b) => a.name.localeCompare(b.name))
 
   return { season, cap, ratedPlayers }
-}
-
-export const actions = {
-  setCap: async ({ locals, request }: { locals: App.Locals; request: Request }) => {
-    const admin = await requireAdmin(locals.user)
-    const form = await request.formData()
-
-    const maxAverage = Math.round(Number(form.get('maxAverage')) * 100) / 100
-    if (!isValidTeamCap(maxAverage)) {
-      return fail(400, { capError: `Enter a cap above 0 and no higher than ${TEAM_CAP_LIMIT}.` })
-    }
-
-    try {
-      await saveTeamCap(maxAverage, admin.id)
-    } catch (err) {
-      console.error('[team-balance] failed to save cap', err)
-      return fail(500, { capError: 'Failed to save the cap.' })
-    }
-    return { capSaved: true }
-  },
 }

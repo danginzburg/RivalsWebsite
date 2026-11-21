@@ -24,12 +24,3 @@ export async function loadTeamCap(): Promise<TeamCap> {
     ? { maxAverage: saved, isDefault: false }
     : { maxAverage: DEFAULT_MAX_TEAM_AVERAGE, isDefault: true }
 }
-
-export async function saveTeamCap(maxAverage: number, profileId: string): Promise<void> {
-  const { error } = await supabaseAdmin.from('site_content').upsert({
-    key: CAP_KEY,
-    document: { maxAverage },
-    updated_by_profile_id: profileId,
-  })
-  if (error) throw new Error(error.message)
-}
