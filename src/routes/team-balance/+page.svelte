@@ -3,7 +3,7 @@
   import { CheckCircle, XCircle, RotateCcw, Search, AlertCircle } from 'lucide-svelte'
   import { enhance } from '$app/forms'
   import { browser } from '$app/environment'
-  import { TEAM_CAP_LIMIT } from '$lib/team-balance'
+  import { IMMORTAL_CAP_LIMIT, TEAM_CAP_LIMIT } from '$lib/team-balance'
   import type { PageProps } from './$types'
 
   let { data, form }: PageProps = $props()
@@ -14,6 +14,8 @@
     riotId: string | null
     riotIds: string[]
     rank: string | null
+    /** Peaked Immortal or Radiant: counts toward the Immortal-peak total. */
+    immortalPeak: boolean
     value: number
     isManual: boolean
     /** Only admins are sent pending signups. */
@@ -52,6 +54,7 @@
   /** Null for non-admins until the season is marked active. */
   const cap = $derived(data.cap)
   const maxAverage = $derived(cap?.maxAverage ?? 0)
+  const maxImmortalTotal = $derived(cap?.maxImmortalTotal ?? 0)
   const isAdmin = $derived(data.user?.role === 'admin')
 
   let savingCap = $state(false)
@@ -115,7 +118,16 @@
   const totalValue = $derived(matchedRoster.reduce((sum, p) => sum + p.value, 0))
   const average = $derived(matchedRoster.length > 0 ? totalValue / matchedRoster.length : 0)
   const allFilled = $derived(matchedRoster.length === ROSTER_SIZE)
-  const isEligible = $derived(cap !== null && allFilled && average <= maxAverage)
+
+  /** Combined score of the roster's Immortal-peak players, which has its own cap. */
+  const immortalPlayers = $derived(matchedRoster.filter((p) => p.immortalPeak))
+  const immortalTotal = $derived(immortalPlayers.reduce((sum, p) => sum + p.value, 0))
+  // Rounded like the stored values, so 65.00 against a 65 cap is not over by float noise.
+  const immortalOver = $derived(
+    cap !== null && Math.round(immortalTotal * 100) > Math.round(maxImmortalTotal * 100)
+  )
+  const averageOver = $derived(cap !== null && average > maxAverage)
+  const isEligible = $derived(cap !== null && allFilled && !averageOver && !immortalOver)
 
   /** Rating headroom left for the slots still empty. */
   const slotsLeft = $derived(ROSTER_SIZE - matchedRoster.length)
@@ -265,6 +277,16 @@
               <span class="tb-stat-label">Cap</span>
               <span class="tb-stat-value tb-muted">{maxAverage}</span>
             </div>
+            <div class="tb-stat">
+              <span class="tb-stat-label">Immortal peaks</span>
+              <span
+                class="tb-stat-value"
+                class:tb-over={immortalOver}
+                class:tb-muted={!immortalOver}
+              >
+                {immortalTotal.toFixed(2)} / {maxImmortalTotal}
+              </span>
+            </div>
           {/if}
           <div class="tb-stat">
             <span class="tb-stat-label">Players</span>
@@ -295,8 +317,15 @@
             {:else}
               <XCircle size={16} />
               <span>
-                <strong>Over the cap.</strong> Average {average.toFixed(2)} exceeds
-                {maxAverage} by {(average - maxAverage).toFixed(2)}.
+                <strong>Over the cap.</strong>
+                {#if averageOver}
+                  Average {average.toFixed(2)} exceeds {maxAverage} by
+                  {(average - maxAverage).toFixed(2)}.
+                {/if}
+                {#if immortalOver}
+                  Immortal-peak players total {immortalTotal.toFixed(2)}, over the
+                  {maxImmortalTotal} limit by {(immortalTotal - maxImmortalTotal).toFixed(2)}.
+                {/if}
               </span>
             {/if}
           </div>
@@ -388,6 +417,11 @@
                 <div class="tb-row-value">
                   {#if matched}
                     <span class="tb-value-num">{matched.value}</span>
+                    {#if matched.immortalPeak}
+                      <span class="tb-value-src tb-imm-src" title="Peaked Immortal or Radiant"
+                        >Imm peak</span
+                      >
+                    {/if}
                     {#if matched.isPending}
                       <span class="tb-value-src tb-pending-src">pending</span>
                     {:else if matched.isManual}
@@ -419,9 +453,10 @@
 
       <footer class="tb-foot">
         <p class="tb-foot-note">
-          Each player's value is their signup score: current and peak rank plus a rating bonus, with
-          any admin adjustment. Names that don't match a registered player are ignored in the
-          average.
+          Each player's value is their signup score: current and peak rank plus a bonus for how they
+          played against players of their rank in past seasons, with any admin adjustment. Players
+          who peaked Immortal or Radiant also count toward the Immortal-peak limit. Names that don't
+          match a registered player are ignored.
         </p>
         <button type="button" class="tb-btn" onclick={clearAll}>
           <RotateCcw size={13} /> Clear all
@@ -432,7 +467,7 @@
         <section class="sheet-section tb-admin">
           <div class="sheet-head">
             <h2 class="sheet-title">Admin</h2>
-            <span class="sheet-note">Changes the cap for everyone</span>
+            <span class="sheet-note">Changes the caps for everyone</span>
           </div>
           <div class="sheet-body tb-admin-body">
             <label class="tb-toggle">
@@ -451,7 +486,8 @@
               action="?/setCap"
               use:enhance={({ formData, cancel }) => {
                 const next = formData.get('maxAverage')
-                const prompt = `Change the team average cap from ${maxAverage} to ${next}? This changes the cap for everyone.`
+                const nextImmortal = formData.get('maxImmortalTotal')
+                const prompt = `Set the team average cap to ${next} (was ${maxAverage}) and the Immortal-peak limit to ${nextImmortal} (was ${maxImmortalTotal})? This changes the caps for everyone.`
                 if (!window.confirm(prompt)) {
                   cancel()
                   return
@@ -475,13 +511,25 @@
                 required
                 value={maxAverage}
               />
+              <label class="tb-cap-label" for="imm-cap-input">Immortal-peak limit</label>
+              <input
+                id="imm-cap-input"
+                class="tb-input tb-cap-input"
+                type="number"
+                name="maxImmortalTotal"
+                step="0.01"
+                min="0.01"
+                max={IMMORTAL_CAP_LIMIT}
+                required
+                value={maxImmortalTotal}
+              />
               <button type="submit" class="tb-btn" disabled={savingCap}>
-                {savingCap ? 'Saving…' : 'Save cap'}
+                {savingCap ? 'Saving…' : 'Save caps'}
               </button>
               {#if form?.capError}
                 <span class="tb-cap-msg tb-over">{form.capError}</span>
               {:else if form?.capSaved}
-                <span class="tb-cap-msg tb-ok">Saved. This is now the cap for everyone.</span>
+                <span class="tb-cap-msg tb-ok">Saved. These are now the caps for everyone.</span>
               {/if}
             </form>
           </div>
@@ -939,6 +987,10 @@
 
   .tb-pending-src {
     color: var(--gold);
+  }
+
+  .tb-imm-src {
+    color: #d8b4fe;
   }
 
   .tb-cap-form {

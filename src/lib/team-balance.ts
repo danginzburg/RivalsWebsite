@@ -2,15 +2,38 @@
  * Highest average signup score a five-player roster may have, until an admin
  * saves a cap from the calculator (see `$lib/server/team-balance`).
  *
- * Signup scores run Iron 1 = 1 … Radiant = 25 plus up to 5 rating bonus (see
- * `$lib/signups/formula`), so 18 is roughly a Diamond 3 average.
+ * Signup scores run Iron 1 = 1 … Radiant = 25 plus up to ±3 performance bonus
+ * (see `$lib/signups/formula`). Season 5's pool averages about 18.75, so 19 is
+ * just above an average roster.
  */
-export const DEFAULT_MAX_TEAM_AVERAGE = 18
+export const DEFAULT_MAX_TEAM_AVERAGE = 19
+
+/**
+ * Highest combined score of the Immortal-peak players on one roster (see
+ * `isImmortalPeak`), until an admin saves one. At 65 three Immortal peaks fit
+ * only when all three are Immortal 1-level; an Immortal 3 can share a roster
+ * with one other Immortal peak at most.
+ */
+export const DEFAULT_MAX_IMMORTAL_TOTAL = 65
 /** The best possible signup score: no roster can average above this. */
 export const TEAM_CAP_LIMIT = 30
 
 export function isValidTeamCap(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 && value <= TEAM_CAP_LIMIT
+}
+
+/** An Immortal cap is a five-player total, so it can run up to five best scores. */
+export const IMMORTAL_CAP_LIMIT = TEAM_CAP_LIMIT * 5
+
+export function isValidImmortalCap(value: unknown): value is number {
+  return (
+    typeof value === 'number' && Number.isFinite(value) && value > 0 && value <= IMMORTAL_CAP_LIMIT
+  )
+}
+
+/** Peaked Immortal or Radiant since V26 Act 1: the players the Immortal cap counts. */
+export function isImmortalPeak(peakRank: string | null | undefined): boolean {
+  return !!peakRank && (peakRank.startsWith('Immortal') || peakRank === 'Radiant')
 }
 
 export const MIN_TEAM_PLAYERS = 5

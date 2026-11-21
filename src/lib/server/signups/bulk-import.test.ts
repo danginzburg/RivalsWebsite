@@ -15,7 +15,7 @@ function row(overrides: Partial<BulkSignupRow> = {}): BulkSignupRow {
     peak_rank: null,
     computed_value: null,
     puuid: null,
-    rating: null,
+    performance: null,
     v26_comp_games: 150,
     accounts: [{ riotId: 'ginzburg#na1', puuid: 'p1' }],
     alts: [],
@@ -23,6 +23,9 @@ function row(overrides: Partial<BulkSignupRow> = {}): BulkSignupRow {
     ...overrides,
   }
 }
+
+/** Half a standard deviation above Gold 1, played at their current rank. */
+const PERF = { perf: 0.5, rankThen: 'Gold 1' }
 
 const ALT = { riotId: 'alt#NA1', puuid: 'p-alt' }
 const CHECKED = {
@@ -123,14 +126,15 @@ describe('runBulkImport', () => {
     expect(saved[0].patch.computed_value).toBeGreaterThan(0)
   })
 
-  it('adds the rating bonus to the recomputed value', async () => {
+  it('adds the performance bonus to the recomputed value', async () => {
     const { deps: d, saved } = deps()
     await runBulkImport([row({ id: 'a' })], d)
-    await runBulkImport([row({ id: 'b', rating: 1.2 })], d)
+    await runBulkImport([row({ id: 'b', performance: PERF })], d)
 
-    // Gold 1 (10) and Platinum 3 (15): 0.35·10 + 0.65·15 = 13.25, plus a bonus of 2.
+    // Gold 1 (10) and Platinum 3 (15): 0.35·10 + 0.65·15 = 13.25, plus a bonus of
+    // 2 × 0.5 tapered by 1 − 0.5 × 12.25/24 = 0.745.
     expect(saved[0].patch.computed_value).toBe(13.25)
-    expect(saved[1].patch.computed_value).toBe(15.25)
+    expect(saved[1].patch.computed_value).toBe(13.99)
   })
 
   it('checks alts on a filled row without changing its ranks', async () => {
@@ -192,7 +196,7 @@ describe('runBulkImport', () => {
     expect(d.lookupRiot).not.toHaveBeenCalled()
   })
 
-  it('refreshes the score of a filled row when a rating has arrived', async () => {
+  it('refreshes the score of a filled row when its performance has changed', async () => {
     const { deps: d, saved } = deps()
     const report = await runBulkImport(
       [
@@ -200,7 +204,7 @@ describe('runBulkImport', () => {
           current_rank: 'Gold 1',
           peak_rank: 'Platinum 3',
           computed_value: 13.25,
-          rating: 1.2,
+          performance: PERF,
         }),
       ],
       d
@@ -210,7 +214,7 @@ describe('runBulkImport', () => {
     expect(saved[0].patch).toEqual({
       current_rank: 'Gold 1',
       peak_rank: 'Platinum 3',
-      computed_value: 15.25,
+      computed_value: 13.99,
     })
     expect(d.lookupRiot).not.toHaveBeenCalled()
   })
@@ -223,14 +227,14 @@ describe('runBulkImport', () => {
           current_rank: 'Gold 1',
           peak_rank: 'Platinum 3',
           computed_value: 13.25,
-          rating: 1.2,
+          performance: PERF,
         }),
       ],
       d,
       { overwrite: true }
     )
 
-    expect(saved[0].patch.computed_value).toBe(15.25)
+    expect(saved[0].patch.computed_value).toBe(13.99)
   })
 
   it('does not overwrite an existing value unless asked to', async () => {

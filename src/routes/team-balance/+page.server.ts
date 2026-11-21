@@ -6,7 +6,13 @@ import { effectiveValue } from '$lib/server/signups'
 import { loadSignupSeason } from '$lib/server/signups/season'
 import { loadPlayerDirectory } from '$lib/server/players/directory'
 import { loadTeamCap, saveTeamCap } from '$lib/server/team-balance'
-import { TEAM_CAP_LIMIT, isValidTeamCap } from '$lib/team-balance'
+import {
+  IMMORTAL_CAP_LIMIT,
+  TEAM_CAP_LIMIT,
+  isImmortalPeak,
+  isValidImmortalCap,
+  isValidTeamCap,
+} from '$lib/team-balance'
 
 /**
  * Players with an approved signup carry a rating from the signup formula.
@@ -41,7 +47,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
   const { data: signups, error: signupsError } = await supabaseAdmin
     .from('player_signups')
     .select(
-      'profile_id, status, current_rank, computed_value, manual_value_override, manual_adjustment'
+      'profile_id, status, current_rank, peak_rank, computed_value, manual_value_override, manual_adjustment'
     )
     .in('status', isAdmin ? ['approved', 'pending'] : ['approved'])
     .eq('season_id', season.id)
@@ -76,6 +82,8 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
         /** Every approved Riot ID, so a player can be found by an alt or old name. */
         riotIds: (entry?.riot_ids ?? []) as string[],
         rank: row.current_rank ?? null,
+        /** Counts toward the roster's Immortal-peak total. */
+        immortalPeak: isImmortalPeak(row.peak_rank),
         value,
         isManual: row.manual_value_override != null || Number(row.manual_adjustment ?? 0) !== 0,
         isPending: row.status === 'pending',
@@ -97,9 +105,15 @@ export const actions = {
     if (!isValidTeamCap(maxAverage)) {
       return fail(400, { capError: `Enter a cap above 0 and no higher than ${TEAM_CAP_LIMIT}.` })
     }
+    const maxImmortalTotal = Math.round(Number(form.get('maxImmortalTotal')) * 100) / 100
+    if (!isValidImmortalCap(maxImmortalTotal)) {
+      return fail(400, {
+        capError: `Enter an Immortal cap above 0 and no higher than ${IMMORTAL_CAP_LIMIT}.`,
+      })
+    }
 
     try {
-      await saveTeamCap(maxAverage, admin.id)
+      await saveTeamCap({ maxAverage, maxImmortalTotal }, admin.id)
     } catch (err) {
       console.error('[team-balance] failed to save cap', err)
       return fail(500, { capError: 'Failed to save the cap.' })

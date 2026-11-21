@@ -27,7 +27,26 @@
 import { writeFileSync, mkdirSync } from 'node:fs'
 import { supabaseAdmin as db } from './lib/db'
 import { TEAM_BALANCE_RANKS } from '$lib/team-balance'
-import { computePlayerScore, rankPoints, ratingBonus, roundRating } from '$lib/signups/formula'
+import { rankPoints, roundRating } from '$lib/signups/formula'
+
+/** The sheet-rating formula the site used before the performance bonus, for the CUR columns. */
+function ratingBonus(rating: number | null): number {
+  if (rating == null || !Number.isFinite(rating)) return 0
+  return Math.max(-5, Math.min(5, 10 * (rating - 1)))
+}
+function computePlayerScore(input: {
+  currentRank: string | null
+  peakRank: string | null
+  rating: number | null
+}) {
+  const c = rankPoints(input.currentRank)
+  const p = rankPoints(input.peakRank)
+  const weightedRankScore = c == null || p == null ? null : 0.35 * c + 0.65 * p
+  return {
+    weightedRankScore,
+    total: weightedRankScore == null ? null : weightedRankScore + ratingBonus(input.rating),
+  }
+}
 import { resolveSeasonStatBatchIds } from '$lib/server/stats/season-batches'
 import { aggregateFullSeasonRows } from '$lib/server/stats/aggregate-full-season'
 import { loadPlayerDirectory } from '$lib/server/players/directory'

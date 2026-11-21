@@ -1,5 +1,6 @@
 import type { SignupAltCheck } from '$lib/signups/alt-check'
 import { computeSignupValue } from './index'
+import type { Performance } from '$lib/signups/formula'
 import type { RankTarget } from './rank-account'
 import { meetsGamesMinimum, type AccountGames, type GamesAccount } from '$lib/signups/comp-games'
 
@@ -20,8 +21,8 @@ import { meetsGamesMinimum, type AccountGames, type GamesAccount } from '$lib/si
  *    call, along with how long to wait before making it.
  * 4. It never touches `manual_value_override` — a hand-set value is the
  *    admin's decision and outranks anything fetched.
- * 5. A row with nothing to fetch still has its score refreshed, so a rating
- *    that arrived after the ranks reaches the stored value without a lookup.
+ * 5. A row with nothing to fetch still has its score refreshed, so a change to
+ *    the performance bonus reaches the stored value without a lookup.
  * 6. V26 games are counted whether or not the ranks need filling. A player
  *    under the minimum is counted again on every run, because they may have
  *    played since; one who has reached it never drops back.
@@ -47,8 +48,8 @@ export type BulkSignupRow = {
   computed_value: number | null
   /** PUUID linked to the player's account; preferred over the Riot ID. */
   puuid: string | null
-  /** The player's imported rating, used only to recompute the score. */
-  rating: number | null
+  /** The player's league performance, used only to recompute the score. */
+  performance: Performance | null
   /** Stored V26 game count; null until first checked. */
   v26_comp_games: number | null
   /** The accounts to count V26 games on. */
@@ -183,7 +184,7 @@ export async function runBulkImport(
     report.processed += 1
   }
 
-  /** Save the row's score if its ranks and rating now give a different one. */
+  /** Save the row's score if its ranks and performance now give a different one. */
   const refreshScore = async (
     row: BulkSignupRow,
     skipDetail: string,
@@ -305,7 +306,7 @@ export async function runBulkImport(
     try {
       await deps.save(row.id, {
         ...patch,
-        computed_value: computeSignupValue({ ...patch, rating: row.rating }),
+        computed_value: computeSignupValue({ ...patch, performance: row.performance }),
         ...altPatch(riot.altCheck),
       })
     } catch (err) {
