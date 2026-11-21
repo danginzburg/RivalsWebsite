@@ -12,6 +12,8 @@
     riotId: string | null
     riotIds: string[]
     rank: string | null
+    /** Peaked Immortal or Radiant: counts toward the Immortal-peak total. */
+    immortalPeak: boolean
     value: number
     isManual: boolean
     /** Only admins are sent pending signups. */
@@ -50,6 +52,7 @@
   /** Null for non-admins until the season is marked active. */
   const cap = $derived(data.cap)
   const maxAverage = $derived(cap?.maxAverage ?? 0)
+  const maxImmortalTotal = $derived(cap?.maxImmortalTotal ?? 0)
   const isAdmin = $derived(data.user?.role === 'admin')
 
   const nameKey = (name: string) => name.trim().toLowerCase()
@@ -111,7 +114,16 @@
   const totalValue = $derived(matchedRoster.reduce((sum, p) => sum + p.value, 0))
   const average = $derived(matchedRoster.length > 0 ? totalValue / matchedRoster.length : 0)
   const allFilled = $derived(matchedRoster.length === ROSTER_SIZE)
-  const isEligible = $derived(cap !== null && allFilled && average <= maxAverage)
+
+  /** Combined score of the roster's Immortal-peak players, which has its own cap. */
+  const immortalPlayers = $derived(matchedRoster.filter((p) => p.immortalPeak))
+  const immortalTotal = $derived(immortalPlayers.reduce((sum, p) => sum + p.value, 0))
+  // Rounded like the stored values, so 65.00 against a 65 cap is not over by float noise.
+  const immortalOver = $derived(
+    cap !== null && Math.round(immortalTotal * 100) > Math.round(maxImmortalTotal * 100)
+  )
+  const averageOver = $derived(cap !== null && average > maxAverage)
+  const isEligible = $derived(cap !== null && allFilled && !averageOver && !immortalOver)
 
   /** Rating headroom left for the slots still empty. */
   const slotsLeft = $derived(ROSTER_SIZE - matchedRoster.length)
@@ -211,15 +223,6 @@
             and see its average.
           </p>
         </div>
-      {:else if cap.isDefault}
-        <div class="tb-notice">
-          <AlertCircle size={15} class="tb-notice-icon" />
-          <p>
-            <strong>Provisional cap.</strong>
-            The team average cap hasn't been finalised — {maxAverage} is a placeholder and may change
-            before the season starts.
-          </p>
-        </div>
       {/if}
 
       {#if isAdmin && includePending && pendingInRoster}
@@ -261,6 +264,16 @@
               <span class="tb-stat-label">Cap</span>
               <span class="tb-stat-value tb-muted">{maxAverage}</span>
             </div>
+            <div class="tb-stat">
+              <span class="tb-stat-label">Immortal peaks</span>
+              <span
+                class="tb-stat-value"
+                class:tb-over={immortalOver}
+                class:tb-muted={!immortalOver}
+              >
+                {immortalTotal.toFixed(2)} / {maxImmortalTotal}
+              </span>
+            </div>
           {/if}
           <div class="tb-stat">
             <span class="tb-stat-label">Players</span>
@@ -291,8 +304,15 @@
             {:else}
               <XCircle size={16} />
               <span>
-                <strong>Over the cap.</strong> Average {average.toFixed(2)} exceeds
-                {maxAverage} by {(average - maxAverage).toFixed(2)}.
+                <strong>Over the cap.</strong>
+                {#if averageOver}
+                  Average {average.toFixed(2)} exceeds {maxAverage} by
+                  {(average - maxAverage).toFixed(2)}.
+                {/if}
+                {#if immortalOver}
+                  Immortal-peak players total {immortalTotal.toFixed(2)}, over the
+                  {maxImmortalTotal} limit by {(immortalTotal - maxImmortalTotal).toFixed(2)}.
+                {/if}
               </span>
             {/if}
           </div>
@@ -384,6 +404,11 @@
                 <div class="tb-row-value">
                   {#if matched}
                     <span class="tb-value-num">{matched.value}</span>
+                    {#if matched.immortalPeak}
+                      <span class="tb-value-src tb-imm-src" title="Peaked Immortal or Radiant"
+                        >Imm peak</span
+                      >
+                    {/if}
                     {#if matched.isPending}
                       <span class="tb-value-src tb-pending-src">pending</span>
                     {:else if matched.isManual}
@@ -415,9 +440,10 @@
 
       <footer class="tb-foot">
         <p class="tb-foot-note">
-          Each player's value is their signup score: current and peak rank plus a rating bonus, with
-          any admin adjustment. Names that don't match a registered player are ignored in the
-          average.
+          Each player's value is their signup score: current and peak rank plus a bonus for how they
+          played against players of their rank in past seasons, with any admin adjustment. Players
+          who peaked Immortal or Radiant also count toward the Immortal-peak limit. Names that don't
+          match a registered player are ignored.
         </p>
         <button type="button" class="tb-btn" onclick={clearAll}>
           <RotateCcw size={13} /> Clear all
@@ -896,6 +922,10 @@
 
   .tb-pending-src {
     color: var(--gold);
+  }
+
+  .tb-imm-src {
+    color: #d8b4fe;
   }
 
   @media (max-width: 640px) {

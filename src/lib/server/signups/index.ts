@@ -1,5 +1,5 @@
 import { error } from '@sveltejs/kit'
-import { computePlayerScore, roundRating } from '$lib/signups/formula'
+import { computePlayerScore, roundRating, type Performance } from '$lib/signups/formula'
 
 export const MAX_TRACKER_LINKS = 5
 
@@ -64,19 +64,19 @@ export function normalizeDiscordHandle(value: unknown): string | null {
 }
 
 /**
- * Recompute the stored score from the signup's ranks and the player's
- * imported rating. Returns the rounded value, or null while either rank is
+ * Recompute the stored score from the signup's ranks and the player's league
+ * performance (see `./performance`). Returns the rounded value, or null while either rank is
  * missing — an unverified player has no score.
  */
 export function computeSignupValue(input: {
   current_rank: string | null
   peak_rank: string | null
-  rating: number | null
+  performance: Performance | null
 }): number | null {
   const { total } = computePlayerScore({
     currentRank: input.current_rank,
     peakRank: input.peak_rank,
-    rating: input.rating,
+    performance: input.performance,
   })
 
   return total == null ? null : roundRating(total)

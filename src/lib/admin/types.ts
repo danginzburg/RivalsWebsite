@@ -2,6 +2,14 @@ import type { MatchStreamRow } from '$lib/server/db-rows'
 import type { SeasonExternalLink, SeasonKind, SeasonSectionKey } from '$lib/seasons/profile'
 import type { SeasonSchedule } from '$lib/seasons/schedule'
 import type { SignupAltCheck } from '$lib/signups/alt-check'
+import type { Performance } from '$lib/signups/formula'
+
+/** League performance as the admin signups list receives it. */
+export type SignupPerformance = Performance & {
+  /** How much the sample is trusted, 0–1, from rounds played. */
+  trust: number
+  seasons: Array<{ code: string; rounds: number; perf: number }>
+}
 
 export type AdminTabId =
   | 'users'
@@ -27,10 +35,8 @@ export type PlayerSignup = {
   computed_value: number | null
   manual_value_override: number | null
   manual_adjustment: number
-  /** Imported performance rating behind the score bonus, if any. */
-  rating: number | null
-  /** The name the rating is listed under, which can differ from the Riot name. */
-  rating_name?: string | null
+  /** League performance behind the score bonus; null without Season 3/4 stats. */
+  performance: SignupPerformance | null
   /** V26 competitive games on the main account; null until checked. */
   v26_comp_games: number | null
   /** The Riot ID that total is from. */

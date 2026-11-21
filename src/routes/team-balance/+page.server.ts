@@ -3,7 +3,7 @@ import { supabaseAdmin } from '$lib/supabase/admin'
 import { effectiveValue } from '$lib/server/signups'
 import { loadSignupSeason } from '$lib/server/signups/season'
 import { loadPlayerDirectory } from '$lib/server/players/directory'
-import { loadTeamCap } from '$lib/server/team-balance'
+import { TEAM_MAX_AVERAGE, TEAM_MAX_IMMORTAL_TOTAL, isImmortalPeak } from '$lib/team-balance'
 
 /**
  * Players with an approved signup carry a rating from the signup formula.
@@ -17,10 +17,11 @@ import { loadTeamCap } from '$lib/server/team-balance'
  */
 export const load = async ({ locals }: { locals: App.Locals }) => {
   await requireNavPage(locals, 'team-balance')
-  const [season, teamCap] = await Promise.all([loadSignupSeason(), loadTeamCap()])
+  const season = await loadSignupSeason()
+  const teamCap = { maxAverage: TEAM_MAX_AVERAGE, maxImmortalTotal: TEAM_MAX_IMMORTAL_TOTAL }
 
-  // The cap stays hidden from players until the season is marked active, so a
-  // provisional number never circulates. Admins always see it.
+  // The caps stay hidden from players until the season is marked active, so they
+  // are announced with the season. Admins always see them.
   const isAdmin = locals.user?.role === 'admin'
   let seasonActive = false
   if (season && !isAdmin) {
@@ -38,7 +39,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
   const { data: signups, error: signupsError } = await supabaseAdmin
     .from('player_signups')
     .select(
-      'profile_id, status, current_rank, computed_value, manual_value_override, manual_adjustment'
+      'profile_id, status, current_rank, peak_rank, computed_value, manual_value_override, manual_adjustment'
     )
     .in('status', isAdmin ? ['approved', 'pending'] : ['approved'])
     .eq('season_id', season.id)
@@ -73,6 +74,8 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
         /** Every approved Riot ID, so a player can be found by an alt or old name. */
         riotIds: (entry?.riot_ids ?? []) as string[],
         rank: row.current_rank ?? null,
+        /** Counts toward the roster's Immortal-peak total. */
+        immortalPeak: isImmortalPeak(row.peak_rank),
         value,
         isManual: row.manual_value_override != null || Number(row.manual_adjustment ?? 0) !== 0,
         isPending: row.status === 'pending',
