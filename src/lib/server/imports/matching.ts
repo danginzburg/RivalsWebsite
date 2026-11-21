@@ -50,6 +50,26 @@ function compactTeamKey(value: unknown): string {
     .replace(/[^a-z0-9]/g, '')
 }
 
+/**
+ * Edit distance between two strings: insertions, deletions, substitutions and
+ * swapped neighbouring letters ("huose" for "house") each count as one.
+ */
+function editDistance(a: string, b: string): number {
+  const d: number[][] = Array.from({ length: a.length + 1 }, (_, i) =>
+    Array.from({ length: b.length + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
+  )
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost)
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1)
+      }
+    }
+  }
+  return d[a.length][b.length]
+}
+
 export function buildTeamMatcher(teams: TeamRow[]) {
   const byMatchName = new Map<string, TeamRow>()
   const byLeaderboardTag = new Map<string, TeamRow>()
@@ -91,6 +111,33 @@ export function buildTeamMatcher(teams: TeamRow[]) {
     },
     byLeaderboardTag(tag: string): TeamRow | null {
       return byLeaderboardTag.get(normalizeImportKey(tag)) ?? null
+    },
+    /**
+     * A team whose name is a near miss — a typo such as "Sh0dify Rebillion"
+     * for "Sh0dify Rebellion". Allows one edit per eight characters (at most
+     * three), and only resolves when a single team is closest, so two
+     * similarly named teams are never guessed between.
+     */
+    byCloseName(name: string): TeamRow | null {
+      const key = compactTeamKey(name)
+      if (key.length < 5) return null
+      const limit = Math.min(3, Math.floor(key.length / 8) || 1)
+      let best: TeamRow | null = null
+      let bestDistance = Infinity
+      let tied = false
+      for (const [candidate, team] of byCompactName) {
+        if (!team || Math.abs(candidate.length - key.length) > limit) continue
+        const d = editDistance(key, candidate)
+        if (d > limit) continue
+        if (d < bestDistance) {
+          best = team
+          bestDistance = d
+          tied = false
+        } else if (d === bestDistance && best?.id !== team.id) {
+          tied = true
+        }
+      }
+      return tied ? null : best
     },
   }
 }

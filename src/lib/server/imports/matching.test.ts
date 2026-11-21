@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildProfileMatcher } from './matching'
+import { buildProfileMatcher, buildTeamMatcher } from './matching'
 
 const OWNER = '11111111-1111-1111-1111-111111111111'
 const OTHER = '22222222-2222-2222-2222-222222222222'
@@ -60,5 +60,37 @@ describe('buildProfileMatcher — PUUID and alias resolution', () => {
       [{ profile_id: OWNER, riot_name: 'Ambiguous', riot_tag: 'NA1', riot_puuid: 'p-x' }]
     )
     expect(matcher.resolve('Ambiguous')).toBe(OWNER)
+  })
+})
+
+describe('buildTeamMatcher — loose team names', () => {
+  const season2 = [
+    '2FNTASTIC 2FURIOUS',
+    'Kruise Esports',
+    'Sh0dify Rebellion',
+    'Silly Geese',
+    'The Crackhouse',
+    'The Colonizers',
+  ].map((name, i) => ({ id: `team-${i}`, name, tag: null }))
+  const matcher = buildTeamMatcher(season2)
+
+  it('ignores spacing and accents', () => {
+    expect(matcher.byMatchName('2FNTASTIC2FURIOUS')?.name).toBe('2FNTASTIC 2FURIOUS')
+    expect(matcher.byMatchName('Krüise Esports')?.name).toBe('Kruise Esports')
+  })
+
+  it('matches a typo to the closest team', () => {
+    expect(matcher.byCloseName('Sh0dify Rebillion')?.name).toBe('Sh0dify Rebellion')
+    expect(matcher.byCloseName('The Crackhuose')?.name).toBe('The Crackhouse')
+  })
+
+  it('does not guess at unrelated or ambiguous names', () => {
+    expect(matcher.byCloseName('Pupperhampton Puppers')).toBeNull()
+    expect(matcher.byCloseName('Geese')).toBeNull()
+    const twins = buildTeamMatcher([
+      { id: 'a', name: 'Team Alpha1', tag: null },
+      { id: 'b', name: 'Team Alpha2', tag: null },
+    ])
+    expect(twins.byCloseName('Team Alpha3')).toBeNull()
   })
 })

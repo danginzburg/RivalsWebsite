@@ -68,9 +68,14 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
     /*
      * Older season sheets list teams by full name rather than tag, so a tag
-     * miss falls back to the name index before the row is given up on.
+     * miss falls back to the name index, then to a close name, before the
+     * row is given up on.
      */
-    const team = matcher.byLeaderboardTag(teamCode) ?? matcher.byMatchName(teamCode)
+    const team =
+      matcher.byLeaderboardTag(teamCode) ??
+      matcher.byMatchName(teamCode) ??
+      // A sheet's name with a typo in it, matched within the season's teams.
+      (seasonId ? matcher.byCloseName(teamCode) : null)
     if (!team) {
       unresolved.push(teamCode)
       return null
