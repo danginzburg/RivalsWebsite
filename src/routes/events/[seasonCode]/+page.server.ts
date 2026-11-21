@@ -185,6 +185,7 @@ export const load = async ({
   const fixedPlacementRows = fixed
     ? Object.entries(fixed.places)
         .map(([teamId, place]) => ({ teamId, ...place }))
+        .filter((row) => row.start <= fixed.size)
         .sort((a, b) => a.start - b.start)
     : []
 

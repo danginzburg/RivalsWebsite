@@ -14,8 +14,12 @@
  *              Crackhouse 2–0 Serpent Kings, Sigmas 2–0 Crackhouse
  *   Grand F    Sigmas 3–0 Pound
  *
- * Keyed by season code, then team id. "The Pound" is the team stored as
- * Pups Kittens.
+ * The teams that missed playoffs follow in regular-season order (no Season 1
+ * standings are stored): RFK, Alpha Squad, FNC Academy.
+ *
+ * Keyed by season code, then team id. `size` is how many teams made playoffs;
+ * places past it are non-playoff finishes, used for averages but not listed as
+ * playoff results. "The Pound" is the team stored as Pups Kittens.
  */
 export type FixedPlacement = { start: number; end: number }
 
@@ -32,6 +36,9 @@ export const FIXED_PLAYOFF_PLACEMENTS: Record<
       '90d3c09e-36f8-4c4b-a2ba-daa19516074e': { start: 4, end: 4 }, // Serpent Kings
       '72e72e62-1f08-4258-8410-2caa4ee9087e': { start: 5, end: 6 }, // Pizza Party: Reheated
       '3fd34ae2-cde8-4cfb-b303-78256ff77653': { start: 5, end: 6 }, // FNTASTIC
+      'f9fc9ca5-9225-4f5d-9fa9-b2798dd8087b': { start: 7, end: 7 }, // Robert F. Kennedy
+      '3dda5bab-65f9-4edf-9ea3-fe3dd7e10b38': { start: 8, end: 8 }, // Alpha Squad
+      '12a2e6b5-d0da-4222-8161-07f179311f6d': { start: 9, end: 9 }, // FNC Academy
     },
   },
 }

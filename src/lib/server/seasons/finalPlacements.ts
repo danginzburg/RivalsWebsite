@@ -113,7 +113,7 @@ async function compute(seasonId: string): Promise<SeasonFinalPlacements> {
   if (fixed) {
     for (const [teamId, place] of Object.entries(fixed.places)) {
       placements[teamId] = { ...place }
-      bracketTeams.add(teamId)
+      if (place.start <= fixed.size) bracketTeams.add(teamId)
     }
   }
   if (bracket) {
@@ -146,7 +146,7 @@ async function compute(seasonId: string): Promise<SeasonFinalPlacements> {
     : await getSeasonStandingsRanks(seasonId)
   const bracketSize = Math.max(bracket?.seeded ?? fixed?.size ?? 0, bracketTeams.size)
   const rest = teamIds
-    .filter((id) => !bracketTeams.has(id) && ranks[id] !== undefined)
+    .filter((id) => !placements[id] && !bracketTeams.has(id) && ranks[id] !== undefined)
     .sort((a, b) => ranks[a] - ranks[b])
   rest.forEach((teamId, i) => {
     const place = bracketSize + i + 1
