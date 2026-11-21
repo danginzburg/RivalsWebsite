@@ -2,6 +2,7 @@ import { supabaseAdmin } from '$lib/supabase/admin'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
 import { isShortStint } from '$lib/server/matches/subs'
 import { loadSeasonThirdPlaceTeamIds } from '$lib/server/seasons/thirdPlace'
+import { loadSeasonFinalPlacements } from '$lib/server/seasons/finalPlacements'
 
 /* Team history for the player profile page. */
 
@@ -18,6 +19,7 @@ export type SeasonRel = {
   name?: string | null
   code?: string | null
   starts_on?: string | null
+  kind?: string | null
   winner_team_id?: string | null
   runner_up_team_id?: string | null
   mvp_profile_id?: string | null
@@ -42,6 +44,14 @@ export type TeamHistoryRow = {
   placement: 'champion' | 'runner_up' | 'third' | null
   /** The player was that season's MVP; carried on one row per season. */
   is_mvp: boolean
+  /**
+   * Where the team finished, out of how many; null until the season is over
+   * or when its results do not place this team.
+   */
+  finish: { start: number; end: number; of: number } | null
+  /** The season is over but its data does not place this team (backfill gap). */
+  finish_missing: boolean
+  season_kind: string | null
 }
 
 /**
@@ -76,7 +86,7 @@ export async function loadTeamHistory(profileId: string): Promise<TeamHistoryRow
       teams (
         id, name, tag, logo_path, approval_status, season_id,
         seasons!teams_season_id_fkey (
-          id, name, code, starts_on, winner_team_id, runner_up_team_id, mvp_profile_id
+          id, name, code, starts_on, kind, winner_team_id, runner_up_team_id, mvp_profile_id
         )
       )
     `
@@ -103,6 +113,7 @@ export async function loadTeamHistory(profileId: string): Promise<TeamHistoryRow
   const mvpSeasonByTeam = new Map<string, string>()
   const seasonByTeam = new Map<string, string>()
   const bracketSeasonIds = new Set<string>()
+  const finishedSeasonByTeam = new Map<string, string>()
   for (const row of (data ?? []) as Row[]) {
     const team = Array.isArray(row.teams) ? row.teams[0] : row.teams
     if (!team || team.approval_status !== 'approved') continue
@@ -150,7 +161,11 @@ export async function loadTeamHistory(profileId: string): Promise<TeamHistoryRow
             ? 'runner_up'
             : null,
       is_mvp: false,
+      finish: null,
+      finish_missing: false,
+      season_kind: seasonRel?.kind ?? null,
     })
+    if (seasonRel?.winner_team_id) finishedSeasonByTeam.set(team.id, seasonRel.id)
     if (isOpen) openTeams.add(team.id)
     if (seasonRel?.mvp_profile_id === profileId) mvpSeasonByTeam.set(team.id, seasonRel.id)
     if (
@@ -179,6 +194,23 @@ export async function loadTeamHistory(profileId: string): Promise<TeamHistoryRow
   for (const [teamId, seasonId] of seasonByTeam) {
     const entry = byTeam.get(teamId)
     if (entry && thirdBySeason.get(seasonId)?.includes(teamId)) entry.placement = 'third'
+  }
+
+  // Full finishing position for every finished season.
+  const finals = new Map(
+    await Promise.all(
+      [...new Set(finishedSeasonByTeam.values())].map(
+        async (seasonId) => [seasonId, await loadSeasonFinalPlacements(seasonId)] as const
+      )
+    )
+  )
+  for (const [teamId, seasonId] of finishedSeasonByTeam) {
+    const entry = byTeam.get(teamId)
+    const final = finals.get(seasonId)
+    if (!entry || !final) continue
+    const p = final.placements[teamId]
+    if (p) entry.finish = { start: p.start, end: p.end, of: final.teamCount }
+    else entry.finish_missing = true
   }
 
   // Newest season first; within a season, the most recent roster first.
