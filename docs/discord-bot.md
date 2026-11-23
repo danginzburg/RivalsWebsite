@@ -17,14 +17,16 @@ If both sides change the same field between two runs, the Discord edit wins.
 
 The code is in `src/lib/server/discord-events/` (`plan.ts` decides, `sync.ts` applies). The link table is `discord_match_events`.
 
-## 1. Create the application
+## 1. Set up the application
 
-1. Open https://discord.com/developers/applications and click **New Application**. Name it (for example "TC Rivals") and accept the terms.
+Use the Discord application you already made for Auth0 login. A bot added to it leaves login alone: the Client ID, Client Secret and redirect URLs stay the same. (Or click **New Application** at https://discord.com/developers/applications for a separate one.)
+
+1. Under **Installation**, set **Install Link** to **None** and save. Do this first: Discord won't make the bot private while a default install link is set. The invite URL below does the install, and login is unaffected.
 2. Under **Bot**:
-   - Click **Reset Token**, copy the token and keep it for `DISCORD_BOT_TOKEN`. Discord shows it only once.
+   - Click **Reset Token**, copy the token and keep it for `DISCORD_BOT_TOKEN`. Discord shows it only once. This doesn't change the Client Secret that Auth0 uses.
    - Turn off **Public Bot**, so only you can add it to servers.
+   - Leave **Requires OAuth2 Code Grant** off.
    - Leave every **Privileged Gateway Intent** off. The bot doesn't use the Gateway.
-3. Under **Installation**, set **Install Link** to **None**. The invite URL below does the install.
 
 ## 2. Invite the bot to your server
 
