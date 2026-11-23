@@ -1,6 +1,7 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { syncMatchToDiscord } from '$lib/server/discord-events/sync'
 
 function normalizeOptional(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -8,7 +9,7 @@ function normalizeOptional(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null
 }
 
-export const POST: RequestHandler = async ({ locals, params, request }) => {
+export const POST: RequestHandler = async ({ locals, params, request, url }) => {
   await requireAdmin(locals.user)
 
   const matchId = normalizeOptional(params.id)
@@ -46,10 +47,12 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
     .single()
 
   if (createError || !created) throw error(500, createError?.message || 'Failed to add stream')
+  // The event's location is the match's Twitch link.
+  await syncMatchToDiscord(matchId, url.origin)
   return json({ success: true, stream: created })
 }
 
-export const DELETE: RequestHandler = async ({ locals, request }) => {
+export const DELETE: RequestHandler = async ({ locals, params, request, url }) => {
   await requireAdmin(locals.user)
 
   const body = await request.json().catch(() => ({}))
@@ -61,11 +64,12 @@ export const DELETE: RequestHandler = async ({ locals, request }) => {
     .delete()
     .eq('id', streamId)
   if (deleteError) throw error(500, 'Failed to delete stream')
+  if (params.id) await syncMatchToDiscord(params.id, url.origin)
 
   return json({ success: true })
 }
 
-export const PATCH: RequestHandler = async ({ locals, params, request }) => {
+export const PATCH: RequestHandler = async ({ locals, params, request, url }) => {
   await requireAdmin(locals.user)
 
   const matchId = normalizeOptional(params.id)
@@ -113,5 +117,6 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
     .single()
 
   if (updateError || !updated) throw error(500, updateError?.message || 'Failed to update stream')
+  await syncMatchToDiscord(matchId, url.origin)
   return json({ success: true, stream: updated })
 }

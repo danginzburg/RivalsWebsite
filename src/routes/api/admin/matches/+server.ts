@@ -1,4 +1,5 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit'
+import { syncMatchToDiscord } from '$lib/server/discord-events/sync'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { fetchAllRowsResult } from '$lib/server/supabase/fetch-all'
@@ -101,7 +102,7 @@ export const GET: RequestHandler = async ({ locals, url }) => {
   })
 }
 
-export const POST: RequestHandler = async ({ locals, request }) => {
+export const POST: RequestHandler = async ({ locals, request, url }) => {
   const admin = await requireAdmin(locals.user)
   const body = await request.json().catch(() => ({}))
 
@@ -174,6 +175,8 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     .single()
 
   if (createError || !created) throw error(500, 'Failed to create match')
+
+  await syncMatchToDiscord(created.id, url.origin)
 
   return json({ success: true, match: created })
 }
