@@ -66,9 +66,9 @@ describe('eventBodyForMatch', () => {
     expect(body.scheduled_start_time).toBe(START)
     expect(body.scheduled_end_time).toBe('2026-11-25T06:00:00.000Z')
     expect(body.entity_type).toBe(3)
-    expect(body.entity_metadata?.location).toBe(`${ORIGIN}/matches/m1`)
-    expect(body.description).toContain(`${ORIGIN}/matches/m1`)
-    expect(body.description).toContain('Best of 5')
+    expect(body.entity_metadata?.location).toBe('TBD')
+    expect(body.description).toBe(`Bo5
+${ORIGIN}/matches/m1`)
   })
 
   it('puts the Twitch link in the location when there is one', () => {
@@ -194,7 +194,7 @@ describe('planLinked', () => {
     expect(plan.snapshot.site_twitch_url).toBe('https://twitch.tv/tcrivals')
   })
 
-  it('falls back to the match page when the site removes the Twitch link', () => {
+  it('shows TBD when the site removes the Twitch link', () => {
     const before = match({ twitch_url: 'https://twitch.tv/tcrivals' })
     const plan = planLinked({
       match: match(),
@@ -205,7 +205,7 @@ describe('planLinked', () => {
     })
     expect(plan.discord).toEqual({
       type: 'update',
-      body: { entity_metadata: { location: `${ORIGIN}/matches/m1` } },
+      body: { entity_metadata: { location: 'TBD' } },
     })
   })
 
@@ -339,6 +339,64 @@ describe('planLinked', () => {
       match: match({ status: 'live', scheduled_at: '2026-11-26T01:00:00.000Z' }),
       event: eventFor(before, { status: EventStatus.Active }),
       snapshot: synced(before),
+      now: NOW,
+      origin: ORIGIN,
+    })
+    expect(plan.discord).toEqual({ type: 'none' })
+  })
+})
+
+describe('planLinked on events made before Bo3 and TBD', () => {
+  const m = match()
+  const legacy = {
+    description: `Best of 3
+${ORIGIN}/matches/m1`,
+    entity_metadata: { location: `${ORIGIN}/matches/m1` },
+  }
+  const legacySnapshot = { ...synced(m), event_location: `${ORIGIN}/matches/m1` }
+
+  it('rewrites the old location and description', () => {
+    const plan = planLinked({
+      match: m,
+      event: eventFor(m, legacy),
+      snapshot: legacySnapshot,
+      now: NOW,
+      origin: ORIGIN,
+    })
+    expect(plan.discord).toEqual({
+      type: 'update',
+      body: {
+        entity_metadata: { location: 'TBD' },
+        description: `Bo3
+${ORIGIN}/matches/m1`,
+      },
+    })
+    expect(plan.snapshot.event_location).toBe('TBD')
+    expect(plan.site).toEqual({})
+  })
+
+  it('updates the description when the series length changes', () => {
+    const plan = planLinked({
+      match: match({ best_of: 5 }),
+      event: eventFor(m),
+      snapshot: synced(m),
+      now: NOW,
+      origin: ORIGIN,
+    })
+    expect(plan.discord).toMatchObject({
+      type: 'update',
+      body: {
+        description: `Bo5
+${ORIGIN}/matches/m1`,
+      },
+    })
+  })
+
+  it('leaves a description someone wrote in Discord alone', () => {
+    const plan = planLinked({
+      match: m,
+      event: eventFor(m, { description: 'Grand final! Bring snacks' }),
+      snapshot: synced(m),
       now: NOW,
       origin: ORIGIN,
     })
