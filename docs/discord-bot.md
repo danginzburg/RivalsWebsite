@@ -1,4 +1,8 @@
-# Discord bot: match events
+# Discord bot
+
+The bot does two jobs: it keeps match **events** in step with the site (below), and it handles the **match scheduling threads** (see [Match scheduling threads](#match-scheduling-threads)).
+
+## Match events
 
 The bot keeps a Discord **scheduled event** for every upcoming match, in both directions:
 
@@ -26,7 +30,7 @@ Use the Discord application you already made for Auth0 login. A bot added to it 
    - Click **Reset Token**, copy the token and keep it for `DISCORD_BOT_TOKEN`. Discord shows it only once. This doesn't change the Client Secret that Auth0 uses.
    - Turn off **Public Bot**, so only you can add it to servers.
    - Leave **Requires OAuth2 Code Grant** off.
-   - Leave every **Privileged Gateway Intent** off. The bot doesn't use the Gateway.
+   - Under **Privileged Gateway Intents**, turn on **Message Content Intent**. The bot needs it to read veto logs pasted into scheduling threads. Leave the other two off.
 
 ## 2. Invite the bot to your server
 
@@ -103,3 +107,47 @@ To pause the sync: `select cron.unschedule('discord-event-sync');`. Site edits w
 - Matches created from Discord are approved, in the active season, best of 3 unless the title or description says "Bo5". The creator is recorded on the match if their Discord account is linked to a site profile.
 - The bot only manages events in the server set by `DISCORD_GUILD_ID`.
 - Deleting an event in Discord only cancels the match if the event hadn't started yet. Events that end on their own are just unlinked.
+
+## Match scheduling threads
+
+Teams open one thread per match in the **r5-match-scheduling** forum to agree a time and run the map veto. The bot:
+
+- **Links each thread to its match.** A thread titled with the two teams ("Sentinels vs Cloud9", "SEN vs C9", "Week 3: SEN vs C9") is linked to those teams' next open match within a minute. For any other title, run **`/link-match`** inside the thread and pick the match from the list. Running it again re-links the thread. Once linked, the announcement webhooks post that match's schedule updates into the thread.
+- **Copies the veto onto the match.** Paste the veto bot's log into the thread, all at once or a few lines at a time, plain or in a code block:
+
+  ```
+  25. Oct.2026 23:06:23 UTC: Team 1 (SEN) bans Map "Sunset"!
+  25. Oct.2026 23:07:02 UTC: Team 1 (SEN) picks Map "Ascent"!
+  25. Oct.2026 23:07:30 UTC: Team 2 (C9) picked "Attacker" as Side to start on Map "Ascent"!
+  25. Oct.2026 23:08:10 UTC: Map "Lotus" will be decider!
+  ```
+
+  Within a minute, the match page shows it. Chat in between is ignored, and a log pasted twice counts once. The bot never overwrites a veto an admin typed on the site.
+
+The code is in `src/lib/server/discord-bot/`. The link is a `discord_posts` row (`kind = 'match_thread'`) that the webhooks read too. `discord_thread_vetoes` remembers what the bot last read.
+
+### Setup
+
+1. **Message Content Intent.** Turn it on under **Bot** (see step 1 above). Without it the bot sees empty messages and imports nothing.
+2. **Let the bot read the forum.** Open the **r5-match-scheduling** forum's settings, go to **Permissions**, add the bot's role, and allow **View Channel** and **Read Message History**. (Or re-invite it with `scope=bot%20applications.commands&permissions=17600776045568`, which adds those two permissions server-wide.)
+3. **Get the forum's id.** With Developer Mode on, right-click the forum and choose **Copy Channel ID**.
+4. **Add two more Vercel variables** (Production), then redeploy:
+
+   | Variable                      | Value                                                                       |
+   | ----------------------------- | --------------------------------------------------------------------------- |
+   | `DISCORD_PUBLIC_KEY`          | **General Information → Public Key** in the Developer Portal                |
+   | `DISCORD_SCHEDULING_FORUM_ID` | The forum's channel id from step 3. Leave it unset to turn thread sync off. |
+
+5. **Apply the migrations.** Run `supabase/migrations/20261124_001_discord_thread_vetoes.sql`. The `discord_posts` table comes from the announcements work (`20261123_001_discord_posts.sql`); apply that first, because thread linking writes to it.
+6. **Set the Interactions Endpoint URL.** After the redeploy, go to **General Information** and set **Interactions Endpoint URL** to `https://YOUR_SITE/api/discord/interactions`, then save. Discord sends a signed test request; if it says the URL couldn't be verified, `DISCORD_PUBLIC_KEY` is missing or wrong. This doesn't affect Auth0 login.
+7. **Register `/link-match`.** In your local `.env`, add `DISCORD_APP_ID` (the Application ID), `DISCORD_BOT_TOKEN` and `DISCORD_GUILD_ID`, then run:
+
+   ```powershell
+   npm run discord:register
+   ```
+
+   It prints `Registered /link-match on server …`. With `DISCORD_GUILD_ID` set the command appears at once; without it, it's registered globally and can take up to an hour. Run it again whenever the commands change.
+
+The minute sync's report gains a `threads` part, for example `"threads":{"configured":true,"linked":1,"vetoes":0,"errors":[]}`.
+
+Anyone who can post in a scheduling thread can run `/link-match` there. The bot's reply is public, so a wrong link is easy to spot and fix by running it again. To limit it to staff, go to **Server Settings → Integrations → the bot → /link-match** and pick the roles that can use it.

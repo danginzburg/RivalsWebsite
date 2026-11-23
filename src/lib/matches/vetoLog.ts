@@ -18,6 +18,19 @@ const DECIDER = /^Map\s+"(.+?)"\s+will\s+be\s+(?:the\s+)?decider!?$/i
 const SIDE =
   /^Team\s*\d+\s*\((.+?)\)\s+picked\s+"(.+?)"\s+as\s+Side\s+to\s+start\s+on\s+Map\s+"(.+?)"!?$/i
 
+/**
+ * Only the lines that are steps of a veto log (bans, picks, the decider, side
+ * choices), for text that mixes the log with chat, such as a Discord thread.
+ */
+export function extractVetoLogLines(lines: string[]): string[] {
+  return lines
+    .map((line) => line.trim())
+    .filter((line) => {
+      const step = line.replace(TIMESTAMP_PREFIX, '').trim()
+      return BAN_OR_PICK.test(step) || DECIDER.test(step) || SIDE.test(step)
+    })
+}
+
 export function normalizeVetoLines(lines: string[]): string[] {
   const stripped = lines.map((line) => line.trim().replace(TIMESTAMP_PREFIX, '').trim())
   const isLog = stripped.some(
