@@ -3,6 +3,7 @@ import { supabaseAdmin } from '$lib/supabase/admin'
 import { uploadLogo } from '$lib/server/logo-upload'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { logAdminAction } from '$lib/server/audit/admin-actions'
+import { inBackground, postTeamLogo } from '$lib/server/discord/announce'
 import { resolveTargetSeasonId } from '$lib/server/seasons/resolve'
 
 type RosterProfileRow = {
@@ -214,6 +215,8 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       },
     })
 
+    const createdId = created.id as string
+    inBackground('team logo', () => postTeamLogo(createdId))
     return json({ success: true, team: created })
   } catch (err) {
     if (uploadedLogoPath) {
@@ -337,6 +340,7 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
         }
       }
     }
+    inBackground('team logo', () => postTeamLogo(teamId))
   }
 
   return json({ success: true, team: updatedTeam })

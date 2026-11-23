@@ -13,6 +13,7 @@ import {
   parseVetoText,
   saveMatchVeto,
 } from '$lib/server/matches/reports'
+import { inBackground, postAdminAlert } from '$lib/server/discord/announce'
 
 const NOTE_MAX = 1000
 
@@ -127,6 +128,19 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
     console.error('Failed to record captain report:', insertError)
     // Applied imports are already written; only a queued one is lost here.
     if (status === 'pending') throw error(500, 'Failed to save the submission. Try again.')
+  }
+
+  if (report && status === 'pending') {
+    const reportId = report.id as string
+    inBackground('match report alert', () =>
+      postAdminAlert(reportId, {
+        kind: 'match_report',
+        submitter: profile.display_name ?? null,
+        matchId: match.id,
+        matchLabel: null,
+        reasons,
+      })
+    )
   }
 
   return json({

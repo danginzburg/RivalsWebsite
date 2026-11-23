@@ -1,12 +1,24 @@
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { notifyMany } from '$lib/server/notifications'
+import {
+  inBackground,
+  postMatchCancelled,
+  postMatchResult,
+  postMatchScheduled,
+} from '$lib/server/discord/announce'
 
 /*
  * Fan-out notifications for league events that concern more than one person:
  * a match's two rosters, or everyone in a pick'em. Like the rest of the
  * notifications layer these never throw — they run after the primary action
  * has already succeeded.
+ *
+ * Each one also queues the matching Discord post (after the response, see
+ * $lib/server/discord/announce). Pass `announce: false` from any rebuild,
+ * backfill or re-import path that reuses these, so Discord stays quiet.
  */
+
+export type EventOptions = { announce?: boolean }
 
 type MatchSummary = {
   id: string
@@ -104,7 +116,12 @@ function formatUtc(iso: string): string {
 }
 
 /** Tell both rosters their match time was set or moved. */
-export async function notifyMatchScheduled(matchId: string, actorProfileId: string) {
+export async function notifyMatchScheduled(
+  matchId: string,
+  actorProfileId: string,
+  options: EventOptions = {}
+) {
+  if (options.announce !== false) inBackground('match scheduled', () => postMatchScheduled(matchId))
   try {
     const loaded = await loadMatchSides(matchId)
     if (!loaded?.match.scheduled_at) return
@@ -131,7 +148,12 @@ export async function notifyMatchScheduled(matchId: string, actorProfileId: stri
 }
 
 /** Tell both rosters the final result once a match is completed. */
-export async function notifyMatchResult(matchId: string, actorProfileId: string) {
+export async function notifyMatchResult(
+  matchId: string,
+  actorProfileId: string,
+  options: EventOptions = {}
+) {
+  if (options.announce !== false) inBackground('match result', () => postMatchResult(matchId))
   try {
     const loaded = await loadMatchSides(matchId)
     if (!loaded) return
@@ -166,7 +188,12 @@ export async function notifyMatchResult(matchId: string, actorProfileId: string)
 }
 
 /** Tell both rosters a match was called off. */
-export async function notifyMatchCancelled(matchId: string, actorProfileId: string) {
+export async function notifyMatchCancelled(
+  matchId: string,
+  actorProfileId: string,
+  options: EventOptions = {}
+) {
+  if (options.announce !== false) inBackground('match cancelled', () => postMatchCancelled(matchId))
   try {
     const loaded = await loadMatchSides(matchId)
     if (!loaded) return

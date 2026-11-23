@@ -3,6 +3,7 @@ import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { requireProfile, assertCanParticipate } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { enforceRateLimit } from '$lib/server/rate-limit'
+import { inBackground, postAdminAlert } from '$lib/server/discord/announce'
 
 export const POST: RequestHandler = async ({ request, locals }) => {
   const profile = await requireProfile(locals.user)
@@ -22,7 +23,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
   const { data: comment } = await supabaseAdmin
     .from('comments')
-    .select('id, profile_id, is_deleted')
+    .select('id, profile_id, is_deleted, body')
     .eq('id', commentId)
     .maybeSingle()
 
@@ -32,11 +33,15 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     throw error(400, 'You cannot report your own comment')
   }
 
-  const { error: insertError } = await supabaseAdmin.from('comment_reports').insert({
-    comment_id: commentId,
-    reporter_profile_id: profile.id,
-    reason: reason || null,
-  })
+  const { data: report, error: insertError } = await supabaseAdmin
+    .from('comment_reports')
+    .insert({
+      comment_id: commentId,
+      reporter_profile_id: profile.id,
+      reason: reason || null,
+    })
+    .select('id')
+    .single()
 
   if (insertError) {
     // Unique violation: this user already reported this comment.
@@ -46,6 +51,15 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     console.error('Failed to create comment report:', insertError)
     throw error(500, 'Failed to submit report')
   }
+
+  inBackground('comment report alert', () =>
+    postAdminAlert(report.id as string, {
+      kind: 'comment_report',
+      reporter: profile.display_name ?? null,
+      reason: reason || null,
+      excerpt: typeof comment.body === 'string' ? comment.body : null,
+    })
+  )
 
   return json({ success: true })
 }

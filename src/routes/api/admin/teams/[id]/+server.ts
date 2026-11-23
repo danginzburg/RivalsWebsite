@@ -3,6 +3,7 @@ import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { uploadLogo } from '$lib/server/logo-upload'
 import { invalidateFinalPlacements } from '$lib/server/seasons/finalPlacementsCache'
+import { inBackground, postTeamLogo } from '$lib/server/discord/announce'
 
 function normalizeOptional(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -84,6 +85,8 @@ export const PATCH: RequestHandler = async ({ locals, request, params }) => {
 
   // A status change moves the team in or out of its season's finishes.
   if (status !== existing.status) invalidateFinalPlacements()
+  // A new name, tag or logo updates the team's #team-logos post.
+  inBackground('team logo', () => postTeamLogo(teamId, 'edit'))
 
   return json({ success: true, team: updated })
 }

@@ -1,6 +1,7 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { requireAdmin } from '$lib/server/auth/profile'
 import { supabaseAdmin } from '$lib/supabase/admin'
+import { inBackground, postStreamDeleted, postStreamSaved } from '$lib/server/discord/announce'
 
 function normalizeOptional(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -46,6 +47,7 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
     .single()
 
   if (createError || !created) throw error(500, createError?.message || 'Failed to add stream')
+  inBackground('stream added', () => postStreamSaved(created.id as string))
   return json({ success: true, stream: created })
 }
 
@@ -61,6 +63,7 @@ export const DELETE: RequestHandler = async ({ locals, request }) => {
     .delete()
     .eq('id', streamId)
   if (deleteError) throw error(500, 'Failed to delete stream')
+  inBackground('stream deleted', () => postStreamDeleted(streamId))
 
   return json({ success: true })
 }
@@ -113,5 +116,6 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
     .single()
 
   if (updateError || !updated) throw error(500, updateError?.message || 'Failed to update stream')
+  inBackground('stream updated', () => postStreamSaved(streamId))
   return json({ success: true, stream: updated })
 }
