@@ -1,23 +1,23 @@
-import satori from 'satori'
-import sharp from 'sharp'
-import { read } from '$app/server'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
-import { leagueTime, SITE_NAME } from '$lib/meta'
-import boldFontUrl from './fonts/Nippo-Bold.ttf'
-import regularFontUrl from './fonts/Nippo-Regular.ttf'
+import { leagueTime } from '$lib/meta'
+import {
+  cardRoot,
+  COLORS,
+  h,
+  headerRow,
+  img,
+  logoDataUri,
+  placeholder,
+  renderCard,
+  renderCardSvg,
+  type Node,
+} from './kit'
 
 /**
  * The 1200×630 scorecard Discord shows as a match link's preview image:
  * both teams, the series score (or the start time), and the maps.
- *
- * satori lays out a small tree of plain objects into SVG with the text turned
- * into shapes, so the server needs no fonts installed; sharp turns that into a
- * PNG and also converts the teams' WebP logos, which satori cannot read.
  */
-
-export const CARD_WIDTH = 1200
-export const CARD_HEIGHT = 630
 
 type Side = { name: string; tag: string | null; logo: string | null }
 
@@ -85,99 +85,16 @@ export async function loadMatchCard(matchId: string): Promise<MatchCardData | nu
 
 // ── Rendering ───────────────────────────────────────────────────────────────
 
-type Node = { type: string; props: Record<string, unknown> }
-
-/** A satori element. Children may be nodes, strings, or falsy (skipped). */
-function h(
-  type: string,
-  style: Record<string, unknown>,
-  ...children: Array<Node | string | null | false | undefined>
-): Node {
-  const kids = children.filter((c): c is Node | string => !!c)
-  return {
-    type,
-    props: { style: { display: 'flex', ...style }, children: kids.length === 1 ? kids[0] : kids },
-  }
-}
-
-function img(src: string, size: number): Node {
-  return {
-    type: 'img',
-    props: {
-      src,
-      width: size,
-      height: size,
-      style: { width: size, height: size, objectFit: 'contain' },
-    },
-  }
-}
-
-let fontCache: Promise<Array<{ name: string; data: ArrayBuffer; weight: 400 | 700 }>> | null = null
-
-function loadFonts() {
-  fontCache ??= Promise.all([
-    read(regularFontUrl).arrayBuffer(),
-    read(boldFontUrl).arrayBuffer(),
-  ]).then(([regular, bold]) => [
-    { name: 'Nippo', data: regular, weight: 400 as const },
-    { name: 'Nippo', data: bold, weight: 700 as const },
-  ])
-  return fontCache
-}
-
-/** A team logo as a PNG data URI satori can draw, or null if it cannot be fetched. */
-async function logoDataUri(url: string | null, size: number): Promise<string | null> {
-  if (!url) return null
-  try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(4000) })
-    if (!res.ok) return null
-    const png = await sharp(Buffer.from(await res.arrayBuffer()))
-      .resize(size, size, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
-      .png()
-      .toBuffer()
-    return `data:image/png;base64,${png.toString('base64')}`
-  } catch {
-    return null
-  }
-}
-
-const PAD_X = 56
-const PAD_Y = 44
 /* Two team columns plus the centre fit inside the padding (1200 − 2×56). */
 const TEAM_WIDTH = 330
 const CENTRE_WIDTH = 380
-
-const COLORS = {
-  text: '#ffffff',
-  muted: 'rgba(236, 228, 248, 0.62)',
-  faint: 'rgba(236, 228, 248, 0.35)',
-  accent: '#c084fc',
-  good: '#86efac',
-  panel: 'rgba(0, 0, 0, 0.28)',
-}
 
 function teamBlock(side: Side, logo: string | null, won: boolean | null): Node {
   const initials = (side.tag || side.name).slice(0, 3).toUpperCase()
   return h(
     'div',
     { flexDirection: 'column', alignItems: 'center', width: TEAM_WIDTH, gap: 22 },
-    logo
-      ? img(logo, 200)
-      : h(
-          'div',
-          {
-            width: 200,
-            height: 200,
-            borderRadius: 28,
-            backgroundColor: '#512f8a',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: 64,
-            fontWeight: 700,
-            color: '#ece4f8',
-          },
-          initials
-        ),
+    logo ? img(logo, 200) : placeholder(initials, 200),
     h(
       'div',
       {
@@ -266,46 +183,11 @@ function mapStrip(card: MatchCardData): Node | null {
   )
 }
 
-/** Render the scorecard to a PNG. */
-export async function renderMatchCard(card: MatchCardData): Promise<Buffer> {
-  return sharp(Buffer.from(await renderMatchCardSvg(card)))
-    .png()
-    .toBuffer()
-}
-
-/** The scorecard as SVG (satori's output, before rasterising). */
-export async function renderMatchCardSvg(card: MatchCardData): Promise<string> {
-  const [fonts, logoA, logoB] = await Promise.all([
-    loadFonts(),
-    logoDataUri(card.teamA.logo, 400),
-    logoDataUri(card.teamB.logo, 400),
-  ])
-
+function matchTree(card: MatchCardData, logoA: string | null, logoB: string | null): Node {
   const played = card.status === 'completed'
-  const tree = h(
-    'div',
-    {
-      // satori adds padding outside the root's size, so the size excludes it.
-      width: CARD_WIDTH - PAD_X * 2,
-      height: CARD_HEIGHT - PAD_Y * 2,
-      flexDirection: 'column',
-      justifyContent: 'space-between',
-      padding: `${PAD_Y}px ${PAD_X}px`,
-      fontFamily: 'Nippo',
-      color: COLORS.text,
-      backgroundImage: 'linear-gradient(135deg, #1a1b25 0%, #2b1a4a 55%, #392061 100%)',
-    },
-    // Event line + brand
-    h(
-      'div',
-      { justifyContent: 'space-between', alignItems: 'center' },
-      h(
-        'div',
-        { fontSize: 28, fontWeight: 700, letterSpacing: 3, color: COLORS.muted },
-        (card.event ?? 'Match').toUpperCase()
-      ),
-      h('div', { fontSize: 28, fontWeight: 700, color: COLORS.accent }, SITE_NAME)
-    ),
+  return cardRoot(
+    {},
+    headerRow(card.event ?? 'Match'),
     // Teams and score
     h(
       'div',
@@ -317,10 +199,22 @@ export async function renderMatchCardSvg(card: MatchCardData): Promise<string> {
     // Maps (or an empty spacer so the middle row stays centred)
     mapStrip(card) ?? h('div', { height: 58 })
   )
+}
 
-  return satori(tree as unknown as Parameters<typeof satori>[0], {
-    width: CARD_WIDTH,
-    height: CARD_HEIGHT,
-    fonts,
-  })
+async function buildTree(card: MatchCardData): Promise<Node> {
+  const [logoA, logoB] = await Promise.all([
+    logoDataUri(card.teamA.logo, 400),
+    logoDataUri(card.teamB.logo, 400),
+  ])
+  return matchTree(card, logoA, logoB)
+}
+
+/** Render the scorecard to a PNG. */
+export async function renderMatchCard(card: MatchCardData): Promise<Buffer> {
+  return renderCard(await buildTree(card))
+}
+
+/** The scorecard as SVG (satori's output, before rasterising). */
+export async function renderMatchCardSvg(card: MatchCardData): Promise<string> {
+  return renderCardSvg(await buildTree(card))
 }
