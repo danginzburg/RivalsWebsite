@@ -153,8 +153,24 @@ function endTime(startIso: string, bestOf: number | null): string {
   return new Date(new Date(startIso).getTime() + hours * 60 * 60 * 1000).toISOString()
 }
 
+function pairing(match: SyncMatch): string {
+  return `${match.team_a?.name ?? 'TBD'} vs ${match.team_b?.name ?? 'TBD'}`
+}
+
+/** "Team A vs Team B (Bo3)". */
 function eventName(match: SyncMatch): string {
-  return truncate(`${match.team_a?.name ?? 'TBD'} vs ${match.team_b?.name ?? 'TBD'}`, 100)
+  return truncate(`${pairing(match)} (Bo${match.best_of ?? 3})`, 100)
+}
+
+/**
+ * Whether `name` is a title the site wrote for these teams, with or without
+ * the series length (older events had none). The site may rewrite these, but
+ * never a title someone typed in Discord.
+ */
+function isSiteName(name: string, match: SyncMatch): boolean {
+  const base = pairing(match)
+  if (name === base) return true
+  return name.startsWith(base) && /^ \(Bo\d+\)$/.test(name.slice(base.length))
 }
 
 /**
@@ -168,12 +184,13 @@ function eventLocation(twitchUrl: string | null): string {
 }
 
 function eventDescription(match: SyncMatch, origin: string): string {
-  return truncate(`Bo${match.best_of ?? 3}\n${matchUrl(origin, match.id)}`, 1000)
+  return matchUrl(origin, match.id)
 }
 
 /**
- * Whether `description` is one the site wrote. Older events said "Best of 3"
- * instead of "Bo3". The site may rewrite these, but never text someone typed.
+ * Whether `description` is one the site wrote: the match link, optionally
+ * under an older "Best of 3" or "Bo3" line. The site may rewrite these, but
+ * never text someone typed.
  */
 function isSiteDescription(
   description: string | null | undefined,
@@ -181,10 +198,9 @@ function isSiteDescription(
   origin: string
 ) {
   const url = matchUrl(origin, match.id)
-  return (
-    /^(?:Best of |Bo)\d+$/.test((description ?? '').split('\n')[0] ?? '') &&
-    (description ?? '').split('\n').slice(1).join('\n') === url
-  )
+  const lines = (description ?? '').split('\n')
+  if (lines.length === 1) return lines[0] === url
+  return /^(?:Best of |Bo)\d+$/.test(lines[0] ?? '') && lines.slice(1).join('\n') === url
 }
 
 // ---------------------------------------------------------------------------
@@ -340,9 +356,14 @@ export function planLinked(input: {
     body.description = description
   }
 
-  if (teamsKey(match) !== snapshot.site_teams_key) {
-    const name = eventName(match)
-    if (name !== event!.name) body.name = name
+  // A new pairing renames the event. So does a new series length, or an older
+  // title without one, as long as the title is still the site's own.
+  const name = eventName(match)
+  if (
+    name !== event!.name &&
+    (teamsKey(match) !== snapshot.site_teams_key || isSiteName(event!.name, match))
+  ) {
+    body.name = name
   }
 
   return {
