@@ -63,13 +63,12 @@ function synced(m: SyncMatch) {
 describe('eventBodyForMatch', () => {
   it('names the teams, links the match and runs an hour a map', () => {
     const body = eventBodyForMatch(match({ best_of: 5 }), ORIGIN)
-    expect(body.name).toBe('Sentinels vs Cloud9')
+    expect(body.name).toBe('Sentinels vs Cloud9 (Bo5)')
     expect(body.scheduled_start_time).toBe(START)
     expect(body.scheduled_end_time).toBe('2026-11-25T06:00:00.000Z')
     expect(body.entity_type).toBe(3)
     expect(body.entity_metadata?.location).toBe('TBD')
-    expect(body.description).toBe(`Bo5
-${ORIGIN}/matches/m1`)
+    expect(body.description).toBe(`${ORIGIN}/matches/m1`)
   })
 
   it('puts the Twitch link in the location when there is one', () => {
@@ -263,7 +262,10 @@ describe('planLinked', () => {
       now: NOW,
       origin: ORIGIN,
     })
-    expect(plan.discord).toEqual({ type: 'update', body: { name: 'Sentinels vs Team Liquid' } })
+    expect(plan.discord).toEqual({
+      type: 'update',
+      body: { name: 'Sentinels vs Team Liquid (Bo3)' },
+    })
   })
 
   it('leaves a renamed event alone when the teams did not change', () => {
@@ -364,36 +366,38 @@ describe('planLinked', () => {
   })
 })
 
-describe('planLinked on events made before Bo3 and TBD', () => {
+describe('planLinked on events made before the (Bo3) titles', () => {
   const m = match()
-  const legacy = {
-    description: `Best of 3
-${ORIGIN}/matches/m1`,
-    entity_metadata: { location: `${ORIGIN}/matches/m1` },
-  }
-  const legacySnapshot = { ...synced(m), event_location: `${ORIGIN}/matches/m1` }
+  const url = `${ORIGIN}/matches/m1`
+  const legacySnapshot = { ...synced(m), event_location: url }
 
-  it('rewrites the old location and description', () => {
-    const plan = planLinked({
-      match: m,
-      event: eventFor(m, legacy),
-      snapshot: legacySnapshot,
-      now: NOW,
-      origin: ORIGIN,
-    })
-    expect(plan.discord).toEqual({
-      type: 'update',
-      body: {
-        entity_metadata: { location: 'TBD' },
-        description: `Bo3
-${ORIGIN}/matches/m1`,
-      },
-    })
-    expect(plan.snapshot.event_location).toBe('TBD')
-    expect(plan.site).toEqual({})
+  it('rewrites the old title, location and description', () => {
+    for (const description of [`Best of 3\n${url}`, `Bo3\n${url}`]) {
+      const plan = planLinked({
+        match: m,
+        event: eventFor(m, {
+          name: 'Sentinels vs Cloud9',
+          description,
+          entity_metadata: { location: url },
+        }),
+        snapshot: legacySnapshot,
+        now: NOW,
+        origin: ORIGIN,
+      })
+      expect(plan.discord).toEqual({
+        type: 'update',
+        body: {
+          entity_metadata: { location: 'TBD' },
+          description: url,
+          name: 'Sentinels vs Cloud9 (Bo3)',
+        },
+      })
+      expect(plan.snapshot.event_location).toBe('TBD')
+      expect(plan.site).toEqual({})
+    }
   })
 
-  it('updates the description when the series length changes', () => {
+  it('retitles the event when the series length changes', () => {
     const plan = planLinked({
       match: match({ best_of: 5 }),
       event: eventFor(m),
@@ -401,13 +405,21 @@ ${ORIGIN}/matches/m1`,
       now: NOW,
       origin: ORIGIN,
     })
-    expect(plan.discord).toMatchObject({
+    expect(plan.discord).toEqual({
       type: 'update',
-      body: {
-        description: `Bo5
-${ORIGIN}/matches/m1`,
-      },
+      body: { name: 'Sentinels vs Cloud9 (Bo5)' },
     })
+  })
+
+  it('leaves a title someone wrote in Discord alone when the series length changes', () => {
+    const plan = planLinked({
+      match: match({ best_of: 5 }),
+      event: eventFor(m, { name: 'GRAND FINAL: SEN vs C9' }),
+      snapshot: synced(m),
+      now: NOW,
+      origin: ORIGIN,
+    })
+    expect(plan.discord).toEqual({ type: 'none' })
   })
 
   it('leaves a description someone wrote in Discord alone', () => {
