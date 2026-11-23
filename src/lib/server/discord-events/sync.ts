@@ -392,7 +392,7 @@ export async function runDiscordSync(requestOrigin: string): Promise<SyncReport>
 // ---------------------------------------------------------------------------
 // Discord → site: new events
 
-async function loadActiveSeasonTeams(): Promise<SyncTeam[]> {
+export async function loadActiveSeasonTeams(): Promise<SyncTeam[]> {
   const seasonId = await resolveTargetSeasonId(undefined)
   if (!seasonId) return []
   const { data } = await supabaseAdmin

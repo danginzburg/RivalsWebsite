@@ -114,3 +114,56 @@ export async function getBotUserId(config: DiscordConfig): Promise<string | null
   botUserId = me?.id ?? null
   return botUserId
 }
+
+// ---------------------------------------------------------------------------
+// Forum threads (match scheduling)
+
+export type DiscordThread = {
+  id: string
+  name: string
+  parent_id: string | null
+  type: number
+  /** Changes whenever someone posts, so unchanged threads can be skipped. */
+  last_message_id?: string | null
+}
+
+/** The server's active (not archived) threads. */
+export async function listActiveThreads(config: DiscordConfig): Promise<DiscordThread[]> {
+  const res = await call<{ threads: DiscordThread[] }>(
+    config,
+    'GET',
+    `/guilds/${config.guildId}/threads/active`
+  )
+  return res?.threads ?? []
+}
+
+export type DiscordMessage = {
+  id: string
+  content?: string | null
+  embeds?: Array<{ description?: string | null; fields?: Array<{ value?: string | null }> }>
+}
+
+/**
+ * A thread's messages, oldest first, up to `max`. Message text is only
+ * included with the bot's Message Content intent turned on.
+ */
+export async function listMessages(
+  config: DiscordConfig,
+  channelId: string,
+  max = 300
+): Promise<DiscordMessage[]> {
+  const all: DiscordMessage[] = []
+  let before: string | null = null
+  while (all.length < max) {
+    const query = new URLSearchParams({ limit: '100' })
+    if (before) query.set('before', before)
+    const page: DiscordMessage[] =
+      (await call<DiscordMessage[]>(config, 'GET', `/channels/${channelId}/messages?${query}`)) ??
+      []
+    all.push(...page)
+    if (page.length < 100) break
+    before = page[page.length - 1]!.id
+  }
+  // Discord returns newest first.
+  return all.reverse()
+}
