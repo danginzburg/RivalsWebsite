@@ -4,6 +4,7 @@ import {
   eventBodyForMatch,
   findMatchToAdopt,
   normalizeTwitchUrl,
+  twitchUrlForStream,
   parseBestOf,
   parseMatchTitle,
   planLinked,
@@ -90,6 +91,23 @@ describe('normalizeTwitchUrl', () => {
     expect(normalizeTwitchUrl('https://youtube.com/@tcrivals')).toBeNull()
     expect(normalizeTwitchUrl(`${ORIGIN}/matches/m1`)).toBeNull()
     expect(normalizeTwitchUrl(null)).toBeNull()
+  })
+})
+
+describe('twitchUrlForStream', () => {
+  it('takes a bare channel name on a Twitch stream', () => {
+    expect(twitchUrlForStream('twitch', 'ginzburgg')).toBe('https://twitch.tv/ginzburgg')
+    expect(twitchUrlForStream('twitch', ' @GinzburgG ')).toBe('https://twitch.tv/ginzburgg')
+    expect(twitchUrlForStream('twitch', 'https://www.twitch.tv/ginzburgg')).toBe(
+      'https://twitch.tv/ginzburgg'
+    )
+  })
+
+  it('needs a full link on other platforms, and ignores non-channel text', () => {
+    expect(twitchUrlForStream('other', 'ginzburgg')).toBeNull()
+    expect(twitchUrlForStream('youtube', 'ginzburgg')).toBeNull()
+    expect(twitchUrlForStream('other', 'twitch.tv/ginzburgg')).toBe('https://twitch.tv/ginzburgg')
+    expect(twitchUrlForStream('twitch', 'my channel')).toBeNull()
   })
 })
 

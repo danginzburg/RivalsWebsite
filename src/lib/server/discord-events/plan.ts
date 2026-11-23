@@ -113,6 +113,22 @@ export function normalizeTwitchUrl(value: string | null | undefined): string | n
   return match ? `https://twitch.tv/${match[1]!.toLowerCase()}` : null
 }
 
+const CHANNEL_RE = /^@?([A-Za-z0-9_]{2,25})$/
+
+/**
+ * A stream's Twitch link. The admin form takes a platform, so a Twitch stream
+ * saved as just the channel name ("ginzburgg") counts as well as a full link.
+ */
+export function twitchUrlForStream(
+  platform: string | null | undefined,
+  streamUrl: string | null | undefined
+): string | null {
+  const fromUrl = normalizeTwitchUrl(streamUrl)
+  if (fromUrl || platform !== 'twitch') return fromUrl
+  const channel = CHANNEL_RE.exec(String(streamUrl ?? '').trim())
+  return channel ? `https://twitch.tv/${channel[1]!.toLowerCase()}` : null
+}
+
 /** Identifies the pairing, so a change of teams on the site renames the event. */
 export function teamsKey(match: SyncMatch): string {
   return `${match.team_a?.id ?? ''}|${match.team_b?.id ?? ''}`
