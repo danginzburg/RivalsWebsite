@@ -232,7 +232,7 @@ export async function selectProfileStats(
  * Riot accounts (the peak they held during each tournament's dates).
  */
 export async function loadPeakRank(
-  statRows: Array<{ league_rank?: unknown }>,
+  statRows: Array<Record<string, unknown>>,
   riotAccounts: Array<{ status?: string | null; riot_puuid?: string | null }>
 ): Promise<string | null> {
   const accountPuuids = riotAccounts
