@@ -104,7 +104,7 @@ function formatUtc(iso: string): string {
 }
 
 /** Tell both rosters their match time was set or moved. */
-export async function notifyMatchScheduled(matchId: string, actorProfileId: string) {
+export async function notifyMatchScheduled(matchId: string, actorProfileId: string | null) {
   try {
     const loaded = await loadMatchSides(matchId)
     if (!loaded?.match.scheduled_at) return
@@ -166,7 +166,7 @@ export async function notifyMatchResult(matchId: string, actorProfileId: string)
 }
 
 /** Tell both rosters a match was called off. */
-export async function notifyMatchCancelled(matchId: string, actorProfileId: string) {
+export async function notifyMatchCancelled(matchId: string, actorProfileId: string | null) {
   try {
     const loaded = await loadMatchSides(matchId)
     if (!loaded) return
