@@ -19,13 +19,25 @@
     Target,
     ClipboardList,
     Award,
+    Search,
   } from 'lucide-svelte'
   import DiscordIcon from '$lib/components/icons/DiscordIcon.svelte'
   import NotificationBell from '$lib/components/NotificationBell.svelte'
+  import SearchPalette, { prefetchSearchIndex } from '$lib/components/SearchPalette.svelte'
   import rivalsLogo from '$lib/assets/rivals_logo.webp'
 
   let isMobileMenuOpen = $state(false)
   let isBrandHovered = $state(false)
+  let isSearchOpen = $state(false)
+
+  function openSearch() {
+    isMobileMenuOpen = false
+    isSearchOpen = true
+  }
+
+  function warmSearch() {
+    prefetchSearchIndex().catch(() => {})
+  }
 
   const user = $derived($page.data.user)
   const isAdmin = $derived(user?.role === 'admin')
@@ -151,6 +163,18 @@
       </ul>
 
       <div class="nav-utility">
+        <button
+          type="button"
+          class="icon-btn"
+          title="Search (Ctrl K)"
+          aria-label="Search players and teams"
+          onclick={openSearch}
+          onmouseenter={warmSearch}
+          onfocus={warmSearch}
+        >
+          <Search class="h-5 w-5" />
+        </button>
+
         <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
         <a
           href="https://discord.gg/JpTYg2662C"
@@ -204,12 +228,21 @@
       </div>
     </div>
 
-    <!-- Mobile cluster: bell (when signed in) sits beside the menu toggle. -->
-    {#if user}
-      <div class="mobile-bell">
+    <!-- Mobile cluster: search and the bell (when signed in) sit beside the menu toggle. -->
+    <div class="mobile-bell">
+      <button
+        type="button"
+        class="icon-btn"
+        aria-label="Search players and teams"
+        onclick={openSearch}
+        ontouchstart={warmSearch}
+      >
+        <Search class="h-5 w-5" />
+      </button>
+      {#if user}
         <NotificationBell initialUnread={unreadNotifications} initialAdminQueue={adminQueue} />
-      </div>
-    {/if}
+      {/if}
+    </div>
 
     <!-- Mobile menu button -->
     <button
@@ -290,5 +323,7 @@
     </div>
   {/if}
 </nav>
+
+<SearchPalette bind:open={isSearchOpen} />
 
 <style src="./Header.css"></style>

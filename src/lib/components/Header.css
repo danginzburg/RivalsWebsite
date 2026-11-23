@@ -151,6 +151,7 @@
 
 .mobile-bell {
   align-items: center;
+  gap: 0.25rem;
 }
 
 .mobile-menu-toggle {
