@@ -26,7 +26,7 @@ function describe(target: RankTarget, { account, rank }: RankLookup): CheckedAcc
     currentRank,
     peakRank,
     games: rank?.gamesInWindow ?? 0,
-    baseScore: computePlayerScore({ currentRank, peakRank, rating: null }).weightedRankScore,
+    baseScore: computePlayerScore({ currentRank, peakRank, performance: null }).weightedRankScore,
   }
 }
 

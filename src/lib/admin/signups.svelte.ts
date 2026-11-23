@@ -151,8 +151,8 @@ export class SignupsAdmin {
   riotLookupSignupId = $state<string | null>(null)
 
   /**
-   * Look the player up through HenrikDev: fill current and peak rank (peak since
-   * V26 Act 1) and store their V26 game count. Any manual override is left alone.
+   * Look the player up through HenrikDev: save current and peak rank (peak since
+   * V26 Act 1), which recomputes the stored score, and store their V26 game count.
    */
   fetchRiotRank = async (signupId: string) => {
     const signup = this.playerSignups.find((s) => s.id === signupId)
@@ -216,6 +216,20 @@ export class SignupsAdmin {
       }
 
       this.updateSignupEditForm(signupId, patch)
+
+      // Save the fetched ranks straight away so the stored score is recomputed
+      // with them. Only the ranks are sent: other unsaved edits stay in the form.
+      await adminJsonRequest('/api/admin/signups', {
+        method: 'PATCH',
+        body: {
+          id: signupId,
+          currentRank: result.rank.currentRank ?? signup.current_rank,
+          peakRank: result.rank.peakRank ?? signup.peak_rank,
+        },
+        fallbackMessage: 'Ranks were found but could not be saved',
+      })
+      await Promise.all([this.loadSignups(), this.refreshPendingCounts()])
+
       // Say when the current rank is a fallback rather than the live rank.
       const currentNote =
         result.rank.currentSource === 'last-act'
@@ -231,7 +245,7 @@ export class SignupsAdmin {
                 : 'the main has under 100 games'
             }.`
           : ''
-      this.ui.success = `Filled from Riot: ${result.rank.currentRank ?? '—'} current${currentNote}, ${result.rank.peakRank ?? '—'} peak since V26 A1${peakNote}.${altNote} Save to apply.`
+      this.ui.success = `Filled from Riot: ${result.rank.currentRank ?? '—'} current${currentNote}, ${result.rank.peakRank ?? '—'} peak since V26 A1${peakNote}.${altNote} Saved and rescored.`
     } catch (err) {
       this.ui.error = err instanceof Error ? err.message : 'Riot lookup failed'
     } finally {

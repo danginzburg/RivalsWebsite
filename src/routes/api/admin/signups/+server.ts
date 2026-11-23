@@ -9,7 +9,7 @@ import {
   parseAdjustment,
   parseScore,
 } from '$lib/server/signups'
-import { loadRatingFor, loadRatingsForPlayers } from '$lib/server/signups/ratings'
+import { loadPerformanceFor, loadPerformanceForPlayers } from '$lib/server/signups/performance'
 import { createNotification } from '$lib/server/notifications'
 import { loadAltAccounts, syncPrimaryRiotName } from '$lib/server/players/riot-accounts'
 import { withSignupRiotIds } from '$lib/server/signups/riot-ids'
@@ -67,19 +67,18 @@ export const GET: RequestHandler = async ({ locals, url }) => {
   const profileById = new Map((profiles ?? []).map((p) => [p.id, p]))
   // A player's alts are reviewed inside their signup.
   const alts = await loadAltAccounts(profileIds)
-  // The rating is shown in the score breakdown; a missing one means no bonus.
-  const ratings = await loadRatingsForPlayers(
-    rows.map((r) => ({ profile_id: r.profile_id, riot_name: r.display_name }))
-  )
+  // Performance is shown in the score breakdown; none means no league stats, so no bonus.
+  const performance = await loadPerformanceForPlayers(rows.map((r) => r.profile_id))
 
   return json({
     signups: rows.map((row) => {
       const profile = profileById.get(row.profile_id)
-      const rating = ratings.get(row.profile_id)
+      const perf = performance.get(row.profile_id)
       return {
         ...row,
-        rating: rating?.rating ?? null,
-        rating_name: rating?.name ?? null,
+        performance: perf
+          ? { perf: perf.perf, rankThen: perf.rankThen, trust: perf.trust, seasons: perf.seasons }
+          : null,
         alts: (alts.get(row.profile_id) ?? []).map(({ id, riotId, status }) => ({
           id,
           riotId,
@@ -116,20 +115,15 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
   const currentRank = normalizeOptional(body.currentRank) ?? existing.current_rank
   const peakRank = normalizeOptional(body.peakRank) ?? existing.peak_rank
 
-  // The rating is matched by Riot name, so use the name this save leaves.
+  // The Riot name this save leaves, synced to the primary account below.
   const displayName =
     body.displayName !== undefined ? normalizeOptional(body.displayName) : currentRiotName
 
   const computedValue = computeSignupValue({
     current_rank: currentRank,
     peak_rank: peakRank,
-    rating: await loadRatingFor(existing.profile_id, displayName),
+    performance: await loadPerformanceFor(existing.profile_id),
   })
-
-  const manualOverride =
-    body.manualValueOverride === undefined || body.manualValueOverride === null
-      ? null
-      : parseScore(body.manualValueOverride)
 
   // `undefined` leaves the adjustment alone; blank clears it to 0.
   const manualAdjustment =
@@ -147,9 +141,16 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
     current_rank: currentRank,
     peak_rank: peakRank,
     computed_value: computedValue,
-    manual_value_override: manualOverride,
     manual_adjustment: manualAdjustment,
-    admin_notes: normalizeOptional(body.adminNotes),
+  }
+  // Left out means left alone: the admin tab never sends these, so a save (or the
+  // auto-save after a Riot lookup) must not wipe a legacy override or a note.
+  if (body.manualValueOverride !== undefined) {
+    updates.manual_value_override =
+      body.manualValueOverride === null ? null : parseScore(body.manualValueOverride)
+  }
+  if (body.adminNotes !== undefined) {
+    updates.admin_notes = normalizeOptional(body.adminNotes)
   }
 
   // The signup's Riot name is the player's primary Riot account; correcting it

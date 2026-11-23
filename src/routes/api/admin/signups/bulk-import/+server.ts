@@ -16,7 +16,7 @@ import {
   type BulkSignupRow,
   type SignupPatch,
 } from '$lib/server/signups/bulk-import'
-import { loadRatingsForPlayers } from '$lib/server/signups/ratings'
+import { loadPerformanceForPlayers } from '$lib/server/signups/performance'
 
 /**
  * Fill current and peak ranks for many signups.
@@ -75,10 +75,8 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   // Signups saved before their tracker links became alts catch up here, ahead of
   // loading the alts so this run compares them too.
   const altFailures = cursor === 0 ? await addAltsForSignups(signups) : []
-  const [ratings, puuids, gamesAccounts, alts] = await Promise.all([
-    loadRatingsForPlayers(
-      signups.map((s) => ({ profile_id: s.profile_id, riot_name: s.display_name }))
-    ),
+  const [performance, puuids, gamesAccounts, alts] = await Promise.all([
+    loadPerformanceForPlayers(signups.map((s) => s.profile_id)),
     linkedPuuidsFor(signups.map((s) => s.profile_id)),
     gamesAccountsFor(signups),
     loadAltAccounts(signups.map((s) => s.profile_id)),
@@ -91,7 +89,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     peak_rank: s.peak_rank,
     computed_value: s.computed_value,
     puuid: puuids.get(s.profile_id) ?? null,
-    rating: ratings.get(s.profile_id)?.rating ?? null,
+    performance: performance.get(s.profile_id) ?? null,
     v26_comp_games: s.v26_comp_games,
     accounts: gamesAccounts.get(s.profile_id) ?? [],
     alts: alts.get(s.profile_id) ?? [],

@@ -4,7 +4,7 @@
   import { resolve } from '$app/paths'
   import { SIGNUP_RANK_OPTIONS, computePlayerScore, roundRating } from '$lib/signups/formula'
   import { MIN_V26_COMP_GAMES, meetsGamesMinimum } from '$lib/signups/comp-games'
-  import type { PlayerSignup, SignupEditState } from '$lib/admin/types'
+  import type { PlayerSignup, SignupEditState, SignupPerformance } from '$lib/admin/types'
 
   type BulkImportReport = {
     processed: number
@@ -172,7 +172,7 @@
     const score = computePlayerScore({
       currentRank: state.currentRank || null,
       peakRank: state.peakRank || null,
-      rating: signup.rating,
+      performance: signup.performance,
     })
     const adjustment = Number(signup.manual_adjustment ?? 0)
     return {
@@ -183,6 +183,14 @@
   }
 
   const fmt = (n: number | null, digits = 2) => (n == null ? '—' : n.toFixed(digits))
+
+  /** "+0.40 SD vs Immortal 1 · S3 835 + S4 469 rounds": what the bonus is built on. */
+  function performanceLabel(p: SignupPerformance) {
+    const sign = p.perf < 0 ? '−' : '+'
+    const vs = p.rankThen ? ` vs ${p.rankThen}` : ''
+    const rounds = p.seasons.map((s) => `${s.code.replace(/^rivals/, 'S')} ${s.rounds}`).join(' + ')
+    return `${sign}${Math.abs(p.perf).toFixed(2)} SD${vs} · ${rounds} rounds`
+  }
   const signed = (n: number) => `${n < 0 ? '−' : '+'}${Math.abs(n).toFixed(2)}`
 
   /** The handle on the signup, else the Discord name the player logged in with. */
@@ -561,7 +569,7 @@
                 {/if}
               </div>
 
-              <!-- Main against alts: games since V26 Act 1 and base score, without rating. -->
+              <!-- Main against alts: games since V26 Act 1 and base score, without the bonus. -->
               {#if signup.alt_check || alts.length > 0}
                 <ul
                   class="mb-3 rounded-md p-2 text-[11px]"
@@ -694,13 +702,10 @@
                   </span>
                   <span>
                     Bonus {signed(score.bonus)}
-                    {#if signup.rating != null}
-                      (rating {signup.rating.toFixed(3)}{signup.rating_name &&
-                      signup.rating_name.toLowerCase() !== signup.display_name?.toLowerCase()
-                        ? ` as ${signup.rating_name}`
-                        : ''})
+                    {#if signup.performance}
+                      ({performanceLabel(signup.performance)})
                     {:else}
-                      (no rating)
+                      (no Season 3/4 stats)
                     {/if}
                     {#if score.adjustment !== 0}
                       · Adjustment {signed(score.adjustment)}
