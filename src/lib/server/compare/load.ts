@@ -15,6 +15,7 @@ import { loadSeasonFinalPlacements } from '$lib/server/seasons/finalPlacements'
 import { summarizeHonors, type Finish, type PlayerHonors } from '$lib/server/compare/honors'
 import { cardVersion, joinDescription, type PageMeta } from '$lib/meta'
 import type { CompareKind } from '$lib/compare'
+import { finishLabel } from '$lib/format/finish'
 
 /**
  * Everything /compare shows, shared by the page and its preview card
@@ -446,20 +447,6 @@ function playerCardData(
   }
 }
 
-function ordinal(n: number): string {
-  const tens = n % 100
-  const suffix = tens >= 11 && tens <= 13 ? 'th' : (['th', 'st', 'nd', 'rd'][n % 10] ?? 'th')
-  return `${n}${suffix}`
-}
-
-function finishText(finish: Finish | null): string | null {
-  if (!finish) return null
-  if (finish.start === 1 && finish.end === 1) return 'Champion'
-  return finish.start === finish.end
-    ? ordinal(finish.start)
-    : `${ordinal(finish.start)}–${ordinal(finish.end)}`
-}
-
 function teamCardData(
   entities: CompareEntity[],
   summaries: TeamSummary[],
@@ -505,7 +492,7 @@ function teamCardData(
       id: e.id,
       name: e.name,
       subtitle:
-        [e.subtitle, finishText(finishes[e.id] ?? null)].filter(Boolean).join(' · ') || null,
+        [e.subtitle, finishLabel(finishes[e.id] ?? null)].filter(Boolean).join(' · ') || null,
       image: e.imageUrl,
       stats: columnStats[i]!,
     })),

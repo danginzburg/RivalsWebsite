@@ -50,11 +50,12 @@ function column(
   round: boolean,
   name: { size: number; lines: 1 | 2 }
 ): Node {
+  // Padding sits outside the width (see kit.ts).
   const inner = width - COLUMN_PAD * 2
   return h(
     'div',
     {
-      width,
+      width: inner,
       flexDirection: 'column',
       alignItems: 'center',
       padding: `22px ${COLUMN_PAD}px 16px`,

@@ -12,8 +12,10 @@ import regularFontUrl from './fonts/Nippo-Regular.ttf'
  * PNG and also converts WebP logos and avatars, which satori cannot read.
  *
  * Two satori quirks every card has to respect:
- * - Padding on the root is added *outside* its width/height, so the root is
- *   sized `CARD_WIDTH − 2·PAD_X` by `CARD_HEIGHT − 2·PAD_Y` (see `cardRoot`).
+ * - Padding is added *outside* an element's width/height (content-box), on
+ *   every element: the root is sized `CARD_WIDTH − 2·PAD_X` by
+ *   `CARD_HEIGHT − 2·PAD_Y` (see `cardRoot`), and a padded box with a fixed
+ *   width takes its padding off that width.
  * - A row whose minimum content is wider than the space stretches the whole
  *   card instead of shrinking, so columns get fixed widths.
  */
