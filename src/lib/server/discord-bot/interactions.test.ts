@@ -1,4 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+
+// Keep a developer's local .env (a real forum id, say) out of these tests.
+vi.mock('$env/dynamic/private', () => ({ env: {} }))
+
 import { handleInteraction, linkMatchChannelProblem } from './interactions'
 
 const ORIGIN = 'https://rivals.example'
