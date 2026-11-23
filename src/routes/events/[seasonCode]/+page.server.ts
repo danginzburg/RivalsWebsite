@@ -1,4 +1,5 @@
 import { error } from '@sveltejs/kit'
+import { joinDescription, type PageMeta } from '$lib/meta'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
 import {
@@ -409,7 +410,27 @@ export const load = async ({
   const thirdPlace = firstRel(season.third_place as TeamRel | TeamRel[] | null)
   const mvp = firstRel(season.mvp as unknown as ProfileRel | ProfileRel[] | null)
 
+  // Link preview: the podium once it is decided, otherwise what the event is.
+  const seasonMvp = resolveSeasonMvp(mvp, season.metadata)
+  const seasonName = String(season.name ?? 'Event').replace(/\s+/g, ' ')
+  const meta: PageMeta = {
+    title: seasonName,
+    description: winner
+      ? joinDescription([
+          `Champion: ${winner.name}`,
+          runnerUp ? `Runner-up: ${runnerUp.name}` : null,
+          seasonMvp ? `MVP: ${seasonMvp.name}` : null,
+        ])
+      : joinDescription([
+          (season.summary as string | null) ?? null,
+          teams.length ? `${teams.length} teams` : null,
+          season.is_active ? 'In progress' : null,
+        ]),
+    image: getSeasonLogoUrl(season) ?? (winner ? getTeamLogoUrl(winner) : null),
+  }
+
   return {
+    meta,
     season: {
       id: season.id,
       code: season.code,

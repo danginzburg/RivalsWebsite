@@ -24,9 +24,11 @@
   import { goto } from '$app/navigation'
   import { resolve } from '$app/paths'
   import { tick } from 'svelte'
-  import { Search, Users, User } from 'lucide-svelte'
+  import { Check, GitCompareArrows, Plus, Search, Users, User, X } from 'lucide-svelte'
   import { searchIndex, type SearchPlayer, type SearchTeam } from '$lib/search'
   import { externalEvents } from '$lib/stores/external-events.svelte'
+  import { compareTray, type TrayItem } from '$lib/stores/search.svelte'
+  import { MAX_COMPARE, type CompareKind } from '$lib/compare'
 
   let { open = $bindable(false) }: { open?: boolean } = $props()
 
@@ -91,6 +93,59 @@
     goto(item.href)
   }
 
+  function trayKind(item: Item): CompareKind {
+    return item.kind === 'player' ? 'players' : 'teams'
+  }
+
+  function toTrayItem(item: Item): TrayItem {
+    if (item.kind === 'player') {
+      const p = item.player
+      return {
+        id: p.id,
+        name: p.name,
+        subtitle: p.team ? `${p.team}${p.teamSeason ? ` · ${p.teamSeason}` : ''}` : null,
+        imageUrl: p.avatarUrl,
+      }
+    }
+    const t = item.team
+    return { id: t.id, name: t.name, subtitle: t.season, imageUrl: t.logoUrl }
+  }
+
+  function itemId(item: Item): string {
+    return item.kind === 'player' ? item.player.id : item.team.id
+  }
+
+  /** Why the + is unavailable for this item, or null when it can be toggled. */
+  function trayBlock(item: Item): string | null {
+    if (compareTray.has(itemId(item))) return null
+    if (compareTray.kind && compareTray.kind !== trayKind(item))
+      return `Comparing ${compareTray.kind} — clear the tray to compare ${trayKind(item)}`
+    if (compareTray.full) return `Up to ${MAX_COMPARE} at a time`
+    return null
+  }
+
+  function toggleTray(item: Item | undefined) {
+    if (!item || trayBlock(item)) return
+    compareTray.toggle(trayKind(item), toTrayItem(item))
+    inputEl?.focus()
+  }
+
+  const compareLink = $derived.by(() => {
+    if (!compareTray.kind || compareTray.items.length < 2) return null
+    const params = new URLSearchParams({
+      type: compareTray.kind,
+      ids: compareTray.items.map((i) => i.id).join(','),
+    })
+    return `${resolve('/compare')}?${params.toString()}`
+  })
+
+  function openCompare() {
+    if (!compareLink) return
+    close()
+    // eslint-disable-next-line svelte/no-navigation-without-resolve -- compareLink builds on resolve()
+    goto(compareLink)
+  }
+
   function onInputKeydown(event: KeyboardEvent) {
     if (event.key === 'ArrowDown') {
       event.preventDefault()
@@ -98,6 +153,9 @@
     } else if (event.key === 'ArrowUp') {
       event.preventDefault()
       if (items.length) activeIndex = (activeIndex - 1 + items.length) % items.length
+    } else if (event.key === 'Enter' && event.shiftKey) {
+      event.preventDefault()
+      toggleTray(items[activeIndex])
     } else if (event.key === 'Enter') {
       event.preventDefault()
       choose(items[activeIndex])
@@ -173,85 +231,146 @@
         {:else if !query.trim()}
           <p class="search-message">
             Type a player name, Riot ID or team. Press <kbd class="search-kbd">/</kbd> or
-            <kbd class="search-kbd">Ctrl K</kbd> anywhere to open search.
+            <kbd class="search-kbd">Ctrl K</kbd> anywhere to open search, and
+            <strong>+</strong> (or <kbd class="search-kbd">Shift Enter</kbd>) to add up to
+            {MAX_COMPARE} players or teams to a comparison.
           </p>
         {:else if items.length === 0}
           <p class="search-message">No players or teams match “{query.trim()}”.</p>
         {:else}
           {#each items as item, i (item.key)}
+            {@const inTray = compareTray.has(itemId(item))}
+            {@const blocked = trayBlock(item)}
             {#if i === 0 && item.kind === 'player'}
               <div class="search-group"><User class="h-3.5 w-3.5" /> Players</div>
             {:else if item.kind === 'team' && (i === 0 || items[i - 1].kind === 'player')}
               <div class="search-group"><Users class="h-3.5 w-3.5" /> Teams</div>
             {/if}
-            <!-- eslint-disable svelte/no-navigation-without-resolve -- href comes from resolve() above -->
-            <a
-              href={item.href}
-              id={`search-${item.key}`}
-              class="search-item"
-              class:search-item-active={i === activeIndex}
-              role="option"
-              aria-selected={i === activeIndex}
-              onmousemove={() => (activeIndex = i)}
-              onclick={(event) => {
-                event.preventDefault()
-                choose(item)
-              }}
-            >
-              {#if item.kind === 'player'}
-                {#if item.player.avatarUrl && !brokenImages[item.player.avatarUrl]}
-                  <img
-                    class="search-thumb search-thumb-round"
-                    src={item.player.avatarUrl}
-                    alt=""
-                    onerror={() => (brokenImages[item.player.avatarUrl!] = true)}
-                  />
-                {:else}
-                  <span class="search-thumb search-thumb-round search-thumb-blank"
-                    >{initials(item.player.name)}</span
-                  >
-                {/if}
-                <span class="search-text">
-                  <span class="search-title">{item.player.name}</span>
-                  <span class="search-sub">
-                    {#if item.player.team}
-                      {item.player.team}{item.player.teamSeason
-                        ? ` · ${item.player.teamSeason}`
-                        : ''}
-                    {:else}
-                      {item.player.riotIds.find((id) => id.includes('#')) ??
-                        item.player.riotIds[0] ??
-                        'Player'}
-                    {/if}
+            <div class="search-row" class:search-item-active={i === activeIndex}>
+              <!-- eslint-disable svelte/no-navigation-without-resolve -- href comes from resolve() above -->
+              <a
+                href={item.href}
+                id={`search-${item.key}`}
+                class="search-item"
+                role="option"
+                aria-selected={i === activeIndex}
+                onmousemove={() => (activeIndex = i)}
+                onclick={(event) => {
+                  event.preventDefault()
+                  choose(item)
+                }}
+              >
+                {#if item.kind === 'player'}
+                  {#if item.player.avatarUrl && !brokenImages[item.player.avatarUrl]}
+                    <img
+                      class="search-thumb search-thumb-round"
+                      src={item.player.avatarUrl}
+                      alt=""
+                      onerror={() => (brokenImages[item.player.avatarUrl!] = true)}
+                    />
+                  {:else}
+                    <span class="search-thumb search-thumb-round search-thumb-blank"
+                      >{initials(item.player.name)}</span
+                    >
+                  {/if}
+                  <span class="search-text">
+                    <span class="search-title">{item.player.name}</span>
+                    <span class="search-sub">
+                      {#if item.player.team}
+                        {item.player.team}{item.player.teamSeason
+                          ? ` · ${item.player.teamSeason}`
+                          : ''}
+                      {:else}
+                        {item.player.riotIds.find((id) => id.includes('#')) ??
+                          item.player.riotIds[0] ??
+                          'Player'}
+                      {/if}
+                    </span>
                   </span>
-                </span>
-              {:else}
-                {#if item.team.logoUrl && !brokenImages[item.team.logoUrl]}
-                  <img
-                    class="search-thumb"
-                    src={item.team.logoUrl}
-                    alt=""
-                    onerror={() => (brokenImages[item.team.logoUrl!] = true)}
-                  />
                 {:else}
-                  <span class="search-thumb search-thumb-blank"
-                    >{initials(item.team.tag || item.team.name)}</span
-                  >
-                {/if}
-                <span class="search-text">
-                  <span class="search-title">
-                    {item.team.name}{#if item.team.tag}<span class="search-tag"
-                        >[{item.team.tag}]</span
-                      >{/if}
+                  {#if item.team.logoUrl && !brokenImages[item.team.logoUrl]}
+                    <img
+                      class="search-thumb"
+                      src={item.team.logoUrl}
+                      alt=""
+                      onerror={() => (brokenImages[item.team.logoUrl!] = true)}
+                    />
+                  {:else}
+                    <span class="search-thumb search-thumb-blank"
+                      >{initials(item.team.tag || item.team.name)}</span
+                    >
+                  {/if}
+                  <span class="search-text">
+                    <span class="search-title">
+                      {item.team.name}{#if item.team.tag}<span class="search-tag"
+                          >[{item.team.tag}]</span
+                        >{/if}
+                    </span>
+                    <span class="search-sub">{item.team.season ?? 'Team'}</span>
                   </span>
-                  <span class="search-sub">{item.team.season ?? 'Team'}</span>
-                </span>
-              {/if}
-            </a>
-            <!-- eslint-enable svelte/no-navigation-without-resolve -->
+                {/if}
+              </a>
+              <!-- eslint-enable svelte/no-navigation-without-resolve -->
+              <button
+                type="button"
+                class="search-add"
+                class:search-add-on={inTray}
+                disabled={!!blocked}
+                title={blocked ??
+                  (inTray ? 'Remove from comparison' : 'Add to comparison (Shift+Enter)')}
+                aria-label={inTray ? 'Remove from comparison' : 'Add to comparison'}
+                aria-pressed={inTray}
+                onmousemove={() => (activeIndex = i)}
+                onclick={() => toggleTray(item)}
+              >
+                {#if inTray}<Check class="h-4 w-4" />{:else}<Plus class="h-4 w-4" />{/if}
+              </button>
+            </div>
           {/each}
         {/if}
       </div>
+
+      {#if compareTray.items.length > 0}
+        <div class="search-tray">
+          <div class="search-tray-chips">
+            {#each compareTray.items as chip (chip.id)}
+              <span class="search-chip">
+                {#if chip.imageUrl && !brokenImages[chip.imageUrl]}
+                  <img
+                    class="search-chip-img"
+                    class:search-thumb-round={compareTray.kind === 'players'}
+                    src={chip.imageUrl}
+                    alt=""
+                    onerror={() => (brokenImages[chip.imageUrl!] = true)}
+                  />
+                {/if}
+                <span class="search-chip-name">{chip.name}</span>
+                <button
+                  type="button"
+                  class="search-chip-x"
+                  aria-label={`Remove ${chip.name}`}
+                  onclick={() => compareTray.remove(chip.id)}><X class="h-3 w-3" /></button
+                >
+              </span>
+            {/each}
+          </div>
+          <div class="search-tray-actions">
+            <button type="button" class="search-tray-clear" onclick={() => compareTray.clear()}
+              >Clear</button
+            >
+            <button
+              type="button"
+              class="search-tray-go"
+              disabled={!compareLink}
+              title={compareLink ? undefined : 'Add at least two to compare'}
+              onclick={openCompare}
+            >
+              <GitCompareArrows class="h-4 w-4" />
+              Compare ({compareTray.items.length}/{MAX_COMPARE})
+            </button>
+          </div>
+        </div>
+      {/if}
     </div>
   </div>
 {/if}

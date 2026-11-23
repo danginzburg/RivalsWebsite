@@ -28,6 +28,7 @@ const CACHEABLE_PAGES = [
   '/faq',
   '/rulebook',
   '/teams',
+  '/compare',
 ]
 
 function isCacheablePage(pathname: string): boolean {

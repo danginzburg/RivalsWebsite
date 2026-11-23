@@ -24,15 +24,15 @@
   import DiscordIcon from '$lib/components/icons/DiscordIcon.svelte'
   import NotificationBell from '$lib/components/NotificationBell.svelte'
   import SearchPalette, { prefetchSearchIndex } from '$lib/components/SearchPalette.svelte'
+  import { searchPalette } from '$lib/stores/search.svelte'
   import rivalsLogo from '$lib/assets/rivals_logo.webp'
 
   let isMobileMenuOpen = $state(false)
   let isBrandHovered = $state(false)
-  let isSearchOpen = $state(false)
 
   function openSearch() {
     isMobileMenuOpen = false
-    isSearchOpen = true
+    searchPalette.open = true
   }
 
   function warmSearch() {
@@ -324,6 +324,6 @@
   {/if}
 </nav>
 
-<SearchPalette bind:open={isSearchOpen} />
+<SearchPalette bind:open={searchPalette.open} />
 
 <style src="./Header.css"></style>

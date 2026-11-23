@@ -1,4 +1,5 @@
 import { error, redirect } from '@sveltejs/kit'
+import { joinDescription, statText, type PageMeta } from '$lib/meta'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { fetchAllRowsResult } from '$lib/server/supabase/fetch-all'
 import { claimRelinkAfterProfileUpdate } from '$lib/server/players/claim-relink'
@@ -916,7 +917,33 @@ export const load = async ({
     }
   }
 
+  // Link preview: who they play for and their headline numbers.
+  const metaName =
+    profileRel.display_name ?? directoryEntry?.riot_name ?? profileRel.email ?? 'Player'
+  const statBits = selected
+    ? [
+        statText(selected.acs) && `ACS ${statText(selected.acs)}`,
+        statText(selected.kd, 2) && `K/D ${statText(selected.kd, 2)}`,
+        statText(selected.kast_pct) && `KAST ${statText(selected.kast_pct)}%`,
+        statText(selected.games) && `${statText(selected.games)} maps`,
+      ].filter(Boolean)
+    : []
+  const metaStats = statBits.length
+    ? `${selected?.batch?.display_name ? `${selected.batch.display_name}: ` : ''}${statBits.join(', ')}`
+    : null
+  const meta: PageMeta = {
+    title: metaName,
+    description: joinDescription([
+      activeTeam ? activeTeam.name : null,
+      bestRank ? `Peak ${bestRank}` : null,
+      metaStats,
+    ]),
+    image: (profileRel.discord_id ? profileRel.avatar_url : null) ?? activeTeam?.logo_url ?? null,
+    type: 'profile',
+  }
+
   return {
+    meta,
     player: {
       profile_id: profileId,
       // The chosen display name is authoritative; Riot name and email are only
