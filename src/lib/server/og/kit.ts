@@ -124,7 +124,20 @@ export async function logoDataUri(
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(4000) })
     if (!res.ok) return null
-    const png = await sharp(Buffer.from(await res.arrayBuffer()))
+    return await toPngDataUri(await res.arrayBuffer(), size, cover)
+  } catch {
+    return null
+  }
+}
+
+/** An image's bytes as a PNG data URI of `size`², or null if sharp cannot read it. */
+async function toPngDataUri(
+  bytes: ArrayBuffer,
+  size: number,
+  cover: boolean
+): Promise<string | null> {
+  try {
+    const png = await sharp(Buffer.from(bytes))
       .resize(size, size, {
         fit: cover ? 'cover' : 'contain',
         background: { r: 0, g: 0, b: 0, alpha: 0 },
