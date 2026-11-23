@@ -961,7 +961,7 @@
           </p>
         {:else}
           <div class="match-grid match-head" aria-hidden="true">
-            <span></span><span></span><span>Opponent</span>
+            <span class="match-head-lead">Opponent</span>
             <span class="row-hide-sm">Agents</span>
             <span class="num">ACS</span>
             <span class="num">K/D/A</span>
