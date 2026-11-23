@@ -18,6 +18,7 @@ import {
   eventBodyForMatch,
   findMatchToAdopt,
   normalizeTwitchUrl,
+  twitchUrlForStream,
   parseBestOf,
   parseMatchTitle,
   planLinked,
@@ -77,7 +78,9 @@ function one<T>(rel: T | T[] | null | undefined): T | null {
 
 /** The match's Twitch stream: the primary one if it is on Twitch, else the first. */
 function twitchStream(row: MatchRow): StreamRow | null {
-  const twitch = (row.match_streams ?? []).filter((s) => normalizeTwitchUrl(s.stream_url))
+  const twitch = (row.match_streams ?? []).filter((s) =>
+    twitchUrlForStream(s.platform, s.stream_url)
+  )
   return twitch.find((s) => s.is_primary) ?? twitch[0] ?? null
 }
 
@@ -91,7 +94,7 @@ function toSyncMatch(row: MatchRow): SyncMatch {
     best_of: row.best_of,
     team_a: one(row.team_a),
     team_b: one(row.team_b),
-    twitch_url: stream ? normalizeTwitchUrl(stream.stream_url) : null,
+    twitch_url: stream ? twitchUrlForStream(stream.platform, stream.stream_url) : null,
   }
 }
 

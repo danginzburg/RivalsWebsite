@@ -113,6 +113,22 @@ export function normalizeTwitchUrl(value: string | null | undefined): string | n
   return match ? `https://twitch.tv/${match[1]!.toLowerCase()}` : null
 }
 
+const CHANNEL_RE = /^@?([A-Za-z0-9_]{2,25})$/
+
+/**
+ * A stream's Twitch link. The admin form takes a platform, so a Twitch stream
+ * saved as just the channel name ("ginzburgg") counts as well as a full link.
+ */
+export function twitchUrlForStream(
+  platform: string | null | undefined,
+  streamUrl: string | null | undefined
+): string | null {
+  const fromUrl = normalizeTwitchUrl(streamUrl)
+  if (fromUrl || platform !== 'twitch') return fromUrl
+  const channel = CHANNEL_RE.exec(String(streamUrl ?? '').trim())
+  return channel ? `https://twitch.tv/${channel[1]!.toLowerCase()}` : null
+}
+
 /** Identifies the pairing, so a change of teams on the site renames the event. */
 export function teamsKey(match: SyncMatch): string {
   return `${match.team_a?.id ?? ''}|${match.team_b?.id ?? ''}`
@@ -141,8 +157,34 @@ function eventName(match: SyncMatch): string {
   return truncate(`${match.team_a?.name ?? 'TBD'} vs ${match.team_b?.name ?? 'TBD'}`, 100)
 }
 
-function eventLocation(match: SyncMatch, twitchUrl: string | null, origin: string): string {
-  return truncate(twitchUrl ?? matchUrl(origin, match.id), 100)
+/**
+ * The location shown when a match has no stream. Discord requires every
+ * external event to have a location, so it can't be left empty.
+ */
+export const NO_STREAM_LOCATION = 'TBD'
+
+function eventLocation(twitchUrl: string | null): string {
+  return truncate(twitchUrl ?? NO_STREAM_LOCATION, 100)
+}
+
+function eventDescription(match: SyncMatch, origin: string): string {
+  return truncate(`Bo${match.best_of ?? 3}\n${matchUrl(origin, match.id)}`, 1000)
+}
+
+/**
+ * Whether `description` is one the site wrote. Older events said "Best of 3"
+ * instead of "Bo3". The site may rewrite these, but never text someone typed.
+ */
+function isSiteDescription(
+  description: string | null | undefined,
+  match: SyncMatch,
+  origin: string
+) {
+  const url = matchUrl(origin, match.id)
+  return (
+    /^(?:Best of |Bo)\d+$/.test((description ?? '').split('\n')[0] ?? '') &&
+    (description ?? '').split('\n').slice(1).join('\n') === url
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -153,12 +195,12 @@ export function eventBodyForMatch(match: SyncMatch, origin: string): EventBody {
   const start = toIso(match.scheduled_at!)
   return {
     name: eventName(match),
-    description: truncate(`Best of ${match.best_of ?? 3}\n${matchUrl(origin, match.id)}`, 1000),
+    description: eventDescription(match, origin),
     scheduled_start_time: start,
     scheduled_end_time: endTime(start, match.best_of),
     entity_type: ENTITY_TYPE_EXTERNAL,
     privacy_level: PRIVACY_GUILD_ONLY,
-    entity_metadata: { location: eventLocation(match, match.twitch_url, origin) },
+    entity_metadata: { location: eventLocation(match.twitch_url) },
   }
 }
 
@@ -280,12 +322,22 @@ export function planLinked(input: {
 
   let nextLocation = location
   const siteMovedTwitch = (match.twitch_url ?? null) !== (snapshot.site_twitch_url ?? null)
-  if (siteMovedTwitch && !discordMovedLocation) {
-    const wanted = eventLocation(match, effectiveTwitch, origin)
+  // Older events put the match page in the location. That counts as the
+  // site's own value, so it's replaced even when the Twitch link hasn't changed.
+  const siteLocation = location === matchUrl(origin, match.id) || location === NO_STREAM_LOCATION
+  if ((siteMovedTwitch || siteLocation) && !discordMovedLocation) {
+    const wanted = eventLocation(effectiveTwitch)
     if (wanted !== location) {
       body.entity_metadata = { location: wanted }
       nextLocation = wanted
     }
+  }
+
+  // Keep the site's own description current (Bo3/Bo5, the match link). Text
+  // someone wrote in Discord is left alone.
+  const description = eventDescription(match, origin)
+  if (isSiteDescription(event!.description, match, origin) && event!.description !== description) {
+    body.description = description
   }
 
   if (teamsKey(match) !== snapshot.site_teams_key) {
