@@ -1,0 +1,753 @@
+.match-page {
+  width: 100%;
+  max-width: 90rem;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 3rem;
+}
+
+/* ---------- Header / scoreboard ---------- */
+.sb {
+  background: linear-gradient(135deg, rgba(120, 67, 145, 0.3), rgba(0, 0, 0, 0.1));
+}
+
+.sb-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 1rem 1.5rem 0;
+}
+
+.sb-designation {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--gold);
+}
+
+.sb-status,
+.sb-no-stage {
+  font-size: 0.625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 0.1875rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.09);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* Scheduled (the default for an unfinished match): teal. */
+.sb-status {
+  background: var(--teal-soft);
+  color: var(--teal-text);
+}
+
+.sb-status-live {
+  background: rgba(74, 222, 128, 0.16);
+  color: var(--good);
+}
+
+.sb-status-cancelled {
+  background: var(--bad-soft);
+  color: var(--bad-text);
+}
+
+.sb-no-stage {
+  background: rgba(248, 113, 113, 0.16);
+  color: var(--bad);
+}
+
+.sb-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.watch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.25rem;
+  max-width: 100%;
+  padding: 0 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.22);
+  color: var(--text);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+
+.watch-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
+:global(.watch-icon) {
+  flex-shrink: 0;
+  color: var(--accent-text);
+}
+
+.watch-name {
+  white-space: nowrap;
+}
+
+.watch-meta {
+  font-size: 0.625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.6);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:global(.sb-admin) {
+  border-radius: 0.375rem;
+  padding: 0.3125rem 0.6875rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+}
+
+.sb-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 1.25rem;
+  padding: 1.125rem 1.5rem 0.5rem;
+}
+
+.sb-team {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  min-width: 0;
+  text-decoration: none;
+  color: var(--text);
+  transition: opacity 0.15s;
+}
+
+.sb-team-b {
+  flex-direction: row-reverse;
+  text-align: right;
+}
+
+/* The losing side recedes so the result reads at a glance. */
+.sb-loser {
+  opacity: 0.6;
+}
+
+.sb-team:hover {
+  opacity: 1;
+}
+
+.sb-team:hover .sb-name {
+  color: var(--accent-text);
+}
+
+.sb-logo {
+  width: 4.75rem;
+  height: 4.75rem;
+  border-radius: 0.625rem;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.sb-logo-empty {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/*
+ * Rank sits beside the name, not under it. Stacked, only the side that has
+ * a rank grew a second line, so the two team blocks came out different
+ * heights and the scoreboard looked lopsided.
+ */
+.sb-name-block {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+/* Mirror the order on the right-hand side so the rank hugs the logo. */
+.sb-team-b .sb-name-block {
+  flex-direction: row-reverse;
+}
+
+.sb-name {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 0.15s;
+}
+
+.sb-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+.sb-score {
+  display: flex;
+  align-items: baseline;
+  gap: 0.875rem;
+  line-height: 1;
+}
+
+.sb-num {
+  font-size: 3.25rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.sb-num-win {
+  color: var(--text);
+}
+
+.sb-dash {
+  font-size: 1.75rem;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.sb-vs {
+  font-size: 1.25rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.sb-format {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.sb-when {
+  padding: 0 1.5rem 1.125rem;
+  text-align: center;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.sb-when-sep {
+  margin: 0 0.25rem;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+/* ---------- Map strip ---------- */
+.map-strip {
+  display: flex;
+  flex-wrap: wrap;
+  border-top: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.seg {
+  position: relative;
+  flex: 1 1 7rem;
+  min-width: 0;
+  min-height: 4.75rem;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.1875rem;
+  padding: 0.75rem 1rem;
+  border: 0;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+}
+
+.seg:last-child {
+  border-right: 0;
+}
+
+button.seg {
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+button.seg:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.seg-on,
+button.seg-on:hover {
+  background: rgba(255, 255, 255, 0.07);
+  box-shadow: inset 0 -3px 0 var(--accent-text);
+}
+
+.seg-off {
+  opacity: 0.45;
+}
+
+.seg-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.28;
+  pointer-events: none;
+}
+
+/* Darkens the art toward the text side so labels stay readable. */
+.seg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(30, 14, 52, 0.92) 0%,
+    rgba(30, 14, 52, 0.55) 70%,
+    rgba(30, 14, 52, 0.35) 100%
+  );
+  pointer-events: none;
+}
+
+.seg > span {
+  position: relative;
+  z-index: 1;
+}
+
+.seg-label {
+  font-size: 0.625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.seg-name {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  font-size: 0.9375rem;
+  font-weight: 700;
+}
+
+.seg-void .seg-name {
+  text-decoration: line-through;
+}
+
+.seg-win {
+  width: 1rem;
+  height: 1rem;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.seg-ff {
+  font-size: 0.625rem;
+  font-weight: 800;
+  padding: 0.0625rem 0.3125rem;
+  border-radius: 0.25rem;
+  background: rgba(248, 113, 113, 0.18);
+  color: var(--bad-text);
+}
+
+.seg-score {
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+/* ---------- Veto ---------- */
+.veto {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  padding: 0.75rem 1.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(0, 0, 0, 0.14);
+  overflow-x: auto;
+}
+
+.veto-title {
+  flex-shrink: 0;
+  font-size: 0.65625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.veto-list {
+  display: flex;
+  gap: 0.5rem;
+  list-style: none;
+}
+
+.veto-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.625rem 0.25rem 0.25rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.18);
+  font-size: 0.75rem;
+  white-space: nowrap;
+  /* Keep each chip its natural width; the row scrolls instead of squashing. */
+  flex-shrink: 0;
+}
+
+.veto-img {
+  width: 2.75rem;
+  height: 1.5rem;
+  border-radius: 0.3125rem;
+  object-fit: cover;
+}
+
+.veto-caption {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.veto-map {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.veto-action {
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.veto-ban {
+  opacity: 0.6;
+}
+
+.veto-ban .veto-map {
+  text-decoration: line-through;
+}
+
+.veto-pick {
+  border-color: rgba(192, 132, 252, 0.45);
+}
+
+.veto-decider {
+  border-color: rgba(252, 211, 77, 0.5);
+}
+
+/* ---------- Notices ---------- */
+/* In the header it runs edge to edge as the scoreboard's bottom band. */
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.875rem 1.5rem;
+  border-top: 1px solid rgba(251, 191, 36, 0.3);
+  background: rgba(251, 191, 36, 0.07);
+  color: var(--gold);
+}
+
+.notice-inline {
+  margin-bottom: 0.75rem;
+  padding: 0.625rem 0.875rem;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  border-radius: 0.5rem;
+}
+
+.notice-title {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--gold);
+}
+
+.notice-body {
+  margin-top: 0.1875rem;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.notice-body b {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.notice-sub {
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* ---------- Stats ---------- */
+.stats-flag {
+  margin-left: auto;
+}
+
+.stat-block {
+  min-width: 0;
+}
+
+.team-result {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--bad-text);
+}
+
+.team-result-win {
+  color: var(--good);
+}
+
+.stat-table {
+  /*
+   * Grow to fit the columns' natural widths and let .table-scroll scroll
+   * when that exceeds the viewport. Plain width:100% compresses the 10
+   * columns until the fixed-size agent icons overflow into the ACS cell.
+   */
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.stat-table th {
+  padding: 0.5rem 0.625rem;
+  text-align: right;
+  font-size: 0.65625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.6);
+  white-space: nowrap;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.stat-table td {
+  padding: 0.5rem 0.625rem;
+  color: rgba(255, 255, 255, 0.86);
+  white-space: nowrap;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.stat-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.stat-table tbody tr:hover {
+  background: var(--row-hover);
+}
+
+.stat-table .col-player,
+.stat-table .col-agent {
+  text-align: left;
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.num-strong {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.player-link {
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: none;
+  transition: color 0.15s;
+}
+
+.player-link:hover {
+  color: var(--accent-text);
+  text-decoration: underline;
+}
+
+.sub-badge {
+  display: inline-block;
+  margin-left: 0.375rem;
+  padding: 0 0.3125rem;
+  border-radius: 0.25rem;
+  background: rgba(251, 191, 36, 0.16);
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  font-size: 0.5625rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  vertical-align: middle;
+  line-height: 1.4;
+}
+
+.agents {
+  display: flex;
+  gap: 0.1875rem;
+}
+
+.agent-icon {
+  flex: none;
+  width: 1.375rem;
+  height: 1.375rem;
+  border-radius: 0.3125rem;
+  object-fit: contain;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.agent-text {
+  flex: none;
+  font-size: 0.6875rem;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* ---------- Admin tools ---------- */
+.admin-tools {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.admin-tools-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  min-height: 3rem;
+  padding: 0 1.5rem;
+  cursor: pointer;
+  list-style: none;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.admin-tools-summary::-webkit-details-marker {
+  display: none;
+}
+
+:global(.admin-tools-chevron) {
+  flex-shrink: 0;
+  transition: transform 0.15s;
+}
+
+.admin-tools[open] :global(.admin-tools-chevron) {
+  transform: rotate(90deg);
+}
+
+.admin-tools-title {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.admin-tools-note {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 640px) {
+  .match-page {
+    padding: 1rem 0.75rem 2rem;
+  }
+
+  .sb-top {
+    padding: 0.875rem 0.875rem 0;
+  }
+
+  .sb-actions {
+    margin-left: 0;
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .sb-row {
+    gap: 0.625rem;
+    padding: 1rem 0.875rem 0.5rem;
+    /* A name that wraps to two lines must not shove its logo out of line. */
+    align-items: start;
+  }
+
+  .sb-team,
+  .sb-team-b {
+    flex-direction: column;
+    gap: 0.4375rem;
+    text-align: center;
+  }
+
+  /*
+   * Both sides stack, so neither needs the mirrored order. Wrapping lets the
+   * rank chip drop below a long name instead of taking width from it — each
+   * side only gets ~107px here.
+   */
+  .sb-name-block,
+  .sb-team-b .sb-name-block {
+    flex-direction: row;
+    justify-content: center;
+    flex-wrap: wrap;
+    max-width: 100%;
+  }
+
+  .sb-logo {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+
+  .sb-name {
+    font-size: 0.875rem;
+    white-space: normal;
+    /*
+     * As a flex item the name would otherwise refuse to shrink below its
+     * longest word, pushing the whole block past the side it sits in — a
+     * single-word name like "Perc30FishStick" is wider than the column.
+     */
+    min-width: 0;
+    overflow-wrap: break-word;
+  }
+
+  .sb-num {
+    font-size: 2rem;
+  }
+
+  .sb-when {
+    padding: 0 0.875rem 0.875rem;
+  }
+
+  /* Two maps per row on a phone instead of one squeezed strip. */
+  .seg {
+    flex-basis: 50%;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 0.625rem 0.875rem;
+  }
+
+  .veto,
+  .notice {
+    padding-left: 0.875rem;
+    padding-right: 0.875rem;
+  }
+
+  .admin-tools-summary {
+    padding: 0 0.875rem;
+  }
+
+  .admin-tools-note {
+    display: none;
+  }
+}

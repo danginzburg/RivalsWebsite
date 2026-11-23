@@ -1,0 +1,114 @@
+.batch-picker {
+  display: flex;
+  min-width: 0;
+}
+
+.picker-event {
+  width: 9.5rem;
+}
+
+.picker-phase {
+  width: 11rem;
+}
+
+/* CustomSelect, tuned to the sheet: same height and fill as the other
+   toolbar controls, the two triggers joined into one control. */
+.picker-slot :global(.select-trigger) {
+  height: 2.25rem;
+  padding: 0 0.625rem 0 0.75rem;
+  gap: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0.5rem;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.88);
+  font: inherit;
+  font-size: 0.8125rem;
+}
+
+.picker-slot :global(.select-trigger:hover) {
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
+.picker-slot :global(.select-trigger:focus-visible),
+.picker-slot :global(.select-trigger[aria-expanded='true']) {
+  border-color: rgba(192, 132, 252, 0.45);
+  box-shadow: none;
+  position: relative;
+  z-index: 1;
+}
+
+.picker-slot :global(.chevron),
+.picker-slot :global(.chevron svg) {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
+.batch-picker:not(.batch-picker-single) .picker-event :global(.select-trigger) {
+  border-radius: 0.5rem 0 0 0.5rem;
+}
+
+.picker-phase :global(.select-trigger) {
+  margin-left: -1px;
+  border-radius: 0 0.5rem 0.5rem 0;
+}
+
+/* The open list matches the Columns menu panel. */
+.picker-slot :global(.select-dropdown) {
+  min-width: 11rem;
+  max-height: min(22rem, calc(100dvh - 8rem)) !important;
+  padding: 0.3125rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 0.625rem;
+  background: #2a1647;
+  box-shadow: 0 1.125rem 3rem rgba(8, 2, 20, 0.55);
+}
+
+.picker-slot :global(.select-dropdown li) {
+  padding: 0.4375rem 0.625rem;
+  font-size: 0.8125rem;
+  color: rgba(255, 255, 255, 0.82);
+  border-radius: 0.375rem;
+}
+
+.picker-slot :global(.select-dropdown li:hover),
+.picker-slot :global(.select-dropdown li:focus) {
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+}
+
+.picker-slot :global(.select-dropdown li.selected) {
+  background: rgba(192, 132, 252, 0.14);
+  color: #fff;
+}
+
+.picker-slot :global(.select-dropdown li.group-header),
+.picker-slot :global(.select-dropdown li.group-header:hover) {
+  padding: 0.5rem 0.625rem 0.25rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+@media (max-width: 640px) {
+  .batch-picker {
+    width: 100%;
+  }
+
+  .picker-slot {
+    flex: 1 1 0;
+    min-width: 0;
+    width: auto;
+  }
+
+  .picker-slot :global(.select-trigger) {
+    height: 2.75rem;
+    font-size: 0.875rem;
+  }
+
+  .picker-slot :global(.select-dropdown li) {
+    padding: 0.625rem;
+    font-size: 0.875rem;
+  }
+}

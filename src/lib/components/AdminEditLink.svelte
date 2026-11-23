@@ -25,15 +25,4 @@
   {label}
 </a>
 
-<style>
-  .admin-edit-link {
-    display: none;
-  }
-
-  @media (min-width: 768px) {
-    .admin-edit-link {
-      display: inline-flex;
-      align-items: center;
-    }
-  }
-</style>
+<style src="./AdminEditLink.css"></style>
