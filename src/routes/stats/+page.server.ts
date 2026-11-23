@@ -2,15 +2,7 @@ import type { PageServerLoad } from './$types'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { safeInt } from '$lib/server/parse'
 import { loadIdentityDisplayNames } from '$lib/server/players/riot-identities'
-import {
-  normalizeRivalsGroupStatBatchFromDb,
-  runRivalsBatchQuery,
-  type NormalizedRivalsGroupStatBatch,
-  type StatImportBatchRow,
-} from '$lib/server/stats/rivals-batch'
-import { resolveSeasonStatBatchIds, toFullSeasonBatchId } from '$lib/server/stats/season-batches'
-import { isWeekBatch } from '$lib/stats/sections'
-import { groupBatchesByEvent } from '$lib/server/stats/batch-events'
+import { loadPickerBatches } from '$lib/server/stats/picker-batches'
 
 function normalizeSort(value: string | null): string {
   const v = String(value ?? '')
@@ -186,67 +178,7 @@ export const load: PageServerLoad = async ({ fetch, url, locals, cookies }) => {
     }
   }
 
-  let batches: NormalizedRivalsGroupStatBatch[] = []
-  const { data: batchRows, error: batchError } = await runRivalsBatchQuery<StatImportBatchRow[]>(
-    (select) =>
-      supabaseAdmin
-        .from('stat_import_batches')
-        .select(select)
-        .filter('metadata->>import_type', 'eq', 'rivals_group_stats')
-        // A live batch created before its event has no rows yet. It is real and
-        // editable in admin, but listing an empty "Season 5 Playoffs" for
-        // visitors is just a dead end.
-        .gt('row_count', 0)
-        .order('sort_order', { ascending: true, nullsFirst: false })
-        .order('created_at', { ascending: false })
-        .limit(100)
-        .returns<StatImportBatchRow[]>()
-  )
-
-  if (!batchError) {
-    batches = (batchRows ?? [])
-      .map((b: StatImportBatchRow) =>
-        normalizeRivalsGroupStatBatchFromDb(b, {
-          displayNameFallback: 'source_filename',
-        })
-      )
-      .filter((b) => !isWeekBatch(b))
-  }
-
-  // One synthetic "Full Season" entry per season whose phase batches are present
-  // in the list above. These carry no DB row — the API sums them on demand from
-  // the `season:<code>` id — so they are prepended to the picker rather than
-  // read from `stat_import_batches`.
-  const presentBatchIds = new Set(batches.map((b) => b.id))
-  const { data: seasonRows } = await supabaseAdmin
-    .from('seasons')
-    .select('id, code, name, kind, metadata, starts_on, created_at')
-    .order('starts_on', { ascending: false, nullsFirst: false })
-    .order('created_at', { ascending: false })
-
-  const fullSeasonBatches: NormalizedRivalsGroupStatBatch[] = (seasonRows ?? [])
-    .filter((s) => {
-      const ids = resolveSeasonStatBatchIds(s)
-      return ids.length > 0 && ids.some((id) => presentBatchIds.has(id))
-    })
-    .map((s) => ({
-      id: toFullSeasonBatchId(s.code as string),
-      display_name: `${(s.name as string | null) ?? 'Season'} (Full)`,
-      source_filename: null,
-      import_kind: 'aggregate',
-      week_label: null,
-      section: 'full',
-      created_at: null,
-      sort_order: null,
-    }))
-
-  batches = [...fullSeasonBatches, ...batches]
-
-  const { batches: pickerBatches, events } = groupBatchesByEvent(
-    batches,
-    seasonRows ?? [],
-    batchRows ?? []
-  )
+  const { batches: pickerBatches, events } = await loadPickerBatches()
 
   return {
     batchId: body.batchId ?? null,

@@ -16,6 +16,9 @@
  * generated season total is new surface, so it carries the better data.
  * `league_rank` is the rank from the player's latest phase: a player holds one
  * rank per phase, and the most recent is the one they finished the season on.
+ *
+ * A stat no phase row recorded (clutches and multikills before Season 5, say)
+ * stays null rather than summing to a zero that reads as real data.
  */
 
 /** Counting stats: added straight across every row. */
@@ -48,6 +51,11 @@ const WEIGHTED_FIELDS = ['acs', 'kast_pct', 'adr', 'hs_pct', 'econ_rating'] as c
 
 type NumRecord = Record<string, unknown>
 
+/** Whether a row actually recorded this stat (null/blank means it was not tracked). */
+function hasValue(value: unknown): boolean {
+  return value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value))
+}
+
 function num(value: unknown): number {
   const n = Number(value)
   return Number.isFinite(n) ? n : 0
@@ -74,6 +82,8 @@ type Acc = {
   bestRounds: number
   agents: Map<string, string>
   sums: Record<string, number>
+  /** Fields at least one of the player's rows recorded; the rest come out null. */
+  seen: Set<string>
   weightedSums: Record<string, number>
   weightTotal: number
   rank: string | null
@@ -119,6 +129,7 @@ export function aggregateFullSeasonRows(
         bestRounds: -1,
         agents: new Map(),
         sums: Object.fromEntries(SUM_FIELDS.map((f) => [f, 0])),
+        seen: new Set(),
         weightedSums: Object.fromEntries(WEIGHTED_FIELDS.map((f) => [f, 0])),
         weightTotal: 0,
         rank: null,
@@ -159,21 +170,32 @@ export function aggregateFullSeasonRows(
       }
     }
 
-    for (const field of SUM_FIELDS) acc.sums[field] += num(row[field])
+    for (const field of SUM_FIELDS) {
+      if (hasValue(row[field])) acc.seen.add(field)
+      acc.sums[field] += num(row[field])
+    }
 
     const weight = rowWeight(row)
     if (weight > 0) {
       acc.weightTotal += weight
-      for (const field of WEIGHTED_FIELDS) acc.weightedSums[field] += num(row[field]) * weight
+      for (const field of WEIGHTED_FIELDS) {
+        if (hasValue(row[field])) acc.seen.add(field)
+        acc.weightedSums[field] += num(row[field]) * weight
+      }
     }
   }
 
   const out: AggregatedFullSeasonRow[] = []
 
   for (const acc of byPlayer.values()) {
-    const s = acc.sums
+    // A sum of a stat no row recorded is null, not 0.
+    const s = Object.fromEntries(
+      SUM_FIELDS.map((f) => [f, acc.seen.has(f) ? acc.sums[f] : null])
+    ) as Record<(typeof SUM_FIELDS)[number], number | null>
     const weighted = (field: (typeof WEIGHTED_FIELDS)[number]): number | null =>
-      acc.weightTotal > 0 ? acc.weightedSums[field] / acc.weightTotal : null
+      acc.weightTotal > 0 && acc.seen.has(field) ? acc.weightedSums[field] / acc.weightTotal : null
+    const per = (numerator: number | null, denominator: number | null): number | null =>
+      numerator == null || denominator == null ? null : ratio(numerator, denominator)
 
     const agents =
       acc.agents.size > 0
@@ -217,17 +239,17 @@ export function aggregateFullSeasonRows(
       econ_rating: weighted('econ_rating'),
       // Totals are the honest K/D; per-game and per-round rates are recomputed
       // from the summed counts, never averaged from the phase rates.
-      kd: ratio(s.kills, s.deaths),
-      kpg: ratio(s.kills, s.games),
-      kpr: ratio(s.kills, s.rounds),
-      dpg: ratio(s.deaths, s.games),
-      dpr: ratio(s.deaths, s.rounds),
-      apg: ratio(s.assists, s.games),
-      apr: ratio(s.assists, s.rounds),
-      fkpg: ratio(s.fk, s.games),
-      fdpg: ratio(s.fd, s.games),
-      plants_per_game: ratio(s.plants, s.games),
-      defuses_per_game: ratio(s.defuses, s.games),
+      kd: per(s.kills, s.deaths),
+      kpg: per(s.kills, s.games),
+      kpr: per(s.kills, s.rounds),
+      dpg: per(s.deaths, s.games),
+      dpr: per(s.deaths, s.rounds),
+      apg: per(s.assists, s.games),
+      apr: per(s.assists, s.rounds),
+      fkpg: per(s.fk, s.games),
+      fdpg: per(s.fd, s.games),
+      plants_per_game: per(s.plants, s.games),
+      defuses_per_game: per(s.defuses, s.games),
       league_rank: acc.rank,
     })
   }

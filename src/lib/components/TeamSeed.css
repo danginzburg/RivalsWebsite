@@ -1,0 +1,25 @@
+.team-seed {
+  flex-shrink: 0;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  text-align: center;
+}
+
+.seed-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.0625rem;
+  padding: 0.1875rem 0.25rem;
+  border-radius: 0.25rem;
+  background: rgba(255, 255, 255, 0.09);
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.seed-bare {
+  display: inline-block;
+  min-width: 0.875rem;
+  color: rgba(255, 255, 255, 0.64);
+}

@@ -1,0 +1,119 @@
+.add-slot {
+  display: inline-flex;
+}
+
+.add-slot-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 1px dashed rgba(192, 132, 252, 0.5);
+  border-radius: 0.375rem;
+  background: transparent;
+  color: var(--accent-text);
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.add-slot-btn:hover {
+  background-color: var(--row-hover);
+}
+
+.add-slot-input {
+  width: 9rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid rgba(192, 132, 252, 0.5);
+  border-radius: 0.375rem;
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.add-slot-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(192, 132, 252, 0.25);
+}
+
+.add-slot-list {
+  position: fixed;
+  z-index: 70;
+  width: 15rem;
+  margin: 0;
+  padding: 0.25rem;
+  list-style: none;
+  background-color: var(--background);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 0.5rem;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  text-align: left;
+}
+
+.add-slot-msg {
+  padding: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.add-slot-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.375rem 0.5rem;
+  border: none;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  text-transform: none;
+  letter-spacing: normal;
+  cursor: pointer;
+}
+
+.add-slot-option.active {
+  background-color: var(--row-hover);
+}
+
+.add-slot-img {
+  width: 1.5rem;
+  height: 1.5rem;
+  flex-shrink: 0;
+  object-fit: contain;
+  border-radius: 0.25rem;
+}
+
+.add-slot-img.round {
+  border-radius: 999px;
+  object-fit: cover;
+}
+
+.add-slot-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.add-slot-name,
+.add-slot-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.add-slot-name {
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.add-slot-sub {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}

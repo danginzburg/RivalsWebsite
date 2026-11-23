@@ -424,30 +424,4 @@
   </div>
 </PageContainer>
 
-<style>
-  .auto {
-    margin-left: 0.4rem;
-    font-size: 0.7rem;
-    color: rgba(255, 255, 255, 0.5);
-  }
-  .tag {
-    margin-left: 0.4rem;
-    font-size: 0.7rem;
-    font-weight: 500;
-    color: rgba(255, 255, 255, 0.55);
-  }
-  .pin {
-    margin-left: 0.35rem;
-    font-size: 0.65rem;
-    text-transform: uppercase;
-    color: var(--gold);
-  }
-  .editor {
-    position: sticky;
-    left: 0.75rem;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 0.5rem;
-    padding: 0.85rem;
-    background: rgba(255, 255, 255, 0.03);
-  }
-</style>
+<style src="./page.css"></style>

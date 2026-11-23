@@ -1,4 +1,5 @@
 import { error } from '@sveltejs/kit'
+import { joinDescription, leagueTime, type PageMeta } from '$lib/meta'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { average, sum, weightedAverage } from '$lib/server/math'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
@@ -395,7 +396,48 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
     mapsWithArt = mapsWithArt.map((m) => ({ ...m, map_image: mapThumbFor(mapLookup, m.map_name) }))
   }
 
+  // Link preview: the score once played, otherwise when it is on.
+  const metaTeamA = Array.isArray(match.team_a) ? match.team_a[0] : match.team_a
+  const metaTeamB = Array.isArray(match.team_b) ? match.team_b[0] : match.team_b
+  const nameA = metaTeamA?.name ?? 'TBD'
+  const nameB = metaTeamB?.name ?? 'TBD'
+  const played = match.status === 'completed'
+  const winner =
+    match.winner_team_id === match.team_a_id
+      ? metaTeamA
+      : match.winner_team_id === match.team_b_id
+        ? metaTeamB
+        : null
+  const mapScores = mapsWithArt
+    .filter((m) => m.map_name && m.team_a_rounds != null && m.team_b_rounds != null)
+    .map((m) => `${m.map_name} ${m.team_a_rounds}–${m.team_b_rounds}`)
+    .join(', ')
+  const meta: PageMeta = {
+    title: played
+      ? `${nameA} ${match.team_a_score}–${match.team_b_score} ${nameB}`
+      : `${nameA} vs ${nameB}`,
+    description: joinDescription([
+      played
+        ? winner
+          ? `${winner.name} won ${Math.max(match.team_a_score, match.team_b_score)}–${Math.min(match.team_a_score, match.team_b_score)}`
+          : 'Final'
+        : match.status === 'cancelled'
+          ? 'Cancelled'
+          : match.status === 'live'
+            ? 'Live now'
+            : (leagueTime(match.scheduled_at) ?? 'Time TBD'),
+      played && mapScores,
+      (matchMeta?.designation as string | null) ?? null,
+      !played && streams?.length ? 'Streamed' : null,
+    ]),
+    // The generated scorecard (/og/match/[id].png). The `v` changes with the
+    // result so Discord fetches a fresh image instead of a cached older card.
+    image: `/og/match/${match.id}.png?v=${match.status}-${match.team_a_score}-${match.team_b_score}`,
+    largeImage: true,
+  }
+
   return {
+    meta,
     viewer: { isAdmin, profileId: viewerProfileId },
     report,
     comments,

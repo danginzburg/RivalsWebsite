@@ -1,0 +1,94 @@
+.head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--admin-label);
+}
+.toggle {
+  margin-left: auto;
+}
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  margin-top: 0.75rem;
+}
+.item {
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--text);
+}
+.item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 0.75rem;
+}
+.match-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-weight: 600;
+  color: var(--title);
+}
+.match-link:hover {
+  text-decoration: underline;
+}
+.reasons {
+  margin: 0;
+  padding-left: 1.1rem;
+  list-style: disc;
+  color: #fde047;
+  font-size: 0.8125rem;
+}
+.note {
+  font-size: 0.8125rem;
+}
+.maps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+.maps li {
+  display: flex;
+  gap: 0.75rem;
+}
+.score {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.raw pre {
+  margin-top: 0.375rem;
+  padding: 0.5rem;
+  border-radius: 0.5rem;
+  background: var(--admin-field);
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+.note-input {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+.pill-pending {
+  background: rgba(234, 179, 8, 0.16);
+  color: #fde047;
+}
+.pill-applied {
+  background: rgba(74, 222, 128, 0.16);
+  color: var(--good-text);
+}
+.pill-rejected {
+  background: rgba(244, 63, 94, 0.16);
+  color: #fda4af;
+}

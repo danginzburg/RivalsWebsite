@@ -1,0 +1,22 @@
+.heading-title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--title);
+  line-height: 1.2;
+}
+
+.heading-subtitle {
+  font-size: 0.875rem;
+  color: rgba(255, 255, 255, 0.6);
+  margin-top: 0.125rem;
+}
+
+@media (max-width: 640px) {
+  .heading-title {
+    font-size: 1.375rem;
+  }
+
+  .heading-subtitle {
+    font-size: 0.8125rem;
+  }
+}

@@ -1,0 +1,125 @@
+.panel {
+  border: 1px solid rgba(251, 191, 36, 0.22);
+  border-radius: 0.625rem;
+  background: rgba(251, 191, 36, 0.06);
+  padding: 0.875rem 1rem;
+  margin-top: 0.75rem;
+}
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  color: #fbbf24;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+.panel-title {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.125rem;
+  height: 1.125rem;
+  padding: 0 0.3125rem;
+  border-radius: 999px;
+  background: rgba(251, 191, 36, 0.25);
+  color: var(--gold-text);
+  font-size: 0.625rem;
+  font-weight: 700;
+}
+.panel-head :global(.chevron) {
+  margin-left: auto;
+  transition: transform 0.15s ease;
+}
+.panel.open .panel-head :global(.chevron) {
+  transform: rotate(180deg);
+}
+.intro {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.6);
+  line-height: 1.5;
+  margin: 0.375rem 0 0.75rem;
+}
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.4375rem 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  flex-wrap: wrap;
+}
+.row:first-child {
+  border-top: none;
+}
+.row-main {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.name {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.status {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.5);
+}
+.status.is-sub {
+  color: #fbbf24;
+}
+.auto-tag {
+  font-size: 0.625rem;
+  color: rgba(255, 255, 255, 0.35);
+  font-style: italic;
+}
+.seg {
+  display: inline-flex;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0.375rem;
+  overflow: hidden;
+}
+.seg-btn {
+  padding: 0.3125rem 0.5625rem;
+  border: none;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  cursor: pointer;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+}
+.seg-btn:first-child {
+  border-left: none;
+}
+.seg-btn.active {
+  background: rgba(251, 191, 36, 0.2);
+  color: var(--gold-text);
+}
+.seg-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.error {
+  margin-bottom: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--bad-text);
+}

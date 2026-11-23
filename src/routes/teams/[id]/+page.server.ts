@@ -1,4 +1,6 @@
 import { error } from '@sveltejs/kit'
+import { joinDescription, type PageMeta } from '$lib/meta'
+import { loadSearchIndex } from '$lib/server/search'
 import { isComputedBatch, pickStandingsBatch } from '$lib/server/leaderboard/batch'
 import { loadTeamRankHistory } from '$lib/server/leaderboard/history'
 import { supabaseAdmin } from '$lib/supabase/admin'
@@ -302,7 +304,28 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
       return { ...row, team_a: side(row.team_a), team_b: side(row.team_b) }
     })
 
+  // Link preview: season, record and who is on the team.
+  const played = matchHistory ?? []
+  const wins = played.filter((m) => m.winner_team_id === team.id).length
+  const losses = played.filter((m) => m.winner_team_id && m.winner_team_id !== team.id).length
+  const rosterNames = roster
+    .map((p) => p.display_name ?? p.player_name)
+    .filter((n): n is string => !!n)
+  const meta: PageMeta = {
+    title: team.tag ? `${team.name} [${team.tag}]` : team.name,
+    description: joinDescription([
+      // The team's own season (cached search index), not just the active one.
+      (await loadSearchIndex()).teams.find((t) => t.id === team.id)?.season ??
+        statsSeason?.name ??
+        null,
+      wins + losses > 0 ? `${wins}–${losses} in series` : null,
+      rosterNames.length ? `Roster: ${rosterNames.join(', ')}` : null,
+    ]),
+    image: getTeamLogoUrl(team),
+  }
+
   return {
+    meta,
     team: {
       id: team.id,
       name: team.name,

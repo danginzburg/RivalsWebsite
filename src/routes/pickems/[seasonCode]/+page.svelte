@@ -97,41 +97,4 @@
   </div>
 {/snippet}
 
-<style>
-  .pk-tabs {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-end;
-    gap: 0.25rem;
-    padding: 0 1rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
-  }
-
-  .pk-tab {
-    display: inline-flex;
-    align-items: center;
-    min-height: 2.75rem;
-    padding: 0 0.75rem;
-    border-bottom: 2px solid transparent;
-    font-size: 0.8125rem;
-    font-weight: 700;
-    color: rgba(255, 255, 255, 0.55);
-    cursor: pointer;
-    transition: color 0.15s;
-  }
-
-  .pk-tab:hover {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .pk-tab.pk-tab-on {
-    color: var(--text);
-    border-bottom-color: var(--accent-text);
-  }
-
-  @media (max-width: 760px) {
-    .pk-tabs {
-      padding: 0 0.375rem;
-    }
-  }
-</style>
+<style src="./page.css"></style>
