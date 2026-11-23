@@ -820,7 +820,58 @@ export const load = async ({
   // matching the conservative default in autoIsSub.
   const isSubMapRow = (r: PerMapStatRow) =>
     Boolean(r.match_id && subByMatchId.get(r.match_id) === true)
-  const { mapStats, agentStats } = buildBreakdowns(scopedMapStats)
+
+  // External events (Shitter League) are hidden on the client unless shown, so
+  // every match-derived stat is built twice: with them and without. Otherwise a
+  // sub appearance in an external event would surface a Main / Sub split under a
+  // Rivals scope whose match history no longer lists that match.
+  const externalSeasonIds = new Set(
+    allSeasons.filter((s) => s.kind === 'external').map((s) => s.id)
+  )
+  const isExternalMapRow = (r: PerMapStatRow) => {
+    const mm = Array.isArray(r.match_maps) ? r.match_maps[0] : r.match_maps
+    const match = mm && (Array.isArray(mm.matches) ? mm.matches[0] : mm.matches)
+    return Boolean(match?.season_id && externalSeasonIds.has(match.season_id))
+  }
+  const buildRoleStats = (rows: PerMapStatRow[], includeExternal: boolean) => {
+    const mapRows = includeExternal ? rows : rows.filter((r) => !isExternalMapRow(r))
+    const subMapRows = mapRows.filter(isSubMapRow)
+    const mainMapRows = mapRows.filter((r) => !isSubMapRow(r))
+    const all = buildBreakdowns(mapRows)
+    const sub = buildBreakdowns(subMapRows)
+    const main = buildBreakdowns(mainMapRows)
+    // How many matches fall in each bucket, so the client only offers the
+    // filter when the player has actually played both roles in the scope.
+    let subGames = 0
+    let mainGames = 0
+    for (const group of groupedParticipation.values()) {
+      const r = group[0]
+      const matchRel = Array.isArray(r.matches) ? r.matches[0] : r.matches
+      if (!matchRel?.id || !isMatchInScope(matchRel.id, matchRel.season_id)) continue
+      if (!includeExternal && matchRel.season_id && externalSeasonIds.has(matchRel.season_id))
+        continue
+      if (subByMatchId.get(matchRel.id)) subGames += 1
+      else mainGames += 1
+    }
+    return {
+      mapStats: all.mapStats,
+      agentStats: all.agentStats,
+      // Same Map/Agent breakdowns split by the player's role in each match, so
+      // the profile can offer an All / Main / Sub filter. Match history rows
+      // carry their own `is_sub`, so the client filters those directly.
+      mapStatsMain: main.mapStats,
+      agentStatsMain: main.agentStats,
+      mapStatsSub: sub.mapStats,
+      agentStatsSub: sub.agentStats,
+      rosterSplit: { subGames, mainGames },
+      // Overall per-role totals for the KPI tiles. Leaderboard batches carry no
+      // starter/sub split, so the Main / Sub views are rebuilt from per-map rows.
+      rosterTotals: { main: aggregateStats(mainMapRows), sub: aggregateStats(subMapRows) },
+    }
+  }
+  const roleStats = buildRoleStats(scopedMapStats, true)
+  const roleStatsNoExternal = buildRoleStats(scopedMapStats, false)
+  const { mapStats } = roleStats
   // List-view thumbnails for the Breakdown's map rows, keyed by lowercased map
   // name. The lookup is cached server-wide, so only the first page pays for it.
   const mapArt: Record<string, string> = {}
@@ -830,28 +881,6 @@ export const load = async ({
       const url = mapThumbFor(mapLookup, m.key)
       if (url) mapArt[m.key.toLowerCase()] = url
     }
-  }
-  const subMapRows = scopedMapStats.filter(isSubMapRow)
-  const mainMapRows = scopedMapStats.filter((r) => !isSubMapRow(r))
-  const subBreakdowns = buildBreakdowns(subMapRows)
-  const mainBreakdowns = buildBreakdowns(mainMapRows)
-  // Overall per-role totals for the KPI tiles. Leaderboard batches carry no
-  // starter/sub split, so the Main / Sub views are rebuilt from per-map rows.
-  const rosterTotals = {
-    main: aggregateStats(mainMapRows),
-    sub: aggregateStats(subMapRows),
-  }
-
-  // How many matches fall in each bucket, so the client only offers the filter
-  // when the player has actually played both roles in the selected scope.
-  let subGames = 0
-  let mainGames = 0
-  for (const rows of groupedParticipation.values()) {
-    const r = rows[0]
-    const matchRel = Array.isArray(r.matches) ? r.matches[0] : r.matches
-    if (!matchRel?.id || !isMatchInScope(matchRel.id, matchRel.season_id)) continue
-    if (subByMatchId.get(matchRel.id)) subGames += 1
-    else mainGames += 1
   }
 
   // Sequential rather than parallel: the thread needs the viewer's profile id
@@ -933,22 +962,15 @@ export const load = async ({
       batchEvents,
     },
     matchHistory,
-    mapStats,
     mapArt,
-    agentStats,
-    // Same Map/Agent breakdowns split by the player's role in each match, so the
-    // profile can offer an All / Main / Sub filter. Match history rows carry
-    // their own `is_sub`, so the client filters those directly.
-    mapStatsMain: mainBreakdowns.mapStats,
-    agentStatsMain: mainBreakdowns.agentStats,
-    mapStatsSub: subBreakdowns.mapStats,
-    agentStatsSub: subBreakdowns.agentStats,
-    rosterSplit: { subGames, mainGames },
+    // Match-derived stats with external events included, and without them for
+    // when the client hides those events.
+    roleStats,
+    roleStatsNoExternal,
     // Main vs Sub compares one season's (or one generated batch's) matches. A
     // batch that resolves to neither would compare every match on record under
     // a header naming one event, so the comparison is offered only when scoped.
     rosterCompareScoped: matchIdScope !== null || seasonScope !== null,
-    rosterTotals,
     // Non-null when the Map/Agent tables are scoped by the selected aggregate
     // batch (to its source matches or season); null when they show every
     // recorded map.

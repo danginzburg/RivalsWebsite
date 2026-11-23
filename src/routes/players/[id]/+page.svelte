@@ -94,8 +94,13 @@
   const finishLabel = (f: { start: number; end: number }) =>
     f.start === f.end ? ordinal(f.start) : `${ordinal(f.start)}–${ordinal(f.end)}`
 
+  // Match-derived stats (breakdowns, Main / Sub split) follow the same
+  // external-events toggle as the match history they summarise.
+  const roleStats = $derived(
+    ((hideExternal ? data.roleStatsNoExternal : data.roleStats) ?? {}) as Record<string, any>
+  )
   const mapStats = $derived(
-    (data.mapStats ?? []) as Array<{
+    (roleStats.mapStats ?? []) as Array<{
       key: string
       maps_played: number
       maps_won: number
@@ -132,14 +137,17 @@
     fd: number
     win_pct: number | null
   }
-  const agentStats = $derived((data.agentStats ?? []) as BreakdownRow[])
+  const agentStats = $derived((roleStats.agentStats ?? []) as BreakdownRow[])
   const mapArt = $derived((data.mapArt ?? {}) as Record<string, string>)
-  const mapStatsMain = $derived((data.mapStatsMain ?? []) as BreakdownRow[])
-  const agentStatsMain = $derived((data.agentStatsMain ?? []) as BreakdownRow[])
-  const mapStatsSub = $derived((data.mapStatsSub ?? []) as BreakdownRow[])
-  const agentStatsSub = $derived((data.agentStatsSub ?? []) as BreakdownRow[])
+  const mapStatsMain = $derived((roleStats.mapStatsMain ?? []) as BreakdownRow[])
+  const agentStatsMain = $derived((roleStats.agentStatsMain ?? []) as BreakdownRow[])
+  const mapStatsSub = $derived((roleStats.mapStatsSub ?? []) as BreakdownRow[])
+  const agentStatsSub = $derived((roleStats.agentStatsSub ?? []) as BreakdownRow[])
   const rosterSplit = $derived(
-    (data.rosterSplit ?? { subGames: 0, mainGames: 0 }) as { subGames: number; mainGames: number }
+    (roleStats.rosterSplit ?? { subGames: 0, mainGames: 0 }) as {
+      subGames: number
+      mainGames: number
+    }
   )
 
   // The All / Main / Sub filter only appears once the player has actually
@@ -154,7 +162,7 @@
     rosterFilter === 'sub' ? agentStatsSub : rosterFilter === 'main' ? agentStatsMain : agentStats
   )
   const rosterTotals = $derived(
-    (data.rosterTotals ?? null) as {
+    (roleStats.rosterTotals ?? null) as {
       main: Omit<BreakdownRow, 'key'>
       sub: Omit<BreakdownRow, 'key'>
     } | null
