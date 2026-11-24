@@ -12,7 +12,7 @@ import {
   inBackground,
   postPickemLocked,
   postPickemOpened,
-  postPickemWinnerIfSettled,
+  postPickemFinal,
 } from '$lib/server/discord/announce'
 
 export const PATCH: RequestHandler = async ({ locals, params, request }) => {
@@ -44,12 +44,14 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
       inBackground('pickem locked', () => postPickemLocked(context.season, event))
     } else if (status === 'scored') {
       await notifyPickemScored(context.season, context.event.id)
+      inBackground('pickem final', () => postPickemFinal(event.id))
     }
+  } else if (context.event && status === 'scored') {
+    // Results corrected after the pick'em went final: update the post (never a new one).
+    const eventId = context.event.id
+    inBackground('pickem final', () => postPickemFinal(eventId, 'edit'))
   }
   // Resolved results can settle the pick'em, and with it its champion accolade.
   await syncSeasonAccoladesSafely({ seasonIds: [params.seasonId] })
-  // An admin resolving the last bracket slot here can settle the pick'em winner too.
-  const seasonId = params.seasonId
-  inBackground('pickem winner', () => postPickemWinnerIfSettled(seasonId))
   return json({ success: true, context })
 }

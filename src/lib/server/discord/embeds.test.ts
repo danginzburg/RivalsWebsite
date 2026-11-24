@@ -12,7 +12,7 @@ import {
   pickemLockWarningPayload,
   pickemLockedPayload,
   pickemOpenedPayload,
-  pickemWinnerPayload,
+  pickemFinalPayload,
   streamAddedPayload,
   streamEndedPayload,
   streamLivePayload,
@@ -251,9 +251,9 @@ describe("pick'ems", () => {
 
   it('names the winner and the podium', () => {
     const e = embed(
-      pickemWinnerPayload({
+      pickemFinalPayload({
         ...ref,
-        podium: [
+        board: [
           { name: 'alice', score: 42, rank: 1 },
           { name: 'bob', score: 40, rank: 2 },
           { name: 'cara', score: 31, rank: 3 },
@@ -263,13 +263,32 @@ describe("pick'ems", () => {
     expect(e.title).toBe('alice wins the Season 5 Pick’em!')
     expect(e.description).toContain('🥇 alice · 42 pts')
     expect(e.description).toContain('🥉 cara · 31 pts')
+    expect(e.image).toBeUndefined()
+  })
+
+  it('shows the standings card and numbers ranks past the podium', () => {
+    const e = embed(
+      pickemFinalPayload({
+        ...ref,
+        imageUrl: `${SITE}/og/pickem/e-1.png?v=1`,
+        board: [
+          { name: 'alice', score: 42, rank: 1 },
+          { name: 'bob', score: 40, rank: 2 },
+          { name: 'cara', score: 31, rank: 3 },
+          { name: 'dev', score: 30, rank: 4 },
+          { name: 'eve', score: 12, rank: 5 },
+        ],
+      })
+    )
+    expect(e.image).toEqual({ url: `${SITE}/og/pickem/e-1.png?v=1` })
+    expect(e.description).toContain('**5.** eve · 12 pts')
   })
 
   it('handles a tie for first', () => {
     const e = embed(
-      pickemWinnerPayload({
+      pickemFinalPayload({
         ...ref,
-        podium: [
+        board: [
           { name: 'alice', score: 42, rank: 1 },
           { name: 'bob', score: 42, rank: 1 },
         ],

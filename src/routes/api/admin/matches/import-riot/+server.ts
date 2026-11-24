@@ -89,6 +89,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     bestOf: body.bestOf,
     targetMatchId: targetMatch?.id ?? null,
     importerProfileId: admin.id,
+    announce: true,
   })
 
   return json({ success: true, dryRun: false, preview, result })

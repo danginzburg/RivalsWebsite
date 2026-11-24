@@ -428,23 +428,31 @@ export function pickemLockedPayload(p: PickemRef): WebhookPayload {
   })
 }
 
-export function pickemWinnerPayload(
-  p: PickemRef & { podium: Array<{ name: string; score: number; rank: number }> }
+/**
+ * The pick'em is final ("Final now" on the site): the winner, or everyone tied
+ * for first, the top of the leaderboard, and the standings card as the image.
+ */
+export function pickemFinalPayload(
+  p: PickemRef & {
+    board: Array<{ name: string; score: number; rank: number }>
+    imageUrl?: string | null
+  }
 ): WebhookPayload {
-  const winners = p.podium.filter((e) => e.rank === 1)
+  const winners = p.board.filter((e) => e.rank === 1)
   const medals = ['🥇', '🥈', '🥉']
-  const lines = p.podium
-    .slice(0, 10)
-    .map((e) => `${medals[e.rank - 1] ?? `#${e.rank}`} ${escapeMarkdown(e.name)} · ${e.score} pts`)
+  const lines = p.board.map(
+    (e) => `${medals[e.rank - 1] ?? `**${e.rank}.**`} ${escapeMarkdown(e.name)} · ${e.score} pts`
+  )
   const names = winners.map((w) => w.name).join(' & ')
   return payload({
     title:
       winners.length > 0
         ? `${names} ${winners.length > 1 ? 'win' : 'wins'} the ${p.title}!`
-        : `${p.title} results`,
+        : `${p.title} is final`,
     url: pickemUrl(p),
     color: COLORS.pickem,
     description: [...lines, '', `Full leaderboard: ${pickemUrl(p)}`].join('\n'),
+    image: p.imageUrl ? { url: p.imageUrl } : undefined,
   })
 }
 
