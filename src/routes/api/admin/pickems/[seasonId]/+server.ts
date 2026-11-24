@@ -8,6 +8,12 @@ import { invalidateSeasonSeeds } from '$lib/server/seasons/seeds'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { notifyPickemOpened, notifyPickemScored } from '$lib/server/notifications/events'
 import { syncSeasonAccoladesSafely } from '$lib/server/accolades/season-sync'
+import {
+  inBackground,
+  postPickemLocked,
+  postPickemOpened,
+  postPickemWinnerIfSettled,
+} from '$lib/server/discord/announce'
 
 export const PATCH: RequestHandler = async ({ locals, params, request }) => {
   await requireAdmin(locals.user)
@@ -30,13 +36,20 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
   // Announce the transitions players care about: picks opening, and scores landing.
   const status = context.event?.status
   if (context.event && status !== before?.status) {
+    const event = context.event
     if (status === 'open' && before?.status !== 'locked' && before?.status !== 'scored') {
-      await notifyPickemOpened(context.season, context.event.lockAt)
+      await notifyPickemOpened(context.season, event.lockAt)
+      inBackground('pickem opened', () => postPickemOpened(context.season, event))
+    } else if (status === 'locked') {
+      inBackground('pickem locked', () => postPickemLocked(context.season, event))
     } else if (status === 'scored') {
       await notifyPickemScored(context.season, context.event.id)
     }
   }
   // Resolved results can settle the pick'em, and with it its champion accolade.
   await syncSeasonAccoladesSafely({ seasonIds: [params.seasonId] })
+  // An admin resolving the last bracket slot here can settle the pick'em winner too.
+  const seasonId = params.seasonId
+  inBackground('pickem winner', () => postPickemWinnerIfSettled(seasonId))
   return json({ success: true, context })
 }

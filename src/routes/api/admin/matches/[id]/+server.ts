@@ -18,6 +18,7 @@ import {
   notifyMatchResult,
   notifyMatchScheduled,
 } from '$lib/server/notifications/events'
+import { inBackground, refreshMatchPosts } from '$lib/server/discord/announce'
 
 function normalizeOptional(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -128,6 +129,9 @@ export const PATCH: RequestHandler = async ({ locals, request, params, url }) =>
         await notifyMatchCancelled(matchId, admin.id)
       } else if (scheduleChanged && after.status !== 'completed') {
         await notifyMatchScheduled(matchId, admin.id)
+      } else {
+        // A corrected score or a new VOD link updates what Discord already shows.
+        inBackground('match refresh', () => refreshMatchPosts(matchId))
       }
       await syncMatchToDiscord(matchId, url.origin)
       return json({ success: true, match: updated })
@@ -187,6 +191,7 @@ export const PATCH: RequestHandler = async ({ locals, request, params, url }) =>
     })
 
     await refreshStandingsAfterEdit(matchId, previousSeasonId, admin.id)
+    inBackground('match refresh', () => refreshMatchPosts(matchId))
     return json({ success: true })
   }
 
