@@ -19,6 +19,7 @@ import {
   teamLogoPayload,
   vodPayload,
   vodStageLine,
+  withRolePing,
   type MatchRef,
 } from './embeds'
 import type { DiscordEmbed, WebhookPayload } from './webhook'
@@ -275,6 +276,30 @@ describe("pick'ems", () => {
       })
     )
     expect(e.title).toBe('alice & bob win the Season 5 Pick’em!')
+  })
+})
+
+describe('role pings', () => {
+  it('puts the role mention above an embed and allows only that role', () => {
+    const p = withRolePing(
+      pickemOpenedPayload({ siteUrl: SITE, seasonCode: 's5', title: 'P', lockAt: null }),
+      '42'
+    )
+    expect(p.content).toBe('<@&42>')
+    expect(p.allowed_mentions).toEqual({ parse: [], roles: ['42'] })
+    expect(p.embeds).toHaveLength(1)
+  })
+
+  it('keeps existing content and roles, and does nothing without a role', () => {
+    const live = streamLivePayload(
+      { ...match, platform: 'twitch', streamUrl: 'https://twitch.tv/x', displayName: null },
+      '7'
+    )
+    const both = withRolePing(live, '42')
+    expect(both.content?.startsWith('<@&42> <@&7> ')).toBe(true)
+    expect(both.allowed_mentions?.roles).toEqual(['7', '42'])
+    expect(withRolePing(live, null)).toBe(live)
+    expect(withRolePing(withRolePing(live, '7'), '7').content).toBe(live.content)
   })
 })
 

@@ -11,6 +11,7 @@ import {
 import {
   siteUrl,
   streamPingRoleId,
+  announcementsPingRoleId,
   webhookOptions,
   webhookUrlFor,
   type DiscordChannel,
@@ -30,6 +31,7 @@ import {
   streamLivePayload,
   teamLogoPayload,
   vodPayload,
+  withRolePing,
   vodStageLine,
   type AdminAlert,
   type MatchRef,
@@ -69,7 +71,10 @@ async function post(
   const url = webhookUrlFor(channel)
   if (!url) return 'skipped' as const
   const key: PostKey = { kind, subjectId, channel }
-  return upsertPost(key, url, payload, { ...webhookOptions(), ...opts })
+  // Everything in #rivals-annoucements pings @Rivals Player.
+  const body =
+    channel === 'announcements' ? withRolePing(payload, announcementsPingRoleId()) : payload
+  return upsertPost(key, url, body, { ...webhookOptions(), ...opts })
 }
 
 async function remove(channel: DiscordChannel, kind: string, subjectId: string) {

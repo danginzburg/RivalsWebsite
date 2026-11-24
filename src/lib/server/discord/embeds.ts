@@ -91,6 +91,17 @@ function payload(embed: DiscordEmbed, content?: string, roles?: string[]): Webho
   }
 }
 
+/** Ping a role above the post (Discord only notifies on the first send, not on edits). */
+export function withRolePing(p: WebhookPayload, roleId: string | null | undefined): WebhookPayload {
+  if (!roleId) return p
+  const mention = `<@&${roleId}>`
+  const content = p.content?.includes(mention)
+    ? p.content
+    : [mention, p.content].filter(Boolean).join(' ')
+  const roles = [...new Set([...(p.allowed_mentions?.roles ?? []), roleId])]
+  return { ...p, content, allowed_mentions: { parse: [], roles } }
+}
+
 // ── Match scheduling (posted into the match's forum thread) ─────────────────
 
 export function matchScheduledPayload(match: MatchRef & { rescheduled?: boolean }): WebhookPayload {

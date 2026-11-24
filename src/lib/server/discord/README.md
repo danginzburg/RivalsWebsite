@@ -23,6 +23,7 @@ Every `DISCORD_*` variable also works without the prefix (`WEBHOOK_RESULTS`, `ST
 2. Set the env vars above in Vercel (Project → Settings → Environment Variables) and in your local `.env`.
    **Never commit webhook URLs**: anyone with one can post as it.
 3. `DISCORD_STREAM_PING_ROLE_ID`: the @Stream Ping role's id (Developer Mode on → right-click the role → Copy Role ID).
+   `DISCORD_ANNOUNCEMENTS_PING_ROLE_ID`: the @Rivals Player role, pinged on every #rivals-annoucements post.
 4. `SITE_URL`: the public site origin, e.g. `https://tcrivals.gg`, used for links and images
    (falls back to Vercel's production URL).
 5. Apply `supabase/migrations/20261123_001_discord_posts.sql`.
