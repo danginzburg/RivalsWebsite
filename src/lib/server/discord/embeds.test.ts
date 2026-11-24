@@ -4,6 +4,7 @@ import {
   discordTimestamp,
   escapeMarkdown,
   leagueDate,
+  leagueDayEnd,
   matchCancelledPayload,
   matchReminderPayload,
   matchResultPayload,
@@ -11,13 +12,14 @@ import {
   pickemLockWarningPayload,
   pickemLockedPayload,
   pickemOpenedPayload,
-  pickemWinnerPayload,
+  pickemFinalPayload,
   streamAddedPayload,
   streamEndedPayload,
   streamLivePayload,
   teamLogoPayload,
   vodPayload,
   vodStageLine,
+  withRolePing,
   type MatchRef,
 } from './embeds'
 import type { DiscordEmbed, WebhookPayload } from './webhook'
@@ -56,6 +58,20 @@ describe('formatting helpers', () => {
     expect(leagueDate(START)).toBe('05/07/2026')
   })
 
+  it('ends the league day at midnight Central, across daylight saving', () => {
+    // 10 AM Eastern runs: 15:00 UTC in winter (CST, UTC-6) and summer (CDT, UTC-5).
+    expect(leagueDayEnd(new Date('2026-11-23T15:00:00Z')).toISOString()).toBe(
+      '2026-11-24T06:00:00.000Z'
+    )
+    expect(leagueDayEnd(new Date('2026-05-07T15:00:00Z')).toISOString()).toBe(
+      '2026-05-08T05:00:00.000Z'
+    )
+    // 11:30 PM Central is still the same league day.
+    expect(leagueDayEnd(new Date('2026-11-24T05:30:00Z')).toISOString()).toBe(
+      '2026-11-24T06:00:00.000Z'
+    )
+  })
+
   it('joins the stage and designation without repeating the stage', () => {
     expect(vodStageLine('Play-ins', 'R2')).toBe('Play-ins R2')
     expect(vodStageLine('Play-ins', 'Play-ins R2')).toBe('Play-ins R2')
@@ -90,10 +106,10 @@ describe('match scheduled', () => {
     expect(matchScheduledPayload(match).allowed_mentions).toEqual({ parse: [] })
   })
 
-  it('builds the 1-hour reminder', () => {
+  it('builds the match-day reminder', () => {
     const e = embed(matchReminderPayload(match))
-    expect(e.title).toBe('Starting soon: Jolly Rancher Boys vs Project 30')
-    expect(e.description).toContain(`<t:${UNIX}:R>`)
+    expect(e.title).toBe('Match day: Jolly Rancher Boys vs Project 30')
+    expect(e.description).toContain(`You play today at <t:${UNIX}:t> (<t:${UNIX}:R>).`)
   })
 })
 
@@ -227,15 +243,17 @@ describe("pick'ems", () => {
   })
 
   it('warns before locking and says when it locked', () => {
-    expect(embed(pickemLockWarningPayload(ref)).description).toContain(`<t:${UNIX}:R>`)
+    const warning = embed(pickemLockWarningPayload(ref))
+    expect(warning.title).toBe('Season 5 Pick’em locks today')
+    expect(warning.description).toContain(`Picks lock today at <t:${UNIX}:t>`)
     expect(embed(pickemLockedPayload(ref)).title).toBe('Season 5 Pick’em is locked')
   })
 
   it('names the winner and the podium', () => {
     const e = embed(
-      pickemWinnerPayload({
+      pickemFinalPayload({
         ...ref,
-        podium: [
+        board: [
           { name: 'alice', score: 42, rank: 1 },
           { name: 'bob', score: 40, rank: 2 },
           { name: 'cara', score: 31, rank: 3 },
@@ -245,19 +263,62 @@ describe("pick'ems", () => {
     expect(e.title).toBe('alice wins the Season 5 Pick’em!')
     expect(e.description).toContain('🥇 alice · 42 pts')
     expect(e.description).toContain('🥉 cara · 31 pts')
+    expect(e.image).toBeUndefined()
+  })
+
+  it('shows the standings card and numbers ranks past the podium', () => {
+    const e = embed(
+      pickemFinalPayload({
+        ...ref,
+        imageUrl: `${SITE}/og/pickem/e-1.png?v=1`,
+        board: [
+          { name: 'alice', score: 42, rank: 1 },
+          { name: 'bob', score: 40, rank: 2 },
+          { name: 'cara', score: 31, rank: 3 },
+          { name: 'dev', score: 30, rank: 4 },
+          { name: 'eve', score: 12, rank: 5 },
+        ],
+      })
+    )
+    expect(e.image).toEqual({ url: `${SITE}/og/pickem/e-1.png?v=1` })
+    expect(e.description).toContain('**5.** eve · 12 pts')
   })
 
   it('handles a tie for first', () => {
     const e = embed(
-      pickemWinnerPayload({
+      pickemFinalPayload({
         ...ref,
-        podium: [
+        board: [
           { name: 'alice', score: 42, rank: 1 },
           { name: 'bob', score: 42, rank: 1 },
         ],
       })
     )
     expect(e.title).toBe('alice & bob win the Season 5 Pick’em!')
+  })
+})
+
+describe('role pings', () => {
+  it('puts the role mention above an embed and allows only that role', () => {
+    const p = withRolePing(
+      pickemOpenedPayload({ siteUrl: SITE, seasonCode: 's5', title: 'P', lockAt: null }),
+      '42'
+    )
+    expect(p.content).toBe('<@&42>')
+    expect(p.allowed_mentions).toEqual({ parse: [], roles: ['42'] })
+    expect(p.embeds).toHaveLength(1)
+  })
+
+  it('keeps existing content and roles, and does nothing without a role', () => {
+    const live = streamLivePayload(
+      { ...match, platform: 'twitch', streamUrl: 'https://twitch.tv/x', displayName: null },
+      '7'
+    )
+    const both = withRolePing(live, '42')
+    expect(both.content?.startsWith('<@&42> <@&7> ')).toBe(true)
+    expect(both.allowed_mentions?.roles).toEqual(['7', '42'])
+    expect(withRolePing(live, null)).toBe(live)
+    expect(withRolePing(withRolePing(live, '7'), '7').content).toBe(live.content)
   })
 })
 

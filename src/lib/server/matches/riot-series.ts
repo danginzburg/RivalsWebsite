@@ -429,6 +429,8 @@ export async function commitRiotSeries(
     /** Recorded as the importer on the batch and maps. */
     importerProfileId: string
     displayName?: string
+    /** Post the result to Discord; see importCompletedSeries. */
+    announce?: boolean
   }
 ): Promise<CommitResult> {
   const { matches, seasonId, profileMatcher } = series
@@ -458,6 +460,7 @@ export async function commitRiotSeries(
       ...(opts.targetMatchId ? { targetMatchId: opts.targetMatchId } : {}),
     },
     adminProfileId: opts.importerProfileId,
+    announce: opts.announce,
   })
   const body = (await response.json().catch(() => ({}))) as Record<string, unknown>
 

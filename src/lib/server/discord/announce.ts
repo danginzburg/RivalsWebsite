@@ -2,15 +2,12 @@ import { waitUntil } from '@vercel/functions'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
 import { sectionLabel } from '$lib/stats/sections'
-import { combinePickemSeasonTotals, isPickemComplete, type PickemEvent } from '$lib/pickems'
-import {
-  getPickemResults,
-  getPublishedPickemContextBySeasonId,
-  listPickemPublicSubmissions,
-} from '$lib/server/pickems'
+import type { PickemEvent } from '$lib/pickems'
+import { loadPickemFinal } from '$lib/server/og/pickem-card'
 import {
   siteUrl,
   streamPingRoleId,
+  announcementsPingRoleId,
   webhookOptions,
   webhookUrlFor,
   type DiscordChannel,
@@ -24,12 +21,13 @@ import {
   pickemLockWarningPayload,
   pickemLockedPayload,
   pickemOpenedPayload,
-  pickemWinnerPayload,
+  pickemFinalPayload,
   streamAddedPayload,
   streamEndedPayload,
   streamLivePayload,
   teamLogoPayload,
   vodPayload,
+  withRolePing,
   vodStageLine,
   type AdminAlert,
   type MatchRef,
@@ -69,7 +67,10 @@ async function post(
   const url = webhookUrlFor(channel)
   if (!url) return 'skipped' as const
   const key: PostKey = { kind, subjectId, channel }
-  return upsertPost(key, url, payload, { ...webhookOptions(), ...opts })
+  // Everything in #rivals-annoucements pings @Rivals Player.
+  const body =
+    channel === 'announcements' ? withRolePing(payload, announcementsPingRoleId()) : payload
+  return upsertPost(key, url, body, { ...webhookOptions(), ...opts })
 }
 
 async function remove(channel: DiscordChannel, kind: string, subjectId: string) {
@@ -286,7 +287,6 @@ export async function postMatchResult(matchId: string, mode: UpsertMode = 'upser
   const [maps, mvp] = await Promise.all([loadMaps(matchId), loadMvp(matchId)])
   await post('results', 'match_result', matchId, resultPayload(match, maps, mvp), { mode })
   if (match.vodUrl) await postVod(match, 'upsert')
-  if (match.seasonId) await postPickemWinnerIfSettled(match.seasonId)
 }
 
 /**
@@ -435,33 +435,28 @@ export async function postPickemLockWarning(
 }
 
 /**
- * The season's pick'em winner, once every published pick'em has all its
- * results in (in practice: when the grand final is imported). A later
- * correction edits the post.
+ * The pick'em went final ("Final now"): the winner(s), the top of the
+ * leaderboard and the standings card. Re-scoring edits the post.
  */
-export async function postPickemWinnerIfSettled(seasonId: string) {
-  if (!(await isActiveSeason(seasonId))) return
-  const boards = []
-  let season: PickemSeason | null = null
-  for (const format of ['bracket', 'matchups'] as const) {
-    const ctx = await getPublishedPickemContextBySeasonId(seasonId, format)
-    if (!ctx.event || ctx.matches.length === 0) continue
-    season ??= { id: ctx.season.id, code: ctx.season.code, name: ctx.season.name }
-    const { actualWinners } = await getPickemResults(ctx.event, ctx.matches)
-    if (!isPickemComplete(ctx.matches, actualWinners)) return
-    boards.push(await listPickemPublicSubmissions(ctx.event.id, ctx.matches, actualWinners))
-  }
-  if (!season || boards.length === 0) return
-  const podium = combinePickemSeasonTotals(boards)
-    .filter((e) => e.score > 0 && e.rank <= 3)
-    .map((e) => ({ name: e.user.name, score: e.score, rank: e.rank }))
-  if (podium.length === 0) return
+export async function postPickemFinal(eventId: string, mode: UpsertMode = 'upsert') {
+  const final = await loadPickemFinal(eventId)
+  if (!final || final.status !== 'scored' || !(await isActiveSeason(final.seasonId))) return
+  const origin = siteUrl()
+  // Changes with the standings, so Discord refetches the card after a correction.
+  const version = final.board.map((e) => `${e.rank}.${e.score}`).join('_') || 'empty'
   await post(
     'announcements',
-    'pickem_winner',
-    seasonId,
-    // Totals combine the bracket and weekly pick'ems, so this names the season, not one event.
-    pickemWinnerPayload({ ...pickemRef(season, { title: '', lockAt: null }), podium })
+    'pickem_final',
+    eventId,
+    pickemFinalPayload({
+      siteUrl: origin,
+      seasonCode: final.seasonCode,
+      title: final.title,
+      lockAt: null,
+      board: final.board,
+      imageUrl: `${origin}/og/pickem/${eventId}.png?v=${encodeURIComponent(version)}`,
+    }),
+    { mode }
   )
 }
 

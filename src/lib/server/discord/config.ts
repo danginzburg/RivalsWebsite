@@ -56,7 +56,16 @@ export function webhookOptions(): WebhookOptions {
 
 /** Role pinged when a match goes live (@Stream Ping). */
 export function streamPingRoleId(): string | null {
-  const id = readEnv('DISCORD_STREAM_PING_ROLE_ID')
+  return roleId('DISCORD_STREAM_PING_ROLE_ID')
+}
+
+/** Role pinged on every #rivals-annoucements post (@Rivals Player). */
+export function announcementsPingRoleId(): string | null {
+  return roleId('DISCORD_ANNOUNCEMENTS_PING_ROLE_ID')
+}
+
+function roleId(name: string): string | null {
+  const id = readEnv(name)
   return id && /^\d+$/.test(id) ? id : null
 }
 

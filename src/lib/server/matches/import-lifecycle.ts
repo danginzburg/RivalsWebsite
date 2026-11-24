@@ -20,6 +20,7 @@ import {
 import { applyMatchStatReassignments } from '$lib/server/matches/reassignments'
 import { loadRosterTimeline, matchRosterTime } from '$lib/server/matches/subs'
 import { refreshDerivedDataForMatch } from '$lib/server/matches/refresh-derived'
+import { inBackground, postMatchResult } from '$lib/server/discord/announce'
 import { resolveTargetSeasonId } from '$lib/server/seasons/resolve'
 import { MATCH_STAGES, normalizeSectionKey, type SectionKey } from '$lib/stats/sections'
 
@@ -243,18 +244,25 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   const importKind = normalizeOptional(body.importKind) ?? 'series_csv'
 
   if (importKind === 'forfeit_no_show') {
-    return importNoShowForfeit({ payload: body, adminProfileId: admin.id })
+    return importNoShowForfeit({ payload: body, adminProfileId: admin.id, announce: true })
   }
 
-  return importCompletedSeries({ payload: body, adminProfileId: admin.id })
+  return importCompletedSeries({ payload: body, adminProfileId: admin.id, announce: true })
 }
 
 export async function importCompletedSeries({
   payload: body,
   adminProfileId,
+  announce = false,
 }: {
   payload: Record<string, unknown>
   adminProfileId: string
+  /**
+   * Post the result to Discord (#match-results, or edit the post already
+   * there). Off by default so bulk backfills stay quiet; the admin import
+   * routes turn it on.
+   */
+  announce?: boolean
 }) {
   const maps = Array.isArray(body.maps) ? body.maps : []
 
@@ -837,6 +845,8 @@ export async function importCompletedSeries({
     return []
   })
 
+  if (announce) inBackground('match result', () => postMatchResult(match.id))
+
   return json({
     success: true,
     matchId: match.id,
@@ -851,9 +861,16 @@ export async function importCompletedSeries({
 export async function importNoShowForfeit({
   payload: body,
   adminProfileId,
+  announce = false,
 }: {
   payload: Record<string, unknown>
   adminProfileId: string
+  /**
+   * Post the result to Discord (#match-results, or edit the post already
+   * there). Off by default so bulk backfills stay quiet; the admin import
+   * routes turn it on.
+   */
+  announce?: boolean
 }) {
   const teamAName = normalizeOptional(body.teamAName)
   const teamBName = normalizeOptional(body.teamBName)
@@ -1021,6 +1038,8 @@ export async function importNoShowForfeit({
     console.error('Failed to refresh derived data after forfeit import:', err)
     return []
   })
+
+  if (announce) inBackground('match result', () => postMatchResult(match.id))
 
   return json({
     success: true,
