@@ -60,6 +60,7 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
           .select('id, season_id, status')
           .in('season_id', seasonIds)
           .eq('approval_status', 'approved')
+          .neq('status', 'cancelled')
       : Promise.resolve({ data: [] as Array<{ season_id: string; status: string }> }),
     seasonIds.length > 0
       ? supabaseAdmin
