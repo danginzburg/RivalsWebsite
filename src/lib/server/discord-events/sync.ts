@@ -22,6 +22,7 @@ import {
   parseBestOf,
   parseMatchTitle,
   planLinked,
+  sameSnapshot,
   shouldCreateEvent,
   snapshotAfterCreate,
   snapshotFromEvent,
@@ -202,7 +203,7 @@ async function reconcileLink(
     plan.close ||
     plan.discord.type !== 'none' ||
     Object.keys(plan.site).length > 0 ||
-    JSON.stringify(snapshotColumns(plan.snapshot)) !== JSON.stringify(snapshotColumns(link))
+    !sameSnapshot(plan.snapshot, link)
   if (changed) {
     await supabaseAdmin
       .from(LINKS)

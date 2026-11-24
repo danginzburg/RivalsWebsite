@@ -101,6 +101,20 @@ function sameTime(a: string | null | undefined, b: string | null | undefined): b
   return new Date(a).getTime() === new Date(b).getTime()
 }
 
+/**
+ * Whether two snapshots record the same state. Times are compared as instants:
+ * Postgres hands them back as "…+00:00" while the sync writes "…Z".
+ */
+export function sameSnapshot(a: Snapshot, b: Snapshot): boolean {
+  return (
+    sameTime(a.site_start, b.site_start) &&
+    sameTime(a.event_start, b.event_start) &&
+    (a.site_twitch_url ?? null) === (b.site_twitch_url ?? null) &&
+    (a.site_teams_key ?? null) === (b.site_teams_key ?? null) &&
+    (a.event_location ?? null) === (b.event_location ?? null)
+  )
+}
+
 function toIso(value: string): string {
   return new Date(value).toISOString()
 }

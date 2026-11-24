@@ -3,8 +3,15 @@ import {
   filterMatchChoices,
   matchChoiceLabel,
   pickMatchForThread,
-  shouldSaveVeto,
-  vetoFromMessages,
+  canAnswerVetoPrompt,
+  latestVeto,
+  linkedMessage,
+  parseVetoButtonId,
+  planVeto,
+  vetoHash,
+  vetoPromptClosed,
+  vetoPromptMessage,
+  vetoSavedMessage,
   type ThreadMatch,
 } from './threads'
 
@@ -68,62 +75,170 @@ const VETO = [
   'Lotus decider',
 ]
 
-describe('vetoFromMessages', () => {
-  it('reads a pasted log and ignores the chat around it', () => {
+const ALICE = { id: 'u1' }
+const BOB = { id: 'u2' }
+
+describe('latestVeto', () => {
+  it('reads a pasted log, ignores the chat around it and remembers who posted it', () => {
     const messages = [
-      { id: '1', content: 'gl hf' },
-      { id: '2', content: `veto done:\n${LOG.join('\n')}\nsee you then` },
+      { id: '1', author: BOB, content: 'gl hf' },
+      { id: '2', author: ALICE, content: `veto done:\n${LOG.join('\n')}\nsee you then` },
     ]
-    expect(vetoFromMessages(messages)).toEqual(VETO)
+    expect(latestVeto(messages)).toEqual({ lines: VETO, authorId: 'u1' })
   })
 
   it('reads a log inside a code block or quote', () => {
-    expect(vetoFromMessages([{ id: '1', content: '```\n' + LOG.join('\n') + '\n```' }])).toEqual(
-      VETO
-    )
-    expect(vetoFromMessages([{ id: '1', content: LOG.map((l) => `> ${l}`).join('\n') }])).toEqual(
-      VETO
-    )
+    const fenced = [{ id: '1', content: '```\n' + LOG.join('\n') + '\n```' }]
+    const quoted = [{ id: '1', content: LOG.map((l) => `> ${l}`).join('\n') }]
+    expect(latestVeto(fenced)?.lines).toEqual(VETO)
+    expect(latestVeto(quoted)?.lines).toEqual(VETO)
   })
 
-  it('joins a log split across messages and counts a repeated paste once', () => {
+  it('joins a log split across back-to-back messages from one person', () => {
     const messages = [
-      { id: '1', content: LOG.slice(0, 2).join('\n') },
-      { id: '2', content: LOG.slice(2).join('\n') },
-      { id: '3', content: LOG.join('\n') },
+      { id: '1', author: ALICE, content: LOG.slice(0, 2).join('\n') },
+      { id: '2', author: ALICE, content: LOG.slice(2).join('\n') },
     ]
-    expect(vetoFromMessages(messages)).toEqual(VETO)
+    expect(latestVeto(messages)?.lines).toEqual(VETO)
+  })
+
+  it('lets a newer log replace an older one', () => {
+    const corrected = LOG.map((l) => l.replace('"Lotus"', '"Breeze"'))
+    const messages = [
+      { id: '1', author: ALICE, content: LOG.join('\n') },
+      { id: '2', author: BOB, content: 'wait, wrong decider' },
+      { id: '3', author: BOB, content: corrected.join('\n') },
+    ]
+    const veto = latestVeto(messages)
+    expect(veto?.lines.at(-1)).toBe('Breeze decider')
+    expect(veto?.lines).toHaveLength(4)
+    expect(veto?.authorId).toBe('u2')
+  })
+
+  it('counts a log pasted twice in a row once', () => {
+    const messages = [
+      { id: '1', author: ALICE, content: LOG.join('\n') },
+      { id: '2', author: ALICE, content: LOG.join('\n') },
+    ]
+    expect(latestVeto(messages)?.lines).toEqual(VETO)
   })
 
   it('reads embeds too', () => {
-    expect(vetoFromMessages([{ id: '1', embeds: [{ description: LOG.join('\n') }] }])).toEqual(VETO)
-  })
-
-  it('is empty when there is no log', () => {
-    expect(vetoFromMessages([{ id: '1', content: 'we ban haven lol' }])).toEqual([])
-  })
-})
-
-describe('shouldSaveVeto', () => {
-  it('saves onto a match with no veto', () => {
-    expect(shouldSaveVeto({ current: [], lastImported: null, next: VETO })).toBe(true)
-    expect(shouldSaveVeto({ current: null, lastImported: null, next: VETO })).toBe(true)
-  })
-
-  it('updates a veto it imported before', () => {
-    const before = VETO.slice(0, 2)
-    expect(shouldSaveVeto({ current: before, lastImported: before, next: VETO })).toBe(true)
-  })
-
-  it('leaves a veto an admin entered on the site', () => {
-    expect(shouldSaveVeto({ current: ['typed by admin'], lastImported: null, next: VETO })).toBe(
-      false
+    expect(latestVeto([{ id: '1', embeds: [{ description: LOG.join('\n') }] }])?.lines).toEqual(
+      VETO
     )
   })
 
-  it('does nothing when nothing changed or there is no log', () => {
-    expect(shouldSaveVeto({ current: VETO, lastImported: VETO, next: VETO })).toBe(false)
-    expect(shouldSaveVeto({ current: [], lastImported: null, next: [] })).toBe(false)
+  it('is null when there is no log', () => {
+    expect(latestVeto([{ id: '1', content: 'we ban haven lol' }])).toBeNull()
+  })
+
+  it('never reads its own messages back as a log', () => {
+    const own = [
+      { id: '1', content: vetoSavedMessage(VETO, 'https://x').content },
+      { id: '2', content: vetoPromptMessage(VETO, 'u1', 'abc').content },
+    ]
+    expect(latestVeto(own)).toBeNull()
+  })
+})
+
+describe('planVeto', () => {
+  const OTHER = ['SEN bans Pearl']
+  const base = { current: [], lastImported: null, pending: null, dismissed: null }
+
+  it('saves the first veto straight away', () => {
+    expect(planVeto({ ...base, next: VETO })).toBe('save')
+    expect(planVeto({ ...base, current: null, next: VETO })).toBe('save')
+  })
+
+  it('asks before replacing a veto the bot saved', () => {
+    expect(planVeto({ ...base, current: OTHER, lastImported: OTHER, next: VETO })).toBe('prompt')
+  })
+
+  it('asks only once for the same log, and not again after "Keep current"', () => {
+    const saved = { ...base, current: OTHER, lastImported: OTHER }
+    expect(planVeto({ ...saved, pending: VETO, next: VETO })).toBe('none')
+    expect(planVeto({ ...saved, dismissed: VETO, next: VETO })).toBe('none')
+  })
+
+  it('asks again when the log changes after "Keep current"', () => {
+    const saved = { ...base, current: OTHER, lastImported: OTHER, dismissed: ['old'] }
+    expect(planVeto({ ...saved, next: VETO })).toBe('prompt')
+  })
+
+  it('withdraws a prompt that no longer applies', () => {
+    const saved = { ...base, current: OTHER, lastImported: OTHER, pending: VETO }
+    expect(planVeto({ ...saved, next: [] })).toBe('withdraw')
+    expect(planVeto({ ...saved, next: OTHER })).toBe('withdraw')
+  })
+
+  it('never touches a veto an admin typed on the site', () => {
+    const typed = { ...base, current: ['typed by admin'], lastImported: OTHER }
+    expect(planVeto({ ...typed, next: VETO })).toBe('none')
+    expect(planVeto({ ...typed, pending: VETO, next: VETO })).toBe('withdraw')
+    expect(planVeto({ ...base, current: ['typed by admin'], next: VETO })).toBe('none')
+  })
+
+  it('does nothing when the thread matches the match', () => {
+    expect(planVeto({ ...base, current: VETO, lastImported: VETO, next: VETO })).toBe('none')
+    expect(planVeto({ ...base, next: [] })).toBe('none')
+  })
+})
+
+describe('veto prompt', () => {
+  it('offers two buttons bound to the veto shown', () => {
+    const hash = vetoHash(VETO)
+    const message = vetoPromptMessage(VETO, 'u1', hash)
+    const row = message.components?.[0] as {
+      components: Array<{ custom_id: string; label: string }>
+    }
+    expect(row.components.map((b) => b.label)).toEqual(['Update veto', 'Keep current'])
+    expect(row.components.map((b) => parseVetoButtonId(b.custom_id))).toEqual([
+      { action: 'update', hash },
+      { action: 'keep', hash },
+    ])
+    expect(message.content).toContain('<@u1>')
+    expect(message.content).toContain('3. SEN picks Ascent · C9 starts Attacker')
+    expect(message.allowed_mentions).toEqual({ parse: [], users: ['u1'] })
+  })
+
+  it('fingerprints the veto, not the prompt', () => {
+    expect(vetoHash(VETO)).toBe(vetoHash([...VETO]))
+    expect(vetoHash(VETO)).not.toBe(vetoHash(VETO.slice(1)))
+    expect(parseVetoButtonId('veto:delete:abc')).toBeNull()
+    expect(parseVetoButtonId('something else')).toBeNull()
+  })
+
+  it('closes with the outcome and removes the buttons', () => {
+    const updated = vetoPromptClosed('updated', 'u2', VETO)
+    expect(updated.content).toContain('Veto updated by <@u2>')
+    expect(updated.components).toEqual([])
+    expect(vetoPromptClosed('kept', 'u2').content).toContain('Kept the saved veto')
+    expect(vetoPromptClosed('withdrawn', null).content).toContain('no longer applies')
+  })
+
+  it('lets the poster or staff answer, and nobody else', () => {
+    const manageThreads = String(1n << 34n)
+    expect(canAnswerVetoPrompt({ user: { id: 'u1' }, permissions: '0' }, 'u1')).toBe(true)
+    expect(canAnswerVetoPrompt({ user: { id: 'u2' }, permissions: manageThreads }, 'u1')).toBe(true)
+    expect(canAnswerVetoPrompt({ user: { id: 'u2' }, permissions: '8' }, 'u1')).toBe(true)
+    expect(canAnswerVetoPrompt({ user: { id: 'u2' }, permissions: '0' }, 'u1')).toBe(false)
+    expect(canAnswerVetoPrompt(undefined, 'u1')).toBe(false)
+  })
+})
+
+describe('confirmation messages', () => {
+  it('says which match a thread was linked to, without pinging anyone', () => {
+    const message = linkedMessage('DOM vs NABI', 'https://site/matches/1')
+    expect(message.content).toContain('**DOM vs NABI**')
+    expect(message.content).toContain('https://site/matches/1')
+    expect(message.allowed_mentions).toEqual({ parse: [] })
+  })
+
+  it('lists the saved veto', () => {
+    const message = vetoSavedMessage(VETO, 'https://site/matches/1')
+    expect(message.content).toContain('✅ Veto saved')
+    expect(message.content).toContain('4. Lotus decider')
   })
 })
 

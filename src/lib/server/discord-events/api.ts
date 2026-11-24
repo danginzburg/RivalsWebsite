@@ -139,6 +139,7 @@ export async function listActiveThreads(config: DiscordConfig): Promise<DiscordT
 
 export type DiscordMessage = {
   id: string
+  author?: { id: string } | null
   content?: string | null
   embeds?: Array<{ description?: string | null; fields?: Array<{ value?: string | null }> }>
 }
@@ -166,4 +167,35 @@ export async function listMessages(
   }
   // Discord returns newest first.
   return all.reverse()
+}
+
+/** Post a message in a channel or thread; the bot needs Send Messages in Threads. */
+export async function sendMessage(
+  config: DiscordConfig,
+  channelId: string,
+  body: unknown
+): Promise<DiscordMessage> {
+  const sent = await call<DiscordMessage>(config, 'POST', `/channels/${channelId}/messages`, body)
+  if (!sent) throw new DiscordApiError(500, 'Discord returned no message')
+  return sent
+}
+
+/** Edit one of the bot's messages; null if it was deleted. */
+export async function editMessage(
+  config: DiscordConfig,
+  channelId: string,
+  messageId: string,
+  body: unknown
+): Promise<DiscordMessage | null> {
+  try {
+    return await call<DiscordMessage>(
+      config,
+      'PATCH',
+      `/channels/${channelId}/messages/${messageId}`,
+      body
+    )
+  } catch (err) {
+    if (err instanceof DiscordApiError && err.status === 404) return null
+    throw err
+  }
 }

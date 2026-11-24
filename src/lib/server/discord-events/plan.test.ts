@@ -8,6 +8,7 @@ import {
   parseBestOf,
   parseMatchTitle,
   planLinked,
+  sameSnapshot,
   shouldCreateEvent,
   snapshotAfterCreate,
   type DiscordEvent,
@@ -481,5 +482,24 @@ describe('findMatchToAdopt', () => {
   it('ignores the pairing on another day', () => {
     const event = eventFor(match(), { scheduled_start_time: '2026-11-27T01:00:00Z' })
     expect(findMatchToAdopt(event, [sentinels, cloud9], [match()])).toBeNull()
+  })
+})
+
+describe('sameSnapshot', () => {
+  const base = synced(match())
+
+  it('treats the same instant in different formats as unchanged', () => {
+    const fromDb = {
+      ...base,
+      site_start: '2026-11-25 01:00:00+00',
+      event_start: '2026-11-25T01:00:00+00:00',
+    }
+    expect(sameSnapshot(base, fromDb)).toBe(true)
+  })
+
+  it('notices a real change', () => {
+    expect(sameSnapshot(base, { ...base, event_start: '2026-11-25T02:00:00Z' })).toBe(false)
+    expect(sameSnapshot(base, { ...base, site_twitch_url: 'https://twitch.tv/x' })).toBe(false)
+    expect(sameSnapshot(base, { ...base, event_location: 'Main stage' })).toBe(false)
   })
 })
