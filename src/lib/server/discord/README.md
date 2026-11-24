@@ -14,7 +14,7 @@ Reading messages (veto import, linking forum threads to matches) is the Discord 
 | #rivals-annoucements        | `DISCORD_WEBHOOK_ANNOUNCEMENTS` | Pick'em open, locks in 1 hour, locked, and the season's pick'em winner once every pick'em result is in (the grand final).                         |
 | private staff channel       | `DISCORD_WEBHOOK_ADMIN`         | Bug reports, captain result submissions held for review, reported comments.                                                                       |
 
-A channel without a URL is skipped. Only the **active season** posts, so backfills and edits to old seasons stay quiet.
+Every `DISCORD_*` variable also works without the prefix (`WEBHOOK_RESULTS`, `STREAM_PING_ROLE_ID`, `DRY_RUN`, …) for hosts that refuse names containing "discord". A channel without a URL is skipped. Only the **active season** posts, so backfills and edits to old seasons stay quiet.
 
 ## Setup
 

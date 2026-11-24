@@ -29,12 +29,22 @@ export type DiscordChannel = keyof typeof DISCORD_CHANNELS
 /** Stands in for a missing URL in dry-run mode, so every post can be exercised locally. */
 const DRY_RUN_URL = 'https://discord.com/api/webhooks/0/dry-run'
 
+/**
+ * An env var by its documented `DISCORD_*` name, or the same name without the
+ * prefix (some hosts refuse names containing "discord").
+ */
+function readEnv(name: string): string | undefined {
+  const value = env[name] ?? env[name.replace(/^DISCORD_/, '')]
+  return value?.trim() || undefined
+}
+
 export function isDryRun(): boolean {
-  return env.DISCORD_DRY_RUN === '1' || env.DISCORD_DRY_RUN === 'true'
+  const value = readEnv('DISCORD_DRY_RUN')
+  return value === '1' || value === 'true'
 }
 
 export function webhookUrlFor(channel: DiscordChannel): string | null {
-  const url = env[DISCORD_CHANNELS[channel]]?.trim()
+  const url = readEnv(DISCORD_CHANNELS[channel])
   if (isWebhookUrl(url)) return url
   if (url) console.warn(`${DISCORD_CHANNELS[channel]} is not a Discord webhook URL; skipping.`)
   return isDryRun() ? DRY_RUN_URL : null
@@ -46,7 +56,7 @@ export function webhookOptions(): WebhookOptions {
 
 /** Role pinged when a match goes live (@Stream Ping). */
 export function streamPingRoleId(): string | null {
-  const id = env.DISCORD_STREAM_PING_ROLE_ID?.trim()
+  const id = readEnv('DISCORD_STREAM_PING_ROLE_ID')
   return id && /^\d+$/.test(id) ? id : null
 }
 
