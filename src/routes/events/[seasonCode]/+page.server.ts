@@ -100,6 +100,7 @@ export const load = async ({
       )
       .eq('season_id', season.id)
       .eq('approval_status', 'approved')
+      .neq('status', 'cancelled')
       .order('scheduled_at', { ascending: false, nullsFirst: false }),
   ])
 

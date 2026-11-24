@@ -29,6 +29,8 @@ export const load = async ({ locals }: { locals: App.Locals }) => {
     `
       )
       .eq('approval_status', 'approved')
+      // A cancelled match never happened; it stays on record for admins only.
+      .neq('status', 'cancelled')
       .order('scheduled_at', { ascending: true, nullsFirst: false })
       .order('id')
   )
