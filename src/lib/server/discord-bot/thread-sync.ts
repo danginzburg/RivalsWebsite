@@ -22,6 +22,7 @@ import {
   vetoSavedMessage,
   type ThreadMatch,
 } from './threads'
+import type { ShorthandContext } from './shorthand-veto'
 
 /**
  * Match scheduling threads, run with the minute sync: link new threads in the
@@ -172,6 +173,44 @@ export async function loadMatchVeto(matchId: string): Promise<string[] | null> {
   return Array.isArray(metadata.map_vetoes) ? (metadata.map_vetoes as string[]) : []
 }
 
+type NamedTeam = { name: string; tag: string | null }
+
+/** The match's teams and its season's map pool, for reading a hand-typed veto. */
+export async function loadShorthandContext(matchId: string): Promise<ShorthandContext | null> {
+  const { data } = await supabaseAdmin
+    .from('matches')
+    .select(
+      `season_id,
+       team_a:teams!matches_team_a_id_fkey (name, tag),
+       team_b:teams!matches_team_b_id_fkey (name, tag)`
+    )
+    .eq('id', matchId)
+    .maybeSingle()
+  if (!data) return null
+  const row = data as unknown as {
+    season_id: string | null
+    team_a: NamedTeam | NamedTeam[] | null
+    team_b: NamedTeam | NamedTeam[] | null
+  }
+  const teams = [one(row.team_a), one(row.team_b)].filter((t): t is NamedTeam => t != null)
+  if (teams.length !== 2) return null
+
+  let mapPool: string[] | null = null
+  if (row.season_id) {
+    const { data: season } = await supabaseAdmin
+      .from('seasons')
+      .select('metadata')
+      .eq('id', row.season_id)
+      .maybeSingle()
+    const pool = (season?.metadata as Record<string, unknown> | null)?.map_pool
+    if (Array.isArray(pool)) {
+      const names = pool.filter((m): m is string => typeof m === 'string' && m.trim() !== '')
+      mapPool = names.length > 0 ? names : null
+    }
+  }
+  return { teams, mapPool }
+}
+
 export async function runThreadSync(
   config: DiscordConfig,
   requestOrigin: string
@@ -274,7 +313,11 @@ async function syncThreadVeto(
   const current = await loadMatchVeto(matchId)
   if (current == null) return // The match is gone.
 
-  const veto = latestVeto(await listMessages(config, threadId))
+  const [messages, shorthand] = await Promise.all([
+    listMessages(config, threadId),
+    loadShorthandContext(matchId),
+  ])
+  const veto = latestVeto(messages, shorthand ?? undefined)
   const next = veto?.lines ?? []
   const lastImported = cursor?.imported_lines ?? null
   const action = planVeto({

@@ -404,7 +404,9 @@ export async function loadActiveSeasonTeams(): Promise<SyncTeam[]> {
   return (data ?? []) as SyncTeam[]
 }
 
-async function profileForDiscordUser(discordId: string | null | undefined): Promise<string | null> {
+export async function profileForDiscordUser(
+  discordId: string | null | undefined
+): Promise<string | null> {
   if (!discordId) return null
   const { data } = await supabaseAdmin
     .from('profiles')

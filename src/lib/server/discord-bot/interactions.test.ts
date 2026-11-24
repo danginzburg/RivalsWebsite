@@ -69,6 +69,60 @@ describe('handleInteraction', () => {
   })
 })
 
+describe('/set-time', () => {
+  const setTime = (member: { user?: { id?: string }; permissions?: string }, channel?: object) =>
+    handleInteraction(
+      {
+        type: 2,
+        application_id: 'app',
+        token: 'tok',
+        data: {
+          name: 'set-time',
+          options: [
+            { name: 'date', type: 3, value: 'fri' },
+            { name: 'time', type: 3, value: '7pm' },
+          ],
+        },
+        member,
+        channel_id: 't1',
+        channel: channel as never,
+      },
+      ORIGIN
+    )
+
+  it('refuses anyone who isn’t staff, privately', async () => {
+    const res = await setTime({ user: { id: 'u1' }, permissions: '0' }, { id: 't1', type: 11 })
+    expect(res.data?.flags).toBe(64)
+    expect(String(res.data?.content)).toContain('Only staff')
+  })
+
+  it('needs a scheduling thread', async () => {
+    const manageEvents = String(1n << 33n)
+    const res = await setTime(
+      { user: { id: 'u1' }, permissions: manageEvents },
+      { id: 'c', type: 0 }
+    )
+    expect(res.data?.flags).toBe(64)
+    expect(String(res.data?.content)).toContain('scheduling thread')
+  })
+
+  it('offers days and evening times as you type', async () => {
+    const ask = (name: string, value: string) =>
+      handleInteraction(
+        { type: 4, data: { name: 'set-time', options: [{ name, type: 3, value, focused: true }] } },
+        ORIGIN
+      )
+    const days = (await ask('date', '')).data?.choices as Array<{ name: string }>
+    expect(days).toHaveLength(14)
+    expect(days[0]!.name).toMatch(/^Today, /)
+
+    const typed = (await ask('time', '8:15pm')).data?.choices as Array<{ value: string }>
+    expect(typed[0]!.value).toBe('8:15pm')
+    const evening = (await ask('time', '7:')).data?.choices as Array<{ value: string }>
+    expect(evening.map((c) => c.value)).toEqual(['7:00 PM', '7:30 PM'])
+  })
+})
+
 describe('linkMatchChannelProblem', () => {
   it('accepts a thread of the scheduling forum', () => {
     expect(linkMatchChannelProblem({ id: 't', type: 11, parent_id: 'forum' }, 'forum')).toBeNull()

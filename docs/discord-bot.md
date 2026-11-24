@@ -6,14 +6,14 @@ The bot does two jobs: it keeps match **events** in step with the site (below), 
 
 The bot keeps a Discord **scheduled event** for every upcoming match, in both directions:
 
-| Where the change happens                               | What changes on the other side                                                                                                                                                                                                                                                                 |
-| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Match added on the site                                | An event is created: "Team A vs Team B (Bo3)", at the scheduled time, with the Twitch link as its location ("TBD" until there is one: Discord requires a location) and the match page link as its description. It is created as soon as the match is saved, or once it is within 14 days away. |
-| Match edited on the site                               | The event moves, is renamed (if a team changes), or gets the new Twitch link.                                                                                                                                                                                                                  |
-| Match cancelled, completed or deleted on the site      | The event is deleted (or marked ended if it is already live).                                                                                                                                                                                                                                  |
-| Event created in Discord                               | If its title names two current-season teams ("Sentinels vs Cloud9", "Week 3: SEN vs C9 (Bo5)"), the match is created on the site. If an admin already entered that match within 12 hours of the event's time, the event is linked to it instead. Other events are ignored.                     |
-| Event edited in Discord                                | A new start time moves the match. A Twitch link in the location becomes the match's stream.                                                                                                                                                                                                    |
-| Event cancelled or deleted in Discord before it starts | The match is marked cancelled.                                                                                                                                                                                                                                                                 |
+| Where the change happens                               | What changes on the other side                                                                                                                                                                                                                                                                                                                                                            |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Match added on the site                                | An event is created: "Team A vs Team B (Bo3)", at the scheduled time, with the Twitch link as its location ("TBD" until there is one: Discord requires a location) and the match page link as its description. It is created as soon as the match is saved, or once it is within 14 days away.                                                                                            |
+| Match edited on the site                               | The event moves, is renamed (if a team changes), or gets the new Twitch link.                                                                                                                                                                                                                                                                                                             |
+| Match cancelled, completed or deleted on the site      | The event is deleted (or marked ended if it is already live).                                                                                                                                                                                                                                                                                                                             |
+| Event created in Discord                               | If its title names two current-season teams ("Sentinels vs Cloud9", "Week 3: SEN vs C9 (Bo5)"), the match is created on the site. Team names and tags are matched ignoring spaces, case and punctuation, so "test 1" finds a team named "test1". If an admin already entered that match within 12 hours of the event's time, the event is linked to it instead. Other events are ignored. |
+| Event edited in Discord                                | A new start time moves the match. A Twitch link in the location becomes the match's stream.                                                                                                                                                                                                                                                                                               |
+| Event cancelled or deleted in Discord before it starts | The match is marked cancelled.                                                                                                                                                                                                                                                                                                                                                            |
 
 Site edits reach Discord immediately. Discord edits reach the site within about a minute, because Discord only announces event changes over a live Gateway connection, which Vercel can't hold. Instead, Supabase calls `/api/discord/sync` every minute and the site compares both sides.
 
@@ -113,6 +113,7 @@ To pause the sync: `select cron.unschedule('discord-event-sync');`. Site edits w
 Teams open one thread per match in the **r5-match-scheduling** forum to agree a time and run the map veto. The bot:
 
 - **Links each thread to its match.** A thread titled with the two teams ("Sentinels vs Cloud9", "SEN vs C9", "Week 3: SEN vs C9") is linked to those teams' next open match within a minute. For any other title, run **`/link-match`** inside the thread and pick the match from the list. Running it again re-links the thread. The bot confirms each link with a message in the thread. Once linked, the announcement webhooks post that match's schedule updates into the thread.
+- **Sets a match's time with `/set-time`** (staff only). For a match entered without a time, or to move one, run `/set-time date:<day> time:<time>` inside its linked thread. The date accepts "Fri", "tomorrow", "11/28" or "Nov 28", and the time "7pm", "7:30 PM" or "19:30", all in **Central time** (daylight saving handled). Both fields suggest values as you type. Saving does what the site's match editor does: the match page gets the time, both rosters are notified, the thread's schedule post is created or edited, and the Discord event is created or moved. The event appears once the match is within 14 days. The bot replies with the time as a Discord timestamp, so everyone reads it in their own time zone. Only members with **Manage Threads**, **Manage Events** or **Administrator** can use it; anyone else gets a private refusal, and so does a time in the past or a completed or cancelled match.
 - **Copies the veto onto the match.** Paste the veto bot's log into the thread, in one message or a few back-to-back ones, plain or in a code block:
 
   ```
@@ -122,7 +123,28 @@ Teams open one thread per match in the **r5-match-scheduling** forum to agree a 
   25. Oct.2026 23:08:10 UTC: Map "Lotus" will be decider!
   ```
 
-  Within a minute, the match page shows it and the bot replies "✅ Veto saved" with the veto it read. Chat around the log is ignored.
+  Or type the veto by hand, in one message or one line per message:
+
+  ```
+  VP Bans Lotus
+  NVG Bans Fracture
+  VP Picks Pearl (NVG Def)
+  NVG Pick Haven (VP Atk)
+  VP Ban Split
+  Nvg ban ascent
+  Breeze remains (VP Atk)
+  ```
+
+  The rules for a hand-typed veto:
+  - **Bans and picks** are `<team> ban <map>` or `<team> pick <map>`, with ban/bans/banned and pick/picks/picked all accepted.
+  - **Teams** are the match's two teams, by tag or name.
+  - **Maps** come from the season's map pool (**Admin → Seasons → Map Pool**). Without a pool, any seven distinct competitive maps count.
+  - **Matching** ignores case, spaces and punctuation in team and map names.
+  - **Sides:** a note in brackets, `(VP Atk)` or `(NVG Def)`, gives the side that team starts on for that map. Atk/Att/Attack/Attacker and Def/Defense/Defender all work. A line on its own such as `VP Atk breeze` says the same thing.
+  - **The decider** is `Breeze remains`, `Breeze decider`, `decider Breeze` or `Breeze is the decider`, with an optional side note.
+  - **It only counts when complete:** every map in the pool exactly once, one decider, at least one pick, both teams taking part, and no side on a banned map or sides that contradict each other. Anything less is treated as chat, so talk such as "we pick haven?" never sets a veto.
+
+  Within a minute, the match page shows it and the bot replies "✅ Veto saved" with the veto it read. Chat around the veto is ignored. If both forms are in a thread, the newest one wins.
 
 - **Asks before replacing a saved veto.** If a different log shows up later (a new message, or an edit to the first one), the veto isn't changed. The bot posts the new veto with **Update veto** and **Keep current** buttons and pings whoever posted it. Only that person or staff (Manage Threads, Manage Messages or Administrator) can press them, so nothing changes from someone typing "yes" in the chat. After **Keep current**, the same log isn't offered again; a different one is. If the new log is removed or put back as it was, the prompt says it no longer applies. A veto an admin typed on the site is never replaced from Discord.
 
@@ -142,13 +164,13 @@ The code is in `src/lib/server/discord-bot/`. The link is a `discord_posts` row 
 
 5. **Apply the migrations.** Run `supabase/migrations/20261124_001_discord_thread_vetoes.sql`, then `20261124_002_discord_thread_veto_prompts.sql`. The `discord_posts` table comes from the announcements work (`20261123_001_discord_posts.sql`); apply that first, because thread linking writes to it.
 6. **Set the Interactions Endpoint URL.** After the redeploy, go to **General Information** and set **Interactions Endpoint URL** to `https://YOUR_SITE/api/discord/interactions`, then save. Discord sends a signed test request; if it says the URL couldn't be verified, `DISCORD_PUBLIC_KEY` is missing or wrong. This doesn't affect Auth0 login.
-7. **Register `/link-match`.** In your local `.env`, add `DISCORD_APP_ID` (the Application ID), `DISCORD_BOT_TOKEN` and `DISCORD_GUILD_ID`, then run:
+7. **Register the commands** (`/link-match` and `/set-time`). In your local `.env`, add `DISCORD_APP_ID` (the Application ID), `DISCORD_BOT_TOKEN` and `DISCORD_GUILD_ID`, then run:
 
    ```powershell
    npm run discord:register
    ```
 
-   It prints `Registered /link-match on server …`. With `DISCORD_GUILD_ID` set the command appears at once; without it, it's registered globally and can take up to an hour. Run it again whenever the commands change.
+   It prints `Registered /link-match, /set-time on server …`. Run it after the deploy that adds a command, so the command works as soon as it appears. With `DISCORD_GUILD_ID` set the command appears at once; without it, it's registered globally and can take up to an hour. Run it again whenever the commands change.
 
 The minute sync's report gains a `threads` part, for example `"threads":{"configured":true,"linked":1,"vetoes":0,"prompts":0,"errors":[]}`. `prompts` counts "Update veto?" prompts posted or refreshed.
 

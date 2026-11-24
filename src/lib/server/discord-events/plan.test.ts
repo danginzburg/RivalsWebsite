@@ -438,6 +438,26 @@ describe('planLinked on events made before the (Bo3) titles', () => {
 describe('parseMatchTitle', () => {
   const teams = [sentinels, cloud9, teamLiquid, liquid]
 
+  it('ignores spacing, case and punctuation in team names', () => {
+    const test1: SyncTeam = { id: 'x1', name: 'test1', tag: 'T1' }
+    const test2: SyncTeam = { id: 'x2', name: 'test2', tag: 'T2' }
+    const both = [test1, test2]
+    expect(parseMatchTitle('test2 vs test 1 (Bo5)', both)).toEqual([test2, test1])
+    expect(parseMatchTitle('TEST 2 vs Test-1', both)).toEqual([test2, test1])
+    expect(parseMatchTitle('Week 3: test 2 vs test1', both)).toEqual([test2, test1])
+    expect(parseBestOf('test2 vs test 1 (Bo5)')).toBe(5)
+
+    const spaced: SyncTeam = { id: 'x3', name: 'Night Owls', tag: 'NO' }
+    expect(parseMatchTitle('nightowls vs SEN', [spaced, sentinels])).toEqual([spaced, sentinels])
+    expect(parseMatchTitle('Night-Owls vs Cloud 9', [spaced, cloud9])).toEqual([spaced, cloud9])
+  })
+
+  it('still needs whole words around a prefix or suffix', () => {
+    // "xsentinels" is not "Sentinels" with a prefix.
+    expect(parseMatchTitle('xsentinels vs Cloud9', teams)).toBeNull()
+    expect(parseMatchTitle('Sentinels vs Cloud9x', teams)).toBeNull()
+  })
+
   it('reads "A vs B" by name or tag, any case', () => {
     expect(parseMatchTitle('Sentinels vs Cloud9', teams)).toEqual([sentinels, cloud9])
     expect(parseMatchTitle('sen VS. c9', teams)).toEqual([sentinels, cloud9])

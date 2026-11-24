@@ -24,4 +24,27 @@ export const LINK_MATCH = {
   ],
 } as const
 
-export const COMMANDS = [LINK_MATCH]
+export const SET_TIME = {
+  name: 'set-time',
+  description: 'Staff: set this match’s start time (Central time)',
+  type: 1,
+  contexts: [0],
+  options: [
+    {
+      type: STRING_OPTION,
+      name: 'date',
+      description: 'The day, e.g. Fri, tomorrow, 11/28 or Nov 28',
+      required: true,
+      autocomplete: true,
+    },
+    {
+      type: STRING_OPTION,
+      name: 'time',
+      description: 'Central time, e.g. 7pm or 7:30 PM',
+      required: true,
+      autocomplete: true,
+    },
+  ],
+} as const
+
+export const COMMANDS = [LINK_MATCH, SET_TIME]
