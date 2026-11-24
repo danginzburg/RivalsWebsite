@@ -2,17 +2,34 @@ import { supabaseAdmin } from '$lib/supabase/admin'
 import { loadActiveSeasonTeams, siteOrigin } from '$lib/server/discord-events/sync'
 import { matchUrl, parseMatchTitle } from '$lib/server/discord-events/plan'
 import { LINK_MATCH } from './commands'
-import { linkThreadToMatch, loadOpenMatches, schedulingForumId } from './thread-sync'
-import { filterMatchChoices, matchChoiceLabel, type ThreadMatch } from './threads'
+import { saveMatchVeto } from '$lib/server/matches/reports'
+import {
+  linkThreadToMatch,
+  loadCursor,
+  loadMatchVeto,
+  loadOpenMatches,
+  NO_PROMPT,
+  saveCursor,
+  schedulingForumId,
+} from './thread-sync'
+import {
+  canAnswerVetoPrompt,
+  filterMatchChoices,
+  matchChoiceLabel,
+  parseVetoButtonId,
+  sameLines,
+  vetoPromptClosed,
+  type ThreadMatch,
+} from './threads'
 
 /**
  * Answers to the interactions Discord POSTs to /api/discord/interactions.
  * https://discord.com/developers/docs/interactions/receiving-and-responding
  */
 
-export const InteractionType = { Ping: 1, Command: 2, Autocomplete: 4 } as const
+export const InteractionType = { Ping: 1, Command: 2, Component: 3, Autocomplete: 4 } as const
 
-const Response = { Pong: 1, Message: 4, AutocompleteResult: 8 } as const
+const Response = { Pong: 1, Message: 4, UpdateMessage: 7, AutocompleteResult: 8 } as const
 
 /** Only the person who ran the command sees the reply. */
 const EPHEMERAL = 1 << 6
@@ -26,8 +43,10 @@ type Option = { name: string; type: number; value?: unknown; focused?: boolean }
 
 export type Interaction = {
   type: number
-  data?: { name?: string; options?: Option[] }
+  data?: { name?: string; options?: Option[]; custom_id?: string }
   channel_id?: string
+  /** Who clicked or typed, with their permissions in this channel. */
+  member?: { user?: { id?: string }; permissions?: string }
   channel?: { id: string; type: number; name?: string; parent_id?: string | null }
 }
 
@@ -115,11 +134,54 @@ async function runLinkMatch(
   )
 }
 
+/** Replace the prompt that holds the button. */
+function closePrompt(data: ReturnType<typeof vetoPromptClosed>): InteractionResponse {
+  return { type: Response.UpdateMessage, data }
+}
+
+/**
+ * "Update veto" or "Keep current" on a veto prompt. The button carries a
+ * fingerprint of the veto it was shown with; if the thread has moved on since,
+ * the button no longer applies.
+ */
+async function answerVetoPrompt(interaction: Interaction): Promise<InteractionResponse> {
+  const button = parseVetoButtonId(interaction.data?.custom_id ?? '')
+  const threadId = interaction.channel_id ?? interaction.channel?.id
+  if (!button || !threadId) return reply('This button isn’t supported.', true)
+
+  const cursor = await loadCursor(threadId)
+  const pending = cursor?.pending_lines ?? []
+  if (!cursor?.match_id || pending.length === 0 || cursor.pending_hash !== button.hash) {
+    return closePrompt(vetoPromptClosed('withdrawn', null))
+  }
+  if (!canAnswerVetoPrompt(interaction.member, cursor.pending_author_id)) {
+    const who = cursor.pending_author_id ? `<@${cursor.pending_author_id}> or staff` : 'Staff'
+    return reply(`Only ${who} can answer this.`, true)
+  }
+  const userId = interaction.member?.user?.id ?? null
+
+  if (button.action === 'keep') {
+    await saveCursor({ ...cursor, ...NO_PROMPT, dismissed_lines: pending })
+    return closePrompt(vetoPromptClosed('kept', userId))
+  }
+
+  const current = await loadMatchVeto(cursor.match_id)
+  // An admin typed a veto on the site since the prompt went up: theirs stands.
+  if (current == null || (current.length > 0 && !sameLines(current, cursor.imported_lines))) {
+    await saveCursor({ ...cursor, ...NO_PROMPT })
+    return closePrompt(vetoPromptClosed('withdrawn', null))
+  }
+  await saveMatchVeto(cursor.match_id, pending)
+  await saveCursor({ ...cursor, ...NO_PROMPT, imported_lines: pending })
+  return closePrompt(vetoPromptClosed('updated', userId, pending))
+}
+
 export async function handleInteraction(
   interaction: Interaction,
   requestOrigin: string
 ): Promise<InteractionResponse> {
   if (interaction.type === InteractionType.Ping) return { type: Response.Pong }
+  if (interaction.type === InteractionType.Component) return answerVetoPrompt(interaction)
 
   const command = interaction.data?.name
   if (command === LINK_MATCH.name) {

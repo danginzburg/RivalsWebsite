@@ -20,13 +20,13 @@ function authorized(header: string | null): boolean {
 }
 
 /** Scheduling threads: linked by title, vetoes imported. Never throws. */
-async function syncThreads(): Promise<ThreadSyncReport> {
+async function syncThreads(origin: string): Promise<ThreadSyncReport> {
   const config = discordConfig()
-  if (!config) return { configured: false, linked: 0, vetoes: 0, errors: [] }
+  if (!config) return { configured: false, linked: 0, vetoes: 0, prompts: 0, errors: [] }
   try {
-    return await runThreadSync(config)
+    return await runThreadSync(config, origin)
   } catch (err) {
-    return { configured: true, linked: 0, vetoes: 0, errors: [(err as Error).message] }
+    return { configured: true, linked: 0, vetoes: 0, prompts: 0, errors: [(err as Error).message] }
   }
 }
 
@@ -35,7 +35,7 @@ const handler: RequestHandler = async ({ request, url }) => {
   // The two jobs don't depend on each other, so one failing doesn't stop the other.
   const [events, threads] = await Promise.all([
     runDiscordSync(url.origin).catch((err: Error) => err),
-    syncThreads(),
+    syncThreads(url.origin),
   ])
   if (threads.errors.length > 0) console.error('Discord thread sync errors:', threads.errors)
   if (events instanceof Error) {

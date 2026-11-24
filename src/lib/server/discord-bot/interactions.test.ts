@@ -39,6 +39,30 @@ describe('handleInteraction', () => {
     expect(String(res.data?.content)).toContain('Pick a match')
   })
 
+  it('refuses a button it does not know, privately', async () => {
+    const res = await handleInteraction(
+      { type: 3, data: { custom_id: 'something:else' }, channel_id: 't1' },
+      ORIGIN
+    )
+    expect(res.type).toBe(4)
+    expect(res.data?.flags).toBe(64)
+  })
+
+  it('closes a veto prompt that no longer has an offer behind it', async () => {
+    const res = await handleInteraction(
+      {
+        type: 3,
+        data: { custom_id: 'veto:update:abc123' },
+        channel_id: 'no-such-thread',
+        member: { user: { id: 'u1' }, permissions: '0' },
+      },
+      ORIGIN
+    )
+    expect(res.type).toBe(7)
+    expect(res.data?.components).toEqual([])
+    expect(String(res.data?.content)).toContain('no longer applies')
+  })
+
   it('says so for an unknown command', async () => {
     const res = await handleInteraction({ type: 2, data: { name: 'nope' } }, ORIGIN)
     expect(res.data?.flags).toBe(64)

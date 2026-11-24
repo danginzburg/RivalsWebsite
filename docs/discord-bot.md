@@ -112,8 +112,8 @@ To pause the sync: `select cron.unschedule('discord-event-sync');`. Site edits w
 
 Teams open one thread per match in the **r5-match-scheduling** forum to agree a time and run the map veto. The bot:
 
-- **Links each thread to its match.** A thread titled with the two teams ("Sentinels vs Cloud9", "SEN vs C9", "Week 3: SEN vs C9") is linked to those teams' next open match within a minute. For any other title, run **`/link-match`** inside the thread and pick the match from the list. Running it again re-links the thread. Once linked, the announcement webhooks post that match's schedule updates into the thread.
-- **Copies the veto onto the match.** Paste the veto bot's log into the thread, all at once or a few lines at a time, plain or in a code block:
+- **Links each thread to its match.** A thread titled with the two teams ("Sentinels vs Cloud9", "SEN vs C9", "Week 3: SEN vs C9") is linked to those teams' next open match within a minute. For any other title, run **`/link-match`** inside the thread and pick the match from the list. Running it again re-links the thread. The bot confirms each link with a message in the thread. Once linked, the announcement webhooks post that match's schedule updates into the thread.
+- **Copies the veto onto the match.** Paste the veto bot's log into the thread, in one message or a few back-to-back ones, plain or in a code block:
 
   ```
   25. Oct.2026 23:06:23 UTC: Team 1 (SEN) bans Map "Sunset"!
@@ -122,14 +122,16 @@ Teams open one thread per match in the **r5-match-scheduling** forum to agree a 
   25. Oct.2026 23:08:10 UTC: Map "Lotus" will be decider!
   ```
 
-  Within a minute, the match page shows it. Chat in between is ignored, and a log pasted twice counts once. The bot never overwrites a veto an admin typed on the site.
+  Within a minute, the match page shows it and the bot replies "✅ Veto saved" with the veto it read. Chat around the log is ignored.
+
+- **Asks before replacing a saved veto.** If a different log shows up later (a new message, or an edit to the first one), the veto isn't changed. The bot posts the new veto with **Update veto** and **Keep current** buttons and pings whoever posted it. Only that person or staff (Manage Threads, Manage Messages or Administrator) can press them, so nothing changes from someone typing "yes" in the chat. After **Keep current**, the same log isn't offered again; a different one is. If the new log is removed or put back as it was, the prompt says it no longer applies. A veto an admin typed on the site is never replaced from Discord.
 
 The code is in `src/lib/server/discord-bot/`. The link is a `discord_posts` row (`kind = 'match_thread'`) that the webhooks read too. `discord_thread_vetoes` remembers what the bot last read.
 
 ### Setup
 
 1. **Message Content Intent.** Turn it on under **Bot** (see step 1 above). Without it the bot sees empty messages and imports nothing.
-2. **Let the bot read the forum.** Open the **r5-match-scheduling** forum's settings, go to **Permissions**, add the bot's role, and allow **View Channel** and **Read Message History**. (Or re-invite it with `scope=bot%20applications.commands&permissions=17600776045568`, which adds those two permissions server-wide.)
+2. **Let the bot read the forum.** Open the **r5-match-scheduling** forum's settings, go to **Permissions**, add the bot's role, and allow **View Channel**, **Read Message History** and **Send Messages in Threads**. (Or re-invite it with `scope=bot%20applications.commands&permissions=17875653952512`, which adds those three permissions server-wide.)
 3. **Get the forum's id.** With Developer Mode on, right-click the forum and choose **Copy Channel ID**.
 4. **Add two more Vercel variables** (Production), then redeploy:
 
@@ -138,7 +140,7 @@ The code is in `src/lib/server/discord-bot/`. The link is a `discord_posts` row 
    | `DISCORD_PUBLIC_KEY`          | **General Information → Public Key** in the Developer Portal                |
    | `DISCORD_SCHEDULING_FORUM_ID` | The forum's channel id from step 3. Leave it unset to turn thread sync off. |
 
-5. **Apply the migrations.** Run `supabase/migrations/20261124_001_discord_thread_vetoes.sql`. The `discord_posts` table comes from the announcements work (`20261123_001_discord_posts.sql`); apply that first, because thread linking writes to it.
+5. **Apply the migrations.** Run `supabase/migrations/20261124_001_discord_thread_vetoes.sql`, then `20261124_002_discord_thread_veto_prompts.sql`. The `discord_posts` table comes from the announcements work (`20261123_001_discord_posts.sql`); apply that first, because thread linking writes to it.
 6. **Set the Interactions Endpoint URL.** After the redeploy, go to **General Information** and set **Interactions Endpoint URL** to `https://YOUR_SITE/api/discord/interactions`, then save. Discord sends a signed test request; if it says the URL couldn't be verified, `DISCORD_PUBLIC_KEY` is missing or wrong. This doesn't affect Auth0 login.
 7. **Register `/link-match`.** In your local `.env`, add `DISCORD_APP_ID` (the Application ID), `DISCORD_BOT_TOKEN` and `DISCORD_GUILD_ID`, then run:
 
@@ -148,6 +150,6 @@ The code is in `src/lib/server/discord-bot/`. The link is a `discord_posts` row 
 
    It prints `Registered /link-match on server …`. With `DISCORD_GUILD_ID` set the command appears at once; without it, it's registered globally and can take up to an hour. Run it again whenever the commands change.
 
-The minute sync's report gains a `threads` part, for example `"threads":{"configured":true,"linked":1,"vetoes":0,"errors":[]}`.
+The minute sync's report gains a `threads` part, for example `"threads":{"configured":true,"linked":1,"vetoes":0,"prompts":0,"errors":[]}`. `prompts` counts "Update veto?" prompts posted or refreshed.
 
 Anyone who can post in a scheduling thread can run `/link-match` there. The bot's reply is public, so a wrong link is easy to spot and fix by running it again. To limit it to staff, go to **Server Settings → Integrations → the bot → /link-match** and pick the roles that can use it.

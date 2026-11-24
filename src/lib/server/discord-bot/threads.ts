@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { extractVetoLogLines, normalizeVetoLines } from '$lib/matches/vetoLog'
 
 /**
@@ -18,6 +19,7 @@ export type ThreadMatch = {
 /** The fields of a Discord message the veto import reads. */
 export type ThreadMessage = {
   id: string
+  author?: { id: string } | null
   content?: string | null
   embeds?: Array<{ description?: string | null; fields?: Array<{ value?: string | null }> }>
 }
@@ -73,27 +75,52 @@ function messageLines(message: ThreadMessage): string[] {
   return texts.flatMap((text) => text.split(/\r?\n/)).map(cleanLine)
 }
 
+export type ThreadVeto = {
+  /** The veto as the match page stores it. */
+  lines: string[]
+  /** Who posted it, so they can confirm an update. */
+  authorId: string | null
+}
+
 /**
- * The veto a thread's messages (oldest first) record, as the match page stores
- * it. Log lines can arrive in one paste or across several messages; a log
- * pasted twice counts once, since its timestamped lines repeat exactly.
- * Chat between the lines is ignored. Empty when the thread has no log.
+ * The veto a thread's messages (oldest first) record: the newest message that
+ * holds a log wins, so a corrected log sent later replaces the first one. A
+ * log split across back-to-back messages from the same person is joined.
+ * Chat around the log is ignored. Null when the thread has no log.
  */
-export function vetoFromMessages(messages: ThreadMessage[]): string[] {
+export function latestVeto(messages: ThreadMessage[]): ThreadVeto | null {
+  const logOf = (m: ThreadMessage) => extractVetoLogLines(messageLines(m))
+  let newest = -1
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (logOf(messages[i]!).length > 0) {
+      newest = i
+      break
+    }
+  }
+  if (newest < 0) return null
+
+  const authorId = messages[newest]!.author?.id ?? null
+  let first = newest
+  while (first > 0) {
+    const previous = messages[first - 1]!
+    if ((previous.author?.id ?? null) !== authorId || logOf(previous).length === 0) break
+    first--
+  }
+
   const seen = new Set<string>()
   const lines: string[] = []
-  for (const message of messages) {
-    for (const line of extractVetoLogLines(messageLines(message))) {
+  for (const message of messages.slice(first, newest + 1)) {
+    for (const line of logOf(message)) {
       const key = line.toLowerCase()
       if (seen.has(key)) continue
       seen.add(key)
       lines.push(line)
     }
   }
-  return lines.length > 0 ? normalizeVetoLines(lines) : []
+  return { lines: normalizeVetoLines(lines), authorId }
 }
 
-function sameLines(
+export function sameLines(
   a: readonly string[] | null | undefined,
   b: readonly string[] | null | undefined
 ) {
@@ -103,19 +130,150 @@ function sameLines(
 }
 
 /**
- * Whether to write the thread's veto onto the match. A veto an admin typed on
- * the site (anything other than what the bot last imported) is never
- * overwritten.
+ * What to do with the veto a thread holds now (`next`):
+ * - `save`: the match has no veto yet, so the first log is saved as it is;
+ * - `prompt`: it differs from the veto the bot saved, so ask before replacing it;
+ * - `withdraw`: an open prompt no longer applies (the log was removed, put back
+ *   as it was, or an admin has typed a veto on the site);
+ * - `none`: nothing to do.
+ * A veto an admin typed on the site is never replaced from Discord.
  */
-export function shouldSaveVeto(input: {
+export function planVeto(input: {
+  /** The veto on the match now. */
   current: string[] | null | undefined
+  /** What the bot last saved, to tell its own veto from one typed on the site. */
   lastImported: string[] | null | undefined
+  /** The veto an open prompt offers. */
+  pending: string[] | null | undefined
+  /** A veto someone chose to keep out, so it isn't offered again. */
+  dismissed: string[] | null | undefined
   next: string[]
-}): boolean {
-  const { current, lastImported, next } = input
-  if (next.length === 0 || sameLines(current, next)) return false
-  const untouched = (current ?? []).length === 0 || sameLines(current, lastImported)
-  return untouched
+}): 'save' | 'prompt' | 'withdraw' | 'none' {
+  const { current, lastImported, pending, dismissed, next } = input
+  const hasPending = (pending ?? []).length > 0
+  const typedOnSite = (current ?? []).length > 0 && !sameLines(current, lastImported)
+
+  if (typedOnSite) return hasPending ? 'withdraw' : 'none'
+  if (next.length === 0 || sameLines(next, current)) return hasPending ? 'withdraw' : 'none'
+  if ((current ?? []).length === 0) return 'save'
+  if (sameLines(next, pending) || sameLines(next, dismissed)) return 'none'
+  return 'prompt'
+}
+
+// ---------------------------------------------------------------------------
+// Messages the bot posts in a thread
+
+export type BotMessage = {
+  content: string
+  components?: unknown[]
+  allowed_mentions: { parse: string[]; users?: string[] }
+}
+
+const NO_PINGS = { parse: [] as string[] }
+
+function vetoList(lines: string[]): string {
+  return lines.map((line, i) => `${i + 1}. ${line}`).join('\n')
+}
+
+/** Posted when a thread is linked from its title. */
+export function linkedMessage(pairing: string, url: string): BotMessage {
+  return {
+    content:
+      `🔗 This thread is linked to **${pairing}**: ${url}\n` +
+      'Schedule updates will post here. Once the veto is done, paste its log here and it’s copied to the match.',
+    allowed_mentions: NO_PINGS,
+  }
+}
+
+/** Posted when a thread's first veto is saved onto the match. */
+export function vetoSavedMessage(lines: string[], url: string): BotMessage {
+  return {
+    content: `✅ Veto saved to the match: ${url}\n${vetoList(lines)}`,
+    allowed_mentions: NO_PINGS,
+  }
+}
+
+/** A short fingerprint of a veto, so a button only applies to the veto it was shown with. */
+export function vetoHash(lines: string[]): string {
+  return createHash('sha256').update(lines.join('\n')).digest('hex').slice(0, 16)
+}
+
+/** Ids of the prompt's buttons: the action and a fingerprint of the veto offered. */
+export function vetoButtonId(action: 'update' | 'keep', hash: string): string {
+  return `veto:${action}:${hash}`
+}
+
+export function parseVetoButtonId(
+  customId: string
+): { action: 'update' | 'keep'; hash: string } | null {
+  const match = /^veto:(update|keep):([0-9a-f]{1,64})$/.exec(customId)
+  return match ? { action: match[1] as 'update' | 'keep', hash: match[2]! } : null
+}
+
+/**
+ * Posted when a different veto log shows up after one was saved. Nothing
+ * changes until someone presses a button, so a stray "yes" in chat can't
+ * update it.
+ */
+export function vetoPromptMessage(
+  lines: string[],
+  authorId: string | null,
+  hash: string
+): BotMessage {
+  const who = authorId ? `<@${authorId}>, a` : 'A'
+  return {
+    content:
+      `${who} different veto log was posted. Replace the match’s saved veto with this one?\n` +
+      `${vetoList(lines)}\n` +
+      '-# The poster or staff can choose.',
+    components: [
+      {
+        type: 1,
+        components: [
+          { type: 2, style: 3, label: 'Update veto', custom_id: vetoButtonId('update', hash) },
+          { type: 2, style: 2, label: 'Keep current', custom_id: vetoButtonId('keep', hash) },
+        ],
+      },
+    ],
+    // Ping the poster so they see the question; no one else.
+    allowed_mentions: { parse: [], users: authorId ? [authorId] : [] },
+  }
+}
+
+/** What a prompt turns into once it's answered or no longer applies. */
+export function vetoPromptClosed(
+  outcome: 'updated' | 'kept' | 'withdrawn',
+  userId: string | null,
+  lines: string[] = []
+): BotMessage {
+  const by = userId ? ` by <@${userId}>` : ''
+  const content =
+    outcome === 'updated'
+      ? `✅ Veto updated${by}:\n${vetoList(lines)}`
+      : outcome === 'kept'
+        ? `Kept the saved veto${by}.`
+        : 'This veto prompt no longer applies, so the saved veto is unchanged.'
+  return { content, components: [], allowed_mentions: NO_PINGS }
+}
+
+const MANAGE_THREADS = 1n << 34n
+const MANAGE_MESSAGES = 1n << 13n
+const ADMINISTRATOR = 1n << 3n
+
+/** The poster of the log, or anyone with a staff permission, may answer its prompt. */
+export function canAnswerVetoPrompt(
+  member: { user?: { id?: string }; permissions?: string } | undefined,
+  authorId: string | null
+): boolean {
+  if (!member) return false
+  if (authorId && member.user?.id === authorId) return true
+  let perms = 0n
+  try {
+    perms = BigInt(member.permissions ?? '0')
+  } catch {
+    return false
+  }
+  return (perms & (MANAGE_THREADS | MANAGE_MESSAGES | ADMINISTRATOR)) !== 0n
 }
 
 const CENTRAL = new Intl.DateTimeFormat('en-US', {
