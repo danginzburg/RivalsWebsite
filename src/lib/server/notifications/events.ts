@@ -118,7 +118,7 @@ function formatUtc(iso: string): string {
 /** Tell both rosters their match time was set or moved. */
 export async function notifyMatchScheduled(
   matchId: string,
-  actorProfileId: string,
+  actorProfileId: string | null,
   options: EventOptions = {}
 ) {
   if (options.announce !== false) inBackground('match scheduled', () => postMatchScheduled(matchId))
@@ -190,7 +190,7 @@ export async function notifyMatchResult(
 /** Tell both rosters a match was called off. */
 export async function notifyMatchCancelled(
   matchId: string,
-  actorProfileId: string,
+  actorProfileId: string | null,
   options: EventOptions = {}
 ) {
   if (options.announce !== false) inBackground('match cancelled', () => postMatchCancelled(matchId))

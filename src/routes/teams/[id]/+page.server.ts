@@ -1,5 +1,5 @@
 import { error } from '@sveltejs/kit'
-import { joinDescription, type PageMeta } from '$lib/meta'
+import { cardVersion, joinDescription, type PageMeta } from '$lib/meta'
 import { loadSearchIndex } from '$lib/server/search'
 import { isComputedBatch, pickStandingsBatch } from '$lib/server/leaderboard/batch'
 import { loadTeamRankHistory } from '$lib/server/leaderboard/history'
@@ -311,17 +311,30 @@ export const load = async ({ params, locals }: { params: { id: string }; locals:
   const rosterNames = roster
     .map((p) => p.display_name ?? p.player_name)
     .filter((n): n is string => !!n)
+  // The team's own season (cached search index), not just the active one.
+  const metaSeason =
+    (await loadSearchIndex()).teams.find((t) => t.id === team.id)?.season ??
+    statsSeason?.name ??
+    null
   const meta: PageMeta = {
     title: team.tag ? `${team.name} [${team.tag}]` : team.name,
     description: joinDescription([
-      // The team's own season (cached search index), not just the active one.
-      (await loadSearchIndex()).teams.find((t) => t.id === team.id)?.season ??
-        statsSeason?.name ??
-        null,
+      metaSeason,
       wins + losses > 0 ? `${wins}–${losses} in series` : null,
       rosterNames.length ? `Roster: ${rosterNames.join(', ')}` : null,
     ]),
-    image: getTeamLogoUrl(team),
+    // The generated card (/og/team/[id].png). The `v` changes with what it
+    // shows, so Discord fetches a fresh image.
+    image: `/og/team/${team.id}.png?v=${cardVersion([
+      team.name,
+      team.tag,
+      team.logo_path,
+      metaSeason,
+      wins,
+      losses,
+      rosterNames,
+    ])}`,
+    largeImage: true,
   }
 
   return {

@@ -1,4 +1,5 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit'
+import { removeMatchFromDiscord, syncMatchToDiscord } from '$lib/server/discord-events/sync'
 import { requireAdmin } from '$lib/server/auth/profile'
 import {
   MatchLifecycleError,
@@ -64,7 +65,7 @@ function parseMapVetoes(value: unknown): string[] {
   return normalizeVetoLines(value.split(/\r?\n/))
 }
 
-export const PATCH: RequestHandler = async ({ locals, request, params }) => {
+export const PATCH: RequestHandler = async ({ locals, request, params, url }) => {
   const admin = await requireAdmin(locals.user)
   const matchId = params.id
   if (!matchId) throw error(400, 'Missing match id')
@@ -80,6 +81,7 @@ export const PATCH: RequestHandler = async ({ locals, request, params }) => {
       const updated = await cancelMatch({ matchId, adminProfileId: admin.id })
       await refreshStandingsAfterEdit(matchId, previousSeasonId, admin.id)
       await notifyMatchCancelled(matchId, admin.id)
+      await syncMatchToDiscord(matchId, url.origin)
       return json({ success: true, match: updated })
     }
 
@@ -131,6 +133,7 @@ export const PATCH: RequestHandler = async ({ locals, request, params }) => {
         // A corrected score or a new VOD link updates what Discord already shows.
         inBackground('match refresh', () => refreshMatchPosts(matchId))
       }
+      await syncMatchToDiscord(matchId, url.origin)
       return json({ success: true, match: updated })
     }
 
@@ -144,6 +147,7 @@ export const PATCH: RequestHandler = async ({ locals, request, params }) => {
       })
       await refreshStandingsAfterEdit(matchId, previousSeasonId, admin.id)
       await notifyMatchResult(matchId, admin.id)
+      await syncMatchToDiscord(matchId, url.origin)
       return json({ success: true, match: updated })
     }
   } catch (err) {
@@ -194,11 +198,13 @@ export const PATCH: RequestHandler = async ({ locals, request, params }) => {
   throw error(400, 'Unsupported action')
 }
 
-export const DELETE: RequestHandler = async ({ locals, params }) => {
+export const DELETE: RequestHandler = async ({ locals, params, url }) => {
   const admin = await requireAdmin(locals.user)
 
   const matchId = params.id
   const seasonId = matchId ? await loadMatchSeasonId(matchId) : null
+  // The link row loses its match id once the match is gone, so take the event down first.
+  if (matchId) await removeMatchFromDiscord(matchId, url.origin)
   const { error: deleteError } = await supabaseAdmin.from('matches').delete().eq('id', matchId)
   if (deleteError) throw error(500, 'Failed to delete match')
 

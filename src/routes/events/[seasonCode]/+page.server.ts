@@ -1,5 +1,5 @@
 import { error } from '@sveltejs/kit'
-import { joinDescription, type PageMeta } from '$lib/meta'
+import { cardVersion, joinDescription, type PageMeta } from '$lib/meta'
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { getTeamLogoUrl } from '$lib/server/teams/logo'
 import {
@@ -426,7 +426,20 @@ export const load = async ({
           teams.length ? `${teams.length} teams` : null,
           season.is_active ? 'In progress' : null,
         ]),
-    image: getSeasonLogoUrl(season) ?? (winner ? getTeamLogoUrl(winner) : null),
+    // The generated card (/og/event/[code].png): podium and MVP, or the
+    // season's status. The `v` changes with it, so Discord fetches a fresh image.
+    image: `/og/event/${encodeURIComponent(season.code)}.png?v=${cardVersion([
+      seasonName,
+      season.logo_path,
+      winner?.id,
+      runnerUp?.id,
+      thirdPlace?.id,
+      seasonMvp?.name,
+      teams.length,
+      season.is_active,
+      season.starts_on,
+    ])}`,
+    largeImage: true,
   }
 
   return {

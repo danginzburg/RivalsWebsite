@@ -13,6 +13,8 @@ function isProtectedRoute(pathname: string): boolean {
   return protectedRoutes.some((route) => pathname === route || pathname.startsWith(route + '/'))
 }
 
+const DISCORD_INTERACTIONS_PATH = '/api/discord/interactions'
+
 /** Methods that change state and therefore get the stricter budget. */
 const WRITE_METHODS = new Set(['POST', 'PATCH', 'PUT', 'DELETE'])
 
@@ -105,7 +107,10 @@ export const handle: Handle = async ({ event, resolve }) => {
   // Rate limit the API surface. Individual endpoints keep their own tighter
   // budgets; this is the blanket ceiling that catches everything else.
   const pathname = event.url.pathname
-  if (pathname.startsWith('/api/')) {
+  // Discord's interactions come from a handful of Discord addresses on behalf
+  // of every member. They are signature-checked, so the blanket ceiling would
+  // only throttle a busy server's slash commands and autocomplete.
+  if (pathname.startsWith('/api/') && pathname !== DISCORD_INTERACTIONS_PATH) {
     if (WRITE_METHODS.has(event.request.method)) {
       enforceLocalRateLimit(rateLimitKey(event, 'api:write'), {
         limit: 60,
