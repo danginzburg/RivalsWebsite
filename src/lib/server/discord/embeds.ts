@@ -107,15 +107,16 @@ export function matchScheduledPayload(match: MatchRef & { rescheduled?: boolean 
   })
 }
 
+/** The morning-of reminder: "you play today". */
 export function matchReminderPayload(match: MatchRef): WebhookPayload {
-  const start = discordTimestamp(match.scheduledAt, 'R')
+  const time = discordTimestamp(match.scheduledAt, 't')
   return payload({
-    title: `Starting soon: ${versusTitle(match)}`,
+    title: `Match day: ${versusTitle(match)}`,
     url: matchUrl(match),
     color: COLORS.schedule,
     description: [
       versus(match),
-      start ? `Starts ${start} (${discordTimestamp(match.scheduledAt, 't')})` : null,
+      time ? `You play today at ${time} (${discordTimestamp(match.scheduledAt, 'R')}).` : null,
     ]
       .filter(Boolean)
       .join('\n'),
@@ -211,6 +212,31 @@ export function vodStageLine(stageLabel: string | null, designation: string | nu
   if (!stage) return label
   const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
   return normalize(label).startsWith(normalize(stage)) ? label : `${stage} ${label}`
+}
+
+/** Minutes the league time zone is ahead of UTC at `at` (negative for Central). */
+function leagueOffsetMinutes(at: Date): number {
+  const name =
+    new Intl.DateTimeFormat('en-US', { timeZone: LEAGUE_TIME_ZONE, timeZoneName: 'shortOffset' })
+      .formatToParts(at)
+      .find((part) => part.type === 'timeZoneName')?.value ?? 'GMT'
+  const match = /GMT([+-])(\d{1,2})(?::(\d{2}))?/.exec(name)
+  if (!match) return 0
+  const minutes = Number(match[2]) * 60 + Number(match[3] ?? 0)
+  return match[1] === '-' ? -minutes : minutes
+}
+
+/** The next midnight on league (Central) time: the end of "today" for match-day reminders. */
+export function leagueDayEnd(now: Date = new Date()): Date {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: LEAGUE_TIME_ZONE,
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+  }).formatToParts(now)
+  const get = (type: string) => Number(parts.find((part) => part.type === type)?.value)
+  const midnightAsUtc = Date.UTC(get('year'), get('month') - 1, get('day') + 1)
+  return new Date(midnightAsUtc - leagueOffsetMinutes(new Date(midnightAsUtc)) * 60_000)
 }
 
 /** MM/DD/YYYY on league (Central) time. */
@@ -368,12 +394,17 @@ export function pickemOpenedPayload(p: PickemRef): WebhookPayload {
 }
 
 export function pickemLockWarningPayload(p: PickemRef): WebhookPayload {
-  const lock = discordTimestamp(p.lockAt, 'R')
+  const time = discordTimestamp(p.lockAt, 't')
   return payload({
-    title: `${p.title} locks soon`,
+    title: `${p.title} locks today`,
     url: pickemUrl(p),
     color: COLORS.pickem,
-    description: [`Picks lock ${lock ?? 'soon'}. Last chance!`, pickemUrl(p)].join('\n'),
+    description: [
+      time
+        ? `Picks lock today at ${time} (${discordTimestamp(p.lockAt, 'R')}). Last chance!`
+        : 'Picks lock today. Last chance!',
+      pickemUrl(p),
+    ].join('\n'),
   })
 }
 

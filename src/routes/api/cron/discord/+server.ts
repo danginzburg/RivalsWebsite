@@ -1,24 +1,17 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { env } from '$env/dynamic/private'
 import { supabaseAdmin } from '$lib/supabase/admin'
-import {
-  postMatchReminder,
-  postPickemLockWarning,
-  postPickemLocked,
-} from '$lib/server/discord/announce'
+import { leagueDayEnd } from '$lib/server/discord/embeds'
+import { postMatchReminder, postPickemLockWarning } from '$lib/server/discord/announce'
 
 /*
- * Timed Discord posts, run every ~15 minutes by a cron (Vercel Cron, or any
- * pinger that sends `Authorization: Bearer $CRON_SECRET`):
- *   - "starts in 1 hour" in the match's scheduling thread
- *   - "pick'em locks soon" an hour before lock, and "locked" once it has
- * Every post is deduplicated through discord_posts, so overlapping or repeated
- * runs never post twice.
+ * The daily Discord run (vercel.json: 10 AM Eastern). Vercel Cron sends
+ * `Authorization: Bearer $CRON_SECRET`; any other pinger must send it too.
+ *   - "Match day" in the scheduling thread of each match still to play today
+ *   - "Pick'em locks today" for an open pick'em that locks before midnight
+ * "Today" ends at midnight league (Central) time. Every post is deduplicated
+ * through discord_posts, so an extra run never posts twice.
  */
-
-const HOUR_MS = 60 * 60 * 1000
-/** A lock this long ago still gets its "locked" post, in case a run was missed. */
-const LOCKED_GRACE_MS = 6 * HOUR_MS
 
 export const GET: RequestHandler = async ({ request }) => {
   const secret = env.CRON_SECRET
@@ -26,9 +19,8 @@ export const GET: RequestHandler = async ({ request }) => {
     throw error(401, 'Unauthorized')
   }
 
-  const now = Date.now()
-  const soon = new Date(now + HOUR_MS).toISOString()
-  const nowIso = new Date(now).toISOString()
+  const nowIso = new Date().toISOString()
+  const endOfDay = leagueDayEnd().toISOString()
 
   const [{ data: matches, error: matchError }, { data: events, error: eventError }] =
     await Promise.all([
@@ -37,16 +29,15 @@ export const GET: RequestHandler = async ({ request }) => {
         .select('id')
         .eq('status', 'scheduled')
         .gt('scheduled_at', nowIso)
-        .lte('scheduled_at', soon),
+        .lt('scheduled_at', endOfDay),
       supabaseAdmin
         .from('pickem_events')
-        .select('id, title, status, lock_at, season:seasons (id, code, name)')
+        .select('id, title, lock_at, season:seasons (id, code, name)')
         .eq('status', 'open')
-        .not('lock_at', 'is', null)
-        .gte('lock_at', new Date(now - LOCKED_GRACE_MS).toISOString())
-        .lte('lock_at', soon),
+        .gt('lock_at', nowIso)
+        .lt('lock_at', endOfDay),
     ])
-  if (matchError) console.error('Cron: failed to load upcoming matches:', matchError)
+  if (matchError) console.error('Cron: failed to load today’s matches:', matchError)
   if (eventError) console.error('Cron: failed to load pick’ems:', eventError)
 
   // Awaited (not backgrounded): the cron call itself is the background work.
@@ -58,11 +49,12 @@ export const GET: RequestHandler = async ({ request }) => {
       Array.isArray(event.season) ? event.season[0] : event.season
     ) as SeasonRel | null
     if (!season) continue
-    const lockAt = event.lock_at as string
-    const ref = { id: event.id as string, title: event.title as string, lockAt }
-    if (new Date(lockAt).getTime() > now) await postPickemLockWarning(season, ref)
-    else await postPickemLocked(season, ref)
+    await postPickemLockWarning(season, {
+      id: event.id as string,
+      title: event.title as string,
+      lockAt: event.lock_at as string,
+    })
   }
 
-  return json({ ok: true, reminders: matches?.length ?? 0, pickems: events?.length ?? 0 })
+  return json({ ok: true, matches: matches?.length ?? 0, pickems: events?.length ?? 0 })
 }

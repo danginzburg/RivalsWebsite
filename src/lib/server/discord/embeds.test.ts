@@ -4,6 +4,7 @@ import {
   discordTimestamp,
   escapeMarkdown,
   leagueDate,
+  leagueDayEnd,
   matchCancelledPayload,
   matchReminderPayload,
   matchResultPayload,
@@ -56,6 +57,20 @@ describe('formatting helpers', () => {
     expect(leagueDate(START)).toBe('05/07/2026')
   })
 
+  it('ends the league day at midnight Central, across daylight saving', () => {
+    // 10 AM Eastern runs: 15:00 UTC in winter (CST, UTC-6) and summer (CDT, UTC-5).
+    expect(leagueDayEnd(new Date('2026-11-23T15:00:00Z')).toISOString()).toBe(
+      '2026-11-24T06:00:00.000Z'
+    )
+    expect(leagueDayEnd(new Date('2026-05-07T15:00:00Z')).toISOString()).toBe(
+      '2026-05-08T05:00:00.000Z'
+    )
+    // 11:30 PM Central is still the same league day.
+    expect(leagueDayEnd(new Date('2026-11-24T05:30:00Z')).toISOString()).toBe(
+      '2026-11-24T06:00:00.000Z'
+    )
+  })
+
   it('joins the stage and designation without repeating the stage', () => {
     expect(vodStageLine('Play-ins', 'R2')).toBe('Play-ins R2')
     expect(vodStageLine('Play-ins', 'Play-ins R2')).toBe('Play-ins R2')
@@ -90,10 +105,10 @@ describe('match scheduled', () => {
     expect(matchScheduledPayload(match).allowed_mentions).toEqual({ parse: [] })
   })
 
-  it('builds the 1-hour reminder', () => {
+  it('builds the match-day reminder', () => {
     const e = embed(matchReminderPayload(match))
-    expect(e.title).toBe('Starting soon: Jolly Rancher Boys vs Project 30')
-    expect(e.description).toContain(`<t:${UNIX}:R>`)
+    expect(e.title).toBe('Match day: Jolly Rancher Boys vs Project 30')
+    expect(e.description).toContain(`You play today at <t:${UNIX}:t> (<t:${UNIX}:R>).`)
   })
 })
 
@@ -227,7 +242,9 @@ describe("pick'ems", () => {
   })
 
   it('warns before locking and says when it locked', () => {
-    expect(embed(pickemLockWarningPayload(ref)).description).toContain(`<t:${UNIX}:R>`)
+    const warning = embed(pickemLockWarningPayload(ref))
+    expect(warning.title).toBe('Season 5 Pick’em locks today')
+    expect(warning.description).toContain(`Picks lock today at <t:${UNIX}:t>`)
     expect(embed(pickemLockedPayload(ref)).title).toBe('Season 5 Pick’em is locked')
   })
 
