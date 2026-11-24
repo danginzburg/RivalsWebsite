@@ -123,7 +123,28 @@ Teams open one thread per match in the **r5-match-scheduling** forum to agree a 
   25. Oct.2026 23:08:10 UTC: Map "Lotus" will be decider!
   ```
 
-  Within a minute, the match page shows it and the bot replies "✅ Veto saved" with the veto it read. Chat around the log is ignored.
+  Or type the veto by hand, in one message or one line per message:
+
+  ```
+  VP Bans Lotus
+  NVG Bans Fracture
+  VP Picks Pearl (NVG Def)
+  NVG Pick Haven (VP Atk)
+  VP Ban Split
+  Nvg ban ascent
+  Breeze remains (VP Atk)
+  ```
+
+  The rules for a hand-typed veto:
+  - **Bans and picks** are `<team> ban <map>` or `<team> pick <map>`, with ban/bans/banned and pick/picks/picked all accepted.
+  - **Teams** are the match's two teams, by tag or name.
+  - **Maps** come from the season's map pool (**Admin → Seasons → Map Pool**). Without a pool, any seven distinct competitive maps count.
+  - **Matching** ignores case, spaces and punctuation in team and map names.
+  - **Sides:** a note in brackets, `(VP Atk)` or `(NVG Def)`, gives the side that team starts on for that map. Atk/Att/Attack/Attacker and Def/Defense/Defender all work. A line on its own such as `VP Atk breeze` says the same thing.
+  - **The decider** is `Breeze remains`, `Breeze decider`, `decider Breeze` or `Breeze is the decider`, with an optional side note.
+  - **It only counts when complete:** every map in the pool exactly once, one decider, at least one pick, both teams taking part, and no side on a banned map or sides that contradict each other. Anything less is treated as chat, so talk such as "we pick haven?" never sets a veto.
+
+  Within a minute, the match page shows it and the bot replies "✅ Veto saved" with the veto it read. Chat around the veto is ignored. If both forms are in a thread, the newest one wins.
 
 - **Asks before replacing a saved veto.** If a different log shows up later (a new message, or an edit to the first one), the veto isn't changed. The bot posts the new veto with **Update veto** and **Keep current** buttons and pings whoever posted it. Only that person or staff (Manage Threads, Manage Messages or Administrator) can press them, so nothing changes from someone typing "yes" in the chat. After **Keep current**, the same log isn't offered again; a different one is. If the new log is removed or put back as it was, the prompt says it no longer applies. A veto an admin typed on the site is never replaced from Discord.
 

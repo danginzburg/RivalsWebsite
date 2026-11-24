@@ -142,6 +142,64 @@ describe('latestVeto', () => {
   })
 })
 
+describe('latestVeto with hand-typed vetoes', () => {
+  const shorthand = {
+    teams: [
+      { name: 'Vantage Point', tag: 'VP' },
+      { name: 'Nova Gaming', tag: 'NVG' },
+    ],
+    mapPool: ['Ascent', 'Breeze', 'Fracture', 'Haven', 'Lotus', 'Pearl', 'Split'],
+  }
+  const TYPED = [
+    'VP Atk breeze',
+    'VP Bans Lotus',
+    'NVG Bans Fracture',
+    'VP Picks Pearl (NVG Def)',
+    'NVG Pick Haven (VP Atk)',
+    'VP Ban Split',
+    'Nvg ban ascent',
+    'Breeze remains (VP Atk)',
+  ]
+  const TYPED_VETO = [
+    'VP bans Lotus',
+    'NVG bans Fracture',
+    'VP picks Pearl · NVG starts Defender',
+    'NVG picks Haven · VP starts Attacker',
+    'VP bans Split',
+    'NVG bans Ascent',
+    'Breeze decider · VP starts Attacker',
+  ]
+
+  it('reads one only when given the match’s teams and pool', () => {
+    const messages = [{ id: '1', author: ALICE, content: TYPED.join('\n') }]
+    expect(latestVeto(messages, shorthand)).toEqual({ lines: TYPED_VETO, authorId: 'u1' })
+    expect(latestVeto(messages)).toBeNull()
+  })
+
+  it('reads one typed over a few back-to-back messages', () => {
+    const messages = TYPED.map((line, i) => ({ id: String(i), author: ALICE, content: line }))
+    expect(latestVeto(messages, shorthand)?.lines).toEqual(TYPED_VETO)
+  })
+
+  it('lets the newest veto win, whichever form each is in', () => {
+    const typedLater = [
+      { id: '1', author: BOB, content: LOG.join('\n') },
+      { id: '2', author: ALICE, content: TYPED.join('\n') },
+    ]
+    expect(latestVeto(typedLater, shorthand)?.lines).toEqual(TYPED_VETO)
+    const logLater = [typedLater[1]!, { ...typedLater[0]!, id: '3' }]
+    expect(latestVeto(logLater, shorthand)?.lines).toEqual(VETO)
+  })
+
+  it('skips an incomplete typed veto and keeps looking back', () => {
+    const messages = [
+      { id: '1', author: ALICE, content: TYPED.join('\n') },
+      { id: '2', author: BOB, content: 'NVG ban ascent? VP pick pearl' },
+    ]
+    expect(latestVeto(messages, shorthand)?.lines).toEqual(TYPED_VETO)
+  })
+})
+
 describe('planVeto', () => {
   const OTHER = ['SEN bans Pearl']
   const base = { current: [], lastImported: null, pending: null, dismissed: null }

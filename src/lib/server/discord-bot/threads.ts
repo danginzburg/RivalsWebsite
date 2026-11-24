@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { extractVetoLogLines, normalizeVetoLines } from '$lib/matches/vetoLog'
+import { parseShorthandVeto, type ShorthandContext } from './shorthand-veto'
 
 /**
  * Match scheduling threads: the pure part. Teams open one forum thread per
@@ -82,42 +83,61 @@ export type ThreadVeto = {
   authorId: string | null
 }
 
+/** A hand-typed veto may run over this many back-to-back messages from one person (a line each, say). */
+const SHORTHAND_SPAN = 12
+
 /**
- * The veto a thread's messages (oldest first) record: the newest message that
- * holds a log wins, so a corrected log sent later replaces the first one. A
- * log split across back-to-back messages from the same person is joined.
- * Chat around the log is ignored. Null when the thread has no log.
+ * The veto a thread's messages (oldest first) record. The newest message that
+ * holds one wins, so a corrected veto sent later replaces the first. Two forms
+ * count:
+ * - the veto bot's log; back-to-back log messages from one person are joined;
+ * - with `shorthand` (the match's teams and map pool), a hand-typed veto such
+ *   as "VP bans Lotus … Breeze remains (VP Atk)", which only counts when it is
+ *   complete (see ./shorthand-veto.ts). It may span a few back-to-back
+ *   messages from one person.
+ * Chat around either is ignored. Null when the thread has no veto.
  */
-export function latestVeto(messages: ThreadMessage[]): ThreadVeto | null {
+export function latestVeto(
+  messages: ThreadMessage[],
+  shorthand?: ShorthandContext
+): ThreadVeto | null {
   const logOf = (m: ThreadMessage) => extractVetoLogLines(messageLines(m))
-  let newest = -1
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (logOf(messages[i]!).length > 0) {
-      newest = i
-      break
+  const authorOf = (m: ThreadMessage) => m.author?.id ?? null
+
+  for (let newest = messages.length - 1; newest >= 0; newest--) {
+    const authorId = authorOf(messages[newest]!)
+
+    if (logOf(messages[newest]!).length > 0) {
+      let first = newest
+      while (first > 0) {
+        const previous = messages[first - 1]!
+        if (authorOf(previous) !== authorId || logOf(previous).length === 0) break
+        first--
+      }
+      const seen = new Set<string>()
+      const lines: string[] = []
+      for (const message of messages.slice(first, newest + 1)) {
+        for (const line of logOf(message)) {
+          const key = line.toLowerCase()
+          if (seen.has(key)) continue
+          seen.add(key)
+          lines.push(line)
+        }
+      }
+      return { lines: normalizeVetoLines(lines), authorId }
+    }
+
+    if (!shorthand) continue
+    // The shortest run of this person's messages, ending here, that is a whole veto.
+    for (let first = newest; first >= 0 && first > newest - SHORTHAND_SPAN; first--) {
+      const message = messages[first]!
+      if (authorOf(message) !== authorId || logOf(message).length > 0) break
+      const lines = messages.slice(first, newest + 1).flatMap(messageLines)
+      const veto = parseShorthandVeto(lines, shorthand)
+      if (veto) return { lines: veto, authorId }
     }
   }
-  if (newest < 0) return null
-
-  const authorId = messages[newest]!.author?.id ?? null
-  let first = newest
-  while (first > 0) {
-    const previous = messages[first - 1]!
-    if ((previous.author?.id ?? null) !== authorId || logOf(previous).length === 0) break
-    first--
-  }
-
-  const seen = new Set<string>()
-  const lines: string[] = []
-  for (const message of messages.slice(first, newest + 1)) {
-    for (const line of logOf(message)) {
-      const key = line.toLowerCase()
-      if (seen.has(key)) continue
-      seen.add(key)
-      lines.push(line)
-    }
-  }
-  return { lines: normalizeVetoLines(lines), authorId }
+  return null
 }
 
 export function sameLines(
