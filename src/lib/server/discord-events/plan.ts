@@ -417,22 +417,33 @@ function normalizeName(value: string): string {
 
 const VS_RE = /\s+(?:vs\.?|v\.?|versus)\s+/i
 
+/** A name with nothing but its letters and digits: "Test 1", "test1" and "TEST-1" agree. */
+function compactName(value: string): string {
+  return normalizeName(value).replace(/ /g, '')
+}
+
 /**
  * The best team for one side of a title. The left side may carry a prefix
  * ("Week 3: Sentinels") and the right a suffix ("Cloud9 (Bo3)"), so a team
- * also matches at the end or start of its side; the longest name wins.
+ * also matches the last (or first) few words of its side. Words are compared
+ * without spaces, case or punctuation, so "test 1" finds a team named "test1".
+ * The longest name wins.
  */
 function matchSide(side: string, teams: SyncTeam[], at: 'end' | 'start'): SyncTeam | null {
-  const text = normalizeName(side)
-  if (!text) return null
+  const words = normalizeName(side).split(' ').filter(Boolean)
+  if (words.length === 0) return null
+  // Every run of words touching the side's end (or start), squashed together.
+  const candidates = new Set<string>()
+  for (let k = 1; k <= words.length; k++) {
+    const run = at === 'end' ? words.slice(words.length - k) : words.slice(0, k)
+    candidates.add(run.join(''))
+  }
   let best: { team: SyncTeam; length: number } | null = null
   for (const team of teams) {
     for (const label of [team.name, team.tag]) {
-      const key = label ? normalizeName(label) : ''
-      if (!key) continue
-      const hit =
-        text === key || (at === 'end' ? text.endsWith(` ${key}`) : text.startsWith(`${key} `))
-      if (hit && (!best || key.length > best.length)) best = { team, length: key.length }
+      const key = label ? compactName(label) : ''
+      if (!key || !candidates.has(key)) continue
+      if (!best || key.length > best.length) best = { team, length: key.length }
     }
   }
   return best?.team ?? null

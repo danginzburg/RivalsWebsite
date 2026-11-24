@@ -1,7 +1,24 @@
 import { supabaseAdmin } from '$lib/supabase/admin'
 import { loadActiveSeasonTeams, siteOrigin } from '$lib/server/discord-events/sync'
 import { matchUrl, parseMatchTitle } from '$lib/server/discord-events/plan'
-import { LINK_MATCH } from './commands'
+import { LINK_MATCH, SET_TIME } from './commands'
+import { editOriginalResponse } from '$lib/server/discord-events/api'
+import { inBackground } from '$lib/server/discord/announce'
+import { profileForDiscordUser } from '$lib/server/discord-events/sync'
+import {
+  eveningTimeChoices,
+  parseClock,
+  parseDay,
+  parseMatchTime,
+  upcomingDayChoices,
+} from './central-time'
+import {
+  loadSettableMatch,
+  matchForThread,
+  setMatchTime,
+  setTimeConfirmation,
+  setTimeProblem,
+} from './set-time'
 import { saveMatchVeto } from '$lib/server/matches/reports'
 import {
   linkThreadToMatch,
@@ -14,6 +31,7 @@ import {
 } from './thread-sync'
 import {
   canAnswerVetoPrompt,
+  canSetMatchTime,
   filterMatchChoices,
   matchChoiceLabel,
   parseVetoButtonId,
@@ -29,7 +47,13 @@ import {
 
 export const InteractionType = { Ping: 1, Command: 2, Component: 3, Autocomplete: 4 } as const
 
-const Response = { Pong: 1, Message: 4, UpdateMessage: 7, AutocompleteResult: 8 } as const
+const Response = {
+  Pong: 1,
+  Message: 4,
+  DeferredMessage: 5,
+  UpdateMessage: 7,
+  AutocompleteResult: 8,
+} as const
 
 /** Only the person who ran the command sees the reply. */
 const EPHEMERAL = 1 << 6
@@ -43,6 +67,9 @@ type Option = { name: string; type: number; value?: unknown; focused?: boolean }
 
 export type Interaction = {
   type: number
+  /** For editing a deferred reply. */
+  application_id?: string
+  token?: string
   data?: { name?: string; options?: Option[]; custom_id?: string }
   channel_id?: string
   /** Who clicked or typed, with their permissions in this channel. */
@@ -95,6 +122,83 @@ async function autocompleteLinkMatch(interaction: Interaction): Promise<Interact
     .slice(0, 25)
     .map((m) => ({ name: matchChoiceLabel(m), value: m.id }))
   return { type: Response.AutocompleteResult, data: { choices } }
+}
+
+function optionValue(interaction: Interaction, name: string): string {
+  const value = interaction.data?.options?.find((o) => o.name === name)?.value
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+/** Day and time pickers for /set-time; anything typed that reads as a day or time is offered first. */
+function autocompleteSetTime(interaction: Interaction): InteractionResponse {
+  const focused = interaction.data?.options?.find((o) => o.focused)
+  const typed = typeof focused?.value === 'string' ? focused.value.trim() : ''
+  const lower = typed.toLowerCase()
+  const now = new Date()
+  const list = focused?.name === 'time' ? eveningTimeChoices() : upcomingDayChoices(now)
+  const readable = typed && (focused?.name === 'time' ? parseClock(typed) : parseDay(typed, now))
+  const choices = [
+    ...(readable ? [{ name: typed.slice(0, 100), value: typed.slice(0, 100) }] : []),
+    ...list.filter((c) => !lower || c.name.toLowerCase().includes(lower)),
+  ].slice(0, 25)
+  return { type: Response.AutocompleteResult, data: { choices } }
+}
+
+/**
+ * Checks that are quick (who, where, what was typed) answer at once and
+ * privately. The save itself runs after a deferred reply, since it also
+ * updates the Discord event and the schedule post, then fills the reply in.
+ */
+async function runSetTime(
+  interaction: Interaction,
+  requestOrigin: string
+): Promise<InteractionResponse> {
+  if (!canSetMatchTime(interaction.member)) {
+    return reply(
+      'Only staff (Manage Threads, Manage Events or Administrator) can set match times.',
+      true
+    )
+  }
+  const threadId = interaction.channel_id ?? interaction.channel?.id
+  if (!threadId || !interaction.channel || ![11, 12].includes(interaction.channel.type)) {
+    return reply('Run `/set-time` inside the match’s scheduling thread.', true)
+  }
+  const matchId = await matchForThread(threadId)
+  if (!matchId) {
+    return reply('This thread isn’t linked to a match yet. Run `/link-match` first.', true)
+  }
+  const match = await loadSettableMatch(matchId)
+  const problem = setTimeProblem(match)
+  if (problem) return reply(problem, true)
+
+  const parsed = parseMatchTime(
+    optionValue(interaction, 'date'),
+    optionValue(interaction, 'time'),
+    new Date()
+  )
+  if (!parsed.ok) return reply(parsed.error, true)
+
+  const { application_id: appId, token } = interaction
+  if (!appId || !token) return reply('Discord sent an incomplete request. Try again.', true)
+
+  const moved = Boolean(match!.scheduled_at)
+  inBackground('set match time', async () => {
+    let content: string
+    try {
+      await setMatchTime({
+        matchId,
+        scheduledAt: parsed.iso,
+        actorProfileId: await profileForDiscordUser(interaction.member?.user?.id),
+        origin: siteOrigin(requestOrigin),
+      })
+      content = setTimeConfirmation(match!.pairing, parsed.unix, moved)
+    } catch (err) {
+      console.error('set-time failed:', err)
+      content = 'Something went wrong saving the time. Nothing was changed; try again in a minute.'
+    }
+    await editOriginalResponse(appId, token, { content, allowed_mentions: { parse: [] } })
+  })
+  return { type: Response.DeferredMessage }
 }
 
 async function runLinkMatch(
@@ -191,6 +295,10 @@ export async function handleInteraction(
     if (interaction.type === InteractionType.Command) {
       return runLinkMatch(interaction, requestOrigin)
     }
+  }
+  if (command === SET_TIME.name) {
+    if (interaction.type === InteractionType.Autocomplete) return autocompleteSetTime(interaction)
+    if (interaction.type === InteractionType.Command) return runSetTime(interaction, requestOrigin)
   }
   return reply('This command isn’t supported.', true)
 }

@@ -257,23 +257,30 @@ export function vetoPromptClosed(
 }
 
 const MANAGE_THREADS = 1n << 34n
+const MANAGE_EVENTS = 1n << 33n
 const MANAGE_MESSAGES = 1n << 13n
 const ADMINISTRATOR = 1n << 3n
 
-/** The poster of the log, or anyone with a staff permission, may answer its prompt. */
-export function canAnswerVetoPrompt(
-  member: { user?: { id?: string }; permissions?: string } | undefined,
-  authorId: string | null
-): boolean {
-  if (!member) return false
-  if (authorId && member.user?.id === authorId) return true
-  let perms = 0n
+type Member = { user?: { id?: string }; permissions?: string } | undefined
+
+function hasAny(member: Member, bits: bigint): boolean {
   try {
-    perms = BigInt(member.permissions ?? '0')
+    return (BigInt(member?.permissions ?? '0') & bits) !== 0n
   } catch {
     return false
   }
-  return (perms & (MANAGE_THREADS | MANAGE_MESSAGES | ADMINISTRATOR)) !== 0n
+}
+
+/** The poster of the log, or anyone with a staff permission, may answer its prompt. */
+export function canAnswerVetoPrompt(member: Member, authorId: string | null): boolean {
+  if (!member) return false
+  if (authorId && member.user?.id === authorId) return true
+  return hasAny(member, MANAGE_THREADS | MANAGE_MESSAGES | ADMINISTRATOR)
+}
+
+/** Staff for scheduling: Manage Threads, Manage Events or Administrator. */
+export function canSetMatchTime(member: Member): boolean {
+  return hasAny(member, MANAGE_THREADS | MANAGE_EVENTS | ADMINISTRATOR)
 }
 
 const CENTRAL = new Intl.DateTimeFormat('en-US', {

@@ -199,3 +199,27 @@ export async function editMessage(
     throw err
   }
 }
+
+/**
+ * Replace the reply to a deferred interaction (the "thinking…" message).
+ * Authenticated by the interaction's own token, valid for 15 minutes.
+ */
+export async function editOriginalResponse(
+  applicationId: string,
+  interactionToken: string,
+  body: unknown
+): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/webhooks/${applicationId}/${interactionToken}/messages/@original`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    }
+  )
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new DiscordApiError(res.status, `Discord follow-up failed (${res.status}): ${text}`)
+  }
+}
