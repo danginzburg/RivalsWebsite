@@ -9,6 +9,7 @@
   import { MAX_COMPARE, type CompareKind } from '$lib/compare'
   import { compareTray } from '$lib/stores/search.svelte'
   import type {
+    MapPoolEntry,
     Meeting,
     PlayerPair,
     Record2,
@@ -118,6 +119,22 @@
     new Map(((data.teams?.summaries ?? []) as TeamSummary[]).map((s) => [s.teamId, s]))
   )
   const playerStats = $derived((data.players?.stats ?? {}) as Record<string, StatsRow | null>)
+
+  // Map pool chart: one row per map any compared team has played, most-played
+  // first, with each team's record on it as a win-rate bar.
+  const mapArt = $derived((data.mapArt ?? {}) as Record<string, string>)
+  const mapRows = $derived.by(() => {
+    type Row = { map: string; total: number; byTeam: Record<string, MapPoolEntry> }
+    const rows: Record<string, Row> = {}
+    for (const entity of entities) {
+      for (const entry of teamSummaries.get(entity.id)?.mapPool ?? []) {
+        const row = (rows[entry.map] ??= { map: entry.map, total: 0, byTeam: {} })
+        row.total += entry.played
+        row.byTeam[entity.id] = entry
+      }
+    }
+    return Object.values(rows).sort((a, b) => b.total - a.total || a.map.localeCompare(b.map))
+  })
 
   function teamStat(id: string, key: keyof RowAggregate): number | null {
     const v = teamSummaries.get(id)?.stats?.[key]
@@ -510,7 +527,7 @@
       </p>
     </header>
 
-    <div class="compare">
+    <div class="compare" class:compare-stacked={ready && kind === 'teams'}>
       {#if !ready}
         <section class="card empty">
           {#if entities.length > 0}
@@ -528,59 +545,118 @@
           </p>
         </section>
       {:else}
-        <!-- Side-by-side stats -->
-        <section class="card">
-          <header class="card-head">
-            <h2 class="card-title">Stats</h2>
-            {#if kind === 'teams'}
-              <span class="card-note">Recorded matches for each team's season.</span>
+        <!-- Teams: Stats and Map pool share a row (same column-per-team shape);
+             Head to head is squarer and goes below. -->
+        <div class="compare-row">
+          <!-- Side-by-side stats -->
+          <section class="card">
+            <header class="card-head">
+              <h2 class="card-title">Stats</h2>
+              {#if kind === 'teams'}
+                <span class="card-note">Recorded matches for each team's season.</span>
+              {/if}
+            </header>
+            {#if kind === 'players' && data.players}
+              <div class="picker-row">
+                <BatchPicker
+                  batches={data.players.batches}
+                  events={data.players.events}
+                  batchId={data.players.batchId}
+                  onPick={pickBatch}
+                />
+              </div>
             {/if}
-          </header>
-          {#if kind === 'players' && data.players}
-            <div class="picker-row">
-              <BatchPicker
-                batches={data.players.batches}
-                events={data.players.events}
-                batchId={data.players.batchId}
-                onPick={pickBatch}
-              />
-            </div>
-          {/if}
-          <div class="table-scroll">
-            <table class="data-table compare-table">
-              <thead>
-                <tr>
-                  <th class="col-stat"></th>
-                  {#each entities as entity (entity.id)}
-                    <th class="col-entity">{@render removable(entity)}</th>
-                  {/each}
-                  {#if canAdd}
-                    <th class="col-entity col-add">{@render addSlot()}</th>
-                  {/if}
-                </tr>
-              </thead>
-              <tbody>
-                {#each lines as line (line.label)}
-                  {@const best = bestOf(line)}
+            <div class="table-scroll">
+              <table class="data-table compare-table">
+                <thead>
                   <tr>
-                    <th scope="row" class="col-stat">{line.label}</th>
+                    <th class="col-stat"></th>
                     {#each entities as entity (entity.id)}
-                      <td class="num" class:best={best.has(entity.id)}
-                        >{cellText(line, entity.id)}</td
-                      >
+                      <th class="col-entity">{@render removable(entity)}</th>
                     {/each}
-                    {#if canAdd}<td class="col-add"></td>{/if}
+                    {#if canAdd}
+                      <th class="col-entity col-add">{@render addSlot()}</th>
+                    {/if}
                   </tr>
-                {/each}
-              </tbody>
-            </table>
-          </div>
-          {#if kind === 'players' && entities.some((e) => !playerStats[e.id])}
-            <p class="card-foot">
-              “—” means the player has no row in this stats table. Try another season above.
-            </p>
+                </thead>
+                <tbody>
+                  {#each lines as line (line.label)}
+                    {@const best = bestOf(line)}
+                    <tr>
+                      <th scope="row" class="col-stat">{line.label}</th>
+                      {#each entities as entity (entity.id)}
+                        <td class="num" class:best={best.has(entity.id)}
+                          >{cellText(line, entity.id)}</td
+                        >
+                      {/each}
+                      {#if canAdd}<td class="col-add"></td>{/if}
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            </div>
+            {#if kind === 'players' && entities.some((e) => !playerStats[e.id])}
+              <p class="card-foot">
+                “—” means the player has no row in this stats table. Try another season above.
+              </p>
+            {/if}
+          </section>
+
+          {#if kind === 'teams'}
+            <section class="card map-card">
+              <header class="card-head"><h2 class="card-title">Map pool</h2></header>
+              {#if mapRows.length === 0}
+                <p class="empty-inline">No maps recorded for these teams.</p>
+              {:else}
+                <div class="map-chart" style="--cols: {entities.length}">
+                  <div class="map-chart-corner"><span class="sr-only">Map</span></div>
+                  {#each entities as entity (entity.id)}
+                    <div class="map-chart-team" title={entity.name}>
+                      {@render thumb(entity, 'sm')}<span>{entity.tag || entity.name}</span>
+                    </div>
+                  {/each}
+                  {#each mapRows as row (row.map)}
+                    {@const art = mapArt[row.map.toLowerCase()]}
+                    <div
+                      class="map-tile"
+                      class:map-tile-art={art}
+                      style:--art={art ? `url("${art}")` : null}
+                    >
+                      <span class="map-tile-name">{row.map}</span>
+                      <span class="map-tile-count"
+                        >{row.total} {row.total === 1 ? 'map' : 'maps'}</span
+                      >
+                    </div>
+                    {#each entities as entity (entity.id)}
+                      {@const entry = row.byTeam[entity.id]}
+                      {#if entry}
+                        {@const pct = Math.round((entry.won / entry.played) * 100)}
+                        <div
+                          class="map-bar"
+                          class:map-bar-good={entry.won * 2 > entry.played}
+                          class:map-bar-bad={entry.won * 2 < entry.played}
+                          title={`${entity.name} on ${row.map}: ${entry.won}–${entry.played - entry.won} (${pct}% won)`}
+                        >
+                          <div class="map-bar-track">
+                            <div class="map-bar-fill" style:width="{pct}%"></div>
+                          </div>
+                          <div class="map-bar-text">
+                            <span class="map-bar-rec">{entry.won}–{entry.played - entry.won}</span>
+                            <span class="map-bar-pct">{pct}%</span>
+                          </div>
+                        </div>
+                      {:else}
+                        <div class="map-bar map-bar-none">
+                          <span class="muted">Not played</span>
+                        </div>
+                      {/if}
+                    {/each}
+                  {/each}
+                </div>
+              {/if}
+            </section>
           {/if}
-        </section>
+        </div>
 
         <!-- Head to head -->
         <section class="card">
@@ -750,39 +826,6 @@
             {/if}
           {/if}
         </section>
-
-        {#if kind === 'teams'}
-          <section class="card">
-            <header class="card-head"><h2 class="card-title">Map pool</h2></header>
-            <div class="pools" style="--cols: {entities.length}">
-              {#each entities as entity (entity.id)}
-                {@const pool = teamSummaries.get(entity.id)?.mapPool ?? []}
-                <div class="pool">
-                  <div class="pool-head">
-                    {@render thumb(entity, 'sm')}<span>{entity.name}</span>
-                  </div>
-                  {#if pool.length === 0}
-                    <p class="muted">No maps recorded.</p>
-                  {:else}
-                    <ul>
-                      {#each pool as entry (entry.map)}
-                        <li>
-                          <span>{entry.map}</span>
-                          <span
-                            class="pool-rec"
-                            class:score-good={entry.won * 2 > entry.played}
-                            class:score-bad={entry.won * 2 < entry.played}
-                            >{entry.won}–{entry.played - entry.won}</span
-                          >
-                        </li>
-                      {/each}
-                    </ul>
-                  {/if}
-                </div>
-              {/each}
-            </div>
-          </section>
-        {/if}
       {/if}
     </div>
   </div>
