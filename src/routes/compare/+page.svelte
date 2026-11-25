@@ -582,6 +582,42 @@
           {/if}
         </section>
 
+        <!-- Map pool: same column-per-team shape as Stats, so it sits beside it. -->
+        {#if kind === 'teams'}
+          <section class="card">
+            <header class="card-head"><h2 class="card-title">Map pool</h2></header>
+            <div class="pools" style="--cols: {entities.length}">
+              {#each entities as entity (entity.id)}
+                {@const pool = teamSummaries.get(entity.id)?.mapPool ?? []}
+                <div class="pool">
+                  <div class="pool-head">
+                    {@render thumb(entity, 'sm')}<span>{entity.name}</span>
+                  </div>
+                  {#if pool.length === 0}
+                    <p class="muted">No maps recorded.</p>
+                  {:else}
+                    <ul>
+                      {#each pool as entry (entry.map)}
+                        <li>
+                          <span>{entry.map}</span>
+                          <span
+                            class="pool-rec"
+                            class:score-good={entry.won * 2 > entry.played}
+                            class:score-bad={entry.won * 2 < entry.played}
+                            >{entry.won}–{entry.played - entry.won}</span
+                          >
+                        </li>
+                      {/each}
+                    </ul>
+                  {/if}
+                </div>
+              {/each}
+            </div>
+          </section>
+          <!-- Force Head to head (square grid) onto its own row below. -->
+          <div class="row-break" aria-hidden="true"></div>
+        {/if}
+
         <!-- Head to head -->
         <section class="card">
           <header class="card-head">
@@ -750,39 +786,6 @@
             {/if}
           {/if}
         </section>
-
-        {#if kind === 'teams'}
-          <section class="card">
-            <header class="card-head"><h2 class="card-title">Map pool</h2></header>
-            <div class="pools" style="--cols: {entities.length}">
-              {#each entities as entity (entity.id)}
-                {@const pool = teamSummaries.get(entity.id)?.mapPool ?? []}
-                <div class="pool">
-                  <div class="pool-head">
-                    {@render thumb(entity, 'sm')}<span>{entity.name}</span>
-                  </div>
-                  {#if pool.length === 0}
-                    <p class="muted">No maps recorded.</p>
-                  {:else}
-                    <ul>
-                      {#each pool as entry (entry.map)}
-                        <li>
-                          <span>{entry.map}</span>
-                          <span
-                            class="pool-rec"
-                            class:score-good={entry.won * 2 > entry.played}
-                            class:score-bad={entry.won * 2 < entry.played}
-                            >{entry.won}–{entry.played - entry.won}</span
-                          >
-                        </li>
-                      {/each}
-                    </ul>
-                  {/if}
-                </div>
-              {/each}
-            </div>
-          </section>
-        {/if}
       {/if}
     </div>
   </div>

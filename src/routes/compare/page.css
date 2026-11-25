@@ -621,3 +621,15 @@
   text-decoration: underline dotted rgba(255, 255, 255, 0.3);
   text-underline-offset: 3px;
 }
+
+/* Zero-height full-width flex item that ends the current row. It sits on a
+   line of its own, so the card after it pulls up to cancel the extra row gap. */
+.compare > .row-break {
+  flex-basis: 100%;
+  width: 100%;
+  height: 0;
+}
+
+.compare > .row-break + * {
+  margin-top: -1rem;
+}
