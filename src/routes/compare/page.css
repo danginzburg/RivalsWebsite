@@ -622,14 +622,30 @@
   text-underline-offset: 3px;
 }
 
-/* Zero-height full-width flex item that ends the current row. It sits on a
-   line of its own, so the card after it pulls up to cancel the extra row gap. */
-.compare > .row-break {
-  flex-basis: 100%;
-  width: 100%;
-  height: 0;
+/* Stats (+ Map pool for teams) share one row. For players this wrapper is
+   transparent, so Stats and Head to head sit side by side as before. */
+.compare-row {
+  display: contents;
 }
 
-.compare > .row-break + * {
-  margin-top: -1rem;
+/* Teams: Head to head always goes below, so stack the row and it as a column.
+   That keeps the page only as wide as the widest row, which keeps the header
+   over the top-left of the Stats card instead of off to the side. */
+.compare-stacked {
+  flex-direction: column;
+  align-items: center;
+}
+
+.compare-stacked > .compare-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: stretch;
+  gap: 1rem;
+}
+
+.compare-row > * {
+  width: fit-content;
+  min-width: 0;
+  max-width: 100%;
 }

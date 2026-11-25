@@ -510,7 +510,7 @@
       </p>
     </header>
 
-    <div class="compare">
+    <div class="compare" class:compare-stacked={ready && kind === 'teams'}>
       {#if !ready}
         <section class="card empty">
           {#if entities.length > 0}
@@ -528,95 +528,96 @@
           </p>
         </section>
       {:else}
-        <!-- Side-by-side stats -->
-        <section class="card">
-          <header class="card-head">
-            <h2 class="card-title">Stats</h2>
-            {#if kind === 'teams'}
-              <span class="card-note">Recorded matches for each team's season.</span>
-            {/if}
-          </header>
-          {#if kind === 'players' && data.players}
-            <div class="picker-row">
-              <BatchPicker
-                batches={data.players.batches}
-                events={data.players.events}
-                batchId={data.players.batchId}
-                onPick={pickBatch}
-              />
-            </div>
-          {/if}
-          <div class="table-scroll">
-            <table class="data-table compare-table">
-              <thead>
-                <tr>
-                  <th class="col-stat"></th>
-                  {#each entities as entity (entity.id)}
-                    <th class="col-entity">{@render removable(entity)}</th>
-                  {/each}
-                  {#if canAdd}
-                    <th class="col-entity col-add">{@render addSlot()}</th>
-                  {/if}
-                </tr>
-              </thead>
-              <tbody>
-                {#each lines as line (line.label)}
-                  {@const best = bestOf(line)}
-                  <tr>
-                    <th scope="row" class="col-stat">{line.label}</th>
-                    {#each entities as entity (entity.id)}
-                      <td class="num" class:best={best.has(entity.id)}
-                        >{cellText(line, entity.id)}</td
-                      >
-                    {/each}
-                    {#if canAdd}<td class="col-add"></td>{/if}
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
-          </div>
-          {#if kind === 'players' && entities.some((e) => !playerStats[e.id])}
-            <p class="card-foot">
-              “—” means the player has no row in this stats table. Try another season above.
-            </p>
-          {/if}
-        </section>
-
-        <!-- Map pool: same column-per-team shape as Stats, so it sits beside it. -->
-        {#if kind === 'teams'}
+        <!-- Teams: Stats and Map pool share a row (same column-per-team shape);
+             Head to head is squarer and goes below. -->
+        <div class="compare-row">
+          <!-- Side-by-side stats -->
           <section class="card">
-            <header class="card-head"><h2 class="card-title">Map pool</h2></header>
-            <div class="pools" style="--cols: {entities.length}">
-              {#each entities as entity (entity.id)}
-                {@const pool = teamSummaries.get(entity.id)?.mapPool ?? []}
-                <div class="pool">
-                  <div class="pool-head">
-                    {@render thumb(entity, 'sm')}<span>{entity.name}</span>
-                  </div>
-                  {#if pool.length === 0}
-                    <p class="muted">No maps recorded.</p>
-                  {:else}
-                    <ul>
-                      {#each pool as entry (entry.map)}
-                        <li>
-                          <span>{entry.map}</span>
-                          <span
-                            class="pool-rec"
-                            class:score-good={entry.won * 2 > entry.played}
-                            class:score-bad={entry.won * 2 < entry.played}
-                            >{entry.won}–{entry.played - entry.won}</span
-                          >
-                        </li>
+            <header class="card-head">
+              <h2 class="card-title">Stats</h2>
+              {#if kind === 'teams'}
+                <span class="card-note">Recorded matches for each team's season.</span>
+              {/if}
+            </header>
+            {#if kind === 'players' && data.players}
+              <div class="picker-row">
+                <BatchPicker
+                  batches={data.players.batches}
+                  events={data.players.events}
+                  batchId={data.players.batchId}
+                  onPick={pickBatch}
+                />
+              </div>
+            {/if}
+            <div class="table-scroll">
+              <table class="data-table compare-table">
+                <thead>
+                  <tr>
+                    <th class="col-stat"></th>
+                    {#each entities as entity (entity.id)}
+                      <th class="col-entity">{@render removable(entity)}</th>
+                    {/each}
+                    {#if canAdd}
+                      <th class="col-entity col-add">{@render addSlot()}</th>
+                    {/if}
+                  </tr>
+                </thead>
+                <tbody>
+                  {#each lines as line (line.label)}
+                    {@const best = bestOf(line)}
+                    <tr>
+                      <th scope="row" class="col-stat">{line.label}</th>
+                      {#each entities as entity (entity.id)}
+                        <td class="num" class:best={best.has(entity.id)}
+                          >{cellText(line, entity.id)}</td
+                        >
                       {/each}
-                    </ul>
-                  {/if}
-                </div>
-              {/each}
+                      {#if canAdd}<td class="col-add"></td>{/if}
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
             </div>
+            {#if kind === 'players' && entities.some((e) => !playerStats[e.id])}
+              <p class="card-foot">
+                “—” means the player has no row in this stats table. Try another season above.
+              </p>
+            {/if}
           </section>
-          <!-- Force Head to head (square grid) onto its own row below. -->
-          <div class="row-break" aria-hidden="true"></div>
-        {/if}
+
+          {#if kind === 'teams'}
+            <section class="card">
+              <header class="card-head"><h2 class="card-title">Map pool</h2></header>
+              <div class="pools" style="--cols: {entities.length}">
+                {#each entities as entity (entity.id)}
+                  {@const pool = teamSummaries.get(entity.id)?.mapPool ?? []}
+                  <div class="pool">
+                    <div class="pool-head">
+                      {@render thumb(entity, 'sm')}<span>{entity.name}</span>
+                    </div>
+                    {#if pool.length === 0}
+                      <p class="muted">No maps recorded.</p>
+                    {:else}
+                      <ul>
+                        {#each pool as entry (entry.map)}
+                          <li>
+                            <span>{entry.map}</span>
+                            <span
+                              class="pool-rec"
+                              class:score-good={entry.won * 2 > entry.played}
+                              class:score-bad={entry.won * 2 < entry.played}
+                              >{entry.won}–{entry.played - entry.won}</span
+                            >
+                          </li>
+                        {/each}
+                      </ul>
+                    {/if}
+                  </div>
+                {/each}
+              </div>
+            </section>
+          {/if}
+        </div>
 
         <!-- Head to head -->
         <section class="card">
