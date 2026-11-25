@@ -1,5 +1,6 @@
 import { LEAGUE_TIME_ZONE, SITE_NAME } from '$lib/meta'
 import type { DiscordEmbed, WebhookPayload } from './webhook'
+import { sortRoster, type RosterChange, type RosterEntry, type RosterRole } from './roster-diff'
 
 /*
  * Pure builders for every automatic Discord post. They take plain data
@@ -99,7 +100,26 @@ export function withRolePing(p: WebhookPayload, roleId: string | null | undefine
     ? p.content
     : [mention, p.content].filter(Boolean).join(' ')
   const roles = [...new Set([...(p.allowed_mentions?.roles ?? []), roleId])]
-  return { ...p, content, allowed_mentions: { parse: [], roles } }
+  // Keep any user pings already allowed (withUserPings).
+  return { ...p, content, allowed_mentions: { ...p.allowed_mentions, parse: [], roles } }
+}
+
+/** Discord ignores user mentions past this many in allowed_mentions. */
+const MAX_USER_MENTIONS = 100
+
+/**
+ * Mention these Discord users above the post, and allow exactly them to be
+ * pinged (Discord only notifies on the first send, not on edits).
+ */
+export function withUserPings(p: WebhookPayload, userIds: readonly string[]): WebhookPayload {
+  const ids = [...new Set(userIds.filter((id) => /^\d+$/.test(id)))].slice(0, MAX_USER_MENTIONS)
+  if (ids.length === 0) return p
+  const mentions = ids.map((id) => `<@${id}>`).join(' ')
+  return {
+    ...p,
+    content: [p.content, mentions].filter(Boolean).join('\n'),
+    allowed_mentions: { ...p.allowed_mentions, parse: [], users: ids },
+  }
 }
 
 // ── Match scheduling (posted into the match's forum thread) ─────────────────
@@ -154,14 +174,67 @@ export function matchCancelledPayload(match: MatchRef): WebhookPayload {
 
 // ── Results ─────────────────────────────────────────────────────────────────
 
+export type ResultSide = 'a' | 'b'
+
+export type ResultMap = {
+  /** Null for a forfeited map that was never played. */
+  name: string | null
+  a: number
+  b: number
+  /** Set when the map was forfeited: which side conceded it, and an admin note. */
+  forfeit?: { by: ResultSide | null; label?: string | null } | null
+}
+
+/**
+ * The whole match was decided by forfeit: a no-show, or an admin awarding the
+ * series against the map score.
+ */
+export type ResultForfeit = {
+  kind: 'no_show' | 'admin_award'
+  by: ResultSide | null
+  reason?: string | null
+}
+
 export type MatchResultInput = MatchRef & {
   scoreA: number
   scoreB: number
-  winner: 'a' | 'b' | null
-  maps: Array<{ name: string; a: number; b: number }>
+  winner: ResultSide | null
+  maps: ResultMap[]
   mvp: { name: string; acs: number | null; agent?: string | null } | null
+  forfeit?: ResultForfeit | null
   /** Changes when the result does, so Discord refetches the card after a correction. */
   cardVersion?: string
+}
+
+function mapField(match: MatchResultInput, map: ResultMap, index: number) {
+  const score = `${map.a} – ${map.b}`
+  if (!map.forfeit) {
+    return { name: `Map ${index + 1} · ${map.name ?? 'Unknown'}`, value: score, inline: true }
+  }
+  const by = map.forfeit.by ? (map.forfeit.by === 'a' ? match.teamA : match.teamB) : null
+  const note = [
+    by ? `FF by ${escapeMarkdown(by.tag || by.name || 'TBD')}` : 'FF',
+    map.forfeit.label ? escapeMarkdown(truncate(map.forfeit.label, 80)) : null,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+  return {
+    name: `Map ${index + 1} · ${map.name ?? 'Forfeit'}`,
+    value: `${score} (${note})`,
+    inline: true,
+  }
+}
+
+/** "Project 30 forfeited (no-show)." plus the admin's reason. */
+function forfeitLine(match: MatchResultInput, forfeit: ResultForfeit): string {
+  const team = forfeit.by === 'a' ? match.teamA : forfeit.by === 'b' ? match.teamB : null
+  const who = team ? escapeMarkdown(team.name || 'TBD') : 'A team'
+  const what =
+    forfeit.kind === 'no_show'
+      ? `${who} forfeited (no-show).`
+      : `${who} forfeited; the win was awarded by admins.`
+  const reason = forfeit.reason?.trim()
+  return reason ? `${what}\nReason: ${escapeMarkdown(truncate(reason, 500))}` : what
 }
 
 export function matchResultPayload(match: MatchResultInput): WebhookPayload {
@@ -174,11 +247,9 @@ export function matchResultPayload(match: MatchResultInput): WebhookPayload {
         ? `${nameA} ${match.scoreA} – **${match.scoreB} ${nameB}**`
         : `${nameA} ${match.scoreA} – ${match.scoreB} ${nameB}`
 
-  const fields: NonNullable<DiscordEmbed['fields']> = match.maps.slice(0, 7).map((map, i) => ({
-    name: `Map ${i + 1} · ${map.name}`,
-    value: `${map.a} – ${map.b}`,
-    inline: true,
-  }))
+  const fields: NonNullable<DiscordEmbed['fields']> = match.maps
+    .slice(0, 7)
+    .map((map, i) => mapField(match, map, i))
   if (match.mvp) {
     const details = [
       match.mvp.agent,
@@ -196,13 +267,19 @@ export function matchResultPayload(match: MatchResultInput): WebhookPayload {
   const version = match.cardVersion ? `?v=${encodeURIComponent(match.cardVersion)}` : ''
   const winnerName =
     match.winner === 'a' ? match.teamA.name : match.winner === 'b' ? match.teamB.name : null
+  const winnerScore = match.winner === 'a' ? match.scoreA : match.scoreB
+  const loserScore = match.winner === 'a' ? match.scoreB : match.scoreA
+  // An admin award can go against the map score, so "win 1–2" would read wrong.
+  const title = !winnerName
+    ? `Final: ${versusTitle(match)}`
+    : match.forfeit
+      ? `${winnerName} win by forfeit`
+      : `${winnerName} win ${winnerScore}–${loserScore}`
   return payload({
-    title: winnerName
-      ? `${winnerName} win ${Math.max(match.scoreA, match.scoreB)}–${Math.min(match.scoreA, match.scoreB)}`
-      : `Final: ${versusTitle(match)}`,
+    title,
     url: matchUrl(match),
     color: COLORS.result,
-    description: scoreLine,
+    description: match.forfeit ? `${scoreLine}\n${forfeitLine(match, match.forfeit)}` : scoreLine,
     fields: fields.length > 0 ? fields : undefined,
     image: { url: `${match.siteUrl}/og/match/${match.matchId}.png${version}` },
     footer: footer(match),
@@ -248,6 +325,15 @@ export function leagueDayEnd(now: Date = new Date()): Date {
   const get = (type: string) => Number(parts.find((part) => part.type === type)?.value)
   const midnightAsUtc = Date.UTC(get('year'), get('month') - 1, get('day') + 1)
   return new Date(midnightAsUtc - leagueOffsetMinutes(new Date(midnightAsUtc)) * 60_000)
+}
+
+/** Day of the week on league (Central) time: 0 = Sunday … 6 = Saturday. */
+export function leagueWeekday(now: Date = new Date()): number {
+  const day = new Intl.DateTimeFormat('en-US', {
+    timeZone: LEAGUE_TIME_ZONE,
+    weekday: 'short',
+  }).format(now)
+  return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(day)
 }
 
 /** MM/DD/YYYY on league (Central) time. */
@@ -377,6 +463,160 @@ export function teamLogoPayload(team: {
   })
 }
 
+// ── Team rosters ────────────────────────────────────────────────────────────
+
+export type RosterTeam = {
+  name: string
+  tag: string | null
+  logoUrl: string | null
+  seasonName: string | null
+  teamUrl: string
+}
+
+export type RosterHistoryEntry = { at: string; changes: RosterChange[] }
+
+const ROLE_LABEL: Record<RosterRole, string> = {
+  captain: 'Captain',
+  player: 'Player',
+  substitute: 'Sub',
+  coach: 'Coach',
+  manager: 'Manager',
+}
+
+/** Embed field values are capped at 1024 characters. */
+const FIELD_MAX = 1024
+
+function teamTitle(team: RosterTeam): string {
+  return team.tag ? `${team.name} [${team.tag}]` : team.name
+}
+
+function teamFooter(team: RosterTeam): { text: string } {
+  return { text: team.seasonName ? `${SITE_NAME} · ${team.seasonName}` : SITE_NAME }
+}
+
+/** "• **Name** joined as Sub" and friends, one per change. */
+export function rosterChangeLine(change: RosterChange): string {
+  const name = `**${escapeMarkdown(change.name)}**`
+  switch (change.type) {
+    case 'added':
+      return change.role === 'player'
+        ? `• ${name} joined`
+        : `• ${name} joined as ${ROLE_LABEL[change.role]}`
+    case 'removed':
+      return `• ${name} left`
+    case 'role':
+      return `• ${name}: ${ROLE_LABEL[change.from]} → ${ROLE_LABEL[change.to]}`
+  }
+}
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
+
+/**
+ * The roster as full-width sections, one under another: Players (captain
+ * first, crowned), Substitutes, Staff (coaches and managers, labeled).
+ */
+function rosterFields(roster: RosterEntry[]): Array<{ name: string; value: string }> {
+  const sorted = sortRoster(roster)
+  const of = (...roles: RosterRole[]) => sorted.filter((e) => roles.includes(e.role))
+  const name = (e: RosterEntry) => escapeMarkdown(e.name)
+
+  const players = of('captain', 'player').map((e) =>
+    e.role === 'captain' ? `• **${name(e)}** · *Captain*` : `• ${name(e)}`
+  )
+  const subs = of('substitute').map((e) => `• ${name(e)}`)
+  const staff = of('coach', 'manager').map((e) => `• ${name(e)} · *${ROLE_LABEL[e.role]}*`)
+
+  const sections = [
+    { name: 'Players', lines: players },
+    { name: 'Substitutes', lines: subs },
+    { name: 'Staff', lines: staff },
+  ].filter((s) => s.lines.length > 0)
+  if (sections.length === 0) return [{ name: 'Players', value: '*No players yet*' }]
+  return sections.map((s) => ({ name: s.name, value: truncate(s.lines.join('\n'), FIELD_MAX) }))
+}
+
+/** "5 players · 1 sub · 1 staff", for the line under the title. */
+function rosterSummary(roster: RosterEntry[]): string {
+  const count = (...roles: RosterRole[]) => roster.filter((e) => roles.includes(e.role)).length
+  const parts = [
+    plural(count('captain', 'player'), 'player', 'players'),
+    count('substitute') > 0 ? plural(count('substitute'), 'sub', 'subs') : null,
+    count('coach', 'manager') > 0 ? `${count('coach', 'manager')} staff` : null,
+  ]
+  return parts.filter(Boolean).join(' · ')
+}
+
+/**
+ * Newest-last history, one block per published update (its date, then one
+ * change per line), keeping as many recent blocks as fit in a field and
+ * noting how many earlier ones were left out.
+ */
+export function rosterHistoryValue(history: RosterHistoryEntry[], teamUrl: string): string | null {
+  const lines = history
+    .filter((h) => h.changes.length > 0)
+    .map((h) => {
+      const date = discordTimestamp(h.at, 'D')
+      return [date ? `**${date}**` : null, ...h.changes.map(rosterChangeLine)]
+        .filter(Boolean)
+        .join('\n')
+    })
+  if (lines.length === 0) return null
+
+  const note = (omitted: number) =>
+    `+ ${omitted} earlier update${omitted === 1 ? '' : 's'} · [team page](${teamUrl})`
+  // Room for the note however many are left out, so adding it never overflows.
+  const budget = FIELD_MAX - note(lines.length).length - 1
+  const kept: string[] = []
+  let length = 0
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = truncate(lines[i], budget)
+    if (kept.length > 0 && length + line.length + 1 > budget) {
+      return [note(i + 1), ...kept].join('\n')
+    }
+    kept.unshift(line)
+    length += line.length + 1
+  }
+  return kept.join('\n')
+}
+
+/** #team-creation: the team with its current roster and its published change history. */
+export function teamRosterPayload(
+  team: RosterTeam,
+  roster: RosterEntry[],
+  history: RosterHistoryEntry[]
+): WebhookPayload {
+  const historyValue = rosterHistoryValue(history, team.teamUrl)
+  return payload({
+    title: teamTitle(team),
+    url: team.teamUrl,
+    color: COLORS.brand,
+    description: roster.length > 0 ? rosterSummary(roster) : undefined,
+    thumbnail: team.logoUrl ? { url: team.logoUrl } : undefined,
+    fields: [
+      ...rosterFields(roster),
+      ...(historyValue ? [{ name: 'Change history', value: historyValue }] : []),
+    ],
+    footer: teamFooter(team),
+  })
+}
+
+/** #team-updates: one published batch of roster changes. */
+export function teamUpdatePayload(
+  team: RosterTeam,
+  changes: RosterChange[],
+  publishedAt: string
+): WebhookPayload {
+  return payload({
+    title: `${teamTitle(team)} roster update`,
+    url: team.teamUrl,
+    color: COLORS.schedule,
+    description: truncate(changes.map(rosterChangeLine).join('\n'), 4000),
+    thumbnail: team.logoUrl ? { url: team.logoUrl } : undefined,
+    footer: teamFooter(team),
+    timestamp: publishedAt,
+  })
+}
+
 // ── Pick'ems ────────────────────────────────────────────────────────────────
 
 export type PickemRef = {
@@ -453,6 +693,77 @@ export function pickemFinalPayload(
     color: COLORS.pickem,
     description: [...lines, '', `Full leaderboard: ${pickemUrl(p)}`].join('\n'),
     image: p.imageUrl ? { url: p.imageUrl } : undefined,
+  })
+}
+
+// ── Weekly standings (#rivals-annoucements) ─────────────────────────────────
+
+export type WeeklyStandingsRow = {
+  rank: number
+  name: string
+  tag: string | null
+  wins: number
+  losses: number
+  mapWins: number
+  mapLosses: number
+  roundDiff: number
+  /**
+   * Places gained (+) or lost (-) since a week ago; 0 for no change. Null for a
+   * team that had not played a series a week ago.
+   */
+  move: number | null
+}
+
+/** Teams listed in the post; the rest are on the site. */
+export const WEEKLY_STANDINGS_SHOWN = 16
+
+function moveLabel(move: number | null): string {
+  if (move === null) return ' · 🆕'
+  if (move > 0) return ` · ▲${move}`
+  if (move < 0) return ` · ▼${-move}`
+  return ''
+}
+
+/**
+ * The Monday standings post: every team's rank, series record, map record and
+ * round difference, with its movement over the week, and the standings card.
+ */
+export function weeklyStandingsPayload(input: {
+  siteUrl: string
+  season: string
+  rows: WeeklyStandingsRow[]
+  /** Standings series played over the past week. */
+  seriesThisWeek: number
+  imageUrl?: string | null
+}): WebhookPayload {
+  const url = `${input.siteUrl}/leaderboard`
+  const shown = input.rows.slice(0, WEEKLY_STANDINGS_SHOWN)
+  const lines = shown.map((r) => {
+    const rd = r.roundDiff > 0 ? `+${r.roundDiff}` : String(r.roundDiff)
+    return (
+      `**${r.rank}.** ${teamLabel(r)} · ${r.wins}-${r.losses}` +
+      ` · maps ${r.mapWins}-${r.mapLosses} · RD ${rd}${moveLabel(r.move)}`
+    )
+  })
+  const more = input.rows.length - shown.length
+  if (more > 0) lines.push(`…and ${more} more`)
+
+  // The biggest climb of the week, when someone moved up.
+  const climber = [...input.rows]
+    .filter((r) => (r.move ?? 0) > 0)
+    .sort((a, b) => (b.move ?? 0) - (a.move ?? 0) || a.rank - b.rank)[0]
+  const series = `${input.seriesThisWeek} series played this week.`
+  const intro = climber
+    ? `${series} Biggest climb: ${teamLabel(climber)}, up ${climber.move} to #${climber.rank}.`
+    : series
+
+  return payload({
+    title: `${input.season} standings`,
+    url,
+    color: COLORS.brand,
+    description: truncate([intro, '', ...lines, '', `Full standings: ${url}`].join('\n'), 4096),
+    image: input.imageUrl ? { url: input.imageUrl } : undefined,
+    footer: { text: `${SITE_NAME} · Weekly standings` },
   })
 }
 

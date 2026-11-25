@@ -1,5 +1,6 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { removeMatchFromDiscord, syncMatchToDiscord } from '$lib/server/discord-events/sync'
+import { orphanMatchThread } from '$lib/server/discord-bot/thread-sync'
 import { requireAdmin } from '$lib/server/auth/profile'
 import {
   MatchLifecycleError,
@@ -205,6 +206,8 @@ export const DELETE: RequestHandler = async ({ locals, params, url }) => {
   const seasonId = matchId ? await loadMatchSeasonId(matchId) : null
   // The link row loses its match id once the match is gone, so take the event down first.
   if (matchId) await removeMatchFromDiscord(matchId, url.origin)
+  // Its scheduling thread waits for a replacement match to take it over.
+  if (matchId) await orphanMatchThread(matchId)
   const { error: deleteError } = await supabaseAdmin.from('matches').delete().eq('id', matchId)
   if (deleteError) throw error(500, 'Failed to delete match')
 

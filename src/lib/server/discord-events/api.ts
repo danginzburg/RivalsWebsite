@@ -137,6 +137,41 @@ export async function listActiveThreads(config: DiscordConfig): Promise<DiscordT
   return res?.threads ?? []
 }
 
+/**
+ * Open a post in a forum channel. The starter message's id is the thread's id.
+ * The bot needs Create Posts in the forum, and Mention @everyone (or the
+ * roles set to "Allow anyone to @mention") for role pings to notify.
+ */
+export async function createForumThread(
+  config: DiscordConfig,
+  forumId: string,
+  name: string,
+  message: unknown
+): Promise<DiscordThread> {
+  const thread = await call<DiscordThread>(config, 'POST', `/channels/${forumId}/threads`, {
+    name,
+    // A week, the longest Discord allows; the sync only reads active threads.
+    auto_archive_duration: 10080,
+    message,
+  })
+  if (!thread) throw new DiscordApiError(500, 'Discord returned no thread')
+  return thread
+}
+
+/** Rename, archive or lock a thread (Manage Threads); null if it was deleted. */
+export async function updateThread(
+  config: DiscordConfig,
+  threadId: string,
+  changes: { name?: string; archived?: boolean; locked?: boolean }
+): Promise<DiscordThread | null> {
+  try {
+    return await call<DiscordThread>(config, 'PATCH', `/channels/${threadId}`, changes)
+  } catch (err) {
+    if (err instanceof DiscordApiError && err.status === 404) return null
+    throw err
+  }
+}
+
 export type DiscordMessage = {
   id: string
   author?: { id: string } | null
@@ -178,6 +213,22 @@ export async function sendMessage(
   const sent = await call<DiscordMessage>(config, 'POST', `/channels/${channelId}/messages`, body)
   if (!sent) throw new DiscordApiError(500, 'Discord returned no message')
   return sent
+}
+
+/**
+ * DM a user. Fails (403, code 50007) when they share no server with the bot
+ * or have DMs from server members turned off.
+ */
+export async function sendDirectMessage(
+  config: DiscordConfig,
+  userId: string,
+  body: unknown
+): Promise<DiscordMessage> {
+  const channel = await call<{ id: string }>(config, 'POST', '/users/@me/channels', {
+    recipient_id: userId,
+  })
+  if (!channel) throw new DiscordApiError(500, 'Discord returned no DM channel')
+  return sendMessage(config, channel.id, body)
 }
 
 /** Edit one of the bot's messages; null if it was deleted. */

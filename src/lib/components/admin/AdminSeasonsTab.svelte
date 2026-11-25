@@ -20,6 +20,7 @@
     type SeasonStageKey,
   } from '$lib/seasons/schedule'
   import { seasonMvpName } from '$lib/seasons/mvp'
+  import { resolveMapPoolMode, type MapPoolMode } from '$lib/seasons/mapPool'
   import AdminSeasonBackfillCheck from './AdminSeasonBackfillCheck.svelte'
 
   const weekdayOptions = WEEKDAY_LABELS.map((label, day) => ({ value: String(day), label }))
@@ -155,6 +156,11 @@
     ...(leaderboardBatches ?? []).map((b) => ({ value: b.id, label: b.label })),
   ])
 
+  const mapPoolModeOptions = [
+    { value: 'competitive', label: 'Comp map pool' },
+    { value: 'custom', label: 'Custom' },
+  ]
+
   /** Add or remove a map from a season's pool, keeping selection order. */
   function toggleMapInPool(pool: string[], mapName: string): string[] {
     return pool.includes(mapName) ? pool.filter((m) => m !== mapName) : [...pool, mapName]
@@ -281,6 +287,7 @@
                   (name): name is string => typeof name === 'string'
                 )
               : [],
+            mapPoolMode: resolveMapPoolMode(season.metadata as Record<string, unknown> | null),
             sections: allSectionsOn(),
             links: [],
             schedule: resolveSeasonSchedule(season.metadata as Record<string, unknown> | null),
@@ -719,8 +726,52 @@
                       <span style="color: rgba(255,255,255,0.5);">
                         {state.mapPool.length} selected
                       </span>
+                      <div class="ml-auto w-44">
+                        <CustomSelect
+                          options={mapPoolModeOptions}
+                          value={state.mapPoolMode}
+                          compact={true}
+                          onSelect={(value) =>
+                            onSeasonEditChange(season.id, {
+                              ...state,
+                              mapPoolMode: (value === 'competitive'
+                                ? 'competitive'
+                                : 'custom') as MapPoolMode,
+                            })}
+                        />
+                      </div>
                     </div>
-                    {#if valorantMaps.length === 0}
+                    {#if state.mapPoolMode === 'competitive'}
+                      <div class="mb-2 text-xs" style="color: rgba(255,255,255,0.56);">
+                        {#if resolveMapPoolMode(season.metadata as Record<string, unknown> | null) !== 'competitive'}
+                          Saving replaces this pool with the current ranked rotation. After that,
+                          maps entering the rotation are added automatically and maps that rotate
+                          out stay.
+                        {:else}
+                          Follows the ranked rotation: new maps are added automatically (daily, and
+                          on save); maps that rotate out stay in this season's pool.
+                        {/if}
+                      </div>
+                      {#if resolveMapPoolMode(season.metadata as Record<string, unknown> | null) === 'competitive'}
+                        {#if state.mapPool.length === 0}
+                          <div class="text-xs" style="color: rgba(255,255,255,0.5);">
+                            No maps yet — the next sync fills them in.
+                          </div>
+                        {:else}
+                          <div class="map-pool-grid">
+                            {#each state.mapPool as mapName (mapName)}
+                              {@const art = valorantMaps.find((m) => m.displayName === mapName)}
+                              <div class="map-pool-chip map-pool-chip-on map-pool-chip-static">
+                                {#if art}
+                                  <img src={art.listViewIcon} alt="" class="map-pool-art" />
+                                {/if}
+                                <span class="map-pool-name">{mapName}</span>
+                              </div>
+                            {/each}
+                          </div>
+                        {/if}
+                      {/if}
+                    {:else if valorantMaps.length === 0}
                       <div class="text-xs" style="color: rgba(255,255,255,0.5);">
                         Map art is unavailable right now — reload to try again.
                       </div>

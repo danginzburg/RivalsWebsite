@@ -1,14 +1,19 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit'
 import { env } from '$env/dynamic/private'
 import { supabaseAdmin } from '$lib/supabase/admin'
-import { leagueDayEnd } from '$lib/server/discord/embeds'
-import { postMatchReminder, postPickemLockWarning } from '$lib/server/discord/announce'
+import { leagueDate, leagueDayEnd, leagueWeekday } from '$lib/server/discord/embeds'
+import {
+  postMatchReminder,
+  postPickemLockWarning,
+  postWeeklyStandings,
+} from '$lib/server/discord/announce'
 
 /*
  * The daily Discord run (vercel.json: 10 AM Eastern). Vercel Cron sends
  * `Authorization: Bearer $CRON_SECRET`; any other pinger must send it too.
  *   - "Match day" in the scheduling thread of each match still to play today
  *   - "Pick'em locks today" for an open pick'em that locks before midnight
+ *   - On Mondays, the weekly standings in #rivals-annoucements
  * "Today" ends at midnight league (Central) time. Every post is deduplicated
  * through discord_posts, so an extra run never posts twice.
  */
@@ -56,5 +61,15 @@ export const GET: RequestHandler = async ({ request }) => {
     })
   }
 
-  return json({ ok: true, matches: matches?.length ?? 0, pickems: events?.length ?? 0 })
+  // Monday on league time; keyed by that date so a rerun the same day never reposts.
+  const now = new Date()
+  const standings =
+    leagueWeekday(now) === 1 ? await postWeeklyStandings(leagueDate(nowIso) ?? nowIso) : null
+
+  return json({
+    ok: true,
+    matches: matches?.length ?? 0,
+    pickems: events?.length ?? 0,
+    standings,
+  })
 }

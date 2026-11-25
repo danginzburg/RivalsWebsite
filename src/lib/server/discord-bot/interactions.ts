@@ -34,8 +34,11 @@ import {
   canSetMatchTime,
   filterMatchChoices,
   matchChoiceLabel,
+  parseTimeButtonId,
   parseVetoButtonId,
   sameLines,
+  timeProposalClosed,
+  timeProposalMessage,
   vetoPromptClosed,
   type ThreadMatch,
 } from './threads'
@@ -51,6 +54,7 @@ const Response = {
   Pong: 1,
   Message: 4,
   DeferredMessage: 5,
+  DeferredUpdate: 6,
   UpdateMessage: 7,
   AutocompleteResult: 8,
 } as const
@@ -145,20 +149,16 @@ function autocompleteSetTime(interaction: Interaction): InteractionResponse {
 }
 
 /**
- * Checks that are quick (who, where, what was typed) answer at once and
- * privately. The save itself runs after a deferred reply, since it also
- * updates the Discord event and the schedule post, then fills the reply in.
+ * Checks that are quick (where, what was typed) answer at once and privately.
+ * Staff set the time straight away: the save runs after a deferred reply,
+ * since it also updates the Discord event and the schedule post, then fills
+ * the reply in. Anyone else proposes it: the bot posts the time with Approve
+ * and Reject buttons for staff (see `answerTimeProposal`).
  */
 async function runSetTime(
   interaction: Interaction,
   requestOrigin: string
 ): Promise<InteractionResponse> {
-  if (!canSetMatchTime(interaction.member)) {
-    return reply(
-      'Only staff (Manage Threads, Manage Events or Administrator) can set match times.',
-      true
-    )
-  }
   const threadId = interaction.channel_id ?? interaction.channel?.id
   if (!threadId || !interaction.channel || ![11, 12].includes(interaction.channel.type)) {
     return reply('Run `/set-time` inside the match’s scheduling thread.', true)
@@ -177,6 +177,16 @@ async function runSetTime(
     new Date()
   )
   if (!parsed.ok) return reply(parsed.error, true)
+
+  if (!canSetMatchTime(interaction.member)) {
+    const proposal = timeProposalMessage(
+      match!.pairing,
+      matchId,
+      parsed.unix,
+      interaction.member?.user?.id ?? null
+    )
+    return { type: Response.Message, data: { ...proposal } }
+  }
 
   const { application_id: appId, token } = interaction
   if (!appId || !token) return reply('Discord sent an incomplete request. Try again.', true)
@@ -238,8 +248,69 @@ async function runLinkMatch(
   )
 }
 
+/**
+ * Approve or Reject on a time proposal (staff only). The button names the
+ * match and the time, so it can't apply to another match if the thread is
+ * re-linked; a time that has passed, or a match that's over, can't be approved.
+ */
+async function answerTimeProposal(
+  interaction: Interaction,
+  requestOrigin: string
+): Promise<InteractionResponse> {
+  const button = parseTimeButtonId(interaction.data?.custom_id ?? '')
+  const threadId = interaction.channel_id ?? interaction.channel?.id
+  if (!button || !threadId) return reply('This button isn’t supported.', true)
+  if (!canSetMatchTime(interaction.member)) {
+    return reply(
+      'Only staff (Manage Threads, Manage Events or Administrator) can answer this.',
+      true
+    )
+  }
+  const userId = interaction.member?.user?.id ?? null
+  const match = await loadSettableMatch(button.matchId)
+  const pairing = match?.pairing ?? 'this match'
+
+  if (button.action === 'reject') {
+    return closePrompt(timeProposalClosed('rejected', button.unix, pairing, userId))
+  }
+
+  const stale = (detail: string) =>
+    closePrompt(timeProposalClosed('stale', button.unix, pairing, null, detail))
+  const problem = setTimeProblem(match)
+  if (problem) return stale(problem.replace(/.$/, '').toLowerCase())
+  if ((await matchForThread(threadId)) !== button.matchId) {
+    return stale('this thread is linked to a different match now')
+  }
+  if (button.unix * 1000 <= Date.now()) return stale('that time has passed')
+
+  const { application_id: appId, token } = interaction
+  if (!appId || !token) return reply('Discord sent an incomplete request. Try again.', true)
+
+  inBackground('approve match time', async () => {
+    let body: unknown
+    try {
+      await setMatchTime({
+        matchId: button.matchId,
+        scheduledAt: new Date(button.unix * 1000).toISOString(),
+        actorProfileId: await profileForDiscordUser(userId ?? undefined),
+        origin: siteOrigin(requestOrigin),
+      })
+      body = timeProposalClosed('approved', button.unix, pairing, userId)
+    } catch (err) {
+      console.error('approve match time failed:', err)
+      // Leave the buttons up so it can be tried again.
+      body = {
+        content: `${timeProposalMessage(pairing, button.matchId, button.unix, null).content}
+⚠️ Saving failed; nothing was changed. Try again in a minute.`,
+      }
+    }
+    await editOriginalResponse(appId, token, body)
+  })
+  return { type: Response.DeferredUpdate }
+}
+
 /** Replace the prompt that holds the button. */
-function closePrompt(data: ReturnType<typeof vetoPromptClosed>): InteractionResponse {
+function closePrompt(data: { content: string } & Record<string, unknown>): InteractionResponse {
   return { type: Response.UpdateMessage, data }
 }
 
@@ -285,7 +356,12 @@ export async function handleInteraction(
   requestOrigin: string
 ): Promise<InteractionResponse> {
   if (interaction.type === InteractionType.Ping) return { type: Response.Pong }
-  if (interaction.type === InteractionType.Component) return answerVetoPrompt(interaction)
+  if (interaction.type === InteractionType.Component) {
+    if (interaction.data?.custom_id?.startsWith('time:')) {
+      return answerTimeProposal(interaction, requestOrigin)
+    }
+    return answerVetoPrompt(interaction)
+  }
 
   const command = interaction.data?.name
   if (command === LINK_MATCH.name) {

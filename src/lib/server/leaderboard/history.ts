@@ -2,6 +2,7 @@ import { supabaseAdmin } from '$lib/supabase/admin'
 import { resolveMatchStage } from '$lib/server/stats/from-matches'
 import {
   isOutOfGroup,
+  type ScoringOptions,
   type StandingsAdjustment,
   type StandingsMatch,
 } from '$lib/server/leaderboard/compute'
@@ -47,8 +48,19 @@ type MatchRow = {
   match_maps: StandingsMatch['maps'] | null
 }
 
-/** Load a season and replay it for one team. Empty when there is nothing to plot. */
-export async function loadTeamRankHistory(seasonId: string, teamId: string): Promise<RankPoint[]> {
+export type SeasonReplay = {
+  teams: Array<{ id: string; name: string }>
+  matches: DatedStandingsMatch[]
+  adjustments: StandingsAdjustment[]
+  scoring: ScoringOptions
+}
+
+/**
+ * Everything needed to replay a season's standings: its approved, active
+ * teams, its completed matches with a date, and the hand adjustments.
+ * Null when the teams or matches fail to load.
+ */
+export async function loadSeasonReplay(seasonId: string): Promise<SeasonReplay | null> {
   const [seasonRes, teamsRes, matchesRes, adjRes] = await Promise.all([
     supabaseAdmin.from('seasons').select('kind').eq('id', seasonId).maybeSingle(),
     supabaseAdmin
@@ -69,7 +81,7 @@ export async function loadTeamRankHistory(seasonId: string, teamId: string): Pro
       .select('team_id, wins, losses, map_wins, map_losses, round_diff, points, rank_override')
       .eq('season_id', seasonId),
   ])
-  if (teamsRes.error || matchesRes.error) return []
+  if (teamsRes.error || matchesRes.error) return null
 
   const teams = (
     (teamsRes.data ?? []) as Array<{ id: string; name: string; status: string | null }>
@@ -88,9 +100,21 @@ export async function loadTeamRankHistory(seasonId: string, teamId: string): Pro
   }))
   const adjustments = (adjRes.error ? [] : (adjRes.data ?? [])) as StandingsAdjustment[]
 
-  const weekly = weeklyRanks(teamId, teams, matches, adjustments, {
-    awardPoints: seasonRes.data?.kind === 'external',
-  })
+  return {
+    teams,
+    matches,
+    adjustments,
+    scoring: { awardPoints: seasonRes.data?.kind === 'external' },
+  }
+}
+
+/** Load a season and replay it for one team. Empty when there is nothing to plot. */
+export async function loadTeamRankHistory(seasonId: string, teamId: string): Promise<RankPoint[]> {
+  const replay = await loadSeasonReplay(seasonId)
+  if (!replay) return []
+  const { teams, matches, adjustments, scoring } = replay
+
+  const weekly = weeklyRanks(teamId, teams, matches, adjustments, scoring)
   if (weekly.length === 0) return weekly
 
   // Playoff results take over the line once the bracket starts deciding places.

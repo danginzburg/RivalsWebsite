@@ -1,5 +1,6 @@
 <script lang="ts">
   import CustomSelect from '$lib/components/CustomSelect.svelte'
+  import TeamDiscordRoster from './TeamDiscordRoster.svelte'
   import { resolve } from '$app/paths'
 
   import { membershipRoleOptions, teamStatusOptions } from '$lib/admin/options'
@@ -526,6 +527,13 @@
               </button>
             </div>
           </div>
+
+          <TeamDiscordRoster
+            teamId={team.id}
+            rosterKey={(team.roster ?? [])
+              .map((p) => `${p.membership_id ?? p.profile_id}:${p.role}`)
+              .join(',')}
+          />
 
           <div class="mt-3 flex justify-end gap-2">
             {#if team.status !== 'disbanded'}

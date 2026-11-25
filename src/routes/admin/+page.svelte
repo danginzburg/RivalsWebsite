@@ -53,6 +53,7 @@
   } from '$lib/admin/types'
   import { resolveSeasonProfile } from '$lib/seasons/profile'
   import { resolveSeasonSchedule } from '$lib/seasons/schedule'
+  import { resolveMapPoolMode } from '$lib/seasons/mapPool'
   import { seasonMvpName } from '$lib/seasons/mvp'
   import { readRememberedAdminSeason, rememberAdminSeason } from '$lib/admin/remembered-season'
   import { onMount, tick } from 'svelte'
@@ -752,6 +753,7 @@
               (name): name is string => typeof name === 'string'
             )
           : [],
+        mapPoolMode: resolveMapPoolMode(season.metadata as Record<string, unknown> | null),
         sections: profile.sections,
         links: profile.links,
         schedule: resolveSeasonSchedule(season.metadata as Record<string, unknown> | null),
@@ -1217,6 +1219,7 @@
           championClipUrl: state.championClipUrl || null,
           finalLeaderboardBatchId: state.finalLeaderboardBatchId || null,
           mapPool: state.mapPool ?? [],
+          mapPoolMode: state.mapPoolMode,
           profile: { sections: state.sections, links: state.links },
           schedule: state.schedule,
         },

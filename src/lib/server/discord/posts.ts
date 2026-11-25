@@ -147,6 +147,42 @@ export async function upsertPost(
   }
 }
 
+/**
+ * Run `send` at most once per `key` (for messages that are not webhook posts,
+ * such as bot DMs). `send` returns the sent message id, or null on failure,
+ * which releases the key so a later run can retry. Never throws.
+ */
+export async function sendOnce(
+  key: PostKey,
+  send: () => Promise<string | null>
+): Promise<'posted' | 'skipped' | 'failed'> {
+  try {
+    const existing = await store.get(key)
+    if (existing?.messageId) return 'skipped'
+    if (existing) {
+      const age = Date.now() - new Date(existing.updatedAt).getTime()
+      if (age < CLAIM_STALE_MS) return 'skipped'
+      await store.remove(key)
+    }
+    if (!(await store.claim(key, null))) return 'skipped'
+    let messageId: string | null = null
+    try {
+      messageId = await send()
+    } catch (err) {
+      console.error(`Discord send ${key.kind}:${key.subjectId} failed:`, err)
+    }
+    if (!messageId) {
+      await store.remove(key)
+      return 'failed'
+    }
+    await store.save(key, messageId, null)
+    return 'posted'
+  } catch (err) {
+    console.error(`Discord send ${key.kind}:${key.subjectId} (${key.channel}) failed:`, err)
+    return 'failed'
+  }
+}
+
 /** Delete the message posted under `key`, if any. Never throws. */
 export async function deletePost(
   key: PostKey,

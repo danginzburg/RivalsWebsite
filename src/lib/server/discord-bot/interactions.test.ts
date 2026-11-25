@@ -90,8 +90,22 @@ describe('/set-time', () => {
       ORIGIN
     )
 
-  it('refuses anyone who isn’t staff, privately', async () => {
-    const res = await setTime({ user: { id: 'u1' }, permissions: '0' }, { id: 't1', type: 11 })
+  it('lets a player propose only inside a scheduling thread', async () => {
+    const res = await setTime({ user: { id: 'u1' }, permissions: '0' }, { id: 'c', type: 0 })
+    expect(res.data?.flags).toBe(64)
+    expect(String(res.data?.content)).toContain('scheduling thread')
+  })
+
+  it('lets only staff answer a time proposal, privately', async () => {
+    const res = await handleInteraction(
+      {
+        type: 3,
+        data: { custom_id: 'time:approve:00000000-0000-4000-8000-000000000000:1790000000' },
+        member: { user: { id: 'u1' }, permissions: '0' },
+        channel_id: 't1',
+      },
+      ORIGIN
+    )
     expect(res.data?.flags).toBe(64)
     expect(String(res.data?.content)).toContain('Only staff')
   })
