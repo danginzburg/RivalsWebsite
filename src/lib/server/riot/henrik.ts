@@ -364,6 +364,39 @@ export async function lookupSignupRank(
   return { account: { name: account.name, tag: account.tag, puuid: account.puuid }, rank }
 }
 
+type QueueStatusPayload = Array<{
+  mode_id?: string
+  maps?: Array<{ map?: { name?: string }; enabled?: boolean }>
+}>
+
+/** The ranked rotation changes with patches, so an hour's cache is plenty. */
+const rotationCache = new TtlCache<string[]>({ ttlMs: 60 * 60_000, maxEntries: 1 })
+
+/**
+ * Maps currently in the NA competitive queue, from HenrikDev's queue status.
+ * Throws a RiotLookupError when the API is unreachable or returns no
+ * competitive queue, so a caller never mistakes a failure for an empty rotation.
+ */
+export async function fetchCompetitiveMapRotation(opts: LookupOptions = {}): Promise<string[]> {
+  const cached = rotationCache.get('na')
+  if (cached) return cached
+
+  const queues = await request<QueueStatusPayload>('/v1/queue-status/na', opts)
+  const competitive = Array.isArray(queues)
+    ? queues.find((queue) => queue.mode_id === 'competitive')
+    : undefined
+  const maps = (competitive?.maps ?? [])
+    .filter((entry) => entry.enabled && typeof entry.map?.name === 'string')
+    .map((entry) => entry.map!.name!.trim())
+    .filter((name) => name.length > 0)
+  if (maps.length === 0) {
+    throw new RiotLookupError(502, 'The competitive map rotation came back empty.')
+  }
+
+  rotationCache.set('na', maps)
+  return maps
+}
+
 /** V26 competitive games on one account; no competitive record counts as none. */
 export async function fetchV26Games(
   target: { puuid: string | null; riotId: string | null },

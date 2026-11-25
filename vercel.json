@@ -1,3 +1,6 @@
 {
-  "crons": [{ "path": "/api/cron/discord", "schedule": "0 15 * * *" }]
+  "crons": [
+    { "path": "/api/cron/discord", "schedule": "0 15 * * *" },
+    { "path": "/api/cron/map-pool", "schedule": "0 16 * * *" }
+  ]
 }

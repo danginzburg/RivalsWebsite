@@ -19,7 +19,11 @@ import {
   teamLogoPayload,
   vodPayload,
   vodStageLine,
+  weeklyStandingsPayload,
+  WEEKLY_STANDINGS_SHOWN,
+  leagueWeekday,
   withRolePing,
+  withUserPings,
   type MatchRef,
 } from './embeds'
 import type { DiscordEmbed, WebhookPayload } from './webhook'
@@ -162,6 +166,60 @@ describe('match result', () => {
     expect(e.title).toBe('Project 30 win 2–0')
     expect(e.description).toBe('Jolly Rancher Boys 0 – **2 Project 30**')
     expect(e.fields).toBeUndefined()
+  })
+
+  it('lists a forfeited map, which has no map name, and who conceded it', () => {
+    const e = embed(
+      matchResultPayload({
+        ...result,
+        maps: [
+          { name: 'Ascent', a: 13, b: 9 },
+          { name: null, a: 0, b: 13, forfeit: { by: 'a', label: 'Player disconnected' } },
+          { name: 'Haven', a: 13, b: 11 },
+        ],
+      })
+    )
+    expect(e.title).toBe('Jolly Rancher Boys win 2–1')
+    expect(e.fields[1]).toEqual({
+      name: 'Map 2 · Forfeit',
+      value: '0 – 13 (FF by JRB · Player disconnected)',
+      inline: true,
+    })
+  })
+
+  it('reports a no-show forfeit of the whole match', () => {
+    const e = embed(
+      matchResultPayload({
+        ...result,
+        scoreA: 0,
+        scoreB: 2,
+        winner: 'b',
+        maps: [],
+        mvp: null,
+        forfeit: { kind: 'no_show', by: 'a' },
+      })
+    )
+    expect(e.title).toBe('Project 30 win by forfeit')
+    expect(e.description).toBe(
+      'Jolly Rancher Boys 0 – **2 Project 30**\nJolly Rancher Boys forfeited (no-show).'
+    )
+    expect(e.fields).toBeUndefined()
+  })
+
+  it('reports an admin-awarded win against the map score, with the reason', () => {
+    const e = embed(
+      matchResultPayload({
+        ...result,
+        winner: 'b',
+        forfeit: { kind: 'admin_award', by: 'a', reason: 'Ineligible player' },
+      })
+    )
+    // Not "Project 30 win 1–2".
+    expect(e.title).toBe('Project 30 win by forfeit')
+    expect(e.description).toBe(
+      'Jolly Rancher Boys 2 – **1 Project 30**\n' +
+        'Jolly Rancher Boys forfeited; the win was awarded by admins.\nReason: Ineligible player'
+    )
   })
 })
 
@@ -322,6 +380,20 @@ describe('role pings', () => {
   })
 })
 
+describe('user pings', () => {
+  it('mentions each player once and allows only them to be pinged', () => {
+    const p = withUserPings(matchReminderPayload(match), ['111', '222', '111', 'not-an-id'])
+    expect(p.content).toBe('<@111> <@222>')
+    expect(p.allowed_mentions).toEqual({ parse: [], users: ['111', '222'] })
+    expect(p.embeds).toHaveLength(1)
+  })
+
+  it('leaves the post alone with nobody to ping', () => {
+    const p = matchReminderPayload(match)
+    expect(withUserPings(p, [])).toBe(p)
+  })
+})
+
 describe('admin alerts', () => {
   it('links bug reports to moderation', () => {
     const e = embed(
@@ -372,5 +444,66 @@ describe('admin alerts', () => {
       )
     )
     expect(e.description.length).toBe(1500)
+  })
+})
+
+describe('weeklyStandingsPayload', () => {
+  const row = (rank: number, name: string, move: number | null) => ({
+    rank,
+    name,
+    tag: name.slice(0, 3).toUpperCase(),
+    wins: 5 - rank,
+    losses: rank,
+    mapWins: 10,
+    mapLosses: 4,
+    roundDiff: rank === 1 ? 42 : -3,
+    move,
+  })
+
+  it('lists the table with movement and names the biggest climb', () => {
+    const e = embed(
+      weeklyStandingsPayload({
+        siteUrl: SITE,
+        season: 'Season 5',
+        rows: [
+          row(1, 'Alpha', 2),
+          row(2, 'Bravo', -1),
+          row(3, 'Charlie', 0),
+          row(4, 'Delta', null),
+        ],
+        seriesThisWeek: 6,
+        imageUrl: `${SITE}/og/leaderboard.png?v=1`,
+      })
+    )
+    expect(e.title).toBe('Season 5 standings')
+    expect(e.url).toBe(`${SITE}/leaderboard`)
+    expect(e.description).toContain(
+      '6 series played this week. Biggest climb: Alpha (ALP), up 2 to #1.'
+    )
+    expect(e.description).toContain('**1.** Alpha (ALP) · 4-1 · maps 10-4 · RD +42 · ▲2')
+    expect(e.description).toContain('**2.** Bravo (BRA) · 3-2 · maps 10-4 · RD -3 · ▼1')
+    expect(e.description).toContain('**3.** Charlie (CHA) · 2-3 · maps 10-4 · RD -3\n')
+    expect(e.description).toContain('Delta (DEL) · 1-4 · maps 10-4 · RD -3 · 🆕')
+    expect(e.image).toEqual({ url: `${SITE}/og/leaderboard.png?v=1` })
+  })
+
+  it('caps the list and leaves out the climb when nobody moved up', () => {
+    const rows = Array.from({ length: WEEKLY_STANDINGS_SHOWN + 3 }, (_, i) =>
+      row(i + 1, `Team ${i + 1}`, 0)
+    )
+    const e = embed(
+      weeklyStandingsPayload({ siteUrl: SITE, season: 'S5', rows, seriesThisWeek: 1 })
+    )
+    expect(e.description).toContain('…and 3 more')
+    expect(e.description).not.toContain('Biggest climb')
+    expect(e.image).toBeUndefined()
+  })
+})
+
+describe('leagueWeekday', () => {
+  it('reads the day on Central time', () => {
+    // Mon 2026-11-23 15:00 UTC = 9 AM CT Monday; 03:00 UTC Tuesday = Monday night CT.
+    expect(leagueWeekday(new Date('2026-11-23T15:00:00Z'))).toBe(1)
+    expect(leagueWeekday(new Date('2026-11-24T03:00:00Z'))).toBe(1)
   })
 })

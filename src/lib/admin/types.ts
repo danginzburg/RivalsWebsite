@@ -1,6 +1,7 @@
 import type { MatchStreamRow } from '$lib/server/db-rows'
 import type { SeasonExternalLink, SeasonKind, SeasonSectionKey } from '$lib/seasons/profile'
 import type { SeasonSchedule } from '$lib/seasons/schedule'
+import type { MapPoolMode } from '$lib/seasons/mapPool'
 import type { SignupAltCheck } from '$lib/signups/alt-check'
 import type { Performance } from '$lib/signups/formula'
 
@@ -348,6 +349,8 @@ export type SeasonEditState = {
   finalLeaderboardBatchId: string
   /** Canonical Valorant map names shown as the season's map pool. */
   mapPool: string[]
+  /** 'competitive' follows the ranked rotation; 'custom' is hand-picked. */
+  mapPoolMode: MapPoolMode
   /** Which event-page sections are shown (all on by default). */
   sections: Record<SeasonSectionKey, boolean>
   /** Outbound links (e.g. off-site rulebook / signup / FAQ). */

@@ -89,3 +89,33 @@ export function weeklyRanks(
   const fromFirst = firstPlayed === -1 ? [] : points.slice(firstPlayed)
   return fromFirst.slice(-maxPoints)
 }
+
+/**
+ * Every team's rank from the standings matches played before `cutoff`, and
+ * how many series it had played by then. The weekly Discord standings compare
+ * this against a week earlier to show who moved.
+ */
+export function ranksAsOf(
+  teams: Array<{ id: string; name: string }>,
+  matches: DatedStandingsMatch[],
+  adjustments: StandingsAdjustment[],
+  scoring: ScoringOptions,
+  cutoff: number
+): Map<string, { rank: number; played: number }> {
+  const played = matches.filter((m) => {
+    if (!m.at || !countsTowardStandings(m.stage) || m.out_of_group) return false
+    const ms = Date.parse(m.at)
+    return Number.isFinite(ms) && ms < cutoff
+  })
+  const table = computeStandings(teams, played, adjustments, scoring)
+  return new Map(table.map((r) => [r.team_id, { rank: r.rank, played: r.wins + r.losses }]))
+}
+
+/** Standings series (regular season, in group) played in [from, to). */
+export function seriesPlayedBetween(matches: DatedStandingsMatch[], from: number, to: number) {
+  return matches.filter((m) => {
+    if (!m.at || !countsTowardStandings(m.stage) || m.out_of_group) return false
+    const ms = Date.parse(m.at)
+    return Number.isFinite(ms) && ms >= from && ms < to
+  }).length
+}

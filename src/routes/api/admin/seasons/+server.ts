@@ -7,6 +7,14 @@ import { sanitizeSeasonProfile, type SeasonKind } from '$lib/seasons/profile'
 import { sanitizeSeasonSchedule } from '$lib/seasons/schedule'
 import { syncSeasonAccoladesSafely } from '$lib/server/accolades/season-sync'
 import { invalidateFinalPlacements } from '$lib/server/seasons/finalPlacementsCache'
+import { fetchCompetitiveMapRotation, RiotLookupError } from '$lib/server/riot/henrik'
+import {
+  mergeRotationIntoPool,
+  normalizeMapPoolMode,
+  resolveMapPool,
+  resolveMapPoolMode,
+  sanitizeMapPool,
+} from '$lib/seasons/mapPool'
 
 const SEASON_COLUMNS = `
   id,
@@ -176,6 +184,7 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
   // sends one can't drop the others (or any other metadata key the season carries).
   if (
     body.mapPool !== undefined ||
+    body.mapPoolMode !== undefined ||
     body.profile !== undefined ||
     body.schedule !== undefined ||
     body.mvpName !== undefined
@@ -191,12 +200,31 @@ export const PATCH: RequestHandler = async ({ locals, request }) => {
         : {}
     const merged: Record<string, unknown> = { ...existing }
 
-    if (body.mapPool !== undefined) {
-      merged.map_pool = Array.isArray(body.mapPool)
-        ? body.mapPool
-            .map((name: unknown) => (typeof name === 'string' ? name.trim() : ''))
-            .filter((name: string) => name.length > 0)
-        : []
+    const previousMode = resolveMapPoolMode(existing)
+    const mapPoolMode =
+      body.mapPoolMode !== undefined ? normalizeMapPoolMode(body.mapPoolMode) : previousMode
+    merged.map_pool_mode = mapPoolMode
+
+    if (mapPoolMode === 'competitive') {
+      // The rotation owns a competitive pool; the client's list is ignored.
+      // Switching over starts from the current rotation rather than inheriting
+      // hand-picked maps that would then never leave. After that, maps only
+      // accumulate (the daily sync adds new ones, nothing is removed).
+      if (previousMode !== 'competitive') {
+        try {
+          merged.map_pool = await fetchCompetitiveMapRotation()
+        } catch (err) {
+          const message = err instanceof RiotLookupError ? err.message : 'Lookup failed.'
+          throw error(502, `Could not load the competitive map rotation. ${message}`)
+        }
+      } else {
+        // Saving also picks up anything new in the rotation; if the lookup is
+        // down the pool is left as is and the daily sync catches up.
+        const rotation = await fetchCompetitiveMapRotation().catch(() => [] as string[])
+        merged.map_pool = mergeRotationIntoPool(resolveMapPool(existing), rotation)
+      }
+    } else if (body.mapPool !== undefined) {
+      merged.map_pool = sanitizeMapPool(body.mapPool)
     }
 
     if (body.profile !== undefined) {

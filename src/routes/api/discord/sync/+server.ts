@@ -19,14 +19,23 @@ function authorized(header: string | null): boolean {
   return expected.length === given.length && timingSafeEqual(expected, given)
 }
 
-/** Scheduling threads: linked by title, vetoes imported. Never throws. */
+/** Scheduling threads: opened, linked, closed, vetoes imported. Never throws. */
 async function syncThreads(origin: string): Promise<ThreadSyncReport> {
   const config = discordConfig()
-  if (!config) return { configured: false, linked: 0, vetoes: 0, prompts: 0, errors: [] }
+  if (!config)
+    return { configured: false, linked: 0, opened: 0, closed: 0, vetoes: 0, prompts: 0, errors: [] }
   try {
     return await runThreadSync(config, origin)
   } catch (err) {
-    return { configured: true, linked: 0, vetoes: 0, prompts: 0, errors: [(err as Error).message] }
+    return {
+      configured: true,
+      linked: 0,
+      opened: 0,
+      closed: 0,
+      vetoes: 0,
+      prompts: 0,
+      errors: [(err as Error).message],
+    }
   }
 }
 

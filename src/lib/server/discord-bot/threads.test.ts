@@ -12,6 +12,20 @@ import {
   vetoPromptClosed,
   vetoPromptMessage,
   vetoSavedMessage,
+  messagesSince,
+  opponentChangedMessage,
+  pickOrphanThread,
+  shouldOpenThread,
+  threadCloseReason,
+  threadOpeningMessage,
+  threadTitle,
+  designationWeek,
+  weekStartDate,
+  resultLine,
+  threadClosedMessage,
+  timeButtonId,
+  parseTimeButtonId,
+  timeProposalMessage,
   type ThreadMatch,
 } from './threads'
 
@@ -312,5 +326,130 @@ describe('match choices', () => {
     const matches = [match({ id: 'a' }), match({ id: 'b', team_b: tl })]
     expect(filterMatchChoices(matches, 'liquid sen').map((m) => m.id)).toEqual(['b'])
     expect(filterMatchChoices(matches, '').map((m) => m.id)).toEqual(['a', 'b'])
+  })
+})
+
+describe('bot-opened threads', () => {
+  const roleSen = { ...sen, discord_role_id: '111111' }
+  const roleC9 = { ...c9, discord_role_id: '222222' }
+
+  it('opens a thread a week out, or straight away with no time', () => {
+    expect(shouldOpenThread(match({ scheduled_at: '2026-11-29T01:00:00Z' }), NOW)).toBe(true)
+    expect(shouldOpenThread(match({ scheduled_at: '2026-12-05T01:00:00Z' }), NOW)).toBe(false)
+    expect(shouldOpenThread(match({ scheduled_at: null }), NOW)).toBe(true)
+    expect(shouldOpenThread(match({ status: 'completed' }), NOW)).toBe(false)
+    expect(shouldOpenThread(match({ team_b: null }), NOW)).toBe(false)
+  })
+
+  it('pings both team roles, and names a team with no role', () => {
+    const msg = threadOpeningMessage(
+      { ...match({}), team_a: roleSen, team_b: roleC9, best_of: 3 },
+      'https://x/m1',
+      ['Bind', 'Lotus']
+    )
+    expect(msg.content).toContain('<@&111111> vs <@&222222>')
+    expect(msg.content).toContain('Map pool: Bind, Lotus')
+    expect(msg.allowed_mentions).toEqual({ parse: [], roles: ['111111', '222222'] })
+
+    const noRole = threadOpeningMessage({ ...match({}), team_a: roleSen, team_b: c9 }, 'u', null)
+    expect(noRole.content).toContain('<@&111111> vs **Cloud9**')
+    expect(noRole.allowed_mentions).toEqual({ parse: [], roles: ['111111'] })
+  })
+
+  it('pings the current teams on an opponent change', () => {
+    const msg = opponentChangedMessage(
+      ['Team Liquid'],
+      { ...match({}), team_a: roleSen, team_b: roleC9 },
+      'u'
+    )
+    expect(msg.content).toContain('replacing **Team Liquid**')
+    expect(msg.allowed_mentions.roles).toEqual(['111111', '222222'])
+  })
+
+  it('hands a deleted match’s thread only to a replacement made after it', () => {
+    const orphan = { threadId: 'th', teamIds: [sen.id, tl.id], orphanedAt: '2026-11-22T00:00:00Z' }
+    const replacement = { ...match({}), created_at: '2026-11-22T01:00:00Z' }
+    const older = { ...match({}), created_at: '2026-11-01T00:00:00Z' }
+    expect(pickOrphanThread(replacement, [orphan], NOW)?.threadId).toBe('th')
+    expect(pickOrphanThread(older, [orphan], NOW)).toBeNull()
+    const unrelated = {
+      ...replacement,
+      team_a: { id: 'x', name: 'X' },
+      team_b: { id: 'y', name: 'Y' },
+    }
+    expect(pickOrphanThread(unrelated, [orphan], NOW)).toBeNull()
+    const samePair = {
+      threadId: 'same',
+      teamIds: [sen.id, c9.id],
+      orphanedAt: '2026-11-21T00:00:00Z',
+    }
+    expect(pickOrphanThread(replacement, [orphan, samePair], NOW)?.threadId).toBe('same')
+    const stale = { ...orphan, orphanedAt: '2026-10-01T00:00:00Z' }
+    expect(pickOrphanThread({ ...replacement }, [stale], NOW)).toBeNull()
+  })
+
+  it('closes a thread once the match is cancelled', () => {
+    expect(threadCloseReason({ status: 'cancelled' })).toBe('cancelled')
+    expect(threadCloseReason({ status: 'scheduled' })).toBeNull()
+  })
+
+  it('reads only messages after the cutoff', () => {
+    const msgs = [{ id: '100' }, { id: '200' }, { id: '300' }]
+    expect(messagesSince(msgs, '200').map((m) => m.id)).toEqual(['300'])
+    expect(messagesSince(msgs, null)).toHaveLength(3)
+  })
+
+  it('titles the thread as the title linker reads it', () => {
+    expect(threadTitle(match({}))).toBe('Sentinels vs Cloud9')
+  })
+})
+
+describe('weeks and proposals', () => {
+  it('reads the week a designation names', () => {
+    expect(designationWeek('Week 3')).toBe(3)
+    expect(designationWeek('wk 12 – Group A')).toBe(12)
+    expect(designationWeek('Playoffs')).toBeNull()
+  })
+
+  it('finds the first day of a week (weeks close on Sunday)', () => {
+    // Starts Wednesday 2026-11-04; week 1 runs to Sunday the 8th.
+    expect(weekStartDate('2026-11-04', 0, 1)).toBe('2026-11-04')
+    expect(weekStartDate('2026-11-04', 0, 2)).toBe('2026-11-09')
+    expect(weekStartDate('2026-11-04', 0, 4)).toBe('2026-11-23')
+  })
+
+  it('holds an untimed match until its week opens', () => {
+    const untimed = match({ scheduled_at: null })
+    expect(shouldOpenThread(untimed, NOW, new Date('2026-11-30T06:00:00Z'))).toBe(false)
+    expect(shouldOpenThread(untimed, NOW, new Date('2026-11-23T06:00:00Z'))).toBe(true)
+  })
+
+  it('closes as soon as the result is in', () => {
+    expect(threadCloseReason({ status: 'completed' })).toBe('completed')
+    expect(
+      threadClosedMessage(
+        'completed',
+        'u',
+        resultLine({ team_a: sen, team_b: c9, team_a_score: 2, team_b_score: 1 })
+      ).content
+    ).toContain('Sentinels 2–1 Cloud9')
+  })
+
+  it('round-trips a time proposal button', () => {
+    const id = timeButtonId('approve', '00000000-0000-4000-8000-000000000000', 1790000000)
+    expect(parseTimeButtonId(id)).toEqual({
+      action: 'approve',
+      matchId: '00000000-0000-4000-8000-000000000000',
+      unix: 1790000000,
+    })
+    expect(parseTimeButtonId('veto:update:abc')).toBeNull()
+    const msg = timeProposalMessage(
+      'A vs B',
+      '00000000-0000-4000-8000-000000000000',
+      1790000000,
+      'u9'
+    )
+    expect(msg.content).toContain('<@u9> proposed')
+    expect(msg.allowed_mentions.parse).toEqual([])
   })
 })

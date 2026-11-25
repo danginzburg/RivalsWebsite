@@ -26,7 +26,8 @@ export const LINK_MATCH = {
 
 export const SET_TIME = {
   name: 'set-time',
-  description: 'Staff: set this match’s start time (Central time)',
+  description:
+    'Set this match’s start time (Central time); players propose it for staff to approve',
   type: 1,
   contexts: [0],
   options: [

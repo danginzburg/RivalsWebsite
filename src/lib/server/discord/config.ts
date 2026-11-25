@@ -14,6 +14,10 @@ export const DISCORD_CHANNELS = {
   vods: 'DISCORD_WEBHOOK_VODS',
   /** #team-logos */
   team_logos: 'DISCORD_WEBHOOK_TEAM_LOGOS',
+  /** #team-creation: each team's roster card, edited on every published update. */
+  team_creation: 'DISCORD_WEBHOOK_TEAM_CREATION',
+  /** #team-updates: one post per published batch of roster changes. */
+  team_updates: 'DISCORD_WEBHOOK_TEAM_UPDATES',
   /** #official-streams (pings the stream role when a match goes live) */
   streams: 'DISCORD_WEBHOOK_STREAMS',
   /** #prod-announcements (a stream link was added to a match) */
@@ -54,19 +58,40 @@ export function webhookOptions(): WebhookOptions {
   return { dryRun: isDryRun() }
 }
 
+/*
+ * Discord role ids. These are not secrets (every ping shows them), so they
+ * live here instead of env. To add a role: Developer Mode on → right-click
+ * the role → Copy Role ID, then add a line. `env` names the optional env var
+ * that overrides the id without a deploy.
+ */
+export const DISCORD_ROLES = {
+  /** @Stream Ping: pinged when a match goes live. */
+  streamPing: { id: '1363712736713773116', env: 'DISCORD_STREAM_PING_ROLE_ID' },
+  /** @Rivals Player: pinged on every #rivals-annoucements post. */
+  rivalsPlayer: { id: '1319836124016934912', env: 'DISCORD_ANNOUNCEMENTS_PING_ROLE_ID' },
+} as const satisfies Record<string, { id: string; env?: string }>
+
+export type DiscordRole = keyof typeof DISCORD_ROLES
+
+const isSnowflake = (id: string | undefined): id is string => !!id && /^\d+$/.test(id)
+
+/** A role's id: its env override when set and valid, otherwise the id above. */
+export function roleId(role: DiscordRole): string | null {
+  const { id, env: envName } = DISCORD_ROLES[role] as { id: string; env?: string }
+  const override = envName ? readEnv(envName) : undefined
+  if (isSnowflake(override)) return override
+  if (override) console.warn(`${envName} is not a Discord role id; using the default.`)
+  return isSnowflake(id) ? id : null
+}
+
 /** Role pinged when a match goes live (@Stream Ping). */
 export function streamPingRoleId(): string | null {
-  return roleId('DISCORD_STREAM_PING_ROLE_ID')
+  return roleId('streamPing')
 }
 
 /** Role pinged on every #rivals-annoucements post (@Rivals Player). */
 export function announcementsPingRoleId(): string | null {
-  return roleId('DISCORD_ANNOUNCEMENTS_PING_ROLE_ID')
-}
-
-function roleId(name: string): string | null {
-  const id = readEnv(name)
-  return id && /^\d+$/.test(id) ? id : null
+  return roleId('rivalsPlayer')
 }
 
 /**

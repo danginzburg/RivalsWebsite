@@ -4,7 +4,12 @@ import { getTeamLogoUrl } from '$lib/server/teams/logo'
 import { sectionLabel } from '$lib/stats/sections'
 import type { PickemEvent } from '$lib/pickems'
 import { loadPickemFinal } from '$lib/server/og/pickem-card'
+import { loadStandings } from '$lib/server/leaderboard/standings'
+import { loadSeasonReplay } from '$lib/server/leaderboard/history'
+import { ranksAsOf, seriesPlayedBetween } from '$lib/server/leaderboard/rank-history'
+import { cardVersion } from '$lib/meta'
 import {
+  isDryRun,
   siteUrl,
   streamPingRoleId,
   announcementsPingRoleId,
@@ -27,14 +32,25 @@ import {
   streamLivePayload,
   teamLogoPayload,
   vodPayload,
+  weeklyStandingsPayload,
   withRolePing,
+  withUserPings,
   vodStageLine,
   type AdminAlert,
   type MatchRef,
   type PickemRef,
   type StreamInput,
+  type WeeklyStandingsRow,
 } from './embeds'
-import { deletePost, matchThreadId, upsertPost, type PostKey, type UpsertMode } from './posts'
+import {
+  deletePost,
+  matchThreadId,
+  sendOnce,
+  upsertPost,
+  type PostKey,
+  type UpsertMode,
+} from './posts'
+import { discordConfig, sendDirectMessage } from '$lib/server/discord-events/api'
 import type { WebhookPayload } from './webhook'
 
 /*
@@ -62,15 +78,16 @@ async function post(
   kind: string,
   subjectId: string,
   payload: WebhookPayload,
-  opts: { mode?: UpsertMode; threadId?: string | null } = {}
+  opts: { mode?: UpsertMode; threadId?: string | null; ping?: boolean } = {}
 ) {
   const url = webhookUrlFor(channel)
   if (!url) return 'skipped' as const
   const key: PostKey = { kind, subjectId, channel }
-  // Everything in #rivals-annoucements pings @Rivals Player.
+  const { ping = true, ...upsertOpts } = opts
+  // Posts in #rivals-annoucements ping @Rivals Player unless they opt out.
   const body =
-    channel === 'announcements' ? withRolePing(payload, announcementsPingRoleId()) : payload
-  return upsertPost(key, url, body, { ...webhookOptions(), ...opts })
+    channel === 'announcements' && ping ? withRolePing(payload, announcementsPingRoleId()) : payload
+  return upsertPost(key, url, body, { ...webhookOptions(), ...upsertOpts })
 }
 
 async function remove(channel: DiscordChannel, kind: string, subjectId: string) {
@@ -98,6 +115,24 @@ export type LoadedMatch = MatchRef & {
   stage: string | null
   designation: string | null
   vodUrl: string | null
+  /** metadata.forfeit when the whole match was decided by forfeit. */
+  forfeit: { kind: 'no_show' | 'admin_award'; teamId: string | null; reason: string | null } | null
+}
+
+type RawForfeit = {
+  kind?: unknown
+  forfeiting_team_id?: unknown
+  reason?: unknown
+  label?: unknown
+}
+
+function matchForfeit(raw: RawForfeit | null | undefined): LoadedMatch['forfeit'] {
+  if (!raw || (raw.kind !== 'no_show' && raw.kind !== 'admin_award')) return null
+  return {
+    kind: raw.kind,
+    teamId: typeof raw.forfeiting_team_id === 'string' ? raw.forfeiting_team_id : null,
+    reason: typeof raw.reason === 'string' && raw.reason.trim() ? raw.reason.trim() : null,
+  }
 }
 
 /** A match in the active season that visitors can see, or null. */
@@ -120,7 +155,11 @@ export async function loadAnnounceableMatch(matchId: string): Promise<LoadedMatc
 
   const a = one(match.team_a as TeamRel | TeamRel[] | null)
   const b = one(match.team_b as TeamRel | TeamRel[] | null)
-  const metadata = match.metadata as { designation?: string; youtube_vod_url?: string } | null
+  const metadata = match.metadata as {
+    designation?: string
+    youtube_vod_url?: string
+    forfeit?: RawForfeit
+  } | null
   const designation = metadata?.designation?.trim() || null
   const stageText = match.stage ? sectionLabel(match.stage) : null
 
@@ -145,22 +184,37 @@ export async function loadAnnounceableMatch(matchId: string): Promise<LoadedMatc
     stage: stageText,
     designation,
     vodUrl: metadata?.youtube_vod_url?.trim() || null,
+    forfeit: matchForfeit(metadata?.forfeit),
   }
 }
 
+/** Map rows as stored: forfeits keep the conceding team id, resolved to a side later. */
 async function loadMaps(matchId: string) {
   const { data } = await supabaseAdmin
     .from('match_maps')
-    .select('map_order, map_name, team_a_rounds, team_b_rounds, is_voided')
+    .select('map_order, map_name, team_a_rounds, team_b_rounds, is_voided, metadata')
     .eq('match_id', matchId)
     .order('map_order')
-  return (data ?? [])
-    .filter((m) => !m.is_voided && m.map_name && m.team_a_rounds != null && m.team_b_rounds != null)
-    .map((m) => ({
-      name: m.map_name as string,
-      a: m.team_a_rounds as number,
-      b: m.team_b_rounds as number,
-    }))
+  return (data ?? []).flatMap((m) => {
+    if (m.is_voided || m.team_a_rounds == null || m.team_b_rounds == null) return []
+    const raw = (m.metadata as { forfeit?: RawForfeit } | null)?.forfeit
+    const forfeit = raw
+      ? {
+          teamId: typeof raw.forfeiting_team_id === 'string' ? raw.forfeiting_team_id : null,
+          label: typeof raw.label === 'string' && raw.label.trim() ? raw.label.trim() : null,
+        }
+      : null
+    // A forfeited map was never played, so it has no map name; keep it anyway.
+    if (!m.map_name && !forfeit) return []
+    return [
+      {
+        name: (m.map_name as string | null) || null,
+        a: m.team_a_rounds as number,
+        b: m.team_b_rounds as number,
+        forfeit,
+      },
+    ]
+  })
 }
 
 /** The series' top ACS, when player stats have been imported. */
@@ -220,22 +274,101 @@ export async function postMatchCancelled(matchId: string) {
   await post('scheduling', 'match_schedule', matchId, matchCancelledPayload(match), { threadId })
 }
 
+/**
+ * Discord user ids of everyone on the two rosters who has a linked Discord
+ * account. Teams are per season, so active memberships of these team ids are
+ * this season's rosters.
+ */
+async function loadRosterDiscordIds(teamIds: Array<string | null>): Promise<string[]> {
+  const ids = teamIds.filter((id): id is string => Boolean(id))
+  if (ids.length === 0) return []
+  const { data: members, error: memberError } = await supabaseAdmin
+    .from('team_memberships')
+    .select('profile_id')
+    .in('team_id', ids)
+    .eq('is_active', true)
+    .is('left_at', null)
+    .not('profile_id', 'is', null)
+  if (memberError) console.error('Failed to load rosters for the match reminder:', memberError)
+  const profileIds = [...new Set((members ?? []).map((m) => m.profile_id as string))]
+  if (profileIds.length === 0) return []
+  const { data: profiles, error: profileError } = await supabaseAdmin
+    .from('profiles')
+    .select('discord_id')
+    .in('id', profileIds)
+    .not('discord_id', 'is', null)
+  if (profileError)
+    console.error('Failed to load Discord ids for the match reminder:', profileError)
+  return [...new Set((profiles ?? []).map((p) => p.discord_id as string))]
+}
+
+/**
+ * The morning-of reminder: posted in the match's thread with every rostered
+ * player @mentioned, once per start time. DMs to each player are built but
+ * switched off (REMINDER_DMS_ENABLED) until players can opt in.
+ */
 export async function postMatchReminder(matchId: string) {
   const match = await loadAnnounceableMatch(matchId)
   if (!match?.scheduledAt || match.status !== 'scheduled') return
-  const threadId = await matchThreadId(matchId)
-  if (!threadId) return
+  const [threadId, players] = await Promise.all([
+    matchThreadId(matchId),
+    loadRosterDiscordIds([match.teamAId, match.teamBId]),
+  ])
   // Keyed on the start time, so a rescheduled match gets a fresh reminder.
-  await post(
-    'scheduling',
-    'match_reminder',
-    `${matchId}:${match.scheduledAt}`,
-    matchReminderPayload(match),
-    {
+  const reminderKey = `${matchId}:${match.scheduledAt}`
+  const reminder = matchReminderPayload(match)
+
+  if (threadId) {
+    await post('scheduling', 'match_reminder', reminderKey, withUserPings(reminder, players), {
       mode: 'once',
       threadId,
-    }
-  )
+    })
+  }
+  if (REMINDER_DMS_ENABLED) await dmMatchReminder(reminderKey, reminder, players, threadId)
+}
+
+/**
+ * Off for now: DMing every player felt too pushy to start. Before turning it
+ * on, filter `players` to those who opted in (a profile setting).
+ */
+const REMINDER_DMS_ENABLED = false
+
+async function dmMatchReminder(
+  reminderKey: string,
+  reminder: WebhookPayload,
+  players: string[],
+  threadId: string | null
+) {
+  const config = discordConfig()
+  if (!config || players.length === 0) return
+  const body: WebhookPayload = {
+    ...reminder,
+    content: threadId
+      ? `Your match is today. Scheduling thread: https://discord.com/channels/${config.guildId}/${threadId}`
+      : 'Your match is today.',
+    allowed_mentions: { parse: [] },
+  }
+  for (const userId of players) {
+    await sendOnce(
+      { kind: 'match_reminder_dm', subjectId: `${reminderKey}:${userId}`, channel: 'dm' },
+      async () => {
+        if (isDryRun()) {
+          console.log(`[discord dry run] DM ${userId}:`, JSON.stringify(body))
+          return 'dry-run'
+        }
+        try {
+          return (await sendDirectMessage(config, userId, body)).id
+        } catch (err) {
+          // Closed DMs (50007) won't open by retrying; record them as handled.
+          if (err instanceof Error && /\b50007\b/.test(err.message)) {
+            console.warn(`Match reminder DM to ${userId} refused (DMs closed).`)
+            return 'dms-closed'
+          }
+          throw err
+        }
+      }
+    )
+  }
 }
 
 function resultPayload(
@@ -243,17 +376,20 @@ function resultPayload(
   maps: Awaited<ReturnType<typeof loadMaps>>,
   mvp: Awaited<ReturnType<typeof loadMvp>>
 ) {
+  const side = (teamId: string | null) =>
+    teamId && teamId === match.teamAId ? 'a' : teamId && teamId === match.teamBId ? 'b' : null
   return matchResultPayload({
     ...match,
-    winner:
-      match.winnerTeamId && match.winnerTeamId === match.teamAId
-        ? 'a'
-        : match.winnerTeamId && match.winnerTeamId === match.teamBId
-          ? 'b'
-          : null,
-    maps,
+    winner: side(match.winnerTeamId),
+    maps: maps.map((m) => ({
+      ...m,
+      forfeit: m.forfeit ? { by: side(m.forfeit.teamId), label: m.forfeit.label } : null,
+    })),
     mvp,
-    cardVersion: `${match.status}-${match.scoreA}-${match.scoreB}-${maps.map((m) => `${m.a}.${m.b}`).join('_')}`,
+    forfeit: match.forfeit
+      ? { kind: match.forfeit.kind, by: side(match.forfeit.teamId), reason: match.forfeit.reason }
+      : null,
+    cardVersion: `${match.status}-${match.scoreA}-${match.scoreB}-${maps.map((m) => `${m.a}.${m.b}${m.forfeit ? 'ff' : ''}`).join('_')}${match.forfeit ? `-${match.forfeit.kind}` : ''}`,
   })
 }
 
@@ -457,6 +593,76 @@ export async function postPickemFinal(eventId: string, mode: UpsertMode = 'upser
       imageUrl: `${origin}/og/pickem/${eventId}.png?v=${encodeURIComponent(version)}`,
     }),
     { mode }
+  )
+}
+
+// ── Weekly standings ────────────────────────────────────────────────────────
+
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000
+
+/** Ping @Rivals Player on the weekly standings, like every other announcement. */
+const WEEKLY_STANDINGS_PING = true
+
+/**
+ * The Monday standings post in #rivals-annoucements: the running season's
+ * table, each team's movement over the past week, and the standings card.
+ * Skipped between seasons and in a week with no standings series (nothing
+ * moved). One post per season per `weekKey`, so a rerun never double-posts.
+ */
+export async function postWeeklyStandings(weekKey: string, now: number = Date.now()) {
+  const standings = await loadStandings()
+  const season = standings.season
+  if (!season?.id || !season.name) return 'skipped' as const
+
+  const replay = await loadSeasonReplay(season.id)
+  if (!replay) return 'skipped' as const
+  const seriesThisWeek = seriesPlayedBetween(replay.matches, now - WEEK_MS, now)
+  if (seriesThisWeek === 0) return 'skipped' as const
+
+  const before = ranksAsOf(
+    replay.teams,
+    replay.matches,
+    replay.adjustments,
+    replay.scoring,
+    now - WEEK_MS
+  )
+  const ranked = standings.rows.filter((r) => r.stats?.rank != null && !r.disbanded)
+  if (ranked.length === 0) return 'skipped' as const
+
+  const rows: WeeklyStandingsRow[] = ranked.map((r) => {
+    const stats = r.stats!
+    const prev = before.get(r.id)
+    return {
+      rank: stats.rank!,
+      name: r.name,
+      tag: r.tag,
+      wins: stats.series_wins,
+      losses: stats.series_losses,
+      mapWins: stats.map_wins,
+      mapLosses: stats.map_losses,
+      roundDiff: stats.round_diff,
+      move: prev && prev.played > 0 ? prev.rank - stats.rank! : null,
+    }
+  })
+
+  const origin = siteUrl()
+  // Same version recipe as the /leaderboard page, so Discord shows this week's card.
+  const version = cardVersion([
+    season.name,
+    standings.rows.slice(0, 8).map((r) => [r.id, r.name, r.logo_url, r.stats]),
+  ])
+  return post(
+    'announcements',
+    'weekly_standings',
+    `${season.id}:${weekKey}`,
+    weeklyStandingsPayload({
+      siteUrl: origin,
+      season: season.name.replace(/\s+/g, ' '),
+      rows,
+      seriesThisWeek,
+      imageUrl: `${origin}/og/leaderboard.png?v=${version}`,
+    }),
+    { mode: 'once', ping: WEEKLY_STANDINGS_PING }
   )
 }
 

@@ -4,6 +4,7 @@ vi.mock('$lib/supabase/admin', () => ({ supabaseAdmin: {} }))
 
 import {
   deletePost,
+  sendOnce,
   setPostStore,
   upsertPost,
   type PostKey,
@@ -228,5 +229,33 @@ describe('deletePost', () => {
     expect(await deletePost(KEY, URL, { fetch: d.fetch })).toBe(true)
     expect(d.calls[1]).toMatchObject({ method: 'DELETE', url: `${URL}/messages/1000` })
     expect(await mem.store.get(KEY)).toBeNull()
+  })
+})
+
+describe('sendOnce', () => {
+  const DM: PostKey = { kind: 'match_reminder_dm', subjectId: 'm-1:t:111', channel: 'dm' }
+
+  it('sends once, then skips', async () => {
+    const { store } = memoryStore()
+    setPostStore(store)
+    const send = vi.fn(async () => 'msg-1')
+    expect(await sendOnce(DM, send)).toBe('posted')
+    expect(await sendOnce(DM, send)).toBe('skipped')
+    expect(send).toHaveBeenCalledTimes(1)
+    setPostStore()
+  })
+
+  it('releases the key when sending fails, so a later run retries', async () => {
+    const { store, rows } = memoryStore()
+    setPostStore(store)
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    expect(
+      await sendOnce(DM, async () => {
+        throw new Error('boom')
+      })
+    ).toBe('failed')
+    expect(rows.size).toBe(0)
+    expect(await sendOnce(DM, async () => 'msg-2')).toBe('posted')
+    setPostStore()
   })
 })

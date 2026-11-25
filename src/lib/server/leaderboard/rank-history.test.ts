@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { weeklyRanks, type DatedStandingsMatch } from './rank-history'
+import {
+  ranksAsOf,
+  seriesPlayedBetween,
+  weeklyRanks,
+  type DatedStandingsMatch,
+} from './rank-history'
 
 const teams = [
   { id: 'a', name: 'Alpha' },
@@ -76,5 +81,29 @@ describe('weeklyRanks', () => {
   it('is empty for a team outside the table or a season with no results', () => {
     expect(weeklyRanks('z', teams, [], [], scoring, now)).toEqual([])
     expect(weeklyRanks('a', teams, [], [], scoring, now)).toEqual([])
+  })
+})
+
+describe('ranksAsOf', () => {
+  const matches = [
+    match('2026-11-03T20:00:00Z', 'b', 'c'),
+    match('2026-11-10T20:00:00Z', 'c', 'b'),
+    match('2026-11-11T20:00:00Z', 'c', 'a'),
+    { ...match('2026-11-12T20:00:00Z', 'a', 'c'), stage: 'playoffs' },
+  ]
+
+  it('ranks only the standings matches played before the cutoff', () => {
+    const before = ranksAsOf(teams, matches, [], scoring, Date.parse('2026-11-09T00:00:00Z'))
+    expect(before.get('b')).toEqual({ rank: 1, played: 1 })
+    expect(before.get('a')?.played).toBe(0)
+
+    const after = ranksAsOf(teams, matches, [], scoring, now)
+    expect(after.get('c')).toEqual({ rank: 1, played: 3 })
+  })
+
+  it('counts standings series in a window, leaving out playoffs', () => {
+    const from = Date.parse('2026-11-09T00:00:00Z')
+    expect(seriesPlayedBetween(matches, from, now)).toBe(2)
+    expect(seriesPlayedBetween(matches, now, now + 1)).toBe(0)
   })
 })

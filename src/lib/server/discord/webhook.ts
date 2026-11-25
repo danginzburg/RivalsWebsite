@@ -26,7 +26,11 @@ export type WebhookPayload = {
   content?: string
   embeds?: DiscordEmbed[]
   /** Who may be pinged. Defaults to nobody, so a team name can't ping @everyone. */
-  allowed_mentions?: { parse?: Array<'roles' | 'users' | 'everyone'>; roles?: string[] }
+  allowed_mentions?: {
+    parse?: Array<'roles' | 'users' | 'everyone'>
+    roles?: string[]
+    users?: string[]
+  }
   username?: string
   avatar_url?: string
 }
@@ -157,6 +161,9 @@ export async function executeWebhook(
   return typeof id === 'string' ? id : null
 }
 
+/** Discord message ids are numeric snowflakes. */
+const isSnowflake = (id: string) => /^\d+$/.test(id)
+
 /** Replace a message this webhook posted. */
 export async function editWebhookMessage(
   url: string,
@@ -170,6 +177,8 @@ export async function editWebhookMessage(
     )
     return 'ok'
   }
+  // A message id saved by a dry run never existed in Discord: treat it as deleted, so it is reposted.
+  if (!isSnowflake(messageId)) return 'missing'
   const result = await send('PATCH', messageUrl(url, messageId, options.threadId), payload, options)
   if (result.ok) return 'ok'
   return result.status === 404 ? 'missing' : 'failed'
@@ -185,6 +194,7 @@ export async function deleteWebhookMessage(
     console.info(`[discord dry-run] DELETE ${redact(url)} message ${messageId}`)
     return true
   }
+  if (!isSnowflake(messageId)) return true
   const result = await send('DELETE', messageUrl(url, messageId, options.threadId), null, options)
   return result.ok || result.status === 404
 }

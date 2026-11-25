@@ -186,7 +186,7 @@ export function planVeto(input: {
 export type BotMessage = {
   content: string
   components?: unknown[]
-  allowed_mentions: { parse: string[]; users?: string[] }
+  allowed_mentions: { parse: string[]; users?: string[]; roles?: string[] }
 }
 
 const NO_PINGS = { parse: [] as string[] }
@@ -330,4 +330,292 @@ export function filterMatchChoices(matches: ThreadMatch[], query: string): Threa
     const text = `${m.team_a?.name ?? ''} ${m.team_b?.name ?? ''}`.toLowerCase()
     return words.every((word) => text.includes(word))
   })
+}
+
+// ---------------------------------------------------------------------------
+// Threads the bot opens itself
+
+/** How far ahead of its start time a match's thread is opened. */
+export const THREAD_LEAD_MS = 7 * 24 * 60 * 60 * 1000
+
+/** How long a deleted match's thread waits for a replacement before it closes. */
+export const ORPHAN_GRACE_MS = 14 * 24 * 60 * 60 * 1000
+
+/** A team as the thread messages need it: who to ping. */
+export type PingTeam = { id: string; name: string; discord_role_id?: string | null }
+
+export type NewThreadMatch = ThreadMatch & {
+  best_of?: number | null
+  created_at?: string | null
+  /** Free text from the admin match editor, such as "Week 3". */
+  designation?: string | null
+  team_a: PingTeam | null
+  team_b: PingTeam | null
+}
+
+/** The thread's name: the pairing, as the title linker reads it. */
+export function threadTitle(match: Pick<ThreadMatch, 'team_a' | 'team_b'>): string {
+  const title = `${match.team_a?.name ?? 'TBD'} vs ${match.team_b?.name ?? 'TBD'}`
+  return title.length <= 100 ? title : `${title.slice(0, 99)}…`
+}
+
+/**
+ * Whether it's time to open a match's thread: an open match between two real
+ * teams that starts within a week. A match with no time yet opens when its
+ * week starts (`weekOpensAt`), or straight away when its week isn't known,
+ * since agreeing the time is what the thread is for.
+ */
+export function shouldOpenThread(
+  match: ThreadMatch,
+  now: Date,
+  weekOpens: Date | null = null
+): boolean {
+  if (!OPEN_STATUSES.has(match.status ?? '')) return false
+  if (!match.team_a || !match.team_b || match.team_a.id === match.team_b.id) return false
+  if (!match.scheduled_at) return !weekOpens || now.getTime() >= weekOpens.getTime()
+  const at = new Date(match.scheduled_at).getTime()
+  const stale = now.getTime() - 24 * 60 * 60 * 1000
+  return at >= stale && at <= now.getTime() + THREAD_LEAD_MS
+}
+
+/** "Week 3", "wk 3", "W3": the regular-season week a designation names. */
+export function designationWeek(designation: string | null | undefined): number | null {
+  const found = /\b(?:week|wk|w)\s*(\d{1,2})\b/i.exec(designation ?? '')
+  const week = found ? Number(found[1]) : NaN
+  return Number.isInteger(week) && week >= 1 ? week : null
+}
+
+/**
+ * The first day of regular-season week `week`, as `YYYY-MM-DD`. Week 1 starts
+ * on the stage's start date; each week closes on `weekEndDay` (0 = Sunday),
+ * the same count as `regularSeasonWeek` in $lib/seasons/schedule.
+ */
+export function weekStartDate(startsOn: string, weekEndDay: number, week: number): string {
+  if (week <= 1) return startsOn
+  const start = Date.parse(`${startsOn}T00:00:00Z`)
+  const toFirstEnd = (weekEndDay - new Date(start).getUTCDay() + 7) % 7
+  const day = start + (toFirstEnd + 1 + 7 * (week - 2)) * 86_400_000
+  return new Date(day).toISOString().slice(0, 10)
+}
+
+export type OrphanThread = {
+  threadId: string
+  teamIds: string[]
+  orphanedAt: string
+}
+
+/**
+ * The deleted match's thread a new match takes over: one that shared a team
+ * with it, orphaned before the new match was created (a replacement is made
+ * after the old one goes, so a team's other, older fixtures never take it)
+ * and not long ago. The same pairing beats a shared team; then the newest.
+ */
+export function pickOrphanThread(
+  match: NewThreadMatch,
+  orphans: OrphanThread[],
+  now: Date
+): OrphanThread | null {
+  const ids = new Set([match.team_a?.id, match.team_b?.id].filter(Boolean) as string[])
+  const created = match.created_at ? new Date(match.created_at).getTime() : null
+  if (created == null) return null
+  const scored = orphans
+    .map((orphan) => ({
+      orphan,
+      shared: orphan.teamIds.filter((id) => ids.has(id)).length,
+      at: new Date(orphan.orphanedAt).getTime(),
+    }))
+    .filter(
+      ({ shared, at }) => shared > 0 && at <= created && now.getTime() - at <= ORPHAN_GRACE_MS
+    )
+  scored.sort((a, b) => b.shared - a.shared || b.at - a.at)
+  return scored[0]?.orphan ?? null
+}
+
+/** `<@&role>`, or the team's name in bold when it has no role yet. */
+function teamMention(team: PingTeam | null): string {
+  if (!team) return '**TBD**'
+  return team.discord_role_id ? `<@&${team.discord_role_id}>` : `**${team.name}**`
+}
+
+function rolePings(teams: Array<PingTeam | null>): { parse: string[]; roles: string[] } {
+  const roles = teams
+    .map((t) => t?.discord_role_id)
+    .filter((id): id is string => typeof id === 'string' && /^\d+$/.test(id))
+  return { parse: [], roles: [...new Set(roles)] }
+}
+
+/** The message a thread the bot opens starts with: both teams pinged, and what to do here. */
+export function threadOpeningMessage(
+  match: NewThreadMatch,
+  url: string,
+  mapPool: string[] | null
+): BotMessage {
+  const lines = [
+    `${teamMention(match.team_a)} vs ${teamMention(match.team_b)}`,
+    `This is your thread for **${threadTitle(match)}** (Bo${match.best_of ?? 3}): ${url}`,
+    '',
+    '1. Agree a match time here, then propose it with `/set-time`. Staff approve it.',
+    '2. Run the map veto and post the log here (or type it out, e.g. “VP bans Lotus …”). It’s copied to the match.',
+  ]
+  if (mapPool && mapPool.length > 0) lines.push('', `-# Map pool: ${mapPool.join(', ')}`)
+  return { content: lines.join('\n'), allowed_mentions: rolePings([match.team_a, match.team_b]) }
+}
+
+/**
+ * Posted when the thread's match changes hands: the match was edited to a new
+ * opponent, or a replacement match took the thread over. Pings both current
+ * teams; an earlier veto no longer counts.
+ */
+export function opponentChangedMessage(
+  removed: string[],
+  match: NewThreadMatch,
+  url: string
+): BotMessage {
+  const added = [match.team_a, match.team_b]
+  const was = removed.length > 0 ? ` (replacing **${removed.join('** and **')}**)` : ''
+  return {
+    content:
+      `🔁 Opponent change${was}. This thread is now for **${threadTitle(match)}**: ${url}\n` +
+      `${teamMention(added[0] ?? null)} ${teamMention(added[1] ?? null)}, ` +
+      'a veto from before this no longer counts, so please redo it here and confirm the match time.',
+    allowed_mentions: rolePings(added),
+  }
+}
+
+/** Posted when the thread's match is deleted from the site. */
+export function matchRemovedMessage(): BotMessage {
+  return {
+    content:
+      '⚠️ This match was removed from the schedule. If a replacement match is set up, it continues in this thread; ' +
+      'otherwise the thread closes in two weeks.',
+    allowed_mentions: NO_PINGS,
+  }
+}
+
+/** "Sentinels 2–1 Cloud9", for the closing note; null without a score. */
+export function resultLine(match: {
+  team_a: { name: string } | null
+  team_b: { name: string } | null
+  team_a_score?: number | null
+  team_b_score?: number | null
+}): string | null {
+  const a = match.team_a_score
+  const b = match.team_b_score
+  if (a == null || b == null || (a === 0 && b === 0)) return null
+  return `${match.team_a?.name ?? 'TBD'} ${a}–${b} ${match.team_b?.name ?? 'TBD'}`
+}
+
+/** Posted as the bot locks a finished match's thread. */
+export function threadClosedMessage(
+  reason: 'completed' | 'cancelled' | 'removed',
+  url: string | null,
+  result: string | null = null
+): BotMessage {
+  const content =
+    reason === 'completed'
+      ? `🔒 Match complete${result ? `: **${result}**` : ''}${
+          url
+            ? `
+${url}`
+            : ''
+        }
+Closing this thread.`
+      : reason === 'cancelled'
+        ? `🔒 This match was cancelled${url ? `: ${url}` : ''}. Closing this thread.`
+        : '🔒 No replacement match was set up, so this thread is closed.'
+  return { content, allowed_mentions: NO_PINGS }
+}
+
+/**
+ * Whether a thread's match is over, so the thread closes: as soon as its
+ * result is in (imported or entered) or it's cancelled.
+ */
+export function threadCloseReason(
+  match: { status: string | null } | null
+): 'completed' | 'cancelled' | null {
+  if (match?.status === 'cancelled') return 'cancelled'
+  if (match?.status === 'completed') return 'completed'
+  return null
+}
+
+/** Messages after `sinceId` (Discord ids grow over time); all of them without one. */
+export function messagesSince<T extends { id: string }>(
+  messages: T[],
+  sinceId: string | null
+): T[] {
+  if (!sinceId) return messages
+  try {
+    const since = BigInt(sinceId)
+    return messages.filter((m) => BigInt(m.id) > since)
+  } catch {
+    return messages
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Time proposals: /set-time from someone who isn't staff
+
+/** Ids of a proposal's buttons: the action, the match, and the proposed start (unix seconds). */
+export function timeButtonId(action: 'approve' | 'reject', matchId: string, unix: number): string {
+  return `time:${action}:${matchId}:${unix}`
+}
+
+export function parseTimeButtonId(
+  customId: string
+): { action: 'approve' | 'reject'; matchId: string; unix: number } | null {
+  const found = /^time:(approve|reject):([0-9a-f-]{36}):(\d{9,11})$/i.exec(customId)
+  if (!found) return null
+  return { action: found[1] as 'approve' | 'reject', matchId: found[2]!, unix: Number(found[3]) }
+}
+
+/**
+ * Posted when a player proposes a time. Nothing changes until staff press
+ * Approve; the proposer is named but not pinged (they just ran the command).
+ */
+export function timeProposalMessage(
+  pairing: string,
+  matchId: string,
+  unix: number,
+  proposerId: string | null
+): BotMessage {
+  const who = proposerId ? `<@${proposerId}>` : 'Someone'
+  return {
+    content:
+      `🕒 ${who} proposed **<t:${unix}:F>** (<t:${unix}:R>) for **${pairing}**.\n` +
+      '-# Staff (Manage Threads, Manage Events or Administrator) can approve it.',
+    components: [
+      {
+        type: 1,
+        components: [
+          {
+            type: 2,
+            style: 3,
+            label: 'Approve',
+            custom_id: timeButtonId('approve', matchId, unix),
+          },
+          { type: 2, style: 4, label: 'Reject', custom_id: timeButtonId('reject', matchId, unix) },
+        ],
+      },
+    ],
+    allowed_mentions: NO_PINGS,
+  }
+}
+
+/** What a proposal turns into once staff answer it, or once it can't apply. */
+export function timeProposalClosed(
+  outcome: 'approved' | 'rejected' | 'stale',
+  unix: number,
+  pairing: string,
+  userId: string | null,
+  detail?: string
+): BotMessage {
+  const by = userId ? ` by <@${userId}>` : ''
+  const content =
+    outcome === 'approved'
+      ? `✅ **${pairing}** is set for <t:${unix}:F> (<t:${unix}:R>), approved${by}.\n` +
+        'The match page, the Discord event and the schedule post are updated.'
+      : outcome === 'rejected'
+        ? `❌ The proposed time <t:${unix}:F> for **${pairing}** was rejected${by}. Propose another with \`/set-time\`.`
+        : `This proposal for <t:${unix}:F> no longer applies${detail ? `: ${detail}` : ''}.`
+  return { content, components: [], allowed_mentions: NO_PINGS }
 }
